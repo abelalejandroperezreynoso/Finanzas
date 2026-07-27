@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+        <meta name="apple-mobile-web-app-capable" content="yes">
+
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+            <meta name="theme-color" content="#000000">
+            
+        <link rel="manifest" href="manifest.json">
+            
+    <title>Acceso - App de Gastos</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* --- INICIO: Evitar selección de texto accidental --- */
+        * {
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        input, select, textarea {
+            -webkit-user-select: auto;
+            user-select: auto;
+        }
+        /* --- FIN: Evitar selección de texto accidental --- */
+
+        /* Estilos generales (los mismos que ya teníamos) */
+        /* Agregamos el color al HTML para eliminar el borde blanco raíz */
+        html, body { background-color: #000000; }
+
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; color: #fff; padding-top: env(safe-area-inset-top); box-sizing: border-box; touch-action: pan-x pan-y; }
+        .container { background: #2a2a2a; padding: 2.5rem; border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); width: 100%; max-width: 400px; }
+        h2 { margin-top: 0; text-align: center; }
+        input { width: 100%; padding: 12px; margin: 8px 0 16px 0; border: 1px solid #444; border-radius: 6px; background: #333; color: white; box-sizing: border-box; }
+        input:focus { outline: none; border-color: #3ecf8e; }
+        button { width: 100%; padding: 12px; background-color: #3ecf8e; color: #000000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; transition: background-color 0.2s; }
+        button:hover { background-color: #2eb87c; }
+        .mensaje { margin-top: 10px; font-size: 0.9em; text-align: center; min-height: 20px; }
+        .error { color: #ff5c5c; }
+        .exito { color: #ffffff; }
+        .toggle-link { display: block; text-align: center; margin-top: 15px; color: #ffffff; cursor: pointer; font-size: 0.9em; text-decoration: underline; }
+                
+                #loginSection, #registerSection { display: none; }
+                #loaderSection { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; max-width: 400px; }
+                .spinner { border: 4px solid rgba(255, 255, 255, 0.1); border-left-color: #3ecf8e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px; }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                .fade-in { animation: fadeIn 0.4s ease-in forwards; }
+                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+            </style>
+</head>
+<body>
+
+<div class="container" id="loaderSection">
+    <div class="spinner"></div>
+    <p style="color: #888; font-weight: bold; margin: 0;">Verificando sesión...</p>
+</div>
+
+<div class="container" id="loginSection">
+    <h2>Iniciar Sesión</h2>
+    <form id="loginForm">
+        <label>Correo electrónico</label>
+        <input type="email" id="emailLogin" required>
+        <label>Contraseña</label>
+        <input type="password" id="passwordLogin" required>
+        <button type="submit" id="btnIngresar">Entrar</button>
+    </form>
+    <div id="mensajeLogin" class="mensaje"></div>
+    <span class="toggle-link" id="linkMostrarRegistro">¿No tienes cuenta? Regístrate aquí</span>
+</div>
+
+<div class="container" id="registerSection">
+    <h2>Crear Cuenta</h2>
+    <form id="registerForm">
+        <label>Correo electrónico</label>
+        <input type="email" id="emailReg" required>
+        <label>Contraseña (Mínimo 6 caracteres)</label>
+        <input type="password" id="passwordReg" required minlength="6">
+        <button type="submit" id="btnRegistrar">Registrarse</button>
+    </form>
+    <div id="mensajeReg" class="mensaje"></div>
+    <span class="toggle-link" id="linkMostrarLogin">¿Ya tienes cuenta? Inicia sesión</span>
+</div>
+
+<script>
+    const supabaseUrl = 'https://wmqxajsgqvhpuvqtrtsp.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
+        const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        clienteSupabase.auth.getSession().then(({ data: { session } }) => {
+            if (session) {
+                window.location.replace('dashboard.html');
+            } else {
+                document.getElementById('loaderSection').style.display = 'none';
+                const loginSection = document.getElementById('loginSection');
+                loginSection.style.display = 'block';
+                loginSection.classList.add('fade-in');
+            }
+        });
+
+        document.getElementById('linkMostrarRegistro').addEventListener('click', () => {
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('registerSection').style.display = 'block';
+    });
+    document.getElementById('linkMostrarLogin').addEventListener('click', () => {
+        document.getElementById('registerSection').style.display = 'none';
+        document.getElementById('loginSection').style.display = 'block';
+    });
+
+    // Lógica de LOGIN
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault(); 
+        const email = document.getElementById('emailLogin').value;
+        const password = document.getElementById('passwordLogin').value;
+        const btn = document.getElementById('btnIngresar');
+        const msj = document.getElementById('mensajeLogin');
+
+        btn.disabled = true; btn.textContent = 'Iniciando...';
+        const { error } = await clienteSupabase.auth.signInWithPassword({ email, password });
+        btn.disabled = false; btn.textContent = 'Entrar';
+
+        if (error) {
+            msj.textContent = 'Error: ' + error.message; msj.className = 'mensaje error';
+        } else {
+            // REDIRIGIR AL DASHBOARD
+            window.location.replace('dashboard.html');
+        }
+    });
+
+    // Lógica de REGISTRO
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault(); 
+        const email = document.getElementById('emailReg').value;
+        const password = document.getElementById('passwordReg').value;
+        const btn = document.getElementById('btnRegistrar');
+        const msj = document.getElementById('mensajeReg');
+
+        btn.disabled = true; btn.textContent = 'Registrando...';
+        const { data, error } = await clienteSupabase.auth.signUp({ email, password });
+        btn.disabled = false; btn.textContent = 'Registrarse';
+
+        if (error) {
+                    msj.textContent = 'Error: ' + error.message; msj.className = 'mensaje error';
+                } else {
+                    if (data.session) {
+                        // REDIRIGIR AL DASHBOARD
+                        window.location.replace('dashboard.html');
+                    } else {
+                        msj.textContent = '¡Registro exitoso! Revisa tu correo.'; msj.className = 'mensaje exito';
+                    }
+                }
+            });
+        </script>
+
+        <!-- REGISTRO DEL SERVICE WORKER -->
+        <script>
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('Service Worker registrado:', reg.scope))
+                .catch(err => console.error('Error en Service Worker:', err));
+            });
+          }
+        </script>
+
+        </body>
+        </html>

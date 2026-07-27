@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="manifest.json">
+    <title>Calendario - Citas</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    
+    <style>
+        * { -webkit-user-select: none; user-select: none; }
+        input, select, textarea { -webkit-user-select: auto; user-select: auto; }
+        html, body { background-color: #000000; font-family: -apple-system, sans-serif; margin: 0; color: #fff; height: 100vh; overflow: hidden; }
+        
+        .titulo-seccion {
+                    font-size: 1.8em;
+                    color: #ffffff;
+                    margin-bottom: 20px;
+                    text-align: left;
+                    font-weight: bold;
+                }
+                
+                .main-container { padding: calc(20px + env(safe-area-inset-top)) 20px 20px 20px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+        
+        #filtroCuenta { border-radius: 8px; font-weight: bold; }
+
+        #calendar { flex: 1; width: 100%; background: #2a2a2a; padding: 10px; border-radius: 12px; box-sizing: border-box; min-height: 0; margin-top: 15px; }
+        .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: #444 !important; }
+        .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: #ccc !important; text-decoration: none; }
+        .fc .fc-button-primary { background-color: #3ecf8e !important; border-color: #3ecf8e !important; color: #000 !important; font-weight: bold; text-transform: capitalize; }
+        .fc .fc-button-primary:not(:disabled):active, .fc .fc-button-primary:not(:disabled).fc-button-active { background-color: #2eb87c !important; border-color: #2eb87c !important; }
+        .fc-toolbar-title { font-size: 1.2em !important; color: #fff; }
+        .fc-event { cursor: pointer; border: none; padding: 2px 4px; border-radius: 4px; }
+        
+        .fab { position: fixed; bottom: 30px; right: 30px; width: 56px; height: 56px; background: #3ecf8e; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 12px rgba(62,207,142,0.4); cursor: pointer; z-index: 1000; border: none; color: #000; font-size: 28px; transition: transform 0.2s; }
+        .fab:active { transform: scale(0.9); }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: none; justify-content: center; align-items: center; z-index: 2000; opacity: 0; transition: opacity 0.3s; }
+        .modal-overlay.activa { display: flex; opacity: 1; }
+        .modal-content { background: #2a2a2a; padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 400px; box-sizing: border-box; box-shadow: 0 10px 25px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+        
+        label { font-size: 0.85em; color: #ccc; margin-bottom: 4px; display: block; margin-top: 10px; }
+        input, select, textarea { width: 100%; padding: 12px; margin-bottom: 8px; border: 1px solid #444; border-radius: 6px; background: #333; color: white; box-sizing: border-box; font-size: 1em; }
+        textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #3ecf8e; }
+        input[type="date"]::-webkit-calendar-picker-indicator, input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+        
+        button.btn-primary { width: 100%; padding: 12px; background-color: #3ecf8e; color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; }
+        button.btn-danger { width: 100%; padding: 12px; background-color: #ff453a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; }
+        button.btn-cancel { width: 100%; padding: 12px; background-color: #444; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
+
+        .detalle-item { margin-bottom: 12px; }
+        .detalle-label { font-size: 0.85em; color: #3ecf8e; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
+        .detalle-valor { font-size: 1.05em; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+            <h2 class="titulo-seccion" style="margin: 0;">Agenda</h2>
+            <button onclick="window.location.href='dashboard.html'" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <select id="filtroCuenta" onchange="cargarEventos()" style="flex: 1; margin-bottom: 0;">
+                <option value="todas">Todas las agendas (Cuentas)</option>
+            </select>
+            <button onclick="abrirModalCompartir()" style="background: #333; color: white; border: 1px solid #444; border-radius: 8px; padding: 0 15px; cursor: pointer; font-weight: bold;">🔗 Compartir</button>
+        </div>
+
+        <div id="calendar"></div>
+    </div>
+
+    <button class="fab" onclick="abrirModalEvento()">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+    <div class="modal-overlay" id="modalEvento">
+        <div class="modal-content">
+            <h3 id="tituloModalEvento" style="margin-top: 0; text-align: center;">Agendar Cita</h3>
+            <form id="formEvento">
+                
+                <label>Agenda (Cuenta)</label>
+                <select id="evCuenta" required onchange="actualizarCategoriasCalendario()">
+                    <option value="" disabled selected>Selecciona una agenda...</option>
+                </select>
+
+                <label>Servicio (Categoría)</label>
+                <select id="evCategoria" required onchange="verificarTipoCategoria()">
+                    <option value="" disabled selected>Selecciona la agenda primero...</option>
+                </select>
+
+                <div id="contenedorMonto" style="display: none;">
+                    <div style="display: flex; gap: 10px;">
+                        <div style="flex: 1;">
+                            <label>Precio Total ($)</label>
+                            <input type="number" step="0.01" id="evMonto" placeholder="0.00">
+                        </div>
+                        <div style="flex: 1;">
+                            <label>Anticipo ($)</label>
+                            <input type="number" step="0.01" id="evAnticipo" placeholder="0.00">
+                        </div>
+                    </div>
+                </div>
+
+                <label>Nombre del Cliente</label>
+                <input type="text" id="evCliente" placeholder="Ej: María López" required>
+                
+                <div style="display: flex; gap: 10px; margin-top: 5px;">
+                    <div style="flex: 1;">
+                        <label>Fecha</label>
+                        <input type="date" id="evFecha" required>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Hora Inicio</label>
+                        <input type="time" id="evHora" required>
+                    </div>
+                </div>
+
+                <label>Duración estimada</label>
+                <select id="evDuracion" required>
+                    <option value="15">15 minutos</option>
+                    <option value="30">30 minutos</option>
+                    <option value="45">45 minutos</option>
+                    <option value="60" selected>1 hora</option>
+                    <option value="90">1 hora y media</option>
+                    <option value="120">2 horas</option>
+                </select>
+                
+                <label>Notas adicionales (Opcional)</label>
+                <textarea id="evNotas" rows="2" placeholder="Ej: Cliente solicitó tinte sin amoniaco..."></textarea>
+
+                <button type="submit" class="btn-primary" id="btnGuardarEvento">Agendar Cita</button>
+                <button type="button" class="btn-cancel" onclick="cerrarModalEvento()">Cancelar</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalDetalles">
+        <div class="modal-content">
+            <h3 style="margin-top: 0; text-align: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px;">Detalles de la Cita</h3>
+            
+            <div id="contenedorDetalles" style="margin-bottom: 20px;"></div>
+
+            <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn-cancel" onclick="cerrarModalDetalles()" style="margin-top: 0; flex: 1;">Cerrar</button>
+                <button type="button" class="btn-primary" onclick="prepararEdicion()" style="margin-top: 0; flex: 1;">Editar</button>
+                <button type="button" class="btn-danger" id="btnEliminarCita" style="margin-top: 0; flex: 1;">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalCompartir">
+        <div class="modal-content" style="text-align: center;">
+            <h3 style="margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px;">Compartir Disponibilidad</h3>
+            <p style="font-size: 0.9em; color: #ccc;">Escanea este código o copia el enlace para que tus clientes vean tus horarios disponibles.</p>
+            
+            <div id="qrContainer" style="background: white; padding: 15px; border-radius: 12px; display: inline-block; margin: 15px 0;">
+                <img id="qrImage" src="" alt="Código QR" style="width: 200px; height: 200px; display: block;">
+            </div>
+
+            <input type="text" id="linkCompartir" readonly style="text-align: center; background: #1a1a1a; color: #3ecf8e; margin-bottom: 15px; cursor: pointer;" onclick="this.select()">
+
+            <button type="button" class="btn-cancel" onclick="document.getElementById('modalCompartir').classList.remove('activa')">Cerrar</button>
+        </div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://wmqxajsgqvhpuvqtrtsp.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
+        const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        let currentUser = null;
+        let calendar = null;
+        let datosCuentas = [];
+        let datosCategorias = [];
+        let citaActivaId = null;
+        let eventoActivo = null;
+
+        async function inicializar() {
+            const { data: { session } } = await clienteSupabase.auth.getSession();
+            if (!session) { window.location.replace('index.html'); return; }
+            currentUser = session.user;
+            
+            await cargarDatosBase();
+            inicializarCalendario();
+            cargarEventos();
+        }
+
+        async function cargarDatosBase() {
+            const [resCuentas, resCategorias] = await Promise.all([
+                clienteSupabase.from('cuentas').select('*').order('nombre'),
+                clienteSupabase.from('categorias').select('*').order('nombre')
+            ]);
+            
+            if (resCuentas.data) datosCuentas = resCuentas.data;
+            if (resCategorias.data) datosCategorias = resCategorias.data;
+            
+            const selectFiltro = document.getElementById('filtroCuenta');
+            const selectCuenta = document.getElementById('evCuenta');
+            
+            datosCuentas.forEach(c => {
+                selectFiltro.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+                selectCuenta.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+            });
+        }
+
+        function actualizarCategoriasCalendario() {
+            const cuentaId = document.getElementById('evCuenta').value;
+            const selCat = document.getElementById('evCategoria');
+            
+            selCat.innerHTML = '<option value="" disabled selected>Selecciona un servicio...</option>';
+            
+            if (!cuentaId) return;
+            
+            const catsFiltradas = datosCategorias.filter(c => String(c.cuenta_id) === String(cuentaId));
+            
+            if (catsFiltradas.length === 0) {
+                selCat.innerHTML = '<option value="" disabled selected>No hay servicios en esta agenda</option>';
+            } else {
+                catsFiltradas.forEach(c => {
+                    selCat.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+                });
+            }
+            
+            verificarTipoCategoria();
+        }
+
+        function verificarTipoCategoria() {
+            const catId = document.getElementById('evCategoria').value;
+            const contMonto = document.getElementById('contenedorMonto');
+            const inputMonto = document.getElementById('evMonto');
+            const inputAnticipo = document.getElementById('evAnticipo');
+            
+            const cat = datosCategorias.find(c => String(c.id) === String(catId));
+            
+            if (cat && cat.tipo === 'ingreso') {
+                contMonto.style.display = 'block';
+            } else {
+                contMonto.style.display = 'none';
+                inputMonto.value = '';
+                inputAnticipo.value = '';
+            }
+        }
+
+        function abrirModalCompartir() {
+                    const selectFiltro = document.getElementById('filtroCuenta');
+                    const cuentaId = selectFiltro.value;
+
+                    if (cuentaId === 'todas') {
+                        alert('Por favor, selecciona una agenda específica en el menú desplegable para generar su enlace.');
+                        return;
+                    }
+
+                    // AQUÍ COLOCAS LA URL EXACTA DE TU NUEVO SITIO EN NETLIFY
+                    const urlSitioPublico = 'https://calendario-servicios.netlify.app';
+                    
+                    // Construimos el enlace adjuntando el ID de la cuenta
+                    const enlacePublico = `${urlSitioPublico}/?cuenta=${cuentaId}`;
+
+                    document.getElementById('linkCompartir').value = enlacePublico;
+                    document.getElementById('qrImage').src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(enlacePublico)}&bgcolor=ffffff`;
+                    document.getElementById('modalCompartir').classList.add('activa');
+                }
+
+        function inicializarCalendario() {
+            const calendarEl = document.getElementById('calendar');
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'es',
+                headerToolbar: {
+                    left: 'prev,next',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek'
+                },
+                buttonText: {
+                    month: 'Mes',
+                    week: 'Semana',
+                    today: 'Hoy'
+                },
+                events: [],
+                eventClick: function(info) {
+                    mostrarDetallesCita(info.event);
+                }
+            });
+            calendar.render();
+        }
+
+        async function cargarEventos() {
+            const filtro = document.getElementById('filtroCuenta').value;
+            
+            let query = clienteSupabase.from('calendario').select('*').order('fecha_inicio', { ascending: true });
+            
+            if (filtro !== 'todas') {
+                query = query.eq('cuenta_id', filtro);
+            }
+
+            const { data, error } = await query;
+
+            if (!error && data) {
+                const eventosFormateados = data.map(ev => {
+                    const catSelect = datosCategorias.find(c => String(c.id) === String(ev.categoria_id));
+                    const nombreCategoria = catSelect ? catSelect.nombre : 'Servicio';
+                    
+                    let tituloDinamico = `${ev.cliente || 'Sin nombre'} - ${nombreCategoria}`;
+                    if (ev.monto > 0) {
+                        tituloDinamico += ` ($${ev.monto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        if (ev.anticipo > 0) {
+                            tituloDinamico += ` | Ant: $${ev.anticipo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        }
+                        tituloDinamico += `)`;
+                    }
+
+                    return {
+                        id: ev.id,
+                        title: tituloDinamico,
+                        start: ev.fecha_inicio,
+                        end: ev.fecha_fin,
+                        backgroundColor: '#3abff8',
+                        borderColor: '#3abff8',
+                        extendedProps: {
+                            cuenta_id: ev.cuenta_id,
+                            categoria_id: ev.categoria_id,
+                            monto: ev.monto,
+                            anticipo: ev.anticipo,
+                            notas: ev.notas,
+                            cliente: ev.cliente
+                        }
+                    };
+                });
+                
+                calendar.removeAllEvents();
+                calendar.addEventSource(eventosFormateados);
+            }
+        }
+
+        function mostrarDetallesCita(evento) {
+            citaActivaId = evento.id;
+            eventoActivo = evento;
+            
+            const cuenta = datosCuentas.find(c => String(c.id) === String(evento.extendedProps.cuenta_id));
+            const categoria = datosCategorias.find(c => String(c.id) === String(evento.extendedProps.categoria_id));
+            
+            const opcionesFecha = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            const fechaFormateada = evento.start.toLocaleDateString('es-ES', opcionesFecha);
+            const horaInicio = evento.start.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+            const horaFin = evento.end ? evento.end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+
+            let htmlDetalles = `
+                <div class="detalle-item">
+                    <div class="detalle-label">Cita / Cliente</div>
+                    <div class="detalle-valor">${evento.extendedProps.cliente || '-'}</div>
+                </div>
+                <div class="detalle-item">
+                    <div class="detalle-label">Fecha y Hora</div>
+                    <div class="detalle-valor" style="text-transform: capitalize;">${fechaFormateada} <br> ${horaInicio} - ${horaFin}</div>
+                </div>
+                <div class="detalle-item">
+                    <div class="detalle-label">Agenda (Servicio)</div>
+                    <div class="detalle-valor">${cuenta ? cuenta.nombre : '-'} (${categoria ? categoria.nombre : '-'})</div>
+                </div>
+            `;
+
+            if (evento.extendedProps.monto > 0) {
+                const monto = evento.extendedProps.monto;
+                const anticipo = evento.extendedProps.anticipo || 0;
+                const restante = monto - anticipo;
+
+                htmlDetalles += `
+                    <div class="detalle-item" style="background: #1a1a1a; padding: 10px; border-radius: 8px; margin-top: 15px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span style="color: #ccc;">Precio Total:</span>
+                            <span style="font-weight: bold;">$${monto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span style="color: #ccc;">Anticipo:</span>
+                            <span style="font-weight: bold; color: #3ecf8e;">$${anticipo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">
+                            <span style="color: #ccc;">Resta Cobrar:</span>
+                            <span style="font-weight: bold; color: #ff453a;">$${restante.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (evento.extendedProps.notas) {
+                htmlDetalles += `
+                    <div class="detalle-item" style="margin-top: 15px;">
+                        <div class="detalle-label">Notas</div>
+                        <div class="detalle-valor" style="background: #333; padding: 10px; border-radius: 8px; font-size: 0.9em; white-space: pre-wrap;">${evento.extendedProps.notas}</div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('contenedorDetalles').innerHTML = htmlDetalles;
+            document.getElementById('modalDetalles').classList.add('activa');
+        }
+
+        function cerrarModalDetalles() {
+            document.getElementById('modalDetalles').classList.remove('activa');
+        }
+
+        document.getElementById('btnEliminarCita').addEventListener('click', async () => {
+            if (!citaActivaId) return;
+            
+            const btnEliminar = document.getElementById('btnEliminarCita');
+            
+            if (confirm('¿Estás seguro de que deseas eliminar esta cita de forma permanente?')) {
+                btnEliminar.textContent = 'Eliminando...';
+                btnEliminar.disabled = true;
+
+                const { error } = await clienteSupabase.from('calendario').delete().eq('id', citaActivaId);
+                
+                btnEliminar.textContent = 'Eliminar';
+                btnEliminar.disabled = false;
+
+                if (!error) {
+                    cerrarModalDetalles();
+                    cargarEventos();
+                } else {
+                    alert("Error al eliminar: " + error.message);
+                }
+            }
+        });
+
+        function abrirModalEvento() {
+            citaActivaId = null;
+            eventoActivo = null;
+            document.getElementById('tituloModalEvento').textContent = 'Agendar Cita';
+            document.getElementById('btnGuardarEvento').textContent = 'Agendar Cita';
+            
+            document.getElementById('modalEvento').classList.add('activa');
+            
+            const hoy = new Date();
+            hoy.setMinutes(hoy.getMinutes() - hoy.getTimezoneOffset());
+            document.getElementById('evFecha').value = hoy.toISOString().slice(0,10);
+            
+            const hora = hoy.getHours().toString().padStart(2, '0');
+            document.getElementById('evHora').value = `${hora}:00`;
+        }
+
+        function prepararEdicion() {
+            cerrarModalDetalles();
+            
+            document.getElementById('tituloModalEvento').textContent = 'Editar Cita';
+            document.getElementById('btnGuardarEvento').textContent = 'Actualizar Cita';
+            
+            document.getElementById('evCuenta').value = eventoActivo.extendedProps.cuenta_id;
+            actualizarCategoriasCalendario();
+            
+            document.getElementById('evCategoria').value = eventoActivo.extendedProps.categoria_id;
+            verificarTipoCategoria();
+            
+            document.getElementById('evCliente').value = eventoActivo.extendedProps.cliente || '';
+            
+            if(eventoActivo.extendedProps.monto) document.getElementById('evMonto').value = eventoActivo.extendedProps.monto;
+            if(eventoActivo.extendedProps.anticipo) document.getElementById('evAnticipo').value = eventoActivo.extendedProps.anticipo;
+            if(eventoActivo.extendedProps.notas) document.getElementById('evNotas').value = eventoActivo.extendedProps.notas;
+            
+            const dateObj = eventoActivo.start;
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            document.getElementById('evFecha').value = `${year}-${month}-${day}`;
+            
+            const hours = String(dateObj.getHours()).padStart(2, '0');
+            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+            document.getElementById('evHora').value = `${hours}:${minutes}`;
+            
+            const duracionMin = (eventoActivo.end - eventoActivo.start) / 60000;
+            const selDuracion = document.getElementById('evDuracion');
+            
+            let optionExists = false;
+            for(let opt of selDuracion.options) {
+                if(opt.value == duracionMin) { optionExists = true; break; }
+            }
+            if(!optionExists) {
+                selDuracion.innerHTML += `<option value="${duracionMin}">${duracionMin} minutos</option>`;
+            }
+            selDuracion.value = duracionMin;
+            
+            document.getElementById('modalEvento').classList.add('activa');
+        }
+
+        function cerrarModalEvento() {
+            document.getElementById('modalEvento').classList.remove('activa');
+            document.getElementById('formEvento').reset();
+            document.getElementById('evCategoria').innerHTML = '<option value="" disabled selected>Selecciona la agenda primero...</option>';
+            document.getElementById('contenedorMonto').style.display = 'none';
+        }
+
+        document.getElementById('formEvento').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const btnGuardar = document.getElementById('btnGuardarEvento');
+            btnGuardar.textContent = citaActivaId ? 'Actualizando...' : 'Agendando...';
+            btnGuardar.disabled = true;
+
+            const cuentaId = document.getElementById('evCuenta').value;
+            const categoriaId = document.getElementById('evCategoria').value;
+            const cliente = document.getElementById('evCliente').value.trim();
+            const montoInput = document.getElementById('evMonto').value;
+            const anticipoInput = document.getElementById('evAnticipo').value;
+            const notasInput = document.getElementById('evNotas').value.trim();
+            
+            const montoVal = montoInput ? parseFloat(montoInput) : null;
+            const anticipoVal = anticipoInput ? parseFloat(anticipoInput) : null;
+
+            const fecha = document.getElementById('evFecha').value;
+            const hora = document.getElementById('evHora').value;
+            const duracion = parseInt(document.getElementById('evDuracion').value);
+
+            const fechaInicio = new Date(`${fecha}T${hora}`);
+            const fechaFin = new Date(fechaInicio.getTime() + (duracion * 60000));
+
+            const nuevoEvento = {
+                user_id: currentUser.id,
+                cuenta_id: cuentaId,
+                categoria_id: categoriaId,
+                cliente: cliente,
+                fecha_inicio: fechaInicio.toISOString(),
+                fecha_fin: fechaFin.toISOString(),
+                monto: montoVal,
+                anticipo: anticipoVal,
+                notas: notasInput || null
+            };
+
+            let errorAccion = null;
+            
+            if (citaActivaId) {
+                const { error } = await clienteSupabase.from('calendario').update(nuevoEvento).eq('id', citaActivaId);
+                errorAccion = error;
+            } else {
+                const { error } = await clienteSupabase.from('calendario').insert([nuevoEvento]);
+                errorAccion = error;
+            }
+
+            btnGuardar.textContent = citaActivaId ? 'Actualizar Cita' : 'Agendar Cita';
+            btnGuardar.disabled = false;
+
+            if (errorAccion) {
+                            alert("Error: " + errorAccion.message);
+                        } else {
+                            cerrarModalEvento();
+                            cargarEventos();
+                        }
+                    });
+
+                    inicializar();
+                </script>
+
+                <!-- REGISTRO DEL SERVICE WORKER -->
+                <script>
+                  if ('serviceWorker' in navigator) {
+                    window.addEventListener('load', () => {
+                      navigator.serviceWorker.register('./sw.js')
+                        .then(reg => console.log('Service Worker registrado:', reg.scope))
+                        .catch(err => console.error('Error en Service Worker:', err));
+                    });
+                  }
+                </script>
+
+            </body>
+            </html>

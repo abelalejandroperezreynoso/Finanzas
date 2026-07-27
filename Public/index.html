@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <title>Disponibilidad</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    
+    <style>
+        * { -webkit-user-select: none; user-select: none; }
+        html, body { background-color: #000000; font-family: -apple-system, sans-serif; margin: 0; color: #fff; height: 100vh; overflow: hidden; }
+        .header { display: flex; justify-content: center; align-items: center; padding: calc(15px + env(safe-area-inset-top)) 20px 15px 20px; background: #1a1a1a; border-bottom: 1px solid #333; }
+        .header h2 { margin: 0; font-size: 1.2em; color: #3ecf8e; }
+        .main-container { padding: 15px; height: calc(100vh - 60px - env(safe-area-inset-top)); box-sizing: border-box; }
+        
+        #calendar { height: 100%; width: 100%; background: #2a2a2a; padding: 10px; border-radius: 12px; box-sizing: border-box; }
+        .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: #444 !important; }
+        .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: #ccc !important; text-decoration: none; }
+        .fc .fc-button-primary { background-color: #3ecf8e !important; border-color: #3ecf8e !important; color: #000 !important; font-weight: bold; text-transform: capitalize; }
+        .fc .fc-button-primary:not(:disabled):active, .fc .fc-button-primary:not(:disabled).fc-button-active { background-color: #2eb87c !important; border-color: #2eb87c !important; }
+        .fc-toolbar-title { font-size: 1.2em !important; color: #fff; }
+        .fc-event { border: none; padding: 2px 4px; border-radius: 4px; text-align: center; }
+        
+        .mensaje-error { display: none; text-align: center; margin-top: 50px; color: #ff453a; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>Consulta de Disponibilidad</h2>
+    </div>
+
+    <div class="main-container">
+        <div id="mensajeError" class="mensaje-error">Enlace no válido. Por favor, solicita un enlace correcto.</div>
+        <div id="calendar"></div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://wmqxajsgqvhpuvqtrtsp.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
+        const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        let calendar = null;
+
+        async function inicializar() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const cuentaId = urlParams.get('cuenta');
+
+            if (!cuentaId) {
+                document.getElementById('calendar').style.display = 'none';
+                document.getElementById('mensajeError').style.display = 'block';
+                return;
+            }
+
+            const calendarEl = document.getElementById('calendar');
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'timeGridWeek',
+                locale: 'es',
+                headerToolbar: { left: 'prev,next', center: 'title', right: 'timeGridWeek,timeGridDay' },
+                buttonText: { week: 'Semana', day: 'Día' },
+                allDaySlot: false,
+                slotMinTime: '07:00:00',
+                slotMaxTime: '21:00:00',
+                events: []
+            });
+            calendar.render();
+
+            const { data, error } = await clienteSupabase.rpc('obtener_disponibilidad', { p_cuenta_id: cuentaId });
+
+            if (!error && data) {
+                const eventosFormateados = data.map(ev => ({
+                    title: 'Ocupado',
+                    start: ev.fecha_inicio,
+                    end: ev.fecha_fin,
+                    backgroundColor: '#444',
+                    borderColor: '#222',
+                    textColor: '#aaa'
+                }));
+                calendar.addEventSource(eventosFormateados);
+            }
+        }
+
+        inicializar();
+    </script>
+</body>
+</html>
