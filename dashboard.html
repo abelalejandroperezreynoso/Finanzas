@@ -1013,6 +1013,91 @@
                                                                                 return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                                                                 }
 
+                    function calcularMedianaEstadistica(valores) {
+                        if (!valores || valores.length === 0) return 0;
+                        const ordenados = [...valores].sort((a, b) => a - b);
+                        const medio = Math.floor(ordenados.length / 2);
+                        return ordenados.length % 2 !== 0
+                            ? ordenados[medio]
+                            : (ordenados[medio - 1] + ordenados[medio]) / 2;
+                    }
+
+                    /**
+                     * Estima el monto más probable del PRÓXIMO movimiento de una categoría.
+                     * Recibe los montos absolutos ordenados del más reciente al más antiguo.
+                     *
+                     * En lugar de un promedio simple (que se contamina con aguinaldos, bonos o precios
+                     * viejos) se apoya en tres ideas:
+                     *   1. Si los últimos cobros son idénticos, es un monto fijo y se usa tal cual.
+                     *   2. Los valores atípicos se descartan con la desviación absoluta mediana (MAD),
+                     *      que no se deja arrastrar por un solo pago extraordinario.
+                     *   3. El resultado es una mediana ponderada por recencia, así que siempre devuelve
+                     *      un monto que realmente ocurrió y refleja el nivel actual, no el histórico.
+                     */
+                    function estimarMontoSugerido(montos) {
+                        if (!montos || montos.length === 0) return { monto: null, esEstimado: false };
+                        if (montos.length < 3) return { monto: parseFloat(montos[0].toFixed(2)), esEstimado: false };
+
+                        const ventana = montos.slice(0, 12);
+
+                        // 1. Monto fijo confirmado: los últimos 3 cobros son idénticos (renta, suscripciones)
+                        if (ventana[0] === ventana[1] && ventana[1] === ventana[2]) {
+                            return { monto: parseFloat(ventana[0].toFixed(2)), esEstimado: false };
+                        }
+
+                        // 2. Monto fijo con ruido: un valor domina los últimos 6 y sigue vigente
+                        const recientes = ventana.slice(0, 6);
+                        const conteo = {};
+                        recientes.forEach(m => { conteo[m] = (conteo[m] || 0) + 1; });
+
+                        let montoDominante = null;
+                        let repeticionesDominante = 0;
+                        Object.keys(conteo).forEach(clave => {
+                            const valor = parseFloat(clave);
+                            const veces = conteo[clave];
+                            // Ante empate preferimos el valor visto más recientemente
+                            if (veces > repeticionesDominante ||
+                                (veces === repeticionesDominante && recientes.indexOf(valor) < recientes.indexOf(montoDominante))) {
+                                repeticionesDominante = veces;
+                                montoDominante = valor;
+                            }
+                        });
+
+                        // Solo lo tomamos como fijo si además sigue apareciendo en los cobros más nuevos,
+                        // de lo contrario un precio ya descontinuado seguiría ganando por antigüedad.
+                        if (repeticionesDominante >= 3 && recientes.indexOf(montoDominante) <= 1) {
+                            return { monto: parseFloat(montoDominante.toFixed(2)), esEstimado: false };
+                        }
+
+                        // 3. Monto variable: descartamos atípicos usando la desviación absoluta mediana
+                        const mediana = calcularMedianaEstadistica(ventana);
+                        const mad = calcularMedianaEstadistica(ventana.map(m => Math.abs(m - mediana)));
+                        const limiteAtipico = mad > 0 ? mad * 1.4826 * 3 : Infinity;
+
+                        // 4. Mediana ponderada por recencia (cada movimiento pesa 25% menos que el anterior)
+                        const DECAIMIENTO = 0.75;
+                        const candidatos = [];
+                        ventana.forEach((monto, i) => {
+                            if (Math.abs(monto - mediana) > limiteAtipico) return;
+                            candidatos.push({ monto, peso: Math.pow(DECAIMIENTO, i) });
+                        });
+
+                        if (candidatos.length === 0) {
+                            return { monto: parseFloat(ventana[0].toFixed(2)), esEstimado: true };
+                        }
+
+                        candidatos.sort((a, b) => a.monto - b.monto);
+                        const pesoTotal = candidatos.reduce((acc, c) => acc + c.peso, 0);
+                        let acumulado = 0;
+                        let resultado = candidatos[candidatos.length - 1].monto;
+                        for (const candidato of candidatos) {
+                            acumulado += candidato.peso;
+                            if (acumulado >= pesoTotal / 2) { resultado = candidato.monto; break; }
+                        }
+
+                        return { monto: parseFloat(resultado.toFixed(2)), esEstimado: true };
+                    }
+
                                                     function obtenerDatosMeta(cat) {
                                                         const hoy = new Date();
                                                         const inicio = new Date(hoy);
@@ -1447,7 +1532,7 @@
                                                     // NUEVO: Mostrar el monto con una etiqueta explicativa según su origen
                                                     if (cat.montoSugerido) {
                                                         document.getElementById('infoRecMonto').textContent = cat.esMontoPromedio
-                                                            ? `~$${fNum(cat.montoSugerido)} (Promedio)`
+                                                            ? `~$${fNum(cat.montoSugerido)} (Estimado)`
                                                             : `$${fNum(cat.montoSugerido)} (Fijo)`;
                                                     } else {
                                                         document.getElementById('infoRecMonto').textContent = 'Variable / No detectado';
@@ -2134,10 +2219,13 @@
                             registrosAsc.forEach(u => {
                             usoMap[u.categoria_id] = (usoMap[u.categoria_id] || 0) + 1;
 
+                            // Ventana deslizante: conservamos SOLO los 12 movimientos más recientes de cada
+                            // categoría. Como recorremos en orden ascendente, al descartar el primero cada vez
+                            // que superamos el límite nos quedamos siempre con los últimos, no con los más viejos.
                             if (!montosRecientesMap[u.categoria_id]) montosRecientesMap[u.categoria_id] = [];
-                            if (montosRecientesMap[u.categoria_id].length < 10) {
-                            montosRecientesMap[u.categoria_id].push(Math.abs(parseFloat(u.monto)));
-                            }
+                            const historialMontos = montosRecientesMap[u.categoria_id];
+                            historialMontos.push(Math.abs(parseFloat(u.monto)));
+                            if (historialMontos.length > 12) historialMontos.shift();
 
                             if (!registrosPorCat[u.categoria_id]) registrosPorCat[u.categoria_id] = [];
                             registrosPorCat[u.categoria_id].push(new Date(u.fecha));
@@ -2340,30 +2428,11 @@
                             const montosRecientes = montosRecientesMap[cat.id];
 
                             if (vecesUsada > 0 && montosRecientes && montosRecientes.length > 0) {
-                            const conteo = {};
-                            let maxRepeticiones = 0;
-                            let montoGanador = null;
-                            let sumaTotal = 0;
-
-                            montosRecientes.forEach(monto => {
-                            conteo[monto] = (conteo[monto] || 0) + 1;
-                            if (conteo[monto] > maxRepeticiones) {
-                            maxRepeticiones = conteo[monto];
-                            montoGanador = monto;
-                            }
-                            sumaTotal += monto;
-                            });
-
-                            const umbralFijo = montosRecientes.length >= 5 ? 3 : 2;
-
-                            if (maxRepeticiones >= umbralFijo) {
-                            montoSugerido = montoGanador;
-                            esMontoPromedio = false;
-                            } else {
-                            const promedio = sumaTotal / montosRecientes.length;
-                            montoSugerido = parseFloat(promedio.toFixed(2));
-                            esMontoPromedio = true;
-                            }
+                            // El historial viene del más antiguo al más reciente; lo invertimos porque el
+                            // estimador da prioridad a los últimos movimientos.
+                            const sugerencia = estimarMontoSugerido([...montosRecientes].reverse());
+                            montoSugerido = sugerencia.monto;
+                            esMontoPromedio = sugerencia.esEstimado;
                             }
 
                             return {
