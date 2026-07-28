@@ -639,7 +639,15 @@
                     <button class="btn-shortcut" onclick="aplicarAtajoFiltro('año')">Este Año</button>
                     <button class="btn-shortcut" onclick="aplicarAtajoFiltro('todo')" style="grid-column: span 2;">Todo el Tiempo</button>
                 </div>
-        
+
+        <hr style="border-color:#444; margin: 15px 0;">
+
+        <label style="display: block; margin-bottom: 8px;">Visualización de la gráfica:</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+            <button id="btnModoBalance" class="btn-shortcut" onclick="cambiarModoGrafica('balance')">📈 Balance Diario</button>
+            <button id="btnModoMensual" class="btn-shortcut" onclick="cambiarModoGrafica('mensual')">📊 Barras Mensuales</button>
+        </div>
+
         <hr style="border-color:#444; margin: 15px 0;">
 
         <label style="display: block; margin-bottom: 8px;">O rango personalizado:</label>
@@ -818,6 +826,31 @@
                                     }
                 let idCuentaMasUsada = null; // <- Nueva variable global para recordar la cuenta frecuente
                 let idCuentaFiltrada = null;
+
+                // Modo de visualización de la gráfica principal: 'balance' (diario) o 'mensual' (barras por mes)
+                let modoGrafica = localStorage.getItem('modoGrafica') || 'balance';
+
+                function cambiarModoGrafica(modo) {
+                    modoGrafica = modo;
+                    localStorage.setItem('modoGrafica', modo);
+                    actualizarBotonesModoGrafica();
+                    cerrarModalFiltros();
+                    aplicarFiltrosYRenderizar();
+                }
+
+                function actualizarBotonesModoGrafica() {
+                    const botones = { balance: document.getElementById('btnModoBalance'), mensual: document.getElementById('btnModoMensual') };
+                    Object.entries(botones).forEach(([modo, btn]) => {
+                        if (!btn) return;
+                        if (modo === modoGrafica) {
+                            btn.style.background = '#3ecf8e';
+                            btn.style.color = '#000000';
+                        } else {
+                            btn.style.background = '#444';
+                            btn.style.color = '#ffffff';
+                        }
+                    });
+                }
 
                 let categoriasExcluidasSimulacion = new Set();
 
@@ -1301,6 +1334,7 @@
                             btn.style.color = '#ffffff';
                             }
                             });
+                            actualizarBotonesModoGrafica();
                             }
                             function cerrarModalFiltros() {
                                 document.getElementById('modalFiltros').classList.remove('activa');
@@ -3483,6 +3517,218 @@
                                             lista.innerHTML = htmlAcumulado;
                                         }
 
+                            // Vista alternativa de la gráfica principal: barras de Ingresos vs Gastos agrupadas por mes,
+                            // con comparación del gasto contra el mes anterior para detectar tendencias.
+                            function renderizarGraficoMensual(datosGraf, balanceInicial, canvas) {
+                                const detallesEl = document.getElementById('detallesGrafico');
+                                const tituloTendenciaEl = document.getElementById('tituloTendencia');
+                                const balanceEl = document.getElementById('balanceAlCierreDinamico');
+
+                                if (detallesEl) detallesEl.innerHTML = '';
+                                if (tituloTendenciaEl) {
+                                    tituloTendenciaEl.textContent = 'Ingresos vs Gastos por Mes';
+                                    tituloTendenciaEl.style.color = '#888';
+                                }
+
+                                const ctx = canvas.getContext('2d');
+                                if (miGrafico) miGrafico.destroy();
+
+                                if (!datosGraf || datosGraf.length === 0) {
+                                    if (balanceEl) balanceEl.textContent = '';
+                                    miGrafico = new Chart(ctx, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+                                    return;
+                                }
+
+                                // 1. Agrupar los datos diarios por mes (clave 'YYYY-MM')
+                                const mapaMeses = {};
+                                datosGraf.forEach(d => {
+                                    const ym = d.fecha.slice(0, 7);
+                                    if (!mapaMeses[ym]) mapaMeses[ym] = { ym, ingresos: 0, gastos: 0 };
+                                    mapaMeses[ym].ingresos += parseFloat(d.ingresos) || 0;
+                                    mapaMeses[ym].gastos += parseFloat(d.gastos) || 0;
+                                });
+
+                                // 2. Rellenar meses sin movimientos para no distorsionar la línea de tiempo
+                                const clavesOrdenadas = Object.keys(mapaMeses).sort();
+                                const meses = [];
+                                let [anio, mes] = clavesOrdenadas[0].split('-').map(Number);
+                                const ymFinal = clavesOrdenadas[clavesOrdenadas.length - 1];
+                                let ymIter = clavesOrdenadas[0];
+                                while (ymIter <= ymFinal) {
+                                    meses.push(mapaMeses[ymIter] || { ym: ymIter, ingresos: 0, gastos: 0 });
+                                    mes++;
+                                    if (mes > 12) { mes = 1; anio++; }
+                                    ymIter = `${anio}-${String(mes).padStart(2, '0')}`;
+                                }
+
+                                const ymActual = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                const nombresMeses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                                const nombresMesesLargos = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+                                const etiquetas = [];
+                                const serieIngresos = [];
+                                const serieGastos = [];
+                                const balancesCierre = [];
+                                let balanceAcumulado = balanceInicial;
+
+                                meses.forEach(m => {
+                                    const [a, mm] = m.ym.split('-');
+                                    etiquetas.push(`${nombresMeses[parseInt(mm, 10) - 1]} ${a.slice(2)}`);
+                                    serieIngresos.push(m.ingresos);
+                                    serieGastos.push(m.gastos);
+                                    balanceAcumulado += m.ingresos - m.gastos;
+                                    balancesCierre.push(balanceAcumulado);
+                                    m.esFuturo = m.ym > ymActual;
+                                });
+
+                                let indiceMesActual = meses.findIndex(m => m.ym === ymActual);
+                                if (indiceMesActual === -1) indiceMesActual = meses.length - 1;
+
+                                function actualizarDetallesMes(index) {
+                                    if (index < 0 || index >= meses.length || !detallesEl) return;
+                                    const m = meses[index];
+                                    const [a, mm] = m.ym.split('-');
+
+                                    if (tituloTendenciaEl) {
+                                        tituloTendenciaEl.textContent = `${nombresMesesLargos[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
+                                        tituloTendenciaEl.style.color = '#ffffff';
+                                    }
+                                    if (balanceEl) {
+                                        balanceEl.textContent = `$${fNum(balancesCierre[index])}`;
+                                        balanceEl.style.color = balancesCierre[index] >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                        balanceEl.style.opacity = m.esFuturo ? '0.5' : '1';
+                                    }
+
+                                    const flujo = m.ingresos - m.gastos;
+                                    const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
+
+                                    // Comparación de gastos contra el mes anterior
+                                    let comparacionHtml = '';
+                                    if (index > 0) {
+                                        const gastosPrev = meses[index - 1].gastos;
+                                        if (gastosPrev > 0) {
+                                            const pct = ((m.gastos - gastosPrev) / gastosPrev) * 100;
+                                            const subiendo = pct > 0;
+                                            const flecha = subiendo ? '▲' : (pct < 0 ? '▼' : '=');
+                                            const colorPct = subiendo ? '#ff5c5c' : '#3ecf8e';
+                                            comparacionHtml = `<span style="color: ${colorPct}; font-weight: bold;">${flecha} ${subiendo ? '+' : ''}${pct.toFixed(1)}%</span> <span style="color: #888;">vs mes anterior</span>`;
+                                        } else if (m.gastos > 0) {
+                                            comparacionHtml = `<span style="color: #888;">Sin gastos el mes anterior</span>`;
+                                        }
+                                    }
+
+                                    detallesEl.innerHTML = `
+                                        <ul style="list-style: none; padding: 0; margin: 0;">
+                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
+                                                <span style="color: #aaa;">• Ingresos</span>
+                                                <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresos)}</strong>
+                                            </li>
+                                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
+                                                <span style="color: #aaa;">• Gastos ${comparacionHtml ? `<span style="font-size: 0.85em; margin-left: 6px;">${comparacionHtml}</span>` : ''}</span>
+                                                <strong style="color: #ff5c5c; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(m.gastos)}</strong>
+                                            </li>
+                                            <li style="display: flex; justify-content: space-between; padding: 4px 0;">
+                                                <span style="color: #aaa;">• Flujo del mes</span>
+                                                <strong style="color: ${colorFlujo}; opacity: ${m.esFuturo ? '0.5' : '1'};">${flujo > 0 ? '+' : ''}$${fNum(flujo)}</strong>
+                                            </li>
+                                        </ul>
+                                    `;
+                                }
+
+                                const pluginLineaVerticalMes = {
+                                    id: 'lineaVerticalMes',
+                                    afterDraw: chart => {
+                                        let posicionX = null;
+                                        const active = typeof chart.getActiveElements === 'function' ? chart.getActiveElements() : [];
+                                        if (active && active.length > 0 && active[0].element) {
+                                            posicionX = active[0].element.x;
+                                        } else if (indiceMesActual !== -1) {
+                                            const meta = chart.getDatasetMeta(0);
+                                            if (meta && meta.data[indiceMesActual]) {
+                                                posicionX = meta.data[indiceMesActual].x;
+                                            }
+                                        }
+                                        if (posicionX !== null) {
+                                            const chartCtx = chart.ctx;
+                                            chartCtx.save();
+                                            chartCtx.beginPath();
+                                            chartCtx.moveTo(posicionX, chart.scales.y.top);
+                                            chartCtx.lineTo(posicionX, chart.scales.y.bottom);
+                                            chartCtx.lineWidth = 1.5;
+                                            chartCtx.strokeStyle = 'rgba(62, 207, 142, 0.7)';
+                                            chartCtx.setLineDash([5, 5]);
+                                            chartCtx.stroke();
+                                            chartCtx.restore();
+                                        }
+                                    }
+                                };
+
+                                miGrafico = new Chart(ctx, {
+                                    type: 'bar',
+                                    data: {
+                                        labels: etiquetas,
+                                        datasets: [
+                                            {
+                                                label: 'Ingresos',
+                                                data: serieIngresos,
+                                                backgroundColor: meses.map(m => m.esFuturo ? 'rgba(62, 207, 142, 0.45)' : '#3ecf8e'),
+                                                borderRadius: 3,
+                                                borderSkipped: false
+                                            },
+                                            {
+                                                label: 'Gastos',
+                                                data: serieGastos,
+                                                backgroundColor: meses.map(m => m.esFuturo ? 'rgba(255, 92, 92, 0.45)' : '#ff5c5c'),
+                                                borderRadius: 3,
+                                                borderSkipped: false
+                                            }
+                                        ]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        onHover: function(event, activeElements) {
+                                            if (activeElements && activeElements.length > 0) {
+                                                actualizarDetallesMes(activeElements[0].index);
+                                            }
+                                        },
+                                        interaction: {
+                                            mode: 'index',
+                                            intersect: false
+                                        },
+                                        scales: {
+                                            x: {
+                                                display: true,
+                                                grid: { display: false },
+                                                ticks: { color: '#777', font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 8 }
+                                            },
+                                            y: { display: false }
+                                        },
+                                        plugins: {
+                                            legend: { display: false },
+                                            tooltip: { enabled: false }
+                                        }
+                                    },
+                                    plugins: [pluginLineaVerticalMes]
+                                });
+
+                                const forzarMesActual = () => {
+                                    if (indiceMesActual !== -1 && miGrafico) {
+                                        setTimeout(() => {
+                                            miGrafico.setActiveElements([{ datasetIndex: 0, index: indiceMesActual }]);
+                                            miGrafico.update();
+                                            actualizarDetallesMes(indiceMesActual);
+                                        }, 10);
+                                    }
+                                };
+
+                                forzarMesActual();
+
+                                canvas._snapBackHandler = forzarMesActual;
+                                canvas.addEventListener('mouseleave', canvas._snapBackHandler);
+                                canvas.addEventListener('touchend', canvas._snapBackHandler, { passive: true });
+                            }
+
                             function actualizarGrafico(datosGraf, balanceInicial = 0) {
                                 const canvas = document.getElementById('graficoResumen');
                                 if (!canvas) return;
@@ -3490,6 +3736,11 @@
                                 if (canvas._snapBackHandler) {
                                     canvas.removeEventListener('mouseleave', canvas._snapBackHandler);
                                     canvas.removeEventListener('touchend', canvas._snapBackHandler);
+                                }
+
+                                if (modoGrafica === 'mensual') {
+                                    renderizarGraficoMensual(datosGraf, balanceInicial, canvas);
+                                    return;
                                 }
 
                                 if (datosGraf.length > 0) {
