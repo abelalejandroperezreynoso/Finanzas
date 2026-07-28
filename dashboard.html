@@ -3573,9 +3573,9 @@
 
                                 meses.forEach(m => {
                                     const [a, mm] = m.ym.split('-');
-                                    // Enero lleva el año ("E 26") para orientarse en rangos largos; el resto solo su letra
+                                    // Enero lleva el año en una segunda línea bajo la "E" para no romper el espaciado uniforme
                                     const numMes = parseInt(mm, 10);
-                                    etiquetas.push(numMes === 1 ? `${letrasMeses[0]} ${a.slice(2)}` : letrasMeses[numMes - 1]);
+                                    etiquetas.push(numMes === 1 ? [letrasMeses[0], a.slice(2)] : letrasMeses[numMes - 1]);
                                     serieIngresos.push(m.ingresos);
                                     serieGastos.push(m.gastos);
                                     balanceAcumulado += m.ingresos - m.gastos;
