@@ -3562,7 +3562,7 @@
                                 }
 
                                 const ymActual = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
-                                const nombresMeses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                                const letrasMeses = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
                                 const nombresMesesLargos = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
                                 const etiquetas = [];
@@ -3573,7 +3573,9 @@
 
                                 meses.forEach(m => {
                                     const [a, mm] = m.ym.split('-');
-                                    etiquetas.push(`${nombresMeses[parseInt(mm, 10) - 1]} ${a.slice(2)}`);
+                                    // Enero lleva el año ("E 26") para orientarse en rangos largos; el resto solo su letra
+                                    const numMes = parseInt(mm, 10);
+                                    etiquetas.push(numMes === 1 ? `${letrasMeses[0]} ${a.slice(2)}` : letrasMeses[numMes - 1]);
                                     serieIngresos.push(m.ingresos);
                                     serieGastos.push(m.gastos);
                                     balanceAcumulado += m.ingresos - m.gastos;
@@ -3700,7 +3702,7 @@
                                             x: {
                                                 display: true,
                                                 grid: { display: false },
-                                                ticks: { color: '#777', font: { size: 10 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 8 }
+                                                ticks: { color: '#777', font: { size: 9 }, maxRotation: 0, autoSkip: false, padding: 2 }
                                             },
                                             y: { display: false }
                                         },
