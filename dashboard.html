@@ -793,9 +793,12 @@
                                                         </div>
                                                         <div id="contenidoDetallesCategoria" style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: left; border: 1px solid #333; font-size: 0.95em; line-height: 1.5; color: #ccc;">
                                                         </div>
-                                                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                                                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                                                             <button id="btnEditarCategoria" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #3ecf8e; color: #000000; font-weight: bold; font-size: 1em;">Editar</button>
                                                             <button id="btnEliminarCategoria" style="flex: 1; padding: 14px; border-radius: 10px; background-color: #ff5c5c; color: #ffffff; font-weight: bold; font-size: 1em; border: none;">Eliminar</button>
+                                                        </div>
+                                                        <div style="margin-bottom: 20px;">
+                                                            <button id="btnCopiarJsonCategoria" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">📋 Copiar registros (JSON)</button>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -4392,6 +4395,15 @@
                                 };
                             }
 
+                            const btnCopiarJson = document.getElementById('btnCopiarJsonCategoria');
+                            if (btnCopiarJson) {
+                                btnCopiarJson.textContent = '📋 Copiar registros (JSON)';
+                                btnCopiarJson.style.backgroundColor = '#333';
+                                btnCopiarJson.style.color = '#ffffff';
+                                btnCopiarJson.disabled = false;
+                                btnCopiarJson.onclick = () => copiarRegistrosCategoriaJSON(id);
+                            }
+
                             document.getElementById('modalDetallesCategoria').classList.add('activa');
                             document.body.classList.add('modal-abierto');
                             }
@@ -4400,6 +4412,134 @@
                             function cerrarModalDetallesCategoria() {
                             document.getElementById('modalDetallesCategoria').classList.remove('activa');
                             document.body.classList.remove('modal-abierto');
+                            }
+
+                            // Copia texto al portapapeles. Usa la API moderna y, si el navegador la bloquea
+                            // (típico en Safari/iOS tras una operación asíncrona), recurre a execCommand.
+                            async function copiarTextoAlPortapapeles(texto) {
+                                try {
+                                    if (navigator.clipboard && window.isSecureContext) {
+                                        await navigator.clipboard.writeText(texto);
+                                        return true;
+                                    }
+                                } catch (e) {
+                                    // Continuamos con el método de respaldo
+                                }
+
+                                try {
+                                    const areaTemporal = document.createElement('textarea');
+                                    areaTemporal.value = texto;
+                                    areaTemporal.setAttribute('readonly', '');
+                                    areaTemporal.style.position = 'fixed';
+                                    areaTemporal.style.top = '0';
+                                    areaTemporal.style.left = '0';
+                                    areaTemporal.style.opacity = '0';
+                                    document.body.appendChild(areaTemporal);
+
+                                    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                                        const rango = document.createRange();
+                                        rango.selectNodeContents(areaTemporal);
+                                        const seleccion = window.getSelection();
+                                        seleccion.removeAllRanges();
+                                        seleccion.addRange(rango);
+                                        areaTemporal.setSelectionRange(0, texto.length);
+                                    } else {
+                                        areaTemporal.select();
+                                    }
+
+                                    const exito = document.execCommand('copy');
+                                    document.body.removeChild(areaTemporal);
+                                    return exito;
+                                } catch (e) {
+                                    return false;
+                                }
+                            }
+
+                            // Exporta al portapapeles todos los movimientos de una categoría en formato JSON
+                            async function copiarRegistrosCategoriaJSON(idCat) {
+                                const cat = datosCategorias.find(x => String(x.id) === String(idCat));
+                                if (!cat) return;
+
+                                const btn = document.getElementById('btnCopiarJsonCategoria');
+                                const restaurarBoton = (mensaje, color, colorTexto = '#ffffff') => {
+                                    if (!btn) return;
+                                    btn.textContent = mensaje;
+                                    btn.style.backgroundColor = color;
+                                    btn.style.color = colorTexto;
+                                    setTimeout(() => {
+                                        btn.textContent = '📋 Copiar registros (JSON)';
+                                        btn.style.backgroundColor = '#333';
+                                        btn.style.color = '#ffffff';
+                                        btn.disabled = false;
+                                    }, 2000);
+                                };
+
+                                if (btn) {
+                                    btn.disabled = true;
+                                    btn.textContent = 'Preparando...';
+                                }
+
+                                // Consultamos todos los registros de la categoría (no solo los 50 en memoria)
+                                const { data, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select('id, fecha, monto, descripcion, costo_accion, tipo_cambio, cantidad_acciones')
+                                    .eq('categoria_id', idCat)
+                                    .order('fecha', { ascending: false });
+
+                                if (error) {
+                                    restaurarBoton('⚠️ Error al consultar', '#ff5c5c');
+                                    alert('No se pudieron obtener los registros: ' + error.message);
+                                    return;
+                                }
+
+                                const registros = data || [];
+                                const esInversion = cat.tipo === 'inversion';
+
+                                const registrosLimpios = registros.map(r => {
+                                    const fila = {
+                                        id: r.id,
+                                        fecha: r.fecha,
+                                        monto: parseFloat(r.monto),
+                                        descripcion: r.descripcion || null
+                                    };
+                                    if (esInversion) {
+                                        fila.cantidad_acciones = parseFloat(r.cantidad_acciones) || 0;
+                                        fila.costo_accion = parseFloat(r.costo_accion) || 0;
+                                        fila.tipo_cambio = parseFloat(r.tipo_cambio) || 0;
+                                    }
+                                    return fila;
+                                });
+
+                                const cuenta = datosCuentas.find(c => String(c.id) === String(cat.cuenta_id));
+                                const totalEntradas = registrosLimpios.filter(r => r.monto >= 0).reduce((acc, r) => acc + r.monto, 0);
+                                const totalSalidas = registrosLimpios.filter(r => r.monto < 0).reduce((acc, r) => acc + Math.abs(r.monto), 0);
+
+                                const exportacion = {
+                                    categoria: {
+                                        id: cat.id,
+                                        nombre: cat.nombre,
+                                        tipo: cat.tipo,
+                                        cuenta: cuenta ? cuenta.nombre : null,
+                                        ticker: cat.ticker || null
+                                    },
+                                    exportado_en: new Date().toISOString(),
+                                    total_registros: registrosLimpios.length,
+                                    total_entradas: Number(totalEntradas.toFixed(2)),
+                                    total_salidas: Number(totalSalidas.toFixed(2)),
+                                    balance: Number((totalEntradas - totalSalidas).toFixed(2)),
+                                    registros: registrosLimpios
+                                };
+
+                                const json = JSON.stringify(exportacion, null, 2);
+                                const copiado = await copiarTextoAlPortapapeles(json);
+
+                                if (copiado) {
+                                    restaurarBoton(`✅ ${registrosLimpios.length} registros copiados`, '#3ecf8e', '#000000');
+                                } else {
+                                    restaurarBoton('⚠️ No se pudo copiar', '#ff5c5c');
+                                    alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo o copia manualmente desde la consola.');
+                                    console.log(json);
+                                }
                             }
                             
                             function verDetallesMovimiento(id) {
