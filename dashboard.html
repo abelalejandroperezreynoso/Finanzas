@@ -997,8 +997,22 @@
                             contenedor.innerHTML = html;
                             }
 
-                            // Color con el que la app identifica todo lo relacionado con inversiones
-                            const COLOR_INVERSION = '#ffffff';
+                            // Tipos que se dibujan como un segmento propio dentro de las barras mensuales, para
+                            // separarlos del gasto o ingreso corriente sin añadir más barras. El color sale del
+                            // catálogo de la app, así el segmento siempre coincide con el resto de la interfaz.
+                            const TIPOS_DESTACADOS_GRAFICA = [
+                                { tipo: 'inversion', etiquetaEntrada: 'Venta de inversión', etiquetaSalida: 'Compra de inversión' },
+                                { tipo: 'deuda', etiquetaEntrada: 'Deuda adquirida', etiquetaSalida: 'Pago de deuda' }
+                            ];
+
+                            // Versión translúcida de un color del catálogo, para los meses proyectados
+                            function colorTenue(hex, alpha) {
+                                const limpio = String(hex).replace('#', '');
+                                const r = parseInt(limpio.slice(0, 2), 16);
+                                const g = parseInt(limpio.slice(2, 4), 16);
+                                const b = parseInt(limpio.slice(4, 6), 16);
+                                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                            }
 
                             function obtenerColorCategoria(tipo) {
                             switch (tipo) {
@@ -3648,43 +3662,57 @@
                                     return;
                                 }
 
+                                const mesVacio = (ym) => {
+                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {} };
+                                    TIPOS_DESTACADOS_GRAFICA.forEach(t => { registro.destacados[t.tipo] = { entradas: 0, salidas: 0 }; });
+                                    return registro;
+                                };
+                                const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
+
                                 // 1. Agrupar los datos diarios por mes (clave 'YYYY-MM')
                                 const mapaMeses = {};
                                 const fechasHistoricas = new Set();
                                 datosGraf.forEach(d => {
                                     const ym = d.fecha.slice(0, 7);
-                                    if (!mapaMeses[ym]) mapaMeses[ym] = { ym, ingresos: 0, gastos: 0, invEntradas: 0, invSalidas: 0 };
+                                    if (!mapaMeses[ym]) mapaMeses[ym] = mesVacio(ym);
                                     mapaMeses[ym].ingresos += parseFloat(d.ingresos) || 0;
                                     mapaMeses[ym].gastos += parseFloat(d.gastos) || 0;
 
                                     if (d.esFuturo) {
                                         // Los días proyectados ya traen su propio desglose por categoría
                                         (d.movimientos || []).forEach(mov => {
-                                            if (mov.tipo !== 'inversion') return;
+                                            if (!tiposDestacados.has(mov.tipo)) return;
+                                            const acumulado = mapaMeses[ym].destacados[mov.tipo];
                                             const monto = parseFloat(mov.monto) || 0;
-                                            if (mov.esEntrada) mapaMeses[ym].invEntradas += monto;
-                                            else mapaMeses[ym].invSalidas += monto;
+                                            if (mov.esEntrada) acumulado.entradas += monto;
+                                            else acumulado.salidas += monto;
                                         });
                                     } else {
                                         fechasHistoricas.add(d.fecha.slice(0, 10));
                                     }
                                 });
 
-                                // 2. Separar la parte de inversión del histórico. Nos limitamos a los días que la
-                                // gráfica ya está mostrando para que el desglose nunca supere el total de la barra.
-                                const catsInversion = new Set(datosCategorias.filter(c => c.tipo === 'inversion').map(c => String(c.id)));
-                                if (catsInversion.size > 0 && fechasHistoricas.size > 0) {
+                                // 2. Separar del histórico la parte de cada tipo destacado. Nos limitamos a los días
+                                // que la gráfica ya está mostrando para que el desglose nunca supere el total.
+                                const tipoPorCategoria = {};
+                                datosCategorias.forEach(c => {
+                                    if (tiposDestacados.has(c.tipo)) tipoPorCategoria[String(c.id)] = c.tipo;
+                                });
+
+                                if (Object.keys(tipoPorCategoria).length > 0 && fechasHistoricas.size > 0) {
                                     const esVisible = construirFiltroRegistrosGrafica();
                                     datosUsoCompleto.forEach(u => {
-                                        if (!u.fecha || !catsInversion.has(String(u.categoria_id))) return;
+                                        const tipo = u.fecha ? tipoPorCategoria[String(u.categoria_id)] : null;
+                                        if (!tipo) return;
+
                                         const fecha = obtenerFechaLocalCortada(u.fecha);
                                         if (!fechasHistoricas.has(fecha) || !esVisible(u)) return;
 
-                                        const ym = fecha.slice(0, 7);
-                                        if (!mapaMeses[ym]) return;
+                                        const mesDestino = mapaMeses[fecha.slice(0, 7)];
+                                        if (!mesDestino) return;
                                         const monto = parseFloat(u.monto) || 0;
-                                        if (monto >= 0) mapaMeses[ym].invEntradas += monto;
-                                        else mapaMeses[ym].invSalidas += Math.abs(monto);
+                                        if (monto >= 0) mesDestino.destacados[tipo].entradas += monto;
+                                        else mesDestino.destacados[tipo].salidas += Math.abs(monto);
                                     });
                                 }
 
@@ -3695,7 +3723,7 @@
                                 const ymFinal = clavesOrdenadas[clavesOrdenadas.length - 1];
                                 let ymIter = clavesOrdenadas[0];
                                 while (ymIter <= ymFinal) {
-                                    meses.push(mapaMeses[ymIter] || { ym: ymIter, ingresos: 0, gastos: 0, invEntradas: 0, invSalidas: 0 });
+                                    meses.push(mapaMeses[ymIter] || mesVacio(ymIter));
                                     mes++;
                                     if (mes > 12) { mes = 1; anio++; }
                                     ymIter = `${anio}-${String(mes).padStart(2, '0')}`;
@@ -3708,11 +3736,13 @@
                                 const etiquetas = [];
                                 const serieIngresos = [];
                                 const serieGastos = [];
-                                const serieInvEntradas = [];
-                                const serieInvSalidas = [];
                                 const balancesCierre = [];
                                 let balanceAcumulado = balanceInicial;
-                                let hayInversiones = false;
+
+                                // Una serie de entradas y otra de salidas por cada tipo destacado
+                                const seriesDestacadas = {};
+                                const tiposConDatos = new Set();
+                                TIPOS_DESTACADOS_GRAFICA.forEach(t => { seriesDestacadas[t.tipo] = { entradas: [], salidas: [] }; });
 
                                 meses.forEach(m => {
                                     const [a, mm] = m.ym.split('-');
@@ -3720,16 +3750,26 @@
                                     const numMes = parseInt(mm, 10);
                                     etiquetas.push(numMes === 1 ? [letrasMeses[0], a.slice(2)] : letrasMeses[numMes - 1]);
 
-                                    // La inversión se recorta al total del mes: así la barra dividida mide lo mismo
-                                    // que medía antes aunque el desglose y el agregado provengan de fuentes distintas.
-                                    m.invEntradas = Math.min(m.invEntradas || 0, m.ingresos);
-                                    m.invSalidas = Math.min(m.invSalidas || 0, m.gastos);
-                                    if (m.invEntradas > 0 || m.invSalidas > 0) hayInversiones = true;
+                                    // Cada segmento se recorta a lo que queda del total del mes: así la barra dividida
+                                    // mide lo mismo que medía antes aunque el desglose y el agregado provengan de
+                                    // fuentes distintas, y el sobrante es la parte corriente.
+                                    let restanteIngresos = m.ingresos;
+                                    let restanteGastos = m.gastos;
 
-                                    serieIngresos.push(m.ingresos - m.invEntradas);
-                                    serieGastos.push(m.gastos - m.invSalidas);
-                                    serieInvEntradas.push(m.invEntradas);
-                                    serieInvSalidas.push(m.invSalidas);
+                                    TIPOS_DESTACADOS_GRAFICA.forEach(t => {
+                                        const acumulado = m.destacados[t.tipo];
+                                        acumulado.entradas = Math.min(acumulado.entradas, restanteIngresos);
+                                        acumulado.salidas = Math.min(acumulado.salidas, restanteGastos);
+                                        restanteIngresos -= acumulado.entradas;
+                                        restanteGastos -= acumulado.salidas;
+
+                                        if (acumulado.entradas > 0 || acumulado.salidas > 0) tiposConDatos.add(t.tipo);
+                                        seriesDestacadas[t.tipo].entradas.push(acumulado.entradas);
+                                        seriesDestacadas[t.tipo].salidas.push(acumulado.salidas);
+                                    });
+
+                                    serieIngresos.push(restanteIngresos);
+                                    serieGastos.push(restanteGastos);
 
                                     balanceAcumulado += m.ingresos - m.gastos;
                                     balancesCierre.push(balanceAcumulado);
@@ -3772,12 +3812,17 @@
                                         }
                                     }
 
-                                    // Desglose de la porción invertida dentro de cada barra
-                                    const filaInversion = (etiqueta, monto, signo) => monto > 0 ? `
+                                    // Desglose de los segmentos destacados dentro de cada barra
+                                    const filaDestacada = (etiqueta, monto, signo, tipo) => monto > 0 ? `
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
-                                                <strong style="color: ${COLOR_INVERSION}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
+                                                <strong style="color: ${obtenerColorCategoria(tipo)}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
                                             </li>` : '';
+
+                                    const filasEntradas = TIPOS_DESTACADOS_GRAFICA
+                                        .map(t => filaDestacada(t.etiquetaEntrada, m.destacados[t.tipo].entradas, '+', t.tipo)).join('');
+                                    const filasSalidas = TIPOS_DESTACADOS_GRAFICA
+                                        .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
 
                                     detallesEl.innerHTML = `
                                         <ul style="list-style: none; padding: 0; margin: 0;">
@@ -3785,12 +3830,12 @@
                                                 <span style="color: #aaa;">• Ingresos</span>
                                                 <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresos)}</strong>
                                             </li>
-                                            ${filaInversion('Venta de inversión', m.invEntradas, '+')}
+                                            ${filasEntradas}
                                             <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Gastos ${comparacionHtml ? `<span style="font-size: 0.85em; margin-left: 6px;">${comparacionHtml}</span>` : ''}</span>
                                                 <strong style="color: #ff5c5c; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(m.gastos)}</strong>
                                             </li>
-                                            ${filaInversion('Compra de inversión', m.invSalidas, '-')}
+                                            ${filasSalidas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0;">
                                                 <span style="color: #aaa;">• Flujo del mes</span>
                                                 <strong style="color: ${colorFlujo}; opacity: ${m.esFuturo ? '0.5' : '1'};">${flujo > 0 ? '+' : ''}$${fNum(flujo)}</strong>
@@ -3827,8 +3872,6 @@
                                     }
                                 };
 
-                                const colorInversionBarra = meses.map(m => m.esFuturo ? 'rgba(255, 255, 255, 0.35)' : COLOR_INVERSION);
-
                                 const datasetsGrafico = [
                                     {
                                         label: 'Ingresos',
@@ -3848,27 +3891,32 @@
                                     }
                                 ];
 
-                                // Solo dividimos las barras cuando hay inversiones que mostrar
-                                if (hayInversiones) {
+                                // Solo dividimos la barra para los tipos que realmente aparecen en el periodo
+                                TIPOS_DESTACADOS_GRAFICA.forEach(t => {
+                                    if (!tiposConDatos.has(t.tipo)) return;
+
+                                    const color = obtenerColorCategoria(t.tipo);
+                                    const colorBarra = meses.map(m => m.esFuturo ? colorTenue(color, 0.35) : color);
+
                                     datasetsGrafico.push(
                                         {
-                                            label: 'Venta de inversión',
-                                            data: serieInvEntradas,
-                                            backgroundColor: colorInversionBarra,
+                                            label: t.etiquetaEntrada,
+                                            data: seriesDestacadas[t.tipo].entradas,
+                                            backgroundColor: colorBarra,
                                             stack: 'entradas',
                                             borderRadius: 3,
                                             borderSkipped: false
                                         },
                                         {
-                                            label: 'Compra de inversión',
-                                            data: serieInvSalidas,
-                                            backgroundColor: colorInversionBarra,
+                                            label: t.etiquetaSalida,
+                                            data: seriesDestacadas[t.tipo].salidas,
+                                            backgroundColor: colorBarra,
                                             stack: 'salidas',
                                             borderRadius: 3,
                                             borderSkipped: false
                                         }
                                     );
-                                }
+                                });
 
                                 miGrafico = new Chart(ctx, {
                                     type: 'bar',
