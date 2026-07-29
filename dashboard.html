@@ -3821,6 +3821,29 @@
                                 return meses;
                             }
 
+                            // Suma el costo mensual equivalente de los gastos que la app detectó como recurrentes.
+                            // Normaliza cada uno a meses: algo que se cobra cada 15 días pesa el doble que uno mensual.
+                            function calcularGastoRecurrenteMensual() {
+                                const DIAS_POR_MES = 30.4375;
+                                let total = 0;
+                                let cantidad = 0;
+
+                                datosCategorias.forEach(cat => {
+                                    if (cat.tipo !== 'gasto') return;
+                                    if (!(cat.diasRecurrencia > 0) || !cat.montoSugerido) return;
+
+                                    // Mismos criterios que usa la proyección de la gráfica
+                                    if (categoriasExcluidasSimulacion.has(String(cat.id))) return;
+                                    const cuenta = datosCuentas.find(c => String(c.id) === String(cat.cuenta_id));
+                                    if (cuenta && cuenta.incluir_en_total === false) return;
+
+                                    total += (parseFloat(cat.montoSugerido) || 0) * (DIAS_POR_MES / cat.diasRecurrencia);
+                                    cantidad++;
+                                });
+
+                                return { total, cantidad };
+                            }
+
                             // Redacta en lenguaje natural un análisis de los meses que alimentan la gráfica.
                             // Devuelve un arreglo de párrafos ya con formato, o null si no hay nada que contar.
                             function generarResumenFinanciero(meses) {
@@ -3884,7 +3907,44 @@
                                     }
                                 }
 
-                                // 3. Hacia dónde va el gasto: comparamos los meses recientes contra los anteriores
+                                // 3. Ritmo mensual: cuánto entra y cuánto ya está comprometido de antemano
+                                const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                // El mes en curso va a medias, así que lo dejamos fuera del promedio si hay historial de sobra
+                                const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
+                                const baseIngreso = (historicos.length >= 3 && mesesCerrados.length >= 2) ? mesesCerrados : historicos;
+                                const ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso) / baseIngreso.length;
+
+                                const recurrente = calcularGastoRecurrenteMensual();
+
+                                if (ingresoMensual > 0 || recurrente.total > 0) {
+                                    const piezas = [];
+
+                                    if (ingresoMensual > 0) {
+                                        const aclaracion = baseIngreso.length < historicos.length ? ' (sin contar el mes en curso, que va a medias)' : '';
+                                        piezas.push(`En promedio entran ${destacar(dinero(ingresoMensual), VERDE)} al mes${aclaracion}.`);
+                                    }
+
+                                    if (recurrente.total > 0) {
+                                        const plural = recurrente.cantidad === 1 ? '' : 's';
+                                        let frase = `De salida, ${destacar(dinero(recurrente.total), ROJO)} al mes ya están comprometidos en ${recurrente.cantidad} gasto${plural} recurrente${plural} detectado${plural}`;
+
+                                        if (ingresoMensual > 0) {
+                                            const porcentaje = (recurrente.total / ingresoMensual) * 100;
+                                            const libre = ingresoMensual - recurrente.total;
+                                            frase += `: el ${destacar(porcentaje.toFixed(0) + '%', porcentaje >= 70 ? ROJO : (porcentaje >= 50 ? AMBAR : VERDE))} de lo que entra.`;
+                                            frase += libre >= 0
+                                                ? ` Te quedan ${destacar(dinero(libre), VERDE)} al mes para todo lo demás.`
+                                                : ` Eso ya supera tu ingreso en ${destacar(dinero(libre), ROJO)} antes de cualquier otro gasto.`;
+                                        } else {
+                                            frase += '.';
+                                        }
+                                        piezas.push(frase);
+                                    }
+
+                                    parrafos.push(piezas.join(' '));
+                                }
+
+                                // 4. Hacia dónde va el gasto: comparamos los meses recientes contra los anteriores
                                 if (historicos.length >= 4) {
                                     const ventana = historicos.length >= 6 ? 3 : 2;
                                     const recientes = historicos.slice(-ventana);
@@ -3931,7 +3991,7 @@
                                     }
                                 }
 
-                                // 4. Meses que se salen de la norma
+                                // 5. Meses que se salen de la norma
                                 if (historicos.length >= 3) {
                                     const promedioGasto = totalGastos / historicos.length;
                                     const mesCaro = historicos.reduce((a, b) => b.gastos > a.gastos ? b : a);
@@ -3956,7 +4016,7 @@
                                     }
                                 }
 
-                                // 5. Inversión y deuda, que no son gasto corriente
+                                // 6. Inversión y deuda, que no son gasto corriente
                                 const netoInversion = sumar(historicos, m => m.destacados.inversion.salidas - m.destacados.inversion.entradas);
                                 if (netoInversion > 0) {
                                     const pctInversion = totalIngresos > 0 ? ` (el ${((netoInversion / totalIngresos) * 100).toFixed(1)}% de lo que ingresó)` : '';
@@ -3976,7 +4036,7 @@
                                     }
                                 }
 
-                                // 6. Lo que ya viene en camino
+                                // 7. Lo que ya viene en camino
                                 const futuros = (meses || []).filter(m => m.esFuturo && m.gastos > 0);
                                 if (futuros.length > 0) {
                                     parrafos.push(`Hacia adelante tienes ${destacar(dinero(sumar(futuros, m => m.gastos)), AMBAR)} en cargos recurrentes ya previstos.`);
