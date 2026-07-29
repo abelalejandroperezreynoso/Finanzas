@@ -168,6 +168,12 @@
         .seccion.activa { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* Animaciones de la tarjeta de análisis */
+        @keyframes aparecerAnalisis { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes puntosPensando { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
+        .puntos-pensando::after { content: '...'; animation: puntosPensando 1.2s steps(1) infinite; }
+        #contenidoAnalisisIA p:last-child { margin-bottom: 0 !important; }
+
         .dashboard-menu {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -391,6 +397,18 @@
 
             </div>
             </div>
+
+    <!-- INICIO TARJETA DE ANÁLISIS -->
+    <div class="card" id="cardAnalisisIA" style="display: none; padding: 0; margin-bottom: 15px; background: #000000;">
+        <div style="background: #131313; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px;">
+            <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 10px;">
+                <div style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #3ecf8e, #3abff8); display: flex; align-items: center; justify-content: center; font-size: 0.8em; flex-shrink: 0;">✨</div>
+                <strong style="color: #e8e8e8; font-size: 0.85em;">Análisis de tus finanzas</strong>
+            </div>
+            <div id="contenidoAnalisisIA" style="font-size: 0.88em; color: #c8c8c8; line-height: 1.65;"></div>
+        </div>
+    </div>
+    <!-- FIN TARJETA DE ANÁLISIS -->
 
     <!-- INICIO NUEVA TARJETA DE OBJETIVOS -->
     <div class="card" id="cardObjetivosInicio" style="display: none; padding: 1rem 0; margin-bottom: 15px; background: #000000;">
@@ -3696,34 +3714,19 @@
                                 };
                             }
 
-                            // Vista alternativa de la gráfica principal: barras de Ingresos vs Gastos agrupadas por mes,
-                            // con comparación del gasto contra el mes anterior para detectar tendencias.
-                            function renderizarGraficoMensual(datosGraf, balanceInicial, canvas) {
-                                const detallesEl = document.getElementById('detallesGrafico');
-                                const tituloTendenciaEl = document.getElementById('tituloTendencia');
-                                const balanceEl = document.getElementById('balanceAlCierreDinamico');
+                            const NOMBRES_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-                                if (detallesEl) detallesEl.innerHTML = '';
-                                if (tituloTendenciaEl) {
-                                    tituloTendenciaEl.textContent = 'Ingresos vs Gastos por Mes';
-                                    tituloTendenciaEl.style.color = '#888';
-                                }
+                            // Agrupa por mes los días que alimentan la gráfica y separa, dentro de cada uno, la
+                            // parte que corresponde a cada tipo destacado. Devuelve los meses ya normalizados.
+                            function construirMesesDesglosados(datosGraf) {
+                                if (!datosGraf || datosGraf.length === 0) return [];
 
-                                const ctx = canvas.getContext('2d');
-                                if (miGrafico) miGrafico.destroy();
-
-                                if (!datosGraf || datosGraf.length === 0) {
-                                    if (balanceEl) balanceEl.textContent = '';
-                                    miGrafico = new Chart(ctx, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
-                                    return;
-                                }
-
+                                const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
                                 const mesVacio = (ym) => {
                                     const registro = { ym, ingresos: 0, gastos: 0, destacados: {} };
                                     TIPOS_DESTACADOS_GRAFICA.forEach(t => { registro.destacados[t.tipo] = { entradas: 0, salidas: 0 }; });
                                     return registro;
                                 };
-                                const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
 
                                 // 1. Agrupar los datos diarios por mes (clave 'YYYY-MM')
                                 const mapaMeses = {};
@@ -3785,9 +3788,186 @@
                                     ymIter = `${anio}-${String(mes).padStart(2, '0')}`;
                                 }
 
+                                // 4. Recortar cada segmento a lo que queda del total del mes: así el desglose nunca
+                                // supera la barra y el sobrante queda como ingreso o gasto corriente.
+                                const ymActual = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                meses.forEach(m => {
+                                    let restanteIngresos = m.ingresos;
+                                    let restanteGastos = m.gastos;
+
+                                    TIPOS_DESTACADOS_GRAFICA.forEach(t => {
+                                        const acumulado = m.destacados[t.tipo];
+                                        acumulado.entradas = Math.min(acumulado.entradas, restanteIngresos);
+                                        acumulado.salidas = Math.min(acumulado.salidas, restanteGastos);
+                                        restanteIngresos -= acumulado.entradas;
+                                        restanteGastos -= acumulado.salidas;
+                                    });
+
+                                    m.corrienteIngreso = restanteIngresos;
+                                    m.corrienteGasto = restanteGastos;
+                                    m.esFuturo = m.ym > ymActual;
+                                });
+
+                                return meses;
+                            }
+
+                            // Redacta en lenguaje natural un análisis de los meses que alimentan la gráfica.
+                            // Devuelve un arreglo de párrafos ya con formato, o null si no hay nada que contar.
+                            function generarResumenFinanciero(meses) {
+                                const historicos = (meses || []).filter(m => !m.esFuturo && (m.ingresos > 0 || m.gastos > 0));
+                                if (historicos.length === 0) return null;
+
+                                const VERDE = '#3ecf8e', ROJO = '#ff5c5c', AMBAR = '#f39c12', CLARO = '#ffffff';
+                                const destacar = (texto, color) => `<strong style="color: ${color};">${texto}</strong>`;
+                                const dinero = (monto) => `$${fNum(Math.abs(monto))}`;
+                                const sumar = (lista, obtener) => lista.reduce((acc, m) => acc + obtener(m), 0);
+                                const nombreMes = (m) => {
+                                    const [a, mm] = m.ym.split('-');
+                                    return `${NOMBRES_MESES[parseInt(mm, 10) - 1].toLowerCase()} de ${a}`;
+                                };
+
+                                const totalIngresos = sumar(historicos, m => m.ingresos);
+                                const totalGastos = sumar(historicos, m => m.gastos);
+                                const flujo = totalIngresos - totalGastos;
+                                const tasaAhorro = totalIngresos > 0 ? (flujo / totalIngresos) * 100 : 0;
+
+                                const parrafos = [];
+
+                                // 1. Panorama del periodo
+                                const periodo = historicos.length === 1
+                                    ? `En ${nombreMes(historicos[0])}`
+                                    : `Entre ${nombreMes(historicos[0])} y ${nombreMes(historicos[historicos.length - 1])}`;
+                                parrafos.push(`${periodo} recibiste ${destacar(dinero(totalIngresos), VERDE)} y gastaste ${destacar(dinero(totalGastos), ROJO)}, con un flujo neto de ${destacar((flujo >= 0 ? '+' : '−') + dinero(flujo), flujo >= 0 ? VERDE : ROJO)}.`);
+
+                                // 2. Qué tan holgado es ese margen
+                                if (totalIngresos > 0) {
+                                    const pct = tasaAhorro.toFixed(1) + '%';
+                                    if (tasaAhorro >= 30) {
+                                        parrafos.push(`Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen amplio que te deja bastante holgura para imprevistos.`);
+                                    } else if (tasaAhorro >= 15) {
+                                        parrafos.push(`Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen sano.`);
+                                    } else if (tasaAhorro >= 5) {
+                                        parrafos.push(`Conservas el ${destacar(pct, AMBAR)} de lo que ingresa. Es positivo, aunque un gasto inesperado se llevaría buena parte de ese colchón.`);
+                                    } else if (tasaAhorro >= 0) {
+                                        parrafos.push(`Apenas conservas el ${destacar(pct, AMBAR)} de lo que ingresa: prácticamente gastas todo lo que entra.`);
+                                    } else {
+                                        parrafos.push(`Gastaste un ${destacar(Math.abs(tasaAhorro).toFixed(1) + '%', ROJO)} más de lo que ingresó, así que en este periodo estuviste consumiendo saldo previo.`);
+                                    }
+                                }
+
+                                // 3. Hacia dónde va el gasto: comparamos los meses recientes contra los anteriores
+                                if (historicos.length >= 4) {
+                                    const ventana = historicos.length >= 6 ? 3 : 2;
+                                    const recientes = historicos.slice(-ventana);
+                                    const previos = historicos.slice(-ventana * 2, -ventana);
+                                    const promedioReciente = sumar(recientes, m => m.gastos) / recientes.length;
+                                    const promedioPrevio = sumar(previos, m => m.gastos) / previos.length;
+
+                                    if (promedioPrevio > 0) {
+                                        const cambio = ((promedioReciente - promedioPrevio) / promedioPrevio) * 100;
+                                        if (Math.abs(cambio) < 5) {
+                                            parrafos.push(`Tu gasto mensual se mantiene estable, rondando ${destacar(dinero(promedioReciente), CLARO)} al mes.`);
+                                        } else if (cambio > 0) {
+                                            const extraAnual = (promedioReciente - promedioPrevio) * 12;
+                                            parrafos.push(`⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores. De sostenerse ese ritmo, son unos ${destacar(dinero(extraAnual), ROJO)} adicionales al año.`);
+                                        } else {
+                                            parrafos.push(`Vas en buena dirección: tu gasto mensual bajó un ${destacar(Math.abs(cambio).toFixed(1) + '%', VERDE)}, de ${dinero(promedioPrevio)} a ${destacar(dinero(promedioReciente), VERDE)} al mes.`);
+                                        }
+                                    }
+                                }
+
+                                // 4. Meses que se salen de la norma
+                                if (historicos.length >= 3) {
+                                    const promedioGasto = totalGastos / historicos.length;
+                                    const mesCaro = historicos.reduce((a, b) => b.gastos > a.gastos ? b : a);
+                                    if (promedioGasto > 0 && mesCaro.gastos > promedioGasto * 1.3) {
+                                        const exceso = ((mesCaro.gastos / promedioGasto) - 1) * 100;
+                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio. Vale la pena revisar qué lo disparó.`);
+                                    }
+                                }
+
+                                // 5. Inversión y deuda, que no son gasto corriente
+                                const netoInversion = sumar(historicos, m => m.destacados.inversion.salidas - m.destacados.inversion.entradas);
+                                if (netoInversion > 0) {
+                                    const pctInversion = totalIngresos > 0 ? ` (el ${((netoInversion / totalIngresos) * 100).toFixed(1)}% de lo que ingresó)` : '';
+                                    parrafos.push(`Destinaste ${destacar(dinero(netoInversion), CLARO)} netos a inversión${pctInversion}. Ese dinero salió de tus cuentas, pero sigue siendo tuyo.`);
+                                } else if (netoInversion < 0) {
+                                    parrafos.push(`Retiraste ${destacar(dinero(netoInversion), CLARO)} netos de tus inversiones durante el periodo.`);
+                                }
+
+                                const deudaAdquirida = sumar(historicos, m => m.destacados.deuda.entradas);
+                                const deudaPagada = sumar(historicos, m => m.destacados.deuda.salidas);
+                                if (deudaAdquirida > 0 || deudaPagada > 0) {
+                                    const netoDeuda = deudaPagada - deudaAdquirida;
+                                    if (netoDeuda > 0) {
+                                        parrafos.push(`En deudas pagaste ${destacar(dinero(deudaPagada), AMBAR)} y adquiriste ${dinero(deudaAdquirida)}, así que la redujiste en ${destacar(dinero(netoDeuda), VERDE)}.`);
+                                    } else if (netoDeuda < 0) {
+                                        parrafos.push(`Tu deuda creció ${destacar(dinero(netoDeuda), ROJO)} en el periodo: adquiriste ${dinero(deudaAdquirida)} y pagaste ${dinero(deudaPagada)}.`);
+                                    }
+                                }
+
+                                // 6. Lo que ya viene en camino
+                                const futuros = (meses || []).filter(m => m.esFuturo && m.gastos > 0);
+                                if (futuros.length > 0) {
+                                    parrafos.push(`Hacia adelante tienes ${destacar(dinero(sumar(futuros, m => m.gastos)), AMBAR)} en cargos recurrentes ya previstos.`);
+                                }
+
+                                return parrafos;
+                            }
+
+                            let temporizadorResumenIA = null;
+
+                            function actualizarResumenIA(meses) {
+                                const tarjeta = document.getElementById('cardAnalisisIA');
+                                const contenedor = document.getElementById('contenidoAnalisisIA');
+                                if (!tarjeta || !contenedor) return;
+
+                                if (temporizadorResumenIA) clearTimeout(temporizadorResumenIA);
+
+                                const parrafos = generarResumenFinanciero(meses);
+                                if (!parrafos || parrafos.length === 0) {
+                                    tarjeta.style.display = 'none';
+                                    return;
+                                }
+
+                                // Breve estado de "pensando" antes de mostrar el texto, para que se lea como una respuesta
+                                tarjeta.style.display = 'block';
+                                contenedor.innerHTML = '<span style="color: #777;">Analizando tus movimientos<span class="puntos-pensando"></span></span>';
+
+                                temporizadorResumenIA = setTimeout(() => {
+                                    contenedor.innerHTML = parrafos
+                                        .map((p, i) => `<p style="margin: 0 0 10px 0; animation: aparecerAnalisis 0.35s ease-out ${i * 0.07}s both;">${p}</p>`)
+                                        .join('');
+                                }, 450);
+                            }
+
+                            // Vista alternativa de la gráfica principal: barras de Ingresos vs Gastos agrupadas por mes,
+                            // con comparación del gasto contra el mes anterior para detectar tendencias.
+                            function renderizarGraficoMensual(datosGraf, balanceInicial, canvas) {
+                                const detallesEl = document.getElementById('detallesGrafico');
+                                const tituloTendenciaEl = document.getElementById('tituloTendencia');
+                                const balanceEl = document.getElementById('balanceAlCierreDinamico');
+
+                                if (detallesEl) detallesEl.innerHTML = '';
+                                if (tituloTendenciaEl) {
+                                    tituloTendenciaEl.textContent = 'Ingresos vs Gastos por Mes';
+                                    tituloTendenciaEl.style.color = '#888';
+                                }
+
+                                const ctx = canvas.getContext('2d');
+                                if (miGrafico) miGrafico.destroy();
+
+                                const meses = construirMesesDesglosados(datosGraf);
+                                actualizarResumenIA(meses);
+
+                                if (meses.length === 0) {
+                                    if (balanceEl) balanceEl.textContent = '';
+                                    miGrafico = new Chart(ctx, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+                                    return;
+                                }
+
                                 const ymActual = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
                                 const letrasMeses = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
-                                const nombresMesesLargos = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
                                 const etiquetas = [];
                                 const serieIngresos = [];
@@ -3806,44 +3986,29 @@
                                     const numMes = parseInt(mm, 10);
                                     etiquetas.push(numMes === 1 ? [letrasMeses[0], a.slice(2)] : letrasMeses[numMes - 1]);
 
-                                    // Cada segmento se recorta a lo que queda del total del mes: así la barra dividida
-                                    // mide lo mismo que medía antes aunque el desglose y el agregado provengan de
-                                    // fuentes distintas, y el sobrante es la parte corriente.
-                                    let restanteIngresos = m.ingresos;
-                                    let restanteGastos = m.gastos;
-
+                                    // El desglose ya viene recortado al total del mes; aquí solo decidimos qué se dibuja
                                     TIPOS_DESTACADOS_GRAFICA.forEach(t => {
                                         const acumulado = m.destacados[t.tipo];
-                                        acumulado.entradas = Math.min(acumulado.entradas, restanteIngresos);
-                                        acumulado.salidas = Math.min(acumulado.salidas, restanteGastos);
-                                        restanteIngresos -= acumulado.entradas;
-                                        restanteGastos -= acumulado.salidas;
-
                                         const visible = tiposVisiblesGrafica.has(t.tipo);
                                         if (visible && (acumulado.entradas > 0 || acumulado.salidas > 0)) tiposConDatos.add(t.tipo);
                                         seriesDestacadas[t.tipo].entradas.push(visible ? acumulado.entradas : 0);
                                         seriesDestacadas[t.tipo].salidas.push(visible ? acumulado.salidas : 0);
                                     });
 
-                                    // Lo que sobra tras separar los tipos destacados es el ingreso y el gasto corriente
-                                    m.corrienteIngreso = restanteIngresos;
-                                    m.corrienteGasto = restanteGastos;
-
                                     const verIngreso = tiposVisiblesGrafica.has('ingreso');
                                     const verGasto = tiposVisiblesGrafica.has('gasto');
-                                    serieIngresos.push(verIngreso ? restanteIngresos : 0);
-                                    serieGastos.push(verGasto ? restanteGastos : 0);
+                                    serieIngresos.push(verIngreso ? m.corrienteIngreso : 0);
+                                    serieGastos.push(verGasto ? m.corrienteGasto : 0);
 
                                     // Totales de lo que realmente se está dibujando, para que el detalle coincida
-                                    m.ingresosVisibles = (verIngreso ? restanteIngresos : 0) + TIPOS_DESTACADOS_GRAFICA
+                                    m.ingresosVisibles = (verIngreso ? m.corrienteIngreso : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].entradas : 0), 0);
-                                    m.gastosVisibles = (verGasto ? restanteGastos : 0) + TIPOS_DESTACADOS_GRAFICA
+                                    m.gastosVisibles = (verGasto ? m.corrienteGasto : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].salidas : 0), 0);
 
                                     // El balance acumulado sigue el saldo real de las cuentas, no el subconjunto visible
                                     balanceAcumulado += m.ingresos - m.gastos;
                                     balancesCierre.push(balanceAcumulado);
-                                    m.esFuturo = m.ym > ymActual;
                                 });
 
                                 let indiceMesActual = meses.findIndex(m => m.ym === ymActual);
@@ -3855,7 +4020,7 @@
                                     const [a, mm] = m.ym.split('-');
 
                                     if (tituloTendenciaEl) {
-                                        tituloTendenciaEl.textContent = `${nombresMesesLargos[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
+                                        tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
                                         tituloTendenciaEl.style.color = '#ffffff';
                                     }
                                     if (balanceEl) {
@@ -4061,6 +4226,9 @@
                                     renderizarGraficoMensual(datosGraf, balanceInicial, canvas);
                                     return;
                                 }
+
+                                // El análisis acompaña a la gráfica en ambos modos
+                                actualizarResumenIA(construirMesesDesglosados(datosGraf));
 
                                 if (datosGraf.length > 0) {
                                     let datosCompletos = [];
