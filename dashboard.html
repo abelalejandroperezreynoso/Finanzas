@@ -3723,7 +3723,7 @@
 
                                 const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
                                 const mesVacio = (ym) => {
-                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {} };
+                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {}, gastosPorCategoria: {} };
                                     TIPOS_DESTACADOS_GRAFICA.forEach(t => { registro.destacados[t.tipo] = { entradas: 0, salidas: 0 }; });
                                     return registro;
                                 };
@@ -3758,18 +3758,28 @@
                                     if (tiposDestacados.has(c.tipo)) tipoPorCategoria[String(c.id)] = c.tipo;
                                 });
 
-                                if (Object.keys(tipoPorCategoria).length > 0 && fechasHistoricas.size > 0) {
+                                if (fechasHistoricas.size > 0) {
                                     const esVisible = construirFiltroRegistrosGrafica();
                                     datosUsoCompleto.forEach(u => {
-                                        const tipo = u.fecha ? tipoPorCategoria[String(u.categoria_id)] : null;
-                                        if (!tipo) return;
+                                        if (!u.fecha) return;
 
                                         const fecha = obtenerFechaLocalCortada(u.fecha);
                                         if (!fechasHistoricas.has(fecha) || !esVisible(u)) return;
 
                                         const mesDestino = mapaMeses[fecha.slice(0, 7)];
                                         if (!mesDestino) return;
+
                                         const monto = parseFloat(u.monto) || 0;
+                                        const claveCategoria = String(u.categoria_id);
+
+                                        // Guardamos de dónde salió cada peso para poder explicar los meses atípicos
+                                        if (monto < 0) {
+                                            mesDestino.gastosPorCategoria[claveCategoria] =
+                                                (mesDestino.gastosPorCategoria[claveCategoria] || 0) + Math.abs(monto);
+                                        }
+
+                                        const tipo = tipoPorCategoria[claveCategoria];
+                                        if (!tipo) return;
                                         if (monto >= 0) mesDestino.destacados[tipo].entradas += monto;
                                         else mesDestino.destacados[tipo].salidas += Math.abs(monto);
                                     });
@@ -3825,6 +3835,25 @@
                                     const [a, mm] = m.ym.split('-');
                                     return `${NOMBRES_MESES[parseInt(mm, 10) - 1].toLowerCase()} de ${a}`;
                                 };
+                                const nombreCategoria = (id) => {
+                                    const cat = datosCategorias.find(c => String(c.id) === String(id));
+                                    return cat ? cat.nombre : 'Sin categoría';
+                                };
+                                // Suma el gasto de cada categoría a lo largo de varios meses
+                                const gastoPorCategoria = (lista) => {
+                                    const acumulado = {};
+                                    lista.forEach(m => {
+                                        Object.keys(m.gastosPorCategoria || {}).forEach(id => {
+                                            acumulado[id] = (acumulado[id] || 0) + m.gastosPorCategoria[id];
+                                        });
+                                    });
+                                    return acumulado;
+                                };
+                                const mayoresGastos = (acumulado, cantidad) => Object.keys(acumulado)
+                                    .map(id => ({ id, monto: acumulado[id] }))
+                                    .filter(x => x.monto > 0)
+                                    .sort((a, b) => b.monto - a.monto)
+                                    .slice(0, cantidad);
 
                                 const totalIngresos = sumar(historicos, m => m.ingresos);
                                 const totalGastos = sumar(historicos, m => m.gastos);
@@ -3869,7 +3898,33 @@
                                             parrafos.push(`Tu gasto mensual se mantiene estable, rondando ${destacar(dinero(promedioReciente), CLARO)} al mes.`);
                                         } else if (cambio > 0) {
                                             const extraAnual = (promedioReciente - promedioPrevio) * 12;
-                                            parrafos.push(`⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores. De sostenerse ese ritmo, son unos ${destacar(dinero(extraAnual), ROJO)} adicionales al año.`);
+
+                                            // Qué categoría explica mejor el alza, comparando su gasto medio mensual
+                                            const medioPorCategoria = (lista) => {
+                                                const acumulado = gastoPorCategoria(lista);
+                                                Object.keys(acumulado).forEach(id => { acumulado[id] = acumulado[id] / lista.length; });
+                                                return acumulado;
+                                            };
+                                            const mediaReciente = medioPorCategoria(recientes);
+                                            const mediaPrevia = medioPorCategoria(previos);
+
+                                            let mayorAlza = null;
+                                            Object.keys(mediaReciente).forEach(id => {
+                                                const delta = mediaReciente[id] - (mediaPrevia[id] || 0);
+                                                if (!mayorAlza || delta > mayorAlza.delta) mayorAlza = { id, delta };
+                                            });
+
+                                            const detalleAlza = (mayorAlza && mayorAlza.delta > 0)
+                                                ? ` El mayor aumento viene de ${destacar(nombreCategoria(mayorAlza.id), CLARO)}: ${destacar('+' + dinero(mayorAlza.delta), ROJO)} más al mes.`
+                                                : '';
+
+                                            // Un salto enorme casi siempre es un movimiento puntual, y proyectarlo a
+                                            // doce meses daría una cifra alarmista que no significa nada.
+                                            const proyeccion = cambio < 100
+                                                ? ` De sostenerse ese ritmo, son unos ${destacar(dinero(extraAnual), ROJO)} adicionales al año.`
+                                                : ` Es un salto muy grande, así que conviene confirmar si fue algo puntual antes de darlo por tendencia.`;
+
+                                            parrafos.push(`⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores.${detalleAlza}${proyeccion}`);
                                         } else {
                                             parrafos.push(`Vas en buena dirección: tu gasto mensual bajó un ${destacar(Math.abs(cambio).toFixed(1) + '%', VERDE)}, de ${dinero(promedioPrevio)} a ${destacar(dinero(promedioReciente), VERDE)} al mes.`);
                                         }
@@ -3882,7 +3937,22 @@
                                     const mesCaro = historicos.reduce((a, b) => b.gastos > a.gastos ? b : a);
                                     if (promedioGasto > 0 && mesCaro.gastos > promedioGasto * 1.3) {
                                         const exceso = ((mesCaro.gastos / promedioGasto) - 1) * 100;
-                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio. Vale la pena revisar qué lo disparó.`);
+                                        const culpables = mayoresGastos(mesCaro.gastosPorCategoria || {}, 3);
+
+                                        let explicacion = ' No hay movimientos con categoría que expliquen el salto.';
+                                        if (culpables.length > 0) {
+                                            const pesoPrimero = mesCaro.gastos > 0 ? (culpables[0].monto / mesCaro.gastos) * 100 : 0;
+                                            // Si una sola categoría se lleva la mayoría, la señalamos sin diluirla entre otras
+                                            if (culpables.length === 1 || pesoPrimero >= 55) {
+                                                explicacion = ` Lo disparó ${destacar(nombreCategoria(culpables[0].id), CLARO)}, con ${destacar(dinero(culpables[0].monto), ROJO)}: el ${pesoPrimero.toFixed(0)}% del gasto de ese mes.`;
+                                            } else {
+                                                const listado = culpables.map(c => `${destacar(nombreCategoria(c.id), CLARO)} (${dinero(c.monto)})`);
+                                                const ultimo = listado.pop();
+                                                explicacion = ` Lo que más pesó fue ${listado.join(', ')} y ${ultimo}.`;
+                                            }
+                                        }
+
+                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
                                     }
                                 }
 
