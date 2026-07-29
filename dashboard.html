@@ -3821,15 +3821,16 @@
                                 return meses;
                             }
 
-                            // Suma el costo mensual equivalente de los gastos que la app detectó como recurrentes.
-                            // Normaliza cada uno a meses: algo que se cobra cada 15 días pesa el doble que uno mensual.
-                            function calcularGastoRecurrenteMensual() {
+                            // Suma el equivalente mensual de las categorías de un tipo que la app detectó como
+                            // recurrentes. Normaliza cada una a meses: algo que ocurre cada 15 días pesa el doble
+                            // que uno mensual, y lo anual se reparte entre doce.
+                            function calcularRecurrenteMensual(tipoObjetivo) {
                                 const DIAS_POR_MES = 30.4375;
                                 let total = 0;
-                                let cantidad = 0;
+                                const categorias = [];
 
                                 datosCategorias.forEach(cat => {
-                                    if (cat.tipo !== 'gasto') return;
+                                    if (cat.tipo !== tipoObjetivo) return;
                                     if (!(cat.diasRecurrencia > 0) || !cat.montoSugerido) return;
 
                                     // Mismos criterios que usa la proyección de la gráfica
@@ -3838,10 +3839,10 @@
                                     if (cuenta && cuenta.incluir_en_total === false) return;
 
                                     total += (parseFloat(cat.montoSugerido) || 0) * (DIAS_POR_MES / cat.diasRecurrencia);
-                                    cantidad++;
+                                    categorias.push(cat.nombre);
                                 });
 
-                                return { total, cantidad };
+                                return { total, cantidad: categorias.length, categorias };
                             }
 
                             // Redacta en lenguaje natural un análisis de los meses que alimentan la gráfica.
@@ -3908,21 +3909,36 @@
                                 }
 
                                 // 3. Ritmo mensual: cuánto entra y cuánto ya está comprometido de antemano
-                                const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
-                                // El mes en curso va a medias, así que lo dejamos fuera del promedio si hay historial de sobra
-                                const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
-                                const baseIngreso = (historicos.length >= 3 && mesesCerrados.length >= 2) ? mesesCerrados : historicos;
-                                const ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso) / baseIngreso.length;
+                                const ingresoRecurrente = calcularRecurrenteMensual('ingreso');
+                                const recurrente = calcularRecurrenteMensual('gasto');
 
-                                const recurrente = calcularGastoRecurrenteMensual();
+                                // El ingreso con patrón detectado describe mejor el mes típico que un promedio, que
+                                // se distorsiona con aguinaldos o bonos. El promedio queda solo como respaldo para
+                                // quien no tenga ingresos regulares.
+                                let ingresoMensual = ingresoRecurrente.total;
+                                let textoIngreso = '';
+
+                                if (ingresoMensual > 0) {
+                                    const fuente = ingresoRecurrente.cantidad <= 2
+                                        ? ` (${ingresoRecurrente.categorias.join(' y ')})`
+                                        : ` repartidos en ${ingresoRecurrente.cantidad} fuentes`;
+                                    textoIngreso = `Tus ingresos recurrentes suman ${destacar(dinero(ingresoMensual), VERDE)} al mes${fuente}.`;
+                                } else {
+                                    // Sin patrón fijo caemos al promedio, descartando el mes en curso porque va a medias
+                                    const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                    const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
+                                    const baseIngreso = (historicos.length >= 3 && mesesCerrados.length >= 2) ? mesesCerrados : historicos;
+                                    ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso) / baseIngreso.length;
+
+                                    if (ingresoMensual > 0) {
+                                        const aclaracion = baseIngreso.length < historicos.length ? ', sin contar el mes en curso' : '';
+                                        textoIngreso = `No detecté un ingreso con patrón fijo, así que voy por el promedio${aclaracion}: ${destacar(dinero(ingresoMensual), VERDE)} al mes.`;
+                                    }
+                                }
 
                                 if (ingresoMensual > 0 || recurrente.total > 0) {
                                     const piezas = [];
-
-                                    if (ingresoMensual > 0) {
-                                        const aclaracion = baseIngreso.length < historicos.length ? ' (sin contar el mes en curso, que va a medias)' : '';
-                                        piezas.push(`En promedio entran ${destacar(dinero(ingresoMensual), VERDE)} al mes${aclaracion}.`);
-                                    }
+                                    if (textoIngreso) piezas.push(textoIngreso);
 
                                     if (recurrente.total > 0) {
                                         const plural = recurrente.cantidad === 1 ? '' : 's';
