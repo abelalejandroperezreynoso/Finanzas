@@ -648,6 +648,9 @@
             <button id="btnModoMensual" class="btn-shortcut" onclick="cambiarModoGrafica('mensual')">📊 Barras Mensuales</button>
         </div>
 
+        <label style="display: block; margin-bottom: 8px;">Tipos en las barras mensuales:</label>
+        <div id="checksTiposGrafica" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;"></div>
+
         <hr style="border-color:#444; margin: 15px 0;">
 
         <label style="display: block; margin-bottom: 8px;">O rango personalizado:</label>
@@ -832,6 +835,57 @@
 
                 // Modo de visualización de la gráfica principal: 'balance' (diario) o 'mensual' (barras por mes)
                 let modoGrafica = localStorage.getItem('modoGrafica') || 'balance';
+
+                // Tipos de registro que pueden mostrarse u ocultarse en las barras mensuales
+                const TIPOS_REGISTRO_GRAFICA = [
+                    { tipo: 'ingreso', etiqueta: 'Ingresos' },
+                    { tipo: 'gasto', etiqueta: 'Gastos' },
+                    { tipo: 'inversion', etiqueta: 'Inversiones' },
+                    { tipo: 'deuda', etiqueta: 'Deudas' },
+                    { tipo: 'prestamo', etiqueta: 'Préstamos' }
+                ];
+
+                let tiposVisiblesGrafica = (function () {
+                    try {
+                        const guardado = JSON.parse(localStorage.getItem('tiposVisiblesGrafica'));
+                        // Ignoramos tipos que ya no existan por si cambia el catálogo
+                        const validos = Array.isArray(guardado)
+                            ? guardado.filter(t => TIPOS_REGISTRO_GRAFICA.some(r => r.tipo === t))
+                            : [];
+                        if (validos.length > 0) return new Set(validos);
+                    } catch (e) {
+                        // Preferencia corrupta: volvemos a mostrarlo todo
+                    }
+                    return new Set(TIPOS_REGISTRO_GRAFICA.map(t => t.tipo));
+                })();
+
+                function renderizarChecksTiposGrafica() {
+                    const contenedor = document.getElementById('checksTiposGrafica');
+                    if (!contenedor) return;
+
+                    contenedor.innerHTML = TIPOS_REGISTRO_GRAFICA.map(t => `
+                        <label style="display: flex; align-items: center; margin: 0; cursor: pointer; background: #222; padding: 8px 10px; border-radius: 6px; border: 1px solid #333;">
+                            <input type="checkbox" onchange="alternarTipoGrafica('${t.tipo}', this.checked)" ${tiposVisiblesGrafica.has(t.tipo) ? 'checked' : ''}
+                                   style="width: auto; margin: 0 8px 0 0; transform: scale(1.1); cursor: pointer;">
+                            <span style="color: ${obtenerColorCategoria(t.tipo)}; font-size: 0.85em;">${t.etiqueta}</span>
+                        </label>
+                    `).join('');
+                }
+
+                function alternarTipoGrafica(tipo, visible) {
+                    if (visible) tiposVisiblesGrafica.add(tipo);
+                    else tiposVisiblesGrafica.delete(tipo);
+
+                    // Dejar la gráfica sin ningún tipo no aporta nada, así que revertimos el último desmarcado
+                    if (tiposVisiblesGrafica.size === 0) {
+                        tiposVisiblesGrafica.add(tipo);
+                        renderizarChecksTiposGrafica();
+                        return;
+                    }
+
+                    localStorage.setItem('tiposVisiblesGrafica', JSON.stringify([...tiposVisiblesGrafica]));
+                    aplicarFiltrosYRenderizar();
+                }
 
                 function cambiarModoGrafica(modo) {
                     modoGrafica = modo;
@@ -1441,6 +1495,7 @@
                             }
                             });
                             actualizarBotonesModoGrafica();
+                            renderizarChecksTiposGrafica();
                             }
                             function cerrarModalFiltros() {
                                 document.getElementById('modalFiltros').classList.remove('activa');
@@ -3764,14 +3819,28 @@
                                         restanteIngresos -= acumulado.entradas;
                                         restanteGastos -= acumulado.salidas;
 
-                                        if (acumulado.entradas > 0 || acumulado.salidas > 0) tiposConDatos.add(t.tipo);
-                                        seriesDestacadas[t.tipo].entradas.push(acumulado.entradas);
-                                        seriesDestacadas[t.tipo].salidas.push(acumulado.salidas);
+                                        const visible = tiposVisiblesGrafica.has(t.tipo);
+                                        if (visible && (acumulado.entradas > 0 || acumulado.salidas > 0)) tiposConDatos.add(t.tipo);
+                                        seriesDestacadas[t.tipo].entradas.push(visible ? acumulado.entradas : 0);
+                                        seriesDestacadas[t.tipo].salidas.push(visible ? acumulado.salidas : 0);
                                     });
 
-                                    serieIngresos.push(restanteIngresos);
-                                    serieGastos.push(restanteGastos);
+                                    // Lo que sobra tras separar los tipos destacados es el ingreso y el gasto corriente
+                                    m.corrienteIngreso = restanteIngresos;
+                                    m.corrienteGasto = restanteGastos;
 
+                                    const verIngreso = tiposVisiblesGrafica.has('ingreso');
+                                    const verGasto = tiposVisiblesGrafica.has('gasto');
+                                    serieIngresos.push(verIngreso ? restanteIngresos : 0);
+                                    serieGastos.push(verGasto ? restanteGastos : 0);
+
+                                    // Totales de lo que realmente se está dibujando, para que el detalle coincida
+                                    m.ingresosVisibles = (verIngreso ? restanteIngresos : 0) + TIPOS_DESTACADOS_GRAFICA
+                                        .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].entradas : 0), 0);
+                                    m.gastosVisibles = (verGasto ? restanteGastos : 0) + TIPOS_DESTACADOS_GRAFICA
+                                        .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].salidas : 0), 0);
+
+                                    // El balance acumulado sigue el saldo real de las cuentas, no el subconjunto visible
                                     balanceAcumulado += m.ingresos - m.gastos;
                                     balancesCierre.push(balanceAcumulado);
                                     m.esFuturo = m.ym > ymActual;
@@ -3795,26 +3864,26 @@
                                         balanceEl.style.opacity = m.esFuturo ? '0.5' : '1';
                                     }
 
-                                    const flujo = m.ingresos - m.gastos;
+                                    const flujo = m.ingresosVisibles - m.gastosVisibles;
                                     const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
 
-                                    // Comparación de gastos contra el mes anterior
+                                    // Comparación de gastos contra el mes anterior, sobre lo que está a la vista
                                     let comparacionHtml = '';
                                     if (index > 0) {
-                                        const gastosPrev = meses[index - 1].gastos;
+                                        const gastosPrev = meses[index - 1].gastosVisibles;
                                         if (gastosPrev > 0) {
-                                            const pct = ((m.gastos - gastosPrev) / gastosPrev) * 100;
+                                            const pct = ((m.gastosVisibles - gastosPrev) / gastosPrev) * 100;
                                             const subiendo = pct > 0;
                                             const flecha = subiendo ? '▲' : (pct < 0 ? '▼' : '=');
                                             const colorPct = subiendo ? '#ff5c5c' : '#3ecf8e';
                                             comparacionHtml = `<span style="color: ${colorPct}; font-weight: bold;">${flecha} ${subiendo ? '+' : ''}${pct.toFixed(1)}%</span> <span style="color: #888;">vs mes anterior</span>`;
-                                        } else if (m.gastos > 0) {
+                                        } else if (m.gastosVisibles > 0) {
                                             comparacionHtml = `<span style="color: #888;">Sin gastos el mes anterior</span>`;
                                         }
                                     }
 
                                     // Desglose de los segmentos destacados dentro de cada barra
-                                    const filaDestacada = (etiqueta, monto, signo, tipo) => monto > 0 ? `
+                                    const filaDestacada = (etiqueta, monto, signo, tipo) => (monto > 0 && tiposVisiblesGrafica.has(tipo)) ? `
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
                                                 <strong style="color: ${obtenerColorCategoria(tipo)}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
@@ -3825,16 +3894,24 @@
                                     const filasSalidas = TIPOS_DESTACADOS_GRAFICA
                                         .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
 
+                                    // Aviso de que se está viendo solo una parte, porque el balance sí es el real
+                                    const ocultos = TIPOS_REGISTRO_GRAFICA.filter(t => !tiposVisiblesGrafica.has(t.tipo));
+                                    const avisoFiltro = ocultos.length === 0 ? '' : `
+                                            <li style="padding: 0 0 6px 0; color: #f39c12; font-size: 0.85em;">
+                                                Ocultando: ${ocultos.map(t => t.etiqueta).join(', ')}
+                                            </li>`;
+
                                     detallesEl.innerHTML = `
                                         <ul style="list-style: none; padding: 0; margin: 0;">
+                                            ${avisoFiltro}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
-                                                <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresos)}</strong>
+                                                <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresosVisibles)}</strong>
                                             </li>
                                             ${filasEntradas}
                                             <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Gastos ${comparacionHtml ? `<span style="font-size: 0.85em; margin-left: 6px;">${comparacionHtml}</span>` : ''}</span>
-                                                <strong style="color: #ff5c5c; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(m.gastos)}</strong>
+                                                <strong style="color: #ff5c5c; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(m.gastosVisibles)}</strong>
                                             </li>
                                             ${filasSalidas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0;">
