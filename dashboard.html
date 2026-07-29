@@ -854,10 +854,15 @@
                 // Modo de visualización de la gráfica principal: 'balance' (diario) o 'mensual' (barras por mes)
                 let modoGrafica = localStorage.getItem('modoGrafica') || 'balance';
 
+                // Los gastos recurrentes no son un tipo de categoría sino un patrón detectado, así que llevan
+                // su propio color: un rojo apagado que los emparenta con el gasto sin confundirse con él.
+                const COLOR_GASTO_RECURRENTE = '#a83a3a';
+
                 // Tipos de registro que pueden mostrarse u ocultarse en las barras mensuales
                 const TIPOS_REGISTRO_GRAFICA = [
                     { tipo: 'ingreso', etiqueta: 'Ingresos' },
-                    { tipo: 'gasto', etiqueta: 'Gastos' },
+                    { tipo: 'gastoRecurrente', etiqueta: 'Gastos recurrentes', color: COLOR_GASTO_RECURRENTE },
+                    { tipo: 'gasto', etiqueta: 'Gastos variables' },
                     { tipo: 'inversion', etiqueta: 'Inversiones' },
                     { tipo: 'deuda', etiqueta: 'Deudas' },
                     { tipo: 'prestamo', etiqueta: 'Préstamos' }
@@ -870,7 +875,15 @@
                         const validos = Array.isArray(guardado)
                             ? guardado.filter(t => TIPOS_REGISTRO_GRAFICA.some(r => r.tipo === t))
                             : [];
-                        if (validos.length > 0) return new Set(validos);
+                        if (validos.length > 0) {
+                            const preferencia = new Set(validos);
+                            // Los gastos se dividieron en recurrentes y variables después de que existiera
+                            // esta preferencia; quien tenía gastos visibles debe seguir viéndolos completos.
+                            if (preferencia.has('gasto') && !guardado.includes('gastoRecurrente')) {
+                                preferencia.add('gastoRecurrente');
+                            }
+                            return preferencia;
+                        }
                     } catch (e) {
                         // Preferencia corrupta: volvemos a mostrarlo todo
                     }
@@ -885,7 +898,7 @@
                         <label style="display: flex; align-items: center; margin: 0; cursor: pointer; background: #222; padding: 8px 10px; border-radius: 6px; border: 1px solid #333;">
                             <input type="checkbox" onchange="alternarTipoGrafica('${t.tipo}', this.checked)" ${tiposVisiblesGrafica.has(t.tipo) ? 'checked' : ''}
                                    style="width: auto; margin: 0 8px 0 0; transform: scale(1.1); cursor: pointer;">
-                            <span style="color: ${obtenerColorCategoria(t.tipo)}; font-size: 0.85em;">${t.etiqueta}</span>
+                            <span style="color: ${t.color || obtenerColorCategoria(t.tipo)}; font-size: 0.85em;">${t.etiqueta}</span>
                         </label>
                     `).join('');
                 }
@@ -3723,10 +3736,15 @@
 
                                 const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
                                 const mesVacio = (ym) => {
-                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {}, gastosPorCategoria: {} };
+                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {}, gastosPorCategoria: {}, gastoRecurrenteProyectado: 0 };
                                     TIPOS_DESTACADOS_GRAFICA.forEach(t => { registro.destacados[t.tipo] = { entradas: 0, salidas: 0 }; });
                                     return registro;
                                 };
+
+                                // Categorías de gasto en las que la app detectó un patrón de repetición
+                                const gastosRecurrentes = new Set(datosCategorias
+                                    .filter(c => c.tipo === 'gasto' && c.diasRecurrencia > 0)
+                                    .map(c => String(c.id)));
 
                                 // 1. Agrupar los datos diarios por mes (clave 'YYYY-MM')
                                 const mapaMeses = {};
@@ -3740,9 +3758,17 @@
                                     if (d.esFuturo) {
                                         // Los días proyectados ya traen su propio desglose por categoría
                                         (d.movimientos || []).forEach(mov => {
+                                            const monto = parseFloat(mov.monto) || 0;
+
+                                            // La proyección solo contempla categorías con patrón, así que todo
+                                            // gasto que aparezca aquí es recurrente por construcción
+                                            if (mov.tipo === 'gasto' && !mov.esEntrada) {
+                                                mapaMeses[ym].gastoRecurrenteProyectado += monto;
+                                                return;
+                                            }
+
                                             if (!tiposDestacados.has(mov.tipo)) return;
                                             const acumulado = mapaMeses[ym].destacados[mov.tipo];
-                                            const monto = parseFloat(mov.monto) || 0;
                                             if (mov.esEntrada) acumulado.entradas += monto;
                                             else acumulado.salidas += monto;
                                         });
@@ -3816,6 +3842,15 @@
                                     m.corrienteIngreso = restanteIngresos;
                                     m.corrienteGasto = restanteGastos;
                                     m.esFuturo = m.ym > ymActual;
+
+                                    // Del gasto corriente, separamos la parte que viene de categorías con patrón
+                                    let recurrenteHistorico = 0;
+                                    Object.keys(m.gastosPorCategoria).forEach(id => {
+                                        if (gastosRecurrentes.has(id)) recurrenteHistorico += m.gastosPorCategoria[id];
+                                    });
+
+                                    m.gastoRecurrente = Math.min(recurrenteHistorico + m.gastoRecurrenteProyectado, m.corrienteGasto);
+                                    m.gastoVariable = m.corrienteGasto - m.gastoRecurrente;
                                 });
 
                                 return meses;
@@ -4118,6 +4153,7 @@
                                 const etiquetas = [];
                                 const serieIngresos = [];
                                 const serieGastos = [];
+                                const serieGastosRecurrentes = [];
                                 const balancesCierre = [];
                                 let balanceAcumulado = balanceInicial;
 
@@ -4143,13 +4179,15 @@
 
                                     const verIngreso = tiposVisiblesGrafica.has('ingreso');
                                     const verGasto = tiposVisiblesGrafica.has('gasto');
+                                    const verGastoRecurrente = tiposVisiblesGrafica.has('gastoRecurrente');
                                     serieIngresos.push(verIngreso ? m.corrienteIngreso : 0);
-                                    serieGastos.push(verGasto ? m.corrienteGasto : 0);
+                                    serieGastos.push(verGasto ? m.gastoVariable : 0);
+                                    serieGastosRecurrentes.push(verGastoRecurrente ? m.gastoRecurrente : 0);
 
                                     // Totales de lo que realmente se está dibujando, para que el detalle coincida
                                     m.ingresosVisibles = (verIngreso ? m.corrienteIngreso : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].entradas : 0), 0);
-                                    m.gastosVisibles = (verGasto ? m.corrienteGasto : 0) + TIPOS_DESTACADOS_GRAFICA
+                                    m.gastosVisibles = (verGasto ? m.gastoVariable : 0) + (verGastoRecurrente ? m.gastoRecurrente : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].salidas : 0), 0);
 
                                     // El balance acumulado sigue el saldo real de las cuentas, no el subconjunto visible
@@ -4202,8 +4240,18 @@
 
                                     const filasEntradas = TIPOS_DESTACADOS_GRAFICA
                                         .map(t => filaDestacada(t.etiquetaEntrada, m.destacados[t.tipo].entradas, '+', t.tipo)).join('');
-                                    const filasSalidas = TIPOS_DESTACADOS_GRAFICA
-                                        .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
+                                    // El gasto corriente se abre en su parte fija y su parte variable
+                                    const filaGasto = (etiqueta, monto, color, visible) => (monto > 0 && visible) ? `
+                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
+                                                <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
+                                                <strong style="color: ${color}; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(monto)}</strong>
+                                            </li>` : '';
+
+                                    const filasSalidas =
+                                        filaGasto('Recurrentes', m.gastoRecurrente, COLOR_GASTO_RECURRENTE, tiposVisiblesGrafica.has('gastoRecurrente')) +
+                                        filaGasto('Variables', m.gastoVariable, '#ff5c5c', tiposVisiblesGrafica.has('gasto')) +
+                                        TIPOS_DESTACADOS_GRAFICA
+                                            .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
 
                                     // Aviso de que se está viendo solo una parte, porque el balance sí es el real
                                     const ocultos = TIPOS_REGISTRO_GRAFICA.filter(t => !tiposVisiblesGrafica.has(t.tipo));
@@ -4271,7 +4319,16 @@
                                         borderSkipped: false
                                     },
                                     {
-                                        label: 'Gastos',
+                                        // Los recurrentes van abajo: son la base fija sobre la que se apila lo variable
+                                        label: 'Gastos recurrentes',
+                                        data: serieGastosRecurrentes,
+                                        backgroundColor: meses.map(m => m.esFuturo ? colorTenue(COLOR_GASTO_RECURRENTE, 0.45) : COLOR_GASTO_RECURRENTE),
+                                        stack: 'salidas',
+                                        borderRadius: 3,
+                                        borderSkipped: false
+                                    },
+                                    {
+                                        label: 'Gastos variables',
                                         data: serieGastos,
                                         backgroundColor: meses.map(m => m.esFuturo ? 'rgba(255, 92, 92, 0.45)' : '#ff5c5c'),
                                         stack: 'salidas',
