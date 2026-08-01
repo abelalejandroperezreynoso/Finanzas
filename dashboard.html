@@ -519,13 +519,9 @@
     </div>
     <input type="hidden" id="regTipoSelect">
 
-    <div style="display: flex; gap: 10px; align-items: flex-start;">
-    <select id="regCategoriaSelect" required onchange="sugerirMontoCategoria(); verificarMostrarCostoAccion();" style="flex: 1; min-width: 0;">
+    <select id="regCategoriaSelect" required onchange="onCambioCategoriaRegistro()">
     <option value="" disabled selected>Selecciona cuenta y dirección primero...</option>
     </select>
-    <button type="button" id="btnNuevaCatReg" onclick="abrirModalCategoriaDesdeRegistro()" title="Crear una categoría nueva"
-    style="width: auto; flex: 0 0 auto; padding: 12px 16px; margin-bottom: 16px; font-size: 1em; line-height: 1.2; background-color: #333; color: #3ecf8e; border: 1px solid #444;">➕</button>
-    </div>
 
     <input type="number" inputmode="decimal" id="regMonto" step="0.01" placeholder="0.00" required onfocus="limpiarSiAutofill(this)">
 
@@ -836,6 +832,8 @@
                                                     let currentUser = null, editIdMov = null, editIdCuenta = null, editIdCat = null, miGrafico = null, miTreemap = null;
                                                     // Guarda cuenta/dirección cuando la categoría se crea desde la pantalla de registro
                                                     let contextoCatDesdeRegistro = null;
+                                                    // Marcador de la última opción del select de categorías en el registro
+                                                    const VALOR_NUEVA_CATEGORIA = '__nueva_categoria__';
                                                                         let datosCuentas = [], datosCategorias = [], datosRegistros = [], datosGrafica = [];
                         let datosUsoCompleto = [];
                                             const cachePreciosMercado = {};
@@ -1633,6 +1631,7 @@
                             seleccionarTipoRegistro(direccionCompatibleConTipo(cat.tipo, contexto ? contexto.direccion : ''));
 
                             selCat.value = cat.id;
+                            selCat.dataset.valorPrevio = cat.id;
                             sugerirMontoCategoria();
                             verificarMostrarCostoAccion();
 
@@ -2229,6 +2228,7 @@
 
                                     if (!cuentaId || !direccion) {
                                         selCat.innerHTML = '<option value="" disabled selected>Selecciona cuenta y dirección primero...</option>';
+                                        selCat.dataset.valorPrevio = '';
                                         verificarMostrarCostoAccion();
                                         return;
                                     }
@@ -2246,7 +2246,7 @@
                                     });
 
                                     if (categoriasFiltradas.length === 0) {
-                                        selCat.innerHTML = '<option value="" disabled selected>Sin categorías — créala con ➕</option>';
+                                        selCat.innerHTML = '<option value="" disabled selected>Sin categorías todavía...</option>';
                                     } else {
                                         const deGruposConfig = [
                                             { id: 'ingreso', label: 'Ingresos' },
@@ -2294,9 +2294,37 @@
                                             }
                                         }
                                     }
-                                    
+
+                                    // Última opción de la lista: crear una categoría nueva sin salir del formulario.
+                                    // Se agrega como nodo (no con innerHTML) para no perder la selección ya hecha.
+                                    const opcionNueva = document.createElement('option');
+                                    opcionNueva.value = VALOR_NUEVA_CATEGORIA;
+                                    opcionNueva.textContent = '➕ Crear categoría nueva...';
+                                    selCat.appendChild(opcionNueva);
+                                    selCat.dataset.valorPrevio = selCat.value === VALOR_NUEVA_CATEGORIA ? '' : selCat.value;
+
                                     verificarMostrarCostoAccion();
                                 }
+
+                            // El select trae un marcador al final; si lo eligen abrimos el modal
+                            // y devolvemos la selección anterior para que nunca se quede ahí.
+                            function onCambioCategoriaRegistro() {
+                                const selCat = document.getElementById('regCategoriaSelect');
+                                if (!selCat) return;
+
+                                if (selCat.value === VALOR_NUEVA_CATEGORIA) {
+                                    const previo = selCat.dataset.valorPrevio || '';
+                                    if (previo) selCat.value = previo;
+                                    else selCat.selectedIndex = 0;
+
+                                    abrirModalCategoriaDesdeRegistro();
+                                    return;
+                                }
+
+                                selCat.dataset.valorPrevio = selCat.value;
+                                sugerirMontoCategoria();
+                                verificarMostrarCostoAccion();
+                            }
     
     
     // --- NUEVA FUNCIÓN PARA AUTOCOMPLETAR MONTO ---
@@ -5439,6 +5467,12 @@
                 return;
             }
 
+            // El marcador "Crear categoría nueva" nunca debe llegar a la base de datos
+            if (!catId || catId === VALOR_NUEVA_CATEGORIA) {
+                alert("⚠️ Por favor, selecciona una categoría.");
+                return;
+            }
+
             let montoInput = Math.abs(parseFloat(document.getElementById('regMonto').value));
             const montoFinal = direccion === 'salida' ? -montoInput : montoInput;
 
@@ -5506,6 +5540,7 @@
                                                 seleccionarTipoRegistro(montoNum >= 0 ? 'entrada' : 'salida');
                                     
                                     document.getElementById('regCategoriaSelect').value = r.categoria_id;
+                                    document.getElementById('regCategoriaSelect').dataset.valorPrevio = r.categoria_id;
                                 }
 
                                 document.getElementById('regMonto').value = Math.abs(r.monto);
@@ -5664,6 +5699,7 @@
 
                                                         // 3. Asignar la Categoría específica
                                                         document.getElementById('regCategoriaSelect').value = cat.id;
+                                                        document.getElementById('regCategoriaSelect').dataset.valorPrevio = cat.id;
 
                                                         // 4. Inyectar el monto habitual detectado
                                                         const inputMonto = document.getElementById('regMonto');
