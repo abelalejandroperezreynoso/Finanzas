@@ -4111,27 +4111,29 @@
                                 const flujo = totalIngresos - totalGastos;
                                 const tasaAhorro = totalIngresos > 0 ? (flujo / totalIngresos) * 100 : 0;
 
+                                // Cada bloque va con un título corto para poder hojear la tarjeta
                                 const parrafos = [];
+                                const agregar = (titulo, texto) => parrafos.push({ titulo, texto });
 
                                 // 1. Panorama del periodo
                                 const periodo = historicos.length === 1
                                     ? `En ${nombreMes(historicos[0])}`
                                     : `Entre ${nombreMes(historicos[0])} y ${nombreMes(historicos[historicos.length - 1])}`;
-                                parrafos.push(`${periodo} recibiste ${destacar(dinero(totalIngresos), VERDE)} y gastaste ${destacar(dinero(totalGastos), ROJO)}, con un flujo neto de ${destacar((flujo >= 0 ? '+' : '−') + dinero(flujo), flujo >= 0 ? VERDE : ROJO)}.`);
+                                agregar('Resumen', `${periodo} recibiste ${destacar(dinero(totalIngresos), VERDE)} y gastaste ${destacar(dinero(totalGastos), ROJO)}, con un flujo neto de ${destacar((flujo >= 0 ? '+' : '−') + dinero(flujo), flujo >= 0 ? VERDE : ROJO)}.`);
 
                                 // 2. Qué tan holgado es ese margen
                                 if (totalIngresos > 0) {
                                     const pct = tasaAhorro.toFixed(1) + '%';
                                     if (tasaAhorro >= 30) {
-                                        parrafos.push(`Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen amplio que te deja bastante holgura para imprevistos.`);
+                                        agregar('Margen', `Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen amplio que te deja bastante holgura para imprevistos.`);
                                     } else if (tasaAhorro >= 15) {
-                                        parrafos.push(`Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen sano.`);
+                                        agregar('Margen', `Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen sano.`);
                                     } else if (tasaAhorro >= 5) {
-                                        parrafos.push(`Conservas el ${destacar(pct, AMBAR)} de lo que ingresa. Es positivo, aunque un gasto inesperado se llevaría buena parte de ese colchón.`);
+                                        agregar('Margen', `Conservas el ${destacar(pct, AMBAR)} de lo que ingresa. Es positivo, aunque un gasto inesperado se llevaría buena parte de ese colchón.`);
                                     } else if (tasaAhorro >= 0) {
-                                        parrafos.push(`Apenas conservas el ${destacar(pct, AMBAR)} de lo que ingresa: prácticamente gastas todo lo que entra.`);
+                                        agregar('Margen', `Apenas conservas el ${destacar(pct, AMBAR)} de lo que ingresa: prácticamente gastas todo lo que entra.`);
                                     } else {
-                                        parrafos.push(`Gastaste un ${destacar(Math.abs(tasaAhorro).toFixed(1) + '%', ROJO)} más de lo que ingresó, así que en este periodo estuviste consumiendo saldo previo.`);
+                                        agregar('Margen', `Gastaste un ${destacar(Math.abs(tasaAhorro).toFixed(1) + '%', ROJO)} más de lo que ingresó, así que en este periodo estuviste consumiendo saldo previo.`);
                                     }
                                 }
 
@@ -4217,7 +4219,7 @@
                                         piezas.push(frase);
                                     }
 
-                                    parrafos.push(piezas.join(' '));
+                                    agregar('Lo recurrente', piezas.join(' '));
                                 }
 
                                 // 4. Hacia dónde va el gasto: comparamos los meses recientes contra los anteriores
@@ -4231,7 +4233,7 @@
                                     if (promedioPrevio > 0) {
                                         const cambio = ((promedioReciente - promedioPrevio) / promedioPrevio) * 100;
                                         if (Math.abs(cambio) < 5) {
-                                            parrafos.push(`Tu gasto mensual se mantiene estable, rondando ${destacar(dinero(promedioReciente), CLARO)} al mes.`);
+                                            agregar('Tendencia del gasto', `Tu gasto mensual se mantiene estable, rondando ${destacar(dinero(promedioReciente), CLARO)} al mes.`);
                                         } else if (cambio > 0) {
                                             const extraAnual = (promedioReciente - promedioPrevio) * 12;
 
@@ -4260,9 +4262,9 @@
                                                 ? ` De sostenerse ese ritmo, son unos ${destacar(dinero(extraAnual), ROJO)} adicionales al año.`
                                                 : ` Es un salto muy grande, así que conviene confirmar si fue algo puntual antes de darlo por tendencia.`;
 
-                                            parrafos.push(`⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores.${detalleAlza}${proyeccion}`);
+                                            agregar('Tendencia del gasto', `⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores.${detalleAlza}${proyeccion}`);
                                         } else {
-                                            parrafos.push(`Vas en buena dirección: tu gasto mensual bajó un ${destacar(Math.abs(cambio).toFixed(1) + '%', VERDE)}, de ${dinero(promedioPrevio)} a ${destacar(dinero(promedioReciente), VERDE)} al mes.`);
+                                            agregar('Tendencia del gasto', `Vas en buena dirección: tu gasto mensual bajó un ${destacar(Math.abs(cambio).toFixed(1) + '%', VERDE)}, de ${dinero(promedioPrevio)} a ${destacar(dinero(promedioReciente), VERDE)} al mes.`);
                                         }
                                     }
                                 }
@@ -4288,7 +4290,7 @@
                                             }
                                         }
 
-                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastosOcurridos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
+                                        agregar('Mes más caro', `El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastosOcurridos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
                                     }
                                 }
 
@@ -4296,9 +4298,9 @@
                                 const netoInversion = sumar(historicos, m => destacadoOcurrido(m, 'inversion', 'salidas') - destacadoOcurrido(m, 'inversion', 'entradas'));
                                 if (netoInversion > 0) {
                                     const pctInversion = totalIngresos > 0 ? ` (el ${((netoInversion / totalIngresos) * 100).toFixed(1)}% de lo que ingresó)` : '';
-                                    parrafos.push(`Destinaste ${destacar(dinero(netoInversion), CLARO)} netos a inversión${pctInversion}. Ese dinero salió de tus cuentas, pero sigue siendo tuyo.`);
+                                    agregar('Inversión', `Destinaste ${destacar(dinero(netoInversion), CLARO)} netos a inversión${pctInversion}. Ese dinero salió de tus cuentas, pero sigue siendo tuyo.`);
                                 } else if (netoInversion < 0) {
-                                    parrafos.push(`Retiraste ${destacar(dinero(netoInversion), CLARO)} netos de tus inversiones durante el periodo.`);
+                                    agregar('Inversión', `Retiraste ${destacar(dinero(netoInversion), CLARO)} netos de tus inversiones durante el periodo.`);
                                 }
 
                                 const deudaAdquirida = sumar(historicos, m => destacadoOcurrido(m, 'deuda', 'entradas'));
@@ -4306,9 +4308,9 @@
                                 if (deudaAdquirida > 0 || deudaPagada > 0) {
                                     const netoDeuda = deudaPagada - deudaAdquirida;
                                     if (netoDeuda > 0) {
-                                        parrafos.push(`En deudas pagaste ${destacar(dinero(deudaPagada), AMBAR)} y adquiriste ${dinero(deudaAdquirida)}, así que la redujiste en ${destacar(dinero(netoDeuda), VERDE)}.`);
+                                        agregar('Deuda', `En deudas pagaste ${destacar(dinero(deudaPagada), AMBAR)} y adquiriste ${dinero(deudaAdquirida)}, así que la redujiste en ${destacar(dinero(netoDeuda), VERDE)}.`);
                                     } else if (netoDeuda < 0) {
-                                        parrafos.push(`Tu deuda creció ${destacar(dinero(netoDeuda), ROJO)} en el periodo: adquiriste ${dinero(deudaAdquirida)} y pagaste ${dinero(deudaPagada)}.`);
+                                        agregar('Deuda', `Tu deuda creció ${destacar(dinero(netoDeuda), ROJO)} en el periodo: adquiriste ${dinero(deudaAdquirida)} y pagaste ${dinero(deudaPagada)}.`);
                                     }
                                 }
 
@@ -4318,7 +4320,7 @@
                                     acc + (m.esFuturo ? m.gastos : (m.gastos - m.gastosOcurridos)), 0);
 
                                 if (porOcurrir > 0) {
-                                    parrafos.push(`Hacia adelante tienes ${destacar(dinero(porOcurrir), AMBAR)} en cargos recurrentes ya previstos.`);
+                                    agregar('Por venir', `Hacia adelante tienes ${destacar(dinero(porOcurrir), AMBAR)} en cargos recurrentes ya previstos.`);
                                 }
 
                                 return parrafos;
@@ -4345,7 +4347,11 @@
 
                                 temporizadorResumenIA = setTimeout(() => {
                                     contenedor.innerHTML = parrafos
-                                        .map((p, i) => `<p style="margin: 0 0 10px 0; animation: aparecerAnalisis 0.35s ease-out ${i * 0.07}s both;">${p}</p>`)
+                                        .map((p, i) => `
+                                            <div style="margin: 0 0 14px 0; animation: aparecerAnalisis 0.35s ease-out ${i * 0.07}s both;">
+                                                <h4 style="margin: 0 0 3px 0; font-size: 0.7em; color: #777; text-transform: uppercase; letter-spacing: 1px; text-align: left; font-weight: bold;">${p.titulo}</h4>
+                                                <p style="margin: 0;">${p.texto}</p>
+                                            </div>`)
                                         .join('');
                                 }, 450);
                             }
