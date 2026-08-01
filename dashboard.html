@@ -4323,6 +4323,64 @@
                                     agregar('Por venir', `Hacia adelante tienes ${destacar(dinero(porOcurrir), AMBAR)} en cargos recurrentes ya previstos.`);
                                 }
 
+                                // 8. Qué mover el próximo periodo. Se razona sobre el flujo corriente —lo que
+                                // entra menos el gasto recurrente y el variable—, dejando fuera inversión,
+                                // deuda y préstamos: no son dinero consumido sino cambios de bolsillo, y
+                                // meterlos aquí pediría recortes para compensar algo que no es un gasto.
+                                const MARGEN_OBJETIVO = 0.20;
+                                const gastoVariableMes = promedioMensual(m => m.gastoVariable || 0);
+                                const gastoCorrienteMes = recurrente.total + gastoVariableMes;
+
+                                if (ingresoMensual > 0 && gastoCorrienteMes > 0) {
+                                    const flujoCorriente = ingresoMensual - gastoCorrienteMes;
+                                    const margenCorriente = flujoCorriente / ingresoMensual;
+                                    const cadaMes = unSoloMes ? '' : ' al mes';
+
+                                    // La categoría fija más pesada es la palanca con la que más se avanza
+                                    const recurrentePorCategoria = {};
+                                    baseRitmo.forEach(m => {
+                                        Object.keys(m.gastosPorCategoria || {}).forEach(id => {
+                                            if (m.catsGastoRecurrente.has(id)) {
+                                                recurrentePorCategoria[id] = (recurrentePorCategoria[id] || 0) + m.gastosPorCategoria[id] / baseRitmo.length;
+                                            }
+                                        });
+                                    });
+                                    const mayorFijo = mayoresGastos(recurrentePorCategoria, 1)[0];
+                                    const palanca = (mayorFijo && recurrente.cantidad > 1)
+                                        ? ` El fijo más pesado es ${destacar(nombreCategoria(mayorFijo.id), CLARO)}, con ${dinero(mayorFijo.monto)}${cadaMes}.`
+                                        : '';
+
+                                    if (margenCorriente < MARGEN_OBJETIVO) {
+                                        const objetivoPct = destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE);
+                                        const falta = ingresoMensual * MARGEN_OBJETIVO - flujoCorriente;
+                                        const pctDe = (base) => destacar((falta / base * 100).toFixed(0) + '%', AMBAR);
+
+                                        const cabeEnVariable = gastoVariableMes > 0 && falta <= gastoVariableMes;
+                                        let salida;
+
+                                        if (recurrente.total > 0 && falta <= recurrente.total) {
+                                            const proporcionFija = falta / recurrente.total;
+                                            const alternativa = cabeEnVariable ? ` o un ${pctDe(gastoVariableMes)} de lo variable` : '';
+                                            salida = ` Sale de recortar un ${pctDe(recurrente.total)} de lo recurrente${alternativa}.`;
+
+                                            // Tocar la mitad de lo fijo de un golpe rara vez es viable: son
+                                            // rentas y suscripciones, no decisiones del día a día.
+                                            if (proporcionFija >= 0.5 && !alternativa) {
+                                                salida += ` Es mucho para lo fijo de una sola vez, así que repartirlo con lo variable o subir el ingreso lo hace más llevadero.`;
+                                            }
+                                        } else if (cabeEnVariable) {
+                                            salida = ` Sale de recortar un ${pctDe(gastoVariableMes)} de lo variable.`;
+                                        } else {
+                                            salida = ` Ni vaciando un solo frente llegarías, así que tendría que salir de repartirlo entre lo fijo y lo variable, o de subir el ingreso.`;
+                                        }
+
+                                        agregar('Cómo mejorar', `Para dejar libre el ${objetivoPct} de lo que entra necesitas ${destacar(dinero(falta), AMBAR)}${cadaMes} menos de gasto corriente.${salida}${palanca}`);
+                                    } else if (recurrente.total > 0) {
+                                        const porCadaDiez = recurrente.total * 0.10;
+                                        agregar('Cómo mejorar', `Ya cubres tus gastos corrientes con holgura. Cada ${destacar('10%', VERDE)} que recortes de lo recurrente son ${destacar(dinero(porCadaDiez), VERDE)}${cadaMes} más para ti, unos ${destacar(dinero(porCadaDiez * 12), VERDE)} al año.${palanca}`);
+                                    }
+                                }
+
                                 return parrafos;
                             }
 
