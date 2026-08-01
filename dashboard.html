@@ -4427,12 +4427,17 @@
                                         }
                                     }
 
-                                    // Fila secundaria del desglose. El signo lo pone quien la pide, porque la
-                                    // misma utilidad sirve para lo que entra y para lo que sale.
+                                    const opacidad = m.esFuturo ? '0.5' : '1';
+
+                                    // Fila secundaria del desglose. El punto repite el color con el que ese
+                                    // concepto aparece en la barra, y el monto lleva ese mismo color.
+                                    // El signo lo pone quien la pide: la utilidad sirve para entradas y salidas.
                                     const filaDetalle = (etiqueta, monto, color, visible, signo) => (monto > 0 && visible) ? `
-                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
-                                                <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
-                                                <strong style="color: ${color}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
+                                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
+                                                <span style="color: #777; padding-left: 10px; display: flex; align-items: center; gap: 7px;">
+                                                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0; opacity: ${opacidad};"></span>${etiqueta}
+                                                </span>
+                                                <strong style="color: ${color}; opacity: ${opacidad};">${signo}$${fNum(monto)}</strong>
                                             </li>` : '';
 
                                     const filaDestacada = (etiqueta, monto, signo, tipo) =>
@@ -4464,17 +4469,17 @@
                                             ${avisoFiltro}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
-                                                <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresosVisibles)}</strong>
+                                                <strong style="color: #3ecf8e; opacity: ${opacidad};">+$${fNum(m.ingresosVisibles)}</strong>
                                             </li>
                                             ${filasEntradas}
                                             <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Gastos ${comparacionHtml ? `<span style="font-size: 0.85em; margin-left: 6px;">${comparacionHtml}</span>` : ''}</span>
-                                                <strong style="color: #ff5c5c; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(m.gastosVisibles)}</strong>
+                                                <strong style="color: #ff5c5c; opacity: ${opacidad};">-$${fNum(m.gastosVisibles)}</strong>
                                             </li>
                                             ${filasSalidas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0;">
                                                 <span style="color: #aaa;">• Flujo del mes</span>
-                                                <strong style="color: ${colorFlujo}; opacity: ${m.esFuturo ? '0.5' : '1'};">${flujoTexto}</strong>
+                                                <strong style="color: ${colorFlujo}; opacity: ${opacidad};">${flujoTexto}</strong>
                                             </li>
                                         </ul>
                                     `;
