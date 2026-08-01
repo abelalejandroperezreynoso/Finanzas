@@ -4397,11 +4397,12 @@
                                     }
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
                                     const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                    // El signo va antes del símbolo de moneda, nunca "$-1,234.00"
+                                    const flujoTexto = `${flujo > 0 ? '+' : (flujo < 0 ? '-' : '')}$${fNum(Math.abs(flujo))}`;
 
                                     if (balanceEl) {
                                         // Rendimiento del mes señalado: lo que entró menos lo que salió
-                                        const signo = flujo > 0 ? '+' : (flujo < 0 ? '-' : '');
-                                        balanceEl.textContent = `${signo}$${fNum(Math.abs(flujo))}`;
+                                        balanceEl.textContent = flujoTexto;
                                         balanceEl.style.color = colorFlujo;
                                         balanceEl.style.opacity = (m.esFuturo || mezclaProyectada) ? '0.5' : '1';
                                     }
@@ -4421,25 +4422,28 @@
                                         }
                                     }
 
-                                    // Desglose de los segmentos destacados dentro de cada barra
-                                    const filaDestacada = (etiqueta, monto, signo, tipo) => (monto > 0 && tiposVisiblesGrafica.has(tipo)) ? `
+                                    // Fila secundaria del desglose. El signo lo pone quien la pide, porque la
+                                    // misma utilidad sirve para lo que entra y para lo que sale.
+                                    const filaDetalle = (etiqueta, monto, color, visible, signo) => (monto > 0 && visible) ? `
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
-                                                <strong style="color: ${obtenerColorCategoria(tipo)}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
+                                                <strong style="color: ${color}; opacity: ${m.esFuturo ? '0.5' : '1'};">${signo}$${fNum(monto)}</strong>
                                             </li>` : '';
 
-                                    const filasEntradas = TIPOS_DESTACADOS_GRAFICA
-                                        .map(t => filaDestacada(t.etiquetaEntrada, m.destacados[t.tipo].entradas, '+', t.tipo)).join('');
+                                    const filaDestacada = (etiqueta, monto, signo, tipo) =>
+                                        filaDetalle(etiqueta, monto, obtenerColorCategoria(tipo), tiposVisiblesGrafica.has(tipo), signo);
+
+                                    // Cada lado abre todos sus componentes, de modo que las subfilas
+                                    // siempre suman exactamente el total de arriba.
+                                    const filasEntradas =
+                                        filaDetalle('Corrientes', m.corrienteIngreso, '#3ecf8e', tiposVisiblesGrafica.has('ingreso'), '+') +
+                                        TIPOS_DESTACADOS_GRAFICA
+                                            .map(t => filaDestacada(t.etiquetaEntrada, m.destacados[t.tipo].entradas, '+', t.tipo)).join('');
+
                                     // El gasto corriente se abre en su parte fija y su parte variable
-                                    const filaGasto = (etiqueta, monto, color, visible) => (monto > 0 && visible) ? `
-                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
-                                                <span style="color: #777; padding-left: 10px;">↳ ${etiqueta}</span>
-                                                <strong style="color: ${color}; opacity: ${m.esFuturo ? '0.5' : '1'};">-$${fNum(monto)}</strong>
-                                            </li>` : '';
-
                                     const filasSalidas =
-                                        filaGasto('Recurrentes', m.gastoRecurrente, COLOR_GASTO_RECURRENTE, tiposVisiblesGrafica.has('gastoRecurrente')) +
-                                        filaGasto('Variables', m.gastoVariable, '#ff5c5c', tiposVisiblesGrafica.has('gasto')) +
+                                        filaDetalle('Recurrentes', m.gastoRecurrente, COLOR_GASTO_RECURRENTE, tiposVisiblesGrafica.has('gastoRecurrente'), '-') +
+                                        filaDetalle('Variables', m.gastoVariable, '#ff5c5c', tiposVisiblesGrafica.has('gasto'), '-') +
                                         TIPOS_DESTACADOS_GRAFICA
                                             .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
 
@@ -4465,7 +4469,7 @@
                                             ${filasSalidas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0;">
                                                 <span style="color: #aaa;">• Flujo del mes</span>
-                                                <strong style="color: ${colorFlujo}; opacity: ${m.esFuturo ? '0.5' : '1'};">${flujo > 0 ? '+' : ''}$${fNum(flujo)}</strong>
+                                                <strong style="color: ${colorFlujo}; opacity: ${m.esFuturo ? '0.5' : '1'};">${flujoTexto}</strong>
                                             </li>
                                         </ul>
                                     `;
