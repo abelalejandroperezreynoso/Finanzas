@@ -4394,13 +4394,11 @@
                                     const [a, mm] = m.ym.split('-');
 
                                     // Un mes en curso puede traer una parte ya ocurrida y otra proyectada
-                                    const proyIngresos = m.ingresosProyectadosVisibles || 0;
-                                    const proyGastos = m.gastosProyectadosVisibles || 0;
-                                    const mezclaProyectada = !m.esFuturo && (proyIngresos > 0 || proyGastos > 0);
+                                    const mezclaProyectada = !m.esFuturo &&
+                                        ((m.ingresosProyectadosVisibles || 0) > 0 || (m.gastosProyectadosVisibles || 0) > 0);
 
                                     if (tituloTendenciaEl) {
-                                        const sufijo = m.esFuturo ? ' (Proyección)' : (mezclaProyectada ? ' (incluye proyección)' : '');
-                                        tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${sufijo}`;
+                                        tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
                                         tituloTendenciaEl.style.color = '#ffffff';
                                     }
                                     if (balanceEl) {
@@ -4457,22 +4455,9 @@
                                                 Ocultando: ${ocultos.map(t => t.etiqueta).join(', ')}
                                             </li>`;
 
-                                    // Decimos con números cuánto de lo que se ve todavía no pasa
-                                    let avisoProyeccion = '';
-                                    if (mezclaProyectada) {
-                                        const partes = [];
-                                        if (proyIngresos > 0) partes.push(`+$${fNum(proyIngresos)} de ingresos`);
-                                        if (proyGastos > 0) partes.push(`-$${fNum(proyGastos)} de gastos`);
-                                        avisoProyeccion = `
-                                            <li style="padding: 0 0 6px 0; color: #f39c12; font-size: 0.85em;">
-                                                ⏳ Aún no ocurre: ${partes.join(' y ')}
-                                            </li>`;
-                                    }
-
                                     detallesEl.innerHTML = `
                                         <ul style="list-style: none; padding: 0; margin: 0;">
                                             ${avisoFiltro}
-                                            ${avisoProyeccion}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
                                                 <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresosVisibles)}</strong>
