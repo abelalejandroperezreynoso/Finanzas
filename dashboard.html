@@ -4331,8 +4331,6 @@
                                 const serieGastos = [];
                                 const serieGastosRecurrentes = [];
                                 const serieGastosRecurrentesProyectados = [];
-                                const balancesCierre = [];
-                                let balanceAcumulado = balanceInicial;
 
                                 // Una serie de entradas y otra de salidas por cada tipo destacado
                                 const seriesDestacadas = {};
@@ -4379,10 +4377,6 @@
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacadosProyectados[t.tipo].entradas : 0), 0);
                                     m.gastosProyectadosVisibles = (verGastoRecurrente ? m.gastoRecurrentePorOcurrir : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacadosProyectados[t.tipo].salidas : 0), 0);
-
-                                    // El balance acumulado sigue el saldo real de las cuentas, no el subconjunto visible
-                                    balanceAcumulado += m.ingresos - m.gastos;
-                                    balancesCierre.push(balanceAcumulado);
                                 });
 
                                 let indiceMesActual = meses.findIndex(m => m.ym === ymActual);
@@ -4401,15 +4395,16 @@
                                         tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
                                         tituloTendenciaEl.style.color = '#ffffff';
                                     }
-                                    if (balanceEl) {
-                                        // El cierre de un mes con proyección todavía no es un saldo real
-                                        balanceEl.textContent = `$${fNum(balancesCierre[index])}`;
-                                        balanceEl.style.color = balancesCierre[index] >= 0 ? '#3ecf8e' : '#ff5c5c';
-                                        balanceEl.style.opacity = (m.esFuturo || mezclaProyectada) ? '0.5' : '1';
-                                    }
-
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
                                     const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
+
+                                    if (balanceEl) {
+                                        // Rendimiento del mes señalado: lo que entró menos lo que salió
+                                        const signo = flujo > 0 ? '+' : (flujo < 0 ? '-' : '');
+                                        balanceEl.textContent = `${signo}$${fNum(Math.abs(flujo))}`;
+                                        balanceEl.style.color = colorFlujo;
+                                        balanceEl.style.opacity = (m.esFuturo || mezclaProyectada) ? '0.5' : '1';
+                                    }
 
                                     // Comparación de gastos contra el mes anterior, sobre lo que está a la vista
                                     let comparacionHtml = '';
@@ -4479,16 +4474,19 @@
                                 const pluginLineaVerticalMes = {
                                     id: 'lineaVerticalMes',
                                     afterDraw: chart => {
-                                        let posicionX = null;
+                                        // Nos quedamos con el índice del mes, no con el de una barra suelta:
+                                        // la 'x' de un dataset apunta a su columna, que está descentrada del grupo.
+                                        let indice = null;
                                         const active = typeof chart.getActiveElements === 'function' ? chart.getActiveElements() : [];
-                                        if (active && active.length > 0 && active[0].element) {
-                                            posicionX = active[0].element.x;
+                                        if (active && active.length > 0) {
+                                            indice = active[0].index;
                                         } else if (indiceMesActual !== -1) {
-                                            const meta = chart.getDatasetMeta(0);
-                                            if (meta && meta.data[indiceMesActual]) {
-                                                posicionX = meta.data[indiceMesActual].x;
-                                            }
+                                            indice = indiceMesActual;
                                         }
+
+                                        // El centro de la categoría deja la línea justo entre entradas y salidas
+                                        const posicionX = indice === null ? null : chart.scales.x.getPixelForValue(indice);
+
                                         if (posicionX !== null) {
                                             const chartCtx = chart.ctx;
                                             chartCtx.save();
