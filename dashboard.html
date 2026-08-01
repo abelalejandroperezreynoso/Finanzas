@@ -864,6 +864,12 @@
                 // Modo de visualización de la gráfica principal: 'balance' (diario) o 'mensual' (barras por mes)
                 let modoGrafica = localStorage.getItem('modoGrafica') || 'balance';
 
+                // Porcentaje del ingreso que se aspira a dejar libre. Es el listón contra el que el
+                // análisis mide el periodo, así que lo elige el usuario y se recuerda entre sesiones.
+                const MARGENES_OBJETIVO = [10, 20, 30, 40, 50, 60];
+                let margenObjetivo = parseInt(localStorage.getItem('margenObjetivo'), 10);
+                if (!MARGENES_OBJETIVO.includes(margenObjetivo)) margenObjetivo = 20;
+
                 // Los gastos recurrentes no son un tipo de categoría sino un patrón detectado, así que llevan
                 // su propio color: un rojo apagado que los emparenta con el gasto sin confundirse con él.
                 const COLOR_GASTO_RECURRENTE = '#a83a3a';
@@ -4113,7 +4119,7 @@
 
                                 // Cada bloque va con un título corto para poder hojear la tarjeta
                                 const parrafos = [];
-                                const agregar = (titulo, texto) => parrafos.push({ titulo, texto });
+                                const agregar = (titulo, texto, extra) => parrafos.push(Object.assign({ titulo, texto }, extra));
 
                                 // 1. Panorama del periodo
                                 const periodo = historicos.length === 1
@@ -4327,11 +4333,14 @@
                                 // entra menos el gasto recurrente y el variable—, dejando fuera inversión,
                                 // deuda y préstamos: no son dinero consumido sino cambios de bolsillo, y
                                 // meterlos aquí pediría recortes para compensar algo que no es un gasto.
-                                const MARGEN_OBJETIVO = 0.20;
+                                // Aconsejar sobre un periodo ya cerrado hace tiempo no sirve de nada, así que
+                                // el bloque sólo sale cuando lo que se está viendo llega hasta hoy.
+                                const periodoVigente = meses.length > 0 && meses[meses.length - 1].ym >= ymEnCurso;
+                                const MARGEN_OBJETIVO = margenObjetivo / 100;
                                 const gastoVariableMes = promedioMensual(m => m.gastoVariable || 0);
                                 const gastoCorrienteMes = recurrente.total + gastoVariableMes;
 
-                                if (ingresoMensual > 0 && gastoCorrienteMes > 0) {
+                                if (periodoVigente && ingresoMensual > 0 && gastoCorrienteMes > 0) {
                                     const flujoCorriente = ingresoMensual - gastoCorrienteMes;
                                     const margenCorriente = flujoCorriente / ingresoMensual;
                                     const cadaMes = unSoloMes ? '' : ' al mes';
@@ -4374,10 +4383,10 @@
                                             salida = ` Ni vaciando un solo frente llegarías, así que tendría que salir de repartirlo entre lo fijo y lo variable, o de subir el ingreso.`;
                                         }
 
-                                        agregar('Cómo mejorar', `Para dejar libre el ${objetivoPct} de lo que entra necesitas ${destacar(dinero(falta), AMBAR)}${cadaMes} menos de gasto corriente.${salida}${palanca}`);
+                                        agregar('Cómo mejorar', `Para dejar libre el ${objetivoPct} de lo que entra necesitas ${destacar(dinero(falta), AMBAR)}${cadaMes} menos de gasto corriente.${salida}${palanca}`, { objetivo: true });
                                     } else if (recurrente.total > 0) {
                                         const porCadaDiez = recurrente.total * 0.10;
-                                        agregar('Cómo mejorar', `Ya cubres tus gastos corrientes con holgura. Cada ${destacar('10%', VERDE)} que recortes de lo recurrente son ${destacar(dinero(porCadaDiez), VERDE)}${cadaMes} más para ti, unos ${destacar(dinero(porCadaDiez * 12), VERDE)} al año.${palanca}`);
+                                        agregar('Cómo mejorar', `Ya cubres tus gastos corrientes con holgura. Cada ${destacar('10%', VERDE)} que recortes de lo recurrente son ${destacar(dinero(porCadaDiez), VERDE)}${cadaMes} más para ti, unos ${destacar(dinero(porCadaDiez * 12), VERDE)} al año.${palanca}`, { objetivo: true });
                                     }
                                 }
 
@@ -4385,12 +4394,24 @@
                             }
 
                             let temporizadorResumenIA = null;
+                            let mesesUltimoAnalisis = null;
 
-                            function actualizarResumenIA(meses) {
+                            // Cambiar el listón rehace sólo el texto: los datos del periodo no se tocan
+                            function cambiarMargenObjetivo(valor) {
+                                const elegido = parseInt(valor, 10);
+                                if (!MARGENES_OBJETIVO.includes(elegido)) return;
+
+                                margenObjetivo = elegido;
+                                localStorage.setItem('margenObjetivo', margenObjetivo);
+                                if (mesesUltimoAnalisis) actualizarResumenIA(mesesUltimoAnalisis, true);
+                            }
+
+                            function actualizarResumenIA(meses, sinEspera = false) {
                                 const tarjeta = document.getElementById('cardAnalisisIA');
                                 const contenedor = document.getElementById('contenidoAnalisisIA');
                                 if (!tarjeta || !contenedor) return;
 
+                                mesesUltimoAnalisis = meses;
                                 if (temporizadorResumenIA) clearTimeout(temporizadorResumenIA);
 
                                 const parrafos = generarResumenFinanciero(meses);
@@ -4399,19 +4420,39 @@
                                     return;
                                 }
 
-                                // Breve estado de "pensando" antes de mostrar el texto, para que se lea como una respuesta
-                                tarjeta.style.display = 'block';
-                                contenedor.innerHTML = '<span style="color: #777;">Analizando tus movimientos<span class="puntos-pensando"></span></span>';
+                                // El bloque marcado lleva debajo el selector del listón que él mismo usa,
+                                // para poder moverlo donde se lee su efecto y no en una pantalla aparte.
+                                const selectorObjetivo = () => `
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                                        <span style="color: #777; font-size: 0.85em;">Margen objetivo</span>
+                                        <select onchange="cambiarMargenObjetivo(this.value)"
+                                                style="width: auto; margin: 0; padding: 4px 8px; font-size: 0.85em; background: #222; border: 1px solid #3a3a3a;">
+                                            ${MARGENES_OBJETIVO.map(v => `<option value="${v}" ${v === margenObjetivo ? 'selected' : ''}>${v}%</option>`).join('')}
+                                        </select>
+                                    </div>`;
 
-                                temporizadorResumenIA = setTimeout(() => {
+                                const pintar = () => {
                                     contenedor.innerHTML = parrafos
                                         .map((p, i) => `
                                             <div style="margin: 0 0 14px 0; animation: aparecerAnalisis 0.35s ease-out ${i * 0.07}s both;">
                                                 <h4 style="margin: 0 0 3px 0; font-size: 0.7em; color: #777; text-transform: uppercase; letter-spacing: 1px; text-align: left; font-weight: bold;">${p.titulo}</h4>
                                                 <p style="margin: 0;">${p.texto}</p>
+                                                ${p.objetivo ? selectorObjetivo() : ''}
                                             </div>`)
                                         .join('');
-                                }, 450);
+                                };
+
+                                tarjeta.style.display = 'block';
+
+                                // Al mover el selector el texto se rehace al vuelo; el estado de "pensando"
+                                // sólo tiene sentido la primera vez, cuando de verdad se están leyendo datos.
+                                if (sinEspera) {
+                                    pintar();
+                                    return;
+                                }
+
+                                contenedor.innerHTML = '<span style="color: #777;">Analizando tus movimientos<span class="puntos-pensando"></span></span>';
+                                temporizadorResumenIA = setTimeout(pintar, 450);
                             }
 
                             // Vista alternativa de la gráfica principal: barras de Ingresos vs Gastos agrupadas por mes,
