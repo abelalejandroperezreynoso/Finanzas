@@ -398,6 +398,24 @@
             </div>
             </div>
 
+    <!-- INICIO TARJETA DE MAPA DE CATEGORÍAS -->
+    <div class="card" id="cardTreemapCategorias" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 1rem; gap: 10px;">
+            <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #888; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
+            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                <button id="btnTreemapSalidas" onclick="cambiarDireccionTreemapCategorias('salidas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Salidas</button>
+                <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Entradas</button>
+            </div>
+        </div>
+
+        <div id="contenedorTreemapCategorias" style="position: relative; width: 100%; height: 250px; padding: 0 1rem; box-sizing: border-box;">
+            <canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
+        </div>
+
+        <div id="totalTreemapCategorias" style="padding: 10px 1rem 2px 1rem; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px;"></div>
+    </div>
+    <!-- FIN TARJETA DE MAPA DE CATEGORÍAS -->
+
     <!-- INICIO TARJETA DE ANÁLISIS -->
     <div class="card" id="cardAnalisisIA" style="display: none; padding: 0; margin-bottom: 15px; background: #000000;">
         <div style="background: #131313; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px;">
@@ -3449,6 +3467,8 @@
 
                                                         mapaFuturo[fString].movimientos.push({
                                                             nombre: cat.nombre,
+                                                            // De qué categoría salió, para poder repartir la proyección en el mapa
+                                                            categoria_id: cat.id,
                                                             monto: monto,
                                                             esEntrada: esEntrada,
                                                             tipo: cat.tipo
@@ -3887,6 +3907,9 @@
                                     const registro = {
                                         ym, ingresos: 0, gastos: 0, destacados: {},
                                         gastosPorCategoria: {}, ingresosPorCategoria: {},
+                                        // El mismo reparto por categoría pero de lo que la app todavía sólo predice.
+                                        // Va en mapas aparte para no contaminar los acumuladores que arman las barras.
+                                        gastosPorCategoriaProyectado: {}, ingresosPorCategoriaProyectado: {},
                                         // Qué categorías con patrón participaron realmente en el mes
                                         catsIngresoRecurrente: new Set(), catsGastoRecurrente: new Set(),
                                         // Espejo de los acumuladores anteriores con sólo la parte que aún no ocurre
@@ -3921,6 +3944,16 @@
                                         // Los días proyectados ya traen su propio desglose por categoría
                                         (d.movimientos || []).forEach(mov => {
                                             const monto = parseFloat(mov.monto) || 0;
+
+                                            // Anotamos la predicción por categoría antes de repartirla por tipo:
+                                            // el mapa de categorías la necesita completa, venga del tipo que venga
+                                            if (mov.categoria_id !== undefined) {
+                                                const destinoProy = mov.esEntrada
+                                                    ? mapaMeses[ym].ingresosPorCategoriaProyectado
+                                                    : mapaMeses[ym].gastosPorCategoriaProyectado;
+                                                const claveProy = String(mov.categoria_id);
+                                                destinoProy[claveProy] = (destinoProy[claveProy] || 0) + monto;
+                                            }
 
                                             // La proyección solo contempla categorías con patrón, así que todo
                                             // gasto que aparezca aquí es recurrente por construcción
@@ -4535,6 +4568,7 @@
 
                                 if (meses.length === 0) {
                                     if (balanceEl) balanceEl.textContent = '';
+                                    renderizarTreemapCategorias([], null);
                                     miGrafico = new Chart(ctx, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } });
                                     return;
                                 }
@@ -4600,6 +4634,9 @@
 
                                 let indiceMesActual = meses.findIndex(m => m.ym === ymActual);
                                 if (indiceMesActual === -1) indiceMesActual = meses.length - 1;
+
+                                // Mes que el mapa de categorías tiene dibujado ahora mismo
+                                let indiceTreemapPintado = null;
 
                                 function actualizarDetallesMes(index) {
                                     if (index < 0 || index >= meses.length || !detallesEl) return;
@@ -4682,6 +4719,14 @@
                                             </li>
                                         </ul>
                                     `;
+
+                                    // El mapa de categorías abre por dentro el mes que la barra tiene señalado.
+                                    // Sólo se rehace al cambiar de mes: el hover dispara en cada movimiento del
+                                    // cursor y reconstruir el treemap en cada uno lo dejaría parpadeando.
+                                    if (index !== indiceTreemapPintado) {
+                                        indiceTreemapPintado = index;
+                                        renderizarTreemapCategorias(meses, index);
+                                    }
                                 }
 
                                 const pluginLineaVerticalMes = {
@@ -4826,6 +4871,318 @@
                                 canvas.addEventListener('touchend', canvas._snapBackHandler, { passive: true });
                             }
 
+                            // ===== MAPA DE CATEGORÍAS DE LA PANTALLA PRINCIPAL =====
+                            // Mismo lenguaje visual que la matriz de portafolio de Configuración, pero en lugar de
+                            // empresas dibuja las categorías que alimentan las barras: cada tile es una categoría,
+                            // su área es cuánto pesa y su color repite el del segmento donde cae dentro de la barra.
+                            // Así el mapa se lee como un zoom de la barra del mes que se está señalando.
+
+                            let miTreemapCategorias = null;
+
+                            // Qué lado de la barra se está mirando. Se recuerda entre sesiones.
+                            let direccionTreemapCategorias = localStorage.getItem('direccionTreemapCategorias') === 'entradas' ? 'entradas' : 'salidas';
+
+                            // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
+                            let contextoTreemapCategorias = { meses: [], indice: null };
+
+                            // Cuántas categorías se dibujan antes de agrupar la cola en un solo tile: por debajo de
+                            // cierto tamaño un tile ya no se puede etiquetar y deja de aportar información.
+                            const MAX_TILES_TREEMAP = 10;
+                            const NOMBRE_TILE_OTRAS = 'Otras';
+
+                            // El tile hereda el color con el que esa categoría aparece en la barra del mes. La
+                            // dirección manda sobre el tipo: un gasto con reembolso entra por el lado de entradas.
+                            function colorTreemapCategoria(cat, entradas) {
+                                if (!cat) return '#555555';
+                                if (cat.tipo === 'gasto' || cat.tipo === 'ingreso') {
+                                    if (entradas) return '#3ecf8e';
+                                    return (cat.tipo === 'gasto' && cat.diasRecurrencia > 0) ? COLOR_GASTO_RECURRENTE : '#ff5c5c';
+                                }
+                                return obtenerColorCategoria(cat.tipo);
+                            }
+
+                            // Sobre el blanco de una inversión o el verde de un ingreso, el texto blanco desaparece.
+                            // Se mide el brillo real del tile —ya con la transparencia de lo proyectado aplicada,
+                            // porque el fondo de la tarjeta es negro— y se elige el texto que contrasta.
+                            function colorEtiquetaTreemap(hex, alpha) {
+                                const limpio = String(hex).replace('#', '');
+                                const r = parseInt(limpio.slice(0, 2), 16);
+                                const g = parseInt(limpio.slice(2, 4), 16);
+                                const b = parseInt(limpio.slice(4, 6), 16);
+                                const brillo = ((0.299 * r + 0.587 * g + 0.114 * b) / 255) * alpha;
+                                return brillo > 0.6 ? '#0a0a0a' : '#ffffff';
+                            }
+
+                            // Bajo qué interruptor de la gráfica cae esa categoría, para que ocultar un tipo en las
+                            // barras lo oculte también aquí y los dos dibujos digan siempre lo mismo.
+                            function tipoGraficaDeCategoria(cat, entradas) {
+                                if (!cat) return null;
+                                if (cat.tipo === 'gasto' || cat.tipo === 'ingreso') {
+                                    if (entradas) return 'ingreso';
+                                    return (cat.tipo === 'gasto' && cat.diasRecurrencia > 0) ? 'gastoRecurrente' : 'gasto';
+                                }
+                                return cat.tipo;
+                            }
+
+                            function cambiarDireccionTreemapCategorias(direccion) {
+                                direccionTreemapCategorias = direccion === 'entradas' ? 'entradas' : 'salidas';
+                                localStorage.setItem('direccionTreemapCategorias', direccionTreemapCategorias);
+                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
+                            }
+
+                            // Suma por categoría los meses que se están mirando. Con índice, sólo ese mes; sin él,
+                            // todo el periodo filtrado. Devuelve el monto y qué parte de ese monto es predicción.
+                            function acumularCategoriasDelPeriodo(meses, indice, entradas) {
+                                const fuente = (indice === null || !meses || !meses[indice]) ? (meses || []) : [meses[indice]];
+                                const acumulado = {};
+
+                                const sumar = (clave, monto, esProyeccion) => {
+                                    if (!(monto > 0)) return;
+                                    if (!acumulado[clave]) acumulado[clave] = { monto: 0, proyectado: 0 };
+                                    acumulado[clave].monto += monto;
+                                    if (esProyeccion) acumulado[clave].proyectado += monto;
+                                };
+
+                                fuente.forEach(m => {
+                                    const real = (entradas ? m.ingresosPorCategoria : m.gastosPorCategoria) || {};
+                                    const proyectado = (entradas ? m.ingresosPorCategoriaProyectado : m.gastosPorCategoriaProyectado) || {};
+                                    Object.keys(real).forEach(id => sumar(id, real[id], false));
+                                    Object.keys(proyectado).forEach(id => sumar(id, proyectado[id], true));
+                                });
+
+                                return acumulado;
+                            }
+
+                            function renderizarTreemapCategorias(meses, indice = null) {
+                                const contenedor = document.getElementById('contenedorTreemapCategorias');
+                                const totalEl = document.getElementById('totalTreemapCategorias');
+                                const tituloEl = document.getElementById('tituloTreemapCategorias');
+                                if (!contenedor) return;
+
+                                contextoTreemapCategorias = { meses: meses || [], indice: indice };
+                                const entradas = direccionTreemapCategorias === 'entradas';
+
+                                [['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']].forEach(([dir, idBoton]) => {
+                                    const btn = document.getElementById(idBoton);
+                                    if (!btn) return;
+                                    const activo = dir === direccionTreemapCategorias;
+                                    btn.style.background = activo ? '#333' : 'none';
+                                    btn.style.color = activo ? '#ffffff' : '#888';
+                                });
+
+                                // El título dice exactamente qué recorte se está mirando, porque el mapa sigue al
+                                // mes que la barra tenga señalado y no siempre coincide con el filtro de fechas.
+                                if (tituloEl) {
+                                    const mesSeleccionado = (indice !== null && meses && meses[indice]) ? meses[indice] : null;
+                                    if (mesSeleccionado) {
+                                        const [anio, mm] = mesSeleccionado.ym.split('-');
+                                        tituloEl.textContent = `Categorías · ${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
+                                    } else {
+                                        tituloEl.textContent = 'Categorías del periodo';
+                                    }
+                                }
+
+                                const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
+
+                                let datos = Object.keys(acumulado).map(id => {
+                                    const cat = datosCategorias.find(c => String(c.id) === String(id));
+                                    return {
+                                        id: id,
+                                        cat: cat,
+                                        nombre: cat ? cat.nombre : 'Sin categoría',
+                                        monto: acumulado[id].monto,
+                                        proyectado: acumulado[id].proyectado
+                                    };
+                                }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
+
+                                // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
+                                // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
+                                const repeticiones = {};
+                                datos.forEach(d => { repeticiones[d.nombre] = (repeticiones[d.nombre] || 0) + 1; });
+                                datos.forEach(d => {
+                                    if (repeticiones[d.nombre] > 1) {
+                                        const cuenta = datosCuentas.find(c => String(c.id) === String(d.cat.cuenta_id));
+                                        if (cuenta) d.nombre = `${d.nombre} · ${cuenta.nombre}`;
+                                    }
+                                });
+
+                                datos.sort((a, b) => b.monto - a.monto);
+                                const totalCategorias = datos.length;
+
+                                // La cola larga se junta en un tile: ocupa lo mismo en total y deja legible el resto
+                                if (datos.length > MAX_TILES_TREEMAP) {
+                                    const cola = datos.slice(MAX_TILES_TREEMAP - 1);
+                                    datos = datos.slice(0, MAX_TILES_TREEMAP - 1);
+                                    datos.push({
+                                        id: null,
+                                        cat: null,
+                                        nombre: NOMBRE_TILE_OTRAS,
+                                        monto: cola.reduce((acc, d) => acc + d.monto, 0),
+                                        proyectado: cola.reduce((acc, d) => acc + d.proyectado, 0),
+                                        agrupadas: cola.length
+                                    });
+                                }
+
+                                if (miTreemapCategorias) {
+                                    miTreemapCategorias.destroy();
+                                    miTreemapCategorias = null;
+                                }
+
+                                if (datos.length === 0) {
+                                    const ocultos = TIPOS_REGISTRO_GRAFICA.filter(t => !tiposVisiblesGrafica.has(t.tipo));
+                                    const motivo = ocultos.length > 0
+                                        ? 'No hay categorías visibles con este filtro.'
+                                        : `No hay ${entradas ? 'entradas' : 'salidas'} en este periodo.`;
+                                    contenedor.innerHTML = `<p style="color: #888; font-size: 0.85em; text-align: center; margin: 0; padding-top: 90px;">${motivo}</p>`;
+                                    if (totalEl) totalEl.innerHTML = '';
+                                    return;
+                                }
+
+                                if (!document.getElementById('graficoTreemapCategorias')) {
+                                    contenedor.innerHTML = '<canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>';
+                                }
+
+                                const total = datos.reduce((acc, d) => acc + d.monto, 0);
+                                const proyectadoTotal = datos.reduce((acc, d) => acc + d.proyectado, 0);
+                                const buscarDato = (raw) => {
+                                    if (!raw) return null;
+                                    const etiqueta = raw.g || (raw._data && raw._data.nombre);
+                                    return datos.find(d => d.nombre === etiqueta) || null;
+                                };
+
+                                // Lo que aún no ocurre se apaga igual que en las barras, en proporción a cuánto
+                                // de ese tile es todavía una predicción.
+                                const opacidadDe = (d) => 1 - (1 - ALPHA_PROYECTADO) * (d.monto > 0 ? Math.min(1, d.proyectado / d.monto) : 0);
+
+                                // El treemap no recorta el texto que se sale del rectángulo: un nombre largo en un
+                                // tile estrecho invade a sus vecinos. Lo cortamos al ancho que de verdad cabe.
+                                const recortarEtiqueta = (texto, ancho, tam) => {
+                                    const cabe = Math.floor((ancho - 8) / (tam * 0.58));
+                                    if (cabe < 3) return '';
+                                    return texto.length > cabe ? `${texto.slice(0, cabe - 1)}…` : texto;
+                                };
+
+                                const ctx = document.getElementById('graficoTreemapCategorias').getContext('2d');
+
+                                miTreemapCategorias = new Chart(ctx, {
+                                    type: 'treemap',
+                                    data: {
+                                        datasets: [{
+                                            tree: datos,
+                                            key: 'monto',
+                                            groups: ['nombre'],
+                                            spacing: 2,
+                                            borderWidth: 0,
+                                            backgroundColor: (context) => {
+                                                if (context.type !== 'data') return 'transparent';
+                                                const d = buscarDato(context.raw);
+                                                if (!d) return '#444444';
+                                                if (!d.cat) return '#3a3a3a';
+                                                return colorTenue(colorTreemapCategoria(d.cat, entradas), opacidadDe(d));
+                                            },
+                                            labels: {
+                                                display: true,
+                                                align: 'center',
+                                                position: 'middle',
+                                                // Si aun recortado el texto no cabe, el propio treemap lo encoge
+                                                overflow: 'fit',
+                                                color: (context) => {
+                                                    if (context.type !== 'data') return '#ffffff';
+                                                    const d = buscarDato(context.raw);
+                                                    if (!d || !d.cat) return '#ffffff';
+                                                    return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas), opacidadDe(d));
+                                                },
+                                                font: (context) => {
+                                                    if (context.type !== 'data') return { size: 12, weight: 'bold' };
+
+                                                    const w = context.raw.w;
+                                                    const h = context.raw.h;
+
+                                                    let size = 12;
+                                                    if (w < 55 || h < 34) size = 9;
+                                                    else if (w < 85 || h < 55) size = 10;
+                                                    else if (w > 190 && h > 120) size = 16;
+                                                    else if (w > 120 && h > 80) size = 14;
+
+                                                    return { size: size, weight: 'bold' };
+                                                },
+                                                formatter: (context) => {
+                                                    if (context.type !== 'data') return [];
+                                                    const d = buscarDato(context.raw);
+                                                    if (!d) return [];
+
+                                                    const w = context.raw.w;
+                                                    const h = context.raw.h;
+
+                                                    // Un tile diminuto con tres renglones no se lee: se va quitando
+                                                    // renglón conforme el rectángulo se queda sin alto.
+                                                    if (h < 26 || w < 42) return [];
+
+                                                    let tam = 12;
+                                                    if (w < 55 || h < 34) tam = 9;
+                                                    else if (w < 85 || h < 55) tam = 10;
+                                                    else if (w > 190 && h > 120) tam = 16;
+                                                    else if (w > 120 && h > 80) tam = 14;
+
+                                                    const nombre = d.agrupadas ? `${NOMBRE_TILE_OTRAS} (${d.agrupadas})` : d.nombre;
+                                                    const etiqueta = recortarEtiqueta(nombre, w, tam);
+                                                    if (!etiqueta) return [];
+                                                    if (h < 40 || w < 62) return [etiqueta];
+
+                                                    const porc = total > 0 ? ((d.monto / total) * 100).toFixed(1) : '0.0';
+                                                    if (h < 62) return [etiqueta, `${porc}%`];
+                                                    return [etiqueta, `${porc}%`, `$${fNum(d.monto)}`];
+                                                }
+                                            }
+                                        }]
+                                    },
+                                    options: {
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: { display: false },
+                                            tooltip: {
+                                                displayColors: false,
+                                                callbacks: {
+                                                    title: (items) => {
+                                                        const d = buscarDato(items[0].raw);
+                                                        if (!d) return '';
+                                                        return d.agrupadas ? `${NOMBRE_TILE_OTRAS} (${d.agrupadas} categorías)` : d.nombre;
+                                                    },
+                                                    label: (item) => {
+                                                        const d = buscarDato(item.raw);
+                                                        if (!d) return '';
+                                                        const porc = total > 0 ? ((d.monto / total) * 100).toFixed(1) : '0.0';
+                                                        const lineas = [`${entradas ? '+' : '-'}$${fNum(d.monto)} · ${porc}% del total`];
+                                                        if (d.proyectado > 0) lineas.push(`Proyectado: $${fNum(d.proyectado)}`);
+                                                        return lineas;
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onClick: (event, elements) => {
+                                            if (!elements || elements.length === 0) return;
+                                            const nodo = miTreemapCategorias.data.datasets[0].data[elements[0].index];
+                                            const d = buscarDato(nodo);
+                                            if (d && d.id) verDetallesCategoria(d.id);
+                                        }
+                                    }
+                                });
+
+                                if (totalEl) {
+                                    const color = entradas ? '#3ecf8e' : '#ff5c5c';
+                                    const avisoProyectado = proyectadoTotal > 0
+                                        ? `<span style="display: block; color: #f39c12; font-size: 0.82em; font-weight: normal;">incluye $${fNum(proyectadoTotal)} proyectados</span>`
+                                        : '';
+                                    totalEl.innerHTML = `
+                                        <span style="color: #888; white-space: nowrap;">${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}</span>
+                                        <span style="text-align: right;">
+                                            <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
+                                            ${avisoProyectado}
+                                        </span>
+                                    `;
+                                }
+                            }
+
                             function actualizarGrafico(datosGraf, balanceInicial = 0) {
                                 const canvas = document.getElementById('graficoResumen');
                                 if (!canvas) return;
@@ -4840,8 +5197,11 @@
                                     return;
                                 }
 
-                                // El análisis acompaña a la gráfica en ambos modos
-                                actualizarResumenIA(construirMesesDesglosados(datosGraf));
+                                // El análisis y el mapa de categorías acompañan a la gráfica en ambos modos.
+                                // En la vista diaria no hay un mes señalado, así que el mapa abarca todo el periodo.
+                                const mesesDelPeriodo = construirMesesDesglosados(datosGraf);
+                                actualizarResumenIA(mesesDelPeriodo);
+                                renderizarTreemapCategorias(mesesDelPeriodo, null);
 
                                 if (datosGraf.length > 0) {
                                     let datosCompletos = [];
