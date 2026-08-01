@@ -519,9 +519,13 @@
     </div>
     <input type="hidden" id="regTipoSelect">
 
-    <select id="regCategoriaSelect" required onchange="sugerirMontoCategoria(); verificarMostrarCostoAccion();">
+    <div style="display: flex; gap: 10px; align-items: flex-start;">
+    <select id="regCategoriaSelect" required onchange="sugerirMontoCategoria(); verificarMostrarCostoAccion();" style="flex: 1; min-width: 0;">
     <option value="" disabled selected>Selecciona cuenta y dirección primero...</option>
     </select>
+    <button type="button" id="btnNuevaCatReg" onclick="abrirModalCategoriaDesdeRegistro()" title="Crear una categoría nueva"
+    style="width: auto; flex: 0 0 auto; padding: 12px 16px; margin-bottom: 16px; font-size: 1em; line-height: 1.2; background-color: #333; color: #3ecf8e; border: 1px solid #444;">➕</button>
+    </div>
 
     <input type="number" inputmode="decimal" id="regMonto" step="0.01" placeholder="0.00" required onfocus="limpiarSiAutofill(this)">
 
@@ -830,6 +834,8 @@
                                                     const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
                                                     let currentUser = null, editIdMov = null, editIdCuenta = null, editIdCat = null, miGrafico = null, miTreemap = null;
+                                                    // Guarda cuenta/dirección cuando la categoría se crea desde la pantalla de registro
+                                                    let contextoCatDesdeRegistro = null;
                                                                         let datosCuentas = [], datosCategorias = [], datosRegistros = [], datosGrafica = [];
                         let datosUsoCompleto = [];
                                             const cachePreciosMercado = {};
@@ -1579,8 +1585,68 @@
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
                                                         mostrarOcultarTicker();
+                                                        contextoCatDesdeRegistro = null;
                                                         abrirModalCategoria();
                                                     }
+
+                        // --- CREAR CATEGORÍAS SIN SALIR DE "REGISTRAR MOVIMIENTO" ---
+                        // Abre el mismo modal de siempre, pero precargado con la cuenta y la
+                        // dirección que el usuario ya eligió en el formulario de registro.
+                        function abrirModalCategoriaDesdeRegistro() {
+                            const cuentaId = document.getElementById('regCuentaSelect').value;
+                            const direccion = document.getElementById('regTipoSelect').value;
+
+                            abrirModalCategoriaNuevo();
+                            contextoCatDesdeRegistro = { cuentaId: cuentaId, direccion: direccion };
+
+                            const selCuentaCat = document.getElementById('catCuentaSelect');
+                            if (selCuentaCat) selCuentaCat.value = cuentaId || '';
+
+                            // Entrada sugiere Ingreso y Salida sugiere Gasto; el usuario puede cambiarlo
+                            if (direccion) {
+                                document.getElementById('catTipo').value = direccion === 'entrada' ? 'ingreso' : 'gasto';
+                                mostrarOcultarTicker();
+                            }
+
+                            setTimeout(() => {
+                                const inputNombre = document.getElementById('catNombre');
+                                if (inputNombre) inputNombre.focus();
+                            }, 200);
+                        }
+
+                        // Una categoría sólo aparece en el select si la dirección es compatible con su tipo
+                        function direccionCompatibleConTipo(tipo, direccionActual) {
+                            if (tipo === 'ingreso') return 'entrada';
+                            if (tipo === 'gasto') return 'salida';
+                            if (direccionActual) return direccionActual;
+                            return tipo === 'deuda' ? 'entrada' : 'salida';
+                        }
+
+                        // Tras refrescarTodo() los selects se redibujan, así que dejamos el
+                        // formulario apuntando a la categoría recién creada.
+                        function seleccionarCategoriaEnRegistro(cat, contexto) {
+                            const selCuenta = document.getElementById('regCuentaSelect');
+                            const selCat = document.getElementById('regCategoriaSelect');
+                            if (!selCuenta || !selCat || !cat) return;
+
+                            selCuenta.value = cat.cuenta_id;
+                            seleccionarTipoRegistro(direccionCompatibleConTipo(cat.tipo, contexto ? contexto.direccion : ''));
+
+                            selCat.value = cat.id;
+                            sugerirMontoCategoria();
+                            verificarMostrarCostoAccion();
+
+                            const msg = document.getElementById('mensajeReg');
+                            if (msg) {
+                                msg.textContent = `✅ Categoría "${cat.nombre}" creada y seleccionada.`;
+                                msg.className = 'mensaje exito';
+                                clearTimeout(window.timeoutMensajeReg);
+                                window.timeoutMensajeReg = setTimeout(() => {
+                                    msg.textContent = '';
+                                    msg.className = 'mensaje';
+                                }, 4000);
+                            }
+                        }
 
                         // --- NUEVAS FUNCIONES PARA EL MODAL RECURRENTE ---
                         function abrirModalInfoRecurrente(idCat) {
@@ -2180,7 +2246,7 @@
                                     });
 
                                     if (categoriasFiltradas.length === 0) {
-                                        selCat.innerHTML = '<option value="" disabled selected>No hay categorías para esta selección</option>';
+                                        selCat.innerHTML = '<option value="" disabled selected>Sin categorías — créala con ➕</option>';
                                     } else {
                                         const deGruposConfig = [
                                             { id: 'ingreso', label: 'Ingresos' },
@@ -3002,6 +3068,16 @@
                                                 return;
                                             }
 
+                                    // Evitamos duplicados al crear una categoría al vuelo desde el registro
+                                    const yaExiste = (datosCategorias || []).some(c =>
+                                        String(c.id) !== String(editIdCat || '') &&
+                                        String(c.cuenta_id) === String(c_id) &&
+                                        (c.nombre || '').trim().toLowerCase() === nombre.toLowerCase()
+                                    );
+                                    if (yaExiste && !confirm(`Ya tienes una categoría llamada "${nombre}" en esa cuenta. ¿Crearla de todas formas?`)) {
+                                        return;
+                                    }
+
                                     const desactivar_prediccion = document.getElementById('desactivarPrediccionCat').checked;
                                     const tickerValor = tipo === 'inversion' ? document.getElementById('catTicker').value.trim().toUpperCase() : null;
                                     const metaMonto = parseFloat(document.getElementById('catMetaMonto').value) || null;
@@ -3025,25 +3101,35 @@
                                     btnGuardar.textContent = 'Guardando...';
                                     btnGuardar.disabled = true;
 
+                                            const esEdicion = !!editIdCat;
                                             const res = editIdCat
                                                 ? await clienteSupabase.from('categorias').update(body).eq('id', editIdCat).select('*, cuentas(nombre)')
                                                 : await clienteSupabase.from('categorias').insert([body]).select('*, cuentas(nombre)');
-                                                
+
                                             btnGuardar.textContent = textoOriginal;
                                             btnGuardar.disabled = false;
 
                                             if (res.error) {
                                                 alert("Error al guardar la categoría: " + res.error.message);
                                             } else {
+                                                                const nuevaCat = (res.data && res.data[0]) ? res.data[0] : null;
+                                                                const contextoRegistro = contextoCatDesdeRegistro;
+                                                                contextoCatDesdeRegistro = null;
+
                                                                 document.getElementById('catNombre').value = '';
                                                                 document.getElementById('catTicker').value = '';
                                                                 editIdCat = null;
                                                                 document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                                 btnGuardar.textContent = 'Añadir Categoría';
-                                                                
+
                                                                 cerrarModalCategoria();
-                                                                
+
                                                                 await refrescarTodo();
+
+                                                                // Si la creamos desde el formulario de registro, la dejamos lista para usar
+                                                                if (contextoRegistro && !esEdicion && nuevaCat) {
+                                                                    seleccionarCategoriaEnRegistro(nuevaCat, contextoRegistro);
+                                                                }
                                                             }
                                 }
 
@@ -3051,6 +3137,7 @@
                                                                     const cat = datosCategorias.find(x => String(x.id) === String(id));
                                                                     if (!cat) return;
                                                                     editIdCat = id;
+                                                                    contextoCatDesdeRegistro = null;
                                                                     document.getElementById('catCuentaSelect').value = cat.cuenta_id;
                                                                     document.getElementById('catNombre').value = cat.nombre;
                                                                     document.getElementById('catTipo').value = cat.tipo;
