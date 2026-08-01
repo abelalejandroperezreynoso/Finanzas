@@ -868,11 +868,6 @@
                 // su propio color: un rojo apagado que los emparenta con el gasto sin confundirse con él.
                 const COLOR_GASTO_RECURRENTE = '#a83a3a';
 
-                // Ese rojo funciona como relleno de barra, pero en texto sobre negro apenas llega a
-                // 3.3:1 de contraste y se lee como atenuado, que aquí significa "aún no ocurre".
-                // Para las cifras y etiquetas usamos una versión aclarada, a la par del gasto variable.
-                const COLOR_GASTO_RECURRENTE_TEXTO = '#c67f7f';
-
                 // Transparencia de todo lo que todavía no ocurre. Se aplica al tramo proyectado de
                 // cualquier mes, incluido el mes en curso, para que nunca se lea como dinero real.
                 const ALPHA_PROYECTADO = 0.3;
@@ -880,7 +875,7 @@
                 // Tipos de registro que pueden mostrarse u ocultarse en las barras mensuales
                 const TIPOS_REGISTRO_GRAFICA = [
                     { tipo: 'ingreso', etiqueta: 'Ingresos' },
-                    { tipo: 'gastoRecurrente', etiqueta: 'Gastos recurrentes', color: COLOR_GASTO_RECURRENTE_TEXTO },
+                    { tipo: 'gastoRecurrente', etiqueta: 'Gastos recurrentes', color: COLOR_GASTO_RECURRENTE },
                     { tipo: 'gasto', etiqueta: 'Gastos variables' },
                     { tipo: 'inversion', etiqueta: 'Inversiones' },
                     { tipo: 'deuda', etiqueta: 'Deudas' },
@@ -4412,21 +4407,6 @@
                                         balanceEl.style.opacity = (m.esFuturo || mezclaProyectada) ? '0.5' : '1';
                                     }
 
-                                    // Comparación de gastos contra el mes anterior, sobre lo que está a la vista
-                                    let comparacionHtml = '';
-                                    if (index > 0) {
-                                        const gastosPrev = meses[index - 1].gastosVisibles;
-                                        if (gastosPrev > 0) {
-                                            const pct = ((m.gastosVisibles - gastosPrev) / gastosPrev) * 100;
-                                            const subiendo = pct > 0;
-                                            const flecha = subiendo ? '▲' : (pct < 0 ? '▼' : '=');
-                                            const colorPct = subiendo ? '#ff5c5c' : '#3ecf8e';
-                                            comparacionHtml = `<span style="color: ${colorPct}; font-weight: bold;">${flecha} ${subiendo ? '+' : ''}${pct.toFixed(1)}%</span> <span style="color: #888;">vs mes anterior</span>`;
-                                        } else if (m.gastosVisibles > 0) {
-                                            comparacionHtml = `<span style="color: #888;">Sin gastos el mes anterior</span>`;
-                                        }
-                                    }
-
                                     const opacidad = m.esFuturo ? '0.5' : '1';
 
                                     // Fila secundaria del desglose. El punto repite el color con el que ese
@@ -4452,7 +4432,7 @@
 
                                     // El gasto corriente se abre en su parte fija y su parte variable
                                     const filasSalidas =
-                                        filaDetalle('Recurrentes', m.gastoRecurrente, COLOR_GASTO_RECURRENTE_TEXTO, tiposVisiblesGrafica.has('gastoRecurrente'), '-') +
+                                        filaDetalle('Recurrentes', m.gastoRecurrente, COLOR_GASTO_RECURRENTE, tiposVisiblesGrafica.has('gastoRecurrente'), '-') +
                                         filaDetalle('Variables', m.gastoVariable, '#ff5c5c', tiposVisiblesGrafica.has('gasto'), '-') +
                                         TIPOS_DESTACADOS_GRAFICA
                                             .map(t => filaDestacada(t.etiquetaSalida, m.destacados[t.tipo].salidas, '-', t.tipo)).join('');
@@ -4472,8 +4452,8 @@
                                                 <strong style="color: #3ecf8e; opacity: ${opacidad};">+$${fNum(m.ingresosVisibles)}</strong>
                                             </li>
                                             ${filasEntradas}
-                                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
-                                                <span style="color: #aaa;">• Gastos ${comparacionHtml ? `<span style="font-size: 0.85em; margin-left: 6px;">${comparacionHtml}</span>` : ''}</span>
+                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
+                                                <span style="color: #aaa;">• Gastos</span>
                                                 <strong style="color: #ff5c5c; opacity: ${opacidad};">-$${fNum(m.gastosVisibles)}</strong>
                                             </li>
                                             ${filasSalidas}
