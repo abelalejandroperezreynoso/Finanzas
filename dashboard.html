@@ -4884,6 +4884,28 @@
                             // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
                             const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
+                            // Lo que falta por gastar de una categoría se deja apenas insinuado: marca el tamaño del
+                            // objetivo sin competir con la parte ya cubierta.
+                            const ALPHA_PENDIENTE_TREEMAP = 0.22;
+
+                            // Raya de hasta dónde llegaba lo esperado, en los recuadros que se pasaron
+                            const COLOR_MARCA_OBJETIVO_TREEMAP = 'rgba(255, 255, 255, 0.85)';
+
+                            // Qué parte del recuadro está cubierta por gasto real. Fuera del modo avance el esperado
+                            // es cero, el recuadro vale lo registrado y sale lleno: el mapa de siempre.
+                            function fraccionLlenado(d) {
+                                if (!d || !(d.monto > 0)) return 1;
+                                return Math.min(1, (d.real || 0) / d.monto);
+                            }
+
+                            // Altura relativa del objetivo, sólo cuando el gasto lo rebasó. Si no, null: la propia
+                            // cima del relleno ya dice dónde estaba.
+                            function fraccionObjetivo(d) {
+                                if (!d || !(d.esperado > 0) || !(d.monto > 0)) return null;
+                                if (d.real <= d.esperado) return null;
+                                return Math.min(1, d.esperado / d.monto);
+                            }
+
                             // Cuerpo mínimo del texto. Por debajo el treemap lo encoge él mismo con overflow 'fit',
                             // pero nunca partimos de algo más chico.
                             const MIN_FUENTE_TREEMAP = 7;
@@ -4966,6 +4988,37 @@
                                 return acumulado;
                             }
 
+                            // ---- Modo avance del mes en curso ----
+                            // Cuando lo que se está mirando es justo este mes, el mapa cambia de pregunta: en vez de
+                            // repartir lo ya gastado, cada recuadro vale lo que se espera gastar en esa categoría y
+                            // se va llenando con lo registrado. Sólo aplica a un mes, y sólo al de hoy: en uno
+                            // pasado no hay avance que seguir y en un rango largo no hay expectativa que calcular.
+                            function mesDeAvanceTreemap(meses, indice) {
+                                const ymActual = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                if (indice !== null && meses && meses[indice]) {
+                                    return meses[indice].ym === ymActual ? meses[indice] : null;
+                                }
+                                // Sin mes señalado el mapa abarca el periodo entero: vale si ese periodo es este mes
+                                if (meses && meses.length === 1 && meses[0].ym === ymActual) return meses[0];
+                                return null;
+                            }
+
+                            // Lo que se espera gastar en una categoría dentro del mes. Sale de la recurrencia que la
+                            // app detectó: el monto sugerido es el de un movimiento, así que hay que multiplicarlo
+                            // por las veces que ese movimiento cae en el mes —una nómina quincenal son dos—.
+                            // Sin patrón detectado no hay expectativa: devuelve 0 y el recuadro valdrá lo real.
+                            function esperadoEnMesCategoria(cat, ym) {
+                                if (!cat || !(cat.diasRecurrencia > 0)) return 0;
+                                const monto = parseFloat(cat.montoSugerido || 0);
+                                if (!(monto > 0)) return 0;
+
+                                const [anio, mm] = ym.split('-').map(Number);
+                                const diasDelMes = new Date(anio, mm, 0).getDate();
+                                // Se muestran sólo categorías con registros en el mes, así que al menos una cayó
+                                const veces = Math.max(1, Math.round(diasDelMes / cat.diasRecurrencia));
+                                return monto * veces;
+                            }
+
                             function renderizarTreemapCategorias(meses, indice = null) {
                                 const contenedor = document.getElementById('contenedorTreemapCategorias');
                                 const totalEl = document.getElementById('totalTreemapCategorias');
@@ -4999,13 +5052,23 @@
 
                                 const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
 
+                                const mesAvance = mesDeAvanceTreemap(meses, indice);
+
                                 let datos = Object.keys(acumulado).map(id => {
                                     const cat = datosCategorias.find(c => String(c.id) === String(id));
+                                    const real = acumulado[id];
+                                    const esperado = mesAvance ? esperadoEnMesCategoria(cat, mesAvance.ym) : 0;
+
+                                    // El recuadro nunca es menor que lo gastado: si te pasas de lo esperado, el área
+                                    // crece con el gasto real y la marca del objetivo queda dentro, en su altura.
+                                    // Así el mapa sigue diciendo la verdad sobre cuánto dinero es cada rectángulo.
                                     return {
                                         id: id,
                                         cat: cat,
                                         nombre: cat ? cat.nombre : 'Sin categoría',
-                                        monto: acumulado[id]
+                                        monto: Math.max(real, esperado),
+                                        real: real,
+                                        esperado: esperado
                                     };
                                 }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
 
@@ -5073,6 +5136,17 @@
                                     return formas.find(f => anchoTexto(f, tam) <= disponible) || formas[formas.length - 1];
                                 };
 
+                                // "Llevas de esperado" en el renglón del monto. Es el doble de largo que una cifra
+                                // suelta, así que si no cabe ni compacto se queda sólo con lo que llevas gastado.
+                                const avanceQueQuepa = (real, esperado, ancho, tam) => {
+                                    const disponible = ancho - PADDING_ETIQUETA_TREEMAP * 2;
+                                    const formas = [
+                                        `$${Math.round(real).toLocaleString('en-US')} / $${Math.round(esperado).toLocaleString('en-US')}`,
+                                        `${montoCompactoTreemap(real)} / ${montoCompactoTreemap(esperado)}`
+                                    ];
+                                    return formas.find(f => anchoTexto(f, tam) <= disponible) || montoQueQuepa(real, ancho, tam);
+                                };
+
                                 // Medidas del texto de un tile. El cuerpo de letra lo deciden dos sitios —la opción
                                 // font y el formatter, que necesita saberlo para recortar— así que sale de aquí una
                                 // sola vez y los dos leen lo mismo.
@@ -5110,7 +5184,36 @@
                                                 const d = buscarDato(context.raw);
                                                 if (!d) return '#444444';
                                                 if (!d.cat) return '#3a3a3a';
-                                                return colorTreemapCategoria(d.cat, entradas);
+
+                                                const base = colorTreemapCategoria(d.cat, entradas);
+                                                const f = fraccionLlenado(d);
+                                                const marca = fraccionObjetivo(d);
+                                                const { y, h } = context.raw;
+                                                if (!(h > 0) || (f >= 1 && marca === null)) return base;
+
+                                                // Relleno de abajo hacia arriba con un corte duro. El degradado va en
+                                                // coordenadas del lienzo, así que se arma con el rectángulo ya situado.
+                                                const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
+                                                const vacio = colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
+                                                grad.addColorStop(0, base);
+                                                if (f < 1) {
+                                                    grad.addColorStop(f, base);
+                                                    grad.addColorStop(f, vacio);
+                                                }
+                                                grad.addColorStop(1, f < 1 ? vacio : base);
+
+                                                // Si el gasto se pasó de lo esperado, el recuadro creció con lo real y
+                                                // aquí queda dibujada la raya de hasta dónde llegaba el objetivo.
+                                                if (marca !== null) {
+                                                    const grosor = Math.min(0.06, 2 / h);
+                                                    const desde = Math.max(0, marca - grosor / 2);
+                                                    const hasta = Math.min(1, marca + grosor / 2);
+                                                    grad.addColorStop(desde, base);
+                                                    grad.addColorStop(desde, COLOR_MARCA_OBJETIVO_TREEMAP);
+                                                    grad.addColorStop(hasta, COLOR_MARCA_OBJETIVO_TREEMAP);
+                                                    grad.addColorStop(hasta, base);
+                                                }
+                                                return grad;
                                             },
                                             labels: {
                                                 display: true,
@@ -5122,6 +5225,10 @@
                                                     if (context.type !== 'data') return '#ffffff';
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
+                                                    // El texto va centrado: sólo cae sobre el color pleno si el
+                                                    // relleno pasa de la mitad. Si no, el fondo es el tono apagado
+                                                    // sobre negro y ahí siempre gana el blanco.
+                                                    if (fraccionLlenado(d) < 0.55) return '#ffffff';
                                                     return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas));
                                                 },
                                                 padding: PADDING_ETIQUETA_TREEMAP,
@@ -5146,7 +5253,14 @@
                                                     // Los tres renglones se dibujan siempre: el porcentaje y el monto
                                                     // son el dato, no un adorno del que se pueda prescindir cuando el
                                                     // rectángulo aprieta. Lo que se adapta es cómo se escriben.
-                                                    const porc = total > 0 ? ((d.monto / total) * 100) : 0;
+                                                    // Con objetivo, el porcentaje es el avance contra lo esperado y
+                                                    // el monto se lee "llevas / de". Sin objetivo se mantiene el
+                                                    // reparto de siempre: cuánto pesa esa categoría en el total.
+                                                    const conObjetivo = d.esperado > 0;
+                                                    const porc = conObjetivo
+                                                        ? (d.real / d.esperado) * 100
+                                                        : (total > 0 ? (d.monto / total) * 100 : 0);
+
                                                     // Un decimal deja de aportar cuando la cifra ya no cabe entera
                                                     const textoPorc = anchoTexto(`${porc.toFixed(1)}%`, tamCifra) <= (w - PADDING_ETIQUETA_TREEMAP * 2)
                                                         ? `${porc.toFixed(1)}%`
@@ -5155,7 +5269,9 @@
                                                     return [
                                                         recortarEtiqueta(nombre, w, tamNombre),
                                                         textoPorc,
-                                                        montoQueQuepa(d.monto, w, tamCifra)
+                                                        conObjetivo
+                                                            ? avanceQueQuepa(d.real, d.esperado, w, tamCifra)
+                                                            : montoQueQuepa(d.monto, w, tamCifra)
                                                     ];
                                                 }
                                             }
@@ -5176,8 +5292,21 @@
                                                     label: (item) => {
                                                         const d = buscarDato(item.raw);
                                                         if (!d) return '';
+                                                        const signo = entradas ? '+' : '-';
+
+                                                        if (d.esperado > 0) {
+                                                            const avance = ((d.real / d.esperado) * 100).toFixed(0);
+                                                            const lineas = [`${signo}$${fNum(d.real)} de $${fNum(d.esperado)} esperados · ${avance}%`];
+                                                            if (d.real > d.esperado) {
+                                                                lineas.push(`Se pasó por $${fNum(d.real - d.esperado)}`);
+                                                            } else {
+                                                                lineas.push(`Faltan $${fNum(d.esperado - d.real)}`);
+                                                            }
+                                                            return lineas;
+                                                        }
+
                                                         const porc = total > 0 ? ((d.monto / total) * 100).toFixed(1) : '0.0';
-                                                        return `${entradas ? '+' : '-'}$${fNum(d.monto)} · ${porc}% del total`;
+                                                        return `${signo}$${fNum(d.monto)} · ${porc}% del total`;
                                                     }
                                                 }
                                             }
@@ -5193,10 +5322,26 @@
 
                                 if (totalEl) {
                                     const color = entradas ? '#3ecf8e' : '#ff5c5c';
-                                    totalEl.innerHTML = `
-                                        <span style="color: #888; white-space: nowrap;">${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}</span>
-                                        <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
-                                    `;
+                                    const etiquetaCats = `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
+
+                                    // En modo avance el pie deja de ser un total y pasa a ser el marcador del mes:
+                                    // lo que llevas frente a lo que se espera. Sólo cuentan las que tienen objetivo,
+                                    // porque sumar ahí las variables mezclaría un gasto con una expectativa.
+                                    const conObjetivo = datos.filter(d => d.esperado > 0);
+                                    if (mesAvance && conObjetivo.length > 0) {
+                                        const llevaObjetivo = conObjetivo.reduce((acc, d) => acc + d.real, 0);
+                                        const metaObjetivo = conObjetivo.reduce((acc, d) => acc + d.esperado, 0);
+                                        const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
+                                        totalEl.innerHTML = `
+                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% del mes</span>
+                                            <strong style="color: ${color}; white-space: nowrap;">$${fNum(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de $${fNum(metaObjetivo)}</span></strong>
+                                        `;
+                                    } else {
+                                        totalEl.innerHTML = `
+                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats}</span>
+                                            <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
+                                        `;
+                                    }
                                 }
                             }
 
