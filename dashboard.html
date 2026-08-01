@@ -4389,10 +4389,20 @@
                                     // Con una sola categoría el "a las dos/tres" sobra, y ya va nombrada arriba
                                     const aCuantas = frente.length === 1 ? '' : ` a ${frente.length === 2 ? 'las dos' : 'las tres'}`;
 
+                                    // El margen mide sólo el gasto corriente, así que no cuadra con el flujo
+                                    // del mes que se ve justo encima cuando hubo inversión, deuda o préstamos.
+                                    // Nombramos los que aparecieron para que la diferencia no parezca un error.
+                                    const NOMBRE_CORTO_TIPO = { inversion: 'inversión', deuda: 'deuda', prestamo: 'préstamos' };
+                                    const noCorrientes = TIPOS_DESTACADOS_GRAFICA
+                                        .filter(t => historicos.some(m =>
+                                            destacadoOcurrido(m, t.tipo, 'entradas') > 0 || destacadoOcurrido(m, t.tipo, 'salidas') > 0))
+                                        .map(t => NOMBRE_CORTO_TIPO[t.tipo]);
+                                    const salvedad = noCorrientes.length > 0 ? ` corriente (sin contar ${listar(noCorrientes)})` : '';
+
                                     // Un margen negativo como "-140%" no se lee; se dice con palabras
                                     const posicion = margenCorriente < 0
                                         ? `Tu gasto corriente se come todo lo que entra`
-                                        : `Estás en el ${destacar((margenCorriente * 100).toFixed(0) + '%', margenCorriente >= MARGEN_OBJETIVO ? VERDE : AMBAR)} de margen`;
+                                        : `Estás en el ${destacar((margenCorriente * 100).toFixed(0) + '%', margenCorriente >= MARGEN_OBJETIVO ? VERDE : AMBAR)} de margen${salvedad}`;
                                     const objetivoPct = destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE);
 
                                     if (margenCorriente < MARGEN_OBJETIVO) {
