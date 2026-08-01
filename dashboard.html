@@ -868,6 +868,10 @@
                 // su propio color: un rojo apagado que los emparenta con el gasto sin confundirse con él.
                 const COLOR_GASTO_RECURRENTE = '#a83a3a';
 
+                // Transparencia de todo lo que todavía no ocurre. Se aplica al tramo proyectado de
+                // cualquier mes, incluido el mes en curso, para que nunca se lea como dinero real.
+                const ALPHA_PROYECTADO = 0.3;
+
                 // Tipos de registro que pueden mostrarse u ocultarse en las barras mensuales
                 const TIPOS_REGISTRO_GRAFICA = [
                     { tipo: 'ingreso', etiqueta: 'Ingresos' },
@@ -3874,8 +3878,15 @@
 
                                 const tiposDestacados = new Set(TIPOS_DESTACADOS_GRAFICA.map(t => t.tipo));
                                 const mesVacio = (ym) => {
-                                    const registro = { ym, ingresos: 0, gastos: 0, destacados: {}, gastosPorCategoria: {}, gastoRecurrenteProyectado: 0 };
-                                    TIPOS_DESTACADOS_GRAFICA.forEach(t => { registro.destacados[t.tipo] = { entradas: 0, salidas: 0 }; });
+                                    const registro = {
+                                        ym, ingresos: 0, gastos: 0, destacados: {}, gastosPorCategoria: {},
+                                        // Espejo de los acumuladores anteriores con sólo la parte que aún no ocurre
+                                        gastoRecurrenteProyectado: 0, ingresosProyectados: 0, destacadosProyectados: {}
+                                    };
+                                    TIPOS_DESTACADOS_GRAFICA.forEach(t => {
+                                        registro.destacados[t.tipo] = { entradas: 0, salidas: 0 };
+                                        registro.destacadosProyectados[t.tipo] = { entradas: 0, salidas: 0 };
+                                    });
                                     return registro;
                                 };
 
@@ -3894,6 +3905,8 @@
                                     mapaMeses[ym].gastos += parseFloat(d.gastos) || 0;
 
                                     if (d.esFuturo) {
+                                        mapaMeses[ym].ingresosProyectados += parseFloat(d.ingresos) || 0;
+
                                         // Los días proyectados ya traen su propio desglose por categoría
                                         (d.movimientos || []).forEach(mov => {
                                             const monto = parseFloat(mov.monto) || 0;
@@ -3907,8 +3920,14 @@
 
                                             if (!tiposDestacados.has(mov.tipo)) return;
                                             const acumulado = mapaMeses[ym].destacados[mov.tipo];
-                                            if (mov.esEntrada) acumulado.entradas += monto;
-                                            else acumulado.salidas += monto;
+                                            const acumuladoProy = mapaMeses[ym].destacadosProyectados[mov.tipo];
+                                            if (mov.esEntrada) {
+                                                acumulado.entradas += monto;
+                                                acumuladoProy.entradas += monto;
+                                            } else {
+                                                acumulado.salidas += monto;
+                                                acumuladoProy.salidas += monto;
+                                            }
                                         });
                                     } else {
                                         fechasHistoricas.add(d.fecha.slice(0, 10));
@@ -3973,6 +3992,12 @@
                                         const acumulado = m.destacados[t.tipo];
                                         acumulado.entradas = Math.min(acumulado.entradas, restanteIngresos);
                                         acumulado.salidas = Math.min(acumulado.salidas, restanteGastos);
+
+                                        // Lo proyectado es un subconjunto del segmento, así que sigue el mismo recorte
+                                        const proyectado = m.destacadosProyectados[t.tipo];
+                                        proyectado.entradas = Math.min(proyectado.entradas, acumulado.entradas);
+                                        proyectado.salidas = Math.min(proyectado.salidas, acumulado.salidas);
+
                                         restanteIngresos -= acumulado.entradas;
                                         restanteGastos -= acumulado.salidas;
                                     });
@@ -3989,6 +4014,16 @@
 
                                     m.gastoRecurrente = Math.min(recurrenteHistorico + m.gastoRecurrenteProyectado, m.corrienteGasto);
                                     m.gastoVariable = m.corrienteGasto - m.gastoRecurrente;
+
+                                    // Tramo aún no ocurrido de cada segmento. El gasto variable nunca se proyecta:
+                                    // la predicción sólo genera movimientos de categorías con patrón.
+                                    const entradasDestacadasProy = TIPOS_DESTACADOS_GRAFICA
+                                        .reduce((acc, t) => acc + m.destacadosProyectados[t.tipo].entradas, 0);
+                                    m.corrienteIngresoProyectado = Math.max(0, Math.min(
+                                        m.ingresosProyectados - entradasDestacadasProy,
+                                        m.corrienteIngreso
+                                    ));
+                                    m.gastoRecurrentePorOcurrir = Math.min(m.gastoRecurrenteProyectado, m.gastoRecurrente);
                                 });
 
                                 return meses;
@@ -4289,16 +4324,22 @@
                                 const letrasMeses = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
                                 const etiquetas = [];
+                                // Cada concepto va partido en dos: lo que ya ocurrió y lo que la app proyecta.
+                                // El tramo proyectado se apila encima con mucha transparencia.
                                 const serieIngresos = [];
+                                const serieIngresosProyectados = [];
                                 const serieGastos = [];
                                 const serieGastosRecurrentes = [];
+                                const serieGastosRecurrentesProyectados = [];
                                 const balancesCierre = [];
                                 let balanceAcumulado = balanceInicial;
 
                                 // Una serie de entradas y otra de salidas por cada tipo destacado
                                 const seriesDestacadas = {};
                                 const tiposConDatos = new Set();
-                                TIPOS_DESTACADOS_GRAFICA.forEach(t => { seriesDestacadas[t.tipo] = { entradas: [], salidas: [] }; });
+                                TIPOS_DESTACADOS_GRAFICA.forEach(t => {
+                                    seriesDestacadas[t.tipo] = { entradas: [], salidas: [], entradasProy: [], salidasProy: [] };
+                                });
 
                                 meses.forEach(m => {
                                     const [a, mm] = m.ym.split('-');
@@ -4309,24 +4350,35 @@
                                     // El desglose ya viene recortado al total del mes; aquí solo decidimos qué se dibuja
                                     TIPOS_DESTACADOS_GRAFICA.forEach(t => {
                                         const acumulado = m.destacados[t.tipo];
+                                        const proyectado = m.destacadosProyectados[t.tipo];
                                         const visible = tiposVisiblesGrafica.has(t.tipo);
                                         if (visible && (acumulado.entradas > 0 || acumulado.salidas > 0)) tiposConDatos.add(t.tipo);
-                                        seriesDestacadas[t.tipo].entradas.push(visible ? acumulado.entradas : 0);
-                                        seriesDestacadas[t.tipo].salidas.push(visible ? acumulado.salidas : 0);
+                                        seriesDestacadas[t.tipo].entradas.push(visible ? acumulado.entradas - proyectado.entradas : 0);
+                                        seriesDestacadas[t.tipo].salidas.push(visible ? acumulado.salidas - proyectado.salidas : 0);
+                                        seriesDestacadas[t.tipo].entradasProy.push(visible ? proyectado.entradas : 0);
+                                        seriesDestacadas[t.tipo].salidasProy.push(visible ? proyectado.salidas : 0);
                                     });
 
                                     const verIngreso = tiposVisiblesGrafica.has('ingreso');
                                     const verGasto = tiposVisiblesGrafica.has('gasto');
                                     const verGastoRecurrente = tiposVisiblesGrafica.has('gastoRecurrente');
-                                    serieIngresos.push(verIngreso ? m.corrienteIngreso : 0);
+                                    serieIngresos.push(verIngreso ? m.corrienteIngreso - m.corrienteIngresoProyectado : 0);
+                                    serieIngresosProyectados.push(verIngreso ? m.corrienteIngresoProyectado : 0);
                                     serieGastos.push(verGasto ? m.gastoVariable : 0);
-                                    serieGastosRecurrentes.push(verGastoRecurrente ? m.gastoRecurrente : 0);
+                                    serieGastosRecurrentes.push(verGastoRecurrente ? m.gastoRecurrente - m.gastoRecurrentePorOcurrir : 0);
+                                    serieGastosRecurrentesProyectados.push(verGastoRecurrente ? m.gastoRecurrentePorOcurrir : 0);
 
                                     // Totales de lo que realmente se está dibujando, para que el detalle coincida
                                     m.ingresosVisibles = (verIngreso ? m.corrienteIngreso : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].entradas : 0), 0);
                                     m.gastosVisibles = (verGasto ? m.gastoVariable : 0) + (verGastoRecurrente ? m.gastoRecurrente : 0) + TIPOS_DESTACADOS_GRAFICA
                                         .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacados[t.tipo].salidas : 0), 0);
+
+                                    // La porción de esos totales que todavía no ocurre, para poder anunciarla
+                                    m.ingresosProyectadosVisibles = (verIngreso ? m.corrienteIngresoProyectado : 0) + TIPOS_DESTACADOS_GRAFICA
+                                        .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacadosProyectados[t.tipo].entradas : 0), 0);
+                                    m.gastosProyectadosVisibles = (verGastoRecurrente ? m.gastoRecurrentePorOcurrir : 0) + TIPOS_DESTACADOS_GRAFICA
+                                        .reduce((acc, t) => acc + (tiposVisiblesGrafica.has(t.tipo) ? m.destacadosProyectados[t.tipo].salidas : 0), 0);
 
                                     // El balance acumulado sigue el saldo real de las cuentas, no el subconjunto visible
                                     balanceAcumulado += m.ingresos - m.gastos;
@@ -4341,14 +4393,21 @@
                                     const m = meses[index];
                                     const [a, mm] = m.ym.split('-');
 
+                                    // Un mes en curso puede traer una parte ya ocurrida y otra proyectada
+                                    const proyIngresos = m.ingresosProyectadosVisibles || 0;
+                                    const proyGastos = m.gastosProyectadosVisibles || 0;
+                                    const mezclaProyectada = !m.esFuturo && (proyIngresos > 0 || proyGastos > 0);
+
                                     if (tituloTendenciaEl) {
-                                        tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
+                                        const sufijo = m.esFuturo ? ' (Proyección)' : (mezclaProyectada ? ' (incluye proyección)' : '');
+                                        tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${sufijo}`;
                                         tituloTendenciaEl.style.color = '#ffffff';
                                     }
                                     if (balanceEl) {
+                                        // El cierre de un mes con proyección todavía no es un saldo real
                                         balanceEl.textContent = `$${fNum(balancesCierre[index])}`;
                                         balanceEl.style.color = balancesCierre[index] >= 0 ? '#3ecf8e' : '#ff5c5c';
-                                        balanceEl.style.opacity = m.esFuturo ? '0.5' : '1';
+                                        balanceEl.style.opacity = (m.esFuturo || mezclaProyectada) ? '0.5' : '1';
                                     }
 
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
@@ -4398,9 +4457,22 @@
                                                 Ocultando: ${ocultos.map(t => t.etiqueta).join(', ')}
                                             </li>`;
 
+                                    // Decimos con números cuánto de lo que se ve todavía no pasa
+                                    let avisoProyeccion = '';
+                                    if (mezclaProyectada) {
+                                        const partes = [];
+                                        if (proyIngresos > 0) partes.push(`+$${fNum(proyIngresos)} de ingresos`);
+                                        if (proyGastos > 0) partes.push(`-$${fNum(proyGastos)} de gastos`);
+                                        avisoProyeccion = `
+                                            <li style="padding: 0 0 6px 0; color: #f39c12; font-size: 0.85em;">
+                                                ⏳ Aún no ocurre: ${partes.join(' y ')}
+                                            </li>`;
+                                    }
+
                                     detallesEl.innerHTML = `
                                         <ul style="list-style: none; padding: 0; margin: 0;">
                                             ${avisoFiltro}
+                                            ${avisoProyeccion}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
                                                 <strong style="color: #3ecf8e; opacity: ${m.esFuturo ? '0.5' : '1'};">+$${fNum(m.ingresosVisibles)}</strong>
@@ -4447,32 +4519,25 @@
                                     }
                                 };
 
+                                // Un mismo concepto entra dos veces: primero su tramo real y justo encima el
+                                // proyectado. Así un mes a medias se lee de un vistazo, sin necesitar leyenda.
+                                const segmento = (label, data, color, stack, proyectado = false) => ({
+                                    label: proyectado ? `${label} (proyectado)` : label,
+                                    data,
+                                    backgroundColor: proyectado ? colorTenue(color, ALPHA_PROYECTADO) : color,
+                                    stack,
+                                    borderRadius: 3,
+                                    borderSkipped: false
+                                });
+
                                 const datasetsGrafico = [
-                                    {
-                                        label: 'Ingresos',
-                                        data: serieIngresos,
-                                        backgroundColor: meses.map(m => m.esFuturo ? 'rgba(62, 207, 142, 0.45)' : '#3ecf8e'),
-                                        stack: 'entradas',
-                                        borderRadius: 3,
-                                        borderSkipped: false
-                                    },
-                                    {
-                                        // Los recurrentes van abajo: son la base fija sobre la que se apila lo variable
-                                        label: 'Gastos recurrentes',
-                                        data: serieGastosRecurrentes,
-                                        backgroundColor: meses.map(m => m.esFuturo ? colorTenue(COLOR_GASTO_RECURRENTE, 0.45) : COLOR_GASTO_RECURRENTE),
-                                        stack: 'salidas',
-                                        borderRadius: 3,
-                                        borderSkipped: false
-                                    },
-                                    {
-                                        label: 'Gastos variables',
-                                        data: serieGastos,
-                                        backgroundColor: meses.map(m => m.esFuturo ? 'rgba(255, 92, 92, 0.45)' : '#ff5c5c'),
-                                        stack: 'salidas',
-                                        borderRadius: 3,
-                                        borderSkipped: false
-                                    }
+                                    segmento('Ingresos', serieIngresos, '#3ecf8e', 'entradas'),
+                                    segmento('Ingresos', serieIngresosProyectados, '#3ecf8e', 'entradas', true),
+                                    // Los recurrentes van abajo: son la base fija sobre la que se apila lo variable
+                                    segmento('Gastos recurrentes', serieGastosRecurrentes, COLOR_GASTO_RECURRENTE, 'salidas'),
+                                    segmento('Gastos recurrentes', serieGastosRecurrentesProyectados, COLOR_GASTO_RECURRENTE, 'salidas', true),
+                                    // El gasto variable nunca se proyecta, así que no lleva gemelo
+                                    segmento('Gastos variables', serieGastos, '#ff5c5c', 'salidas')
                                 ];
 
                                 // Solo dividimos la barra para los tipos que realmente aparecen en el periodo
@@ -4480,25 +4545,13 @@
                                     if (!tiposConDatos.has(t.tipo)) return;
 
                                     const color = obtenerColorCategoria(t.tipo);
-                                    const colorBarra = meses.map(m => m.esFuturo ? colorTenue(color, 0.35) : color);
+                                    const series = seriesDestacadas[t.tipo];
 
                                     datasetsGrafico.push(
-                                        {
-                                            label: t.etiquetaEntrada,
-                                            data: seriesDestacadas[t.tipo].entradas,
-                                            backgroundColor: colorBarra,
-                                            stack: 'entradas',
-                                            borderRadius: 3,
-                                            borderSkipped: false
-                                        },
-                                        {
-                                            label: t.etiquetaSalida,
-                                            data: seriesDestacadas[t.tipo].salidas,
-                                            backgroundColor: colorBarra,
-                                            stack: 'salidas',
-                                            borderRadius: 3,
-                                            borderSkipped: false
-                                        }
+                                        segmento(t.etiquetaEntrada, series.entradas, color, 'entradas'),
+                                        segmento(t.etiquetaEntrada, series.entradasProy, color, 'entradas', true),
+                                        segmento(t.etiquetaSalida, series.salidas, color, 'salidas'),
+                                        segmento(t.etiquetaSalida, series.salidasProy, color, 'salidas', true)
                                     );
                                 });
 
