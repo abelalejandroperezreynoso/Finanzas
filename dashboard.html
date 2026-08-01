@@ -722,6 +722,11 @@
                     </select>
                     <input type="text" id="catTicker" placeholder="Ticker / Clave (Ej: AAPL)" style="display: none;">
 
+                    <!-- Lo esencial queda arriba; el resto vive detrás de este botón -->
+                    <button type="button" id="btnToggleAvanzadosCat" onclick="toggleAjustesAvanzadosCat()"
+                        style="margin-top: 5px; background: none; border: none; color: #888; font-size: 0.85em; font-weight: normal; text-align: left; padding: 6px 0;">⚙️ Mostrar ajustes avanzados</button>
+
+                    <div id="ajustesAvanzadosCat" style="display: none;">
                         <!-- NUEVO CONTENEDOR DE META -->
                         <div id="contenedorMeta" style="display: flex; margin-top: 10px; gap: 10px; background: #222; padding: 12px; border-radius: 8px; border: 1px dashed #444; flex-wrap: wrap;">
                             <div style="flex: 1; min-width: 100%;">
@@ -746,11 +751,12 @@
                         </div>
                         <!-- FIN NUEVO CONTENEDOR -->
 
-                    <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 5px; background: #333; padding: 10px; border-radius: 6px;">
+                        <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 5px; background: #333; padding: 10px; border-radius: 6px;">
                                         <input type="checkbox" id="desactivarPrediccionCat" style="width: auto; margin: 0 10px 0 0; transform: scale(1.2); cursor: pointer;">
                                         <label for="desactivarPrediccionCat" style="margin: 0; cursor: pointer; color: #ccc;">Omitir 100% de predicciones</label>
                                     </div>
-                                    
+                    </div>
+
                                     <div style="display: flex; gap: 10px; margin-top: 15px;">
                                                         <button onclick="guardarCategoria()" id="btnGuardarCat" style="flex: 2;">Añadir Categoría</button>
                                     <button onclick="cerrarModalCategoria()" style="flex: 1; background:#666;">Cancelar</button>
@@ -1583,9 +1589,25 @@
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
                                                         mostrarOcultarTicker();
+                                                        toggleAjustesAvanzadosCat(false);
                                                         contextoCatDesdeRegistro = null;
                                                         abrirModalCategoria();
                                                     }
+
+                        // Meta/límite y "omitir predicciones" son ajustes finos: se muestran
+                        // sólo cuando el usuario los pide. Con un booleano se puede forzar el estado.
+                        function toggleAjustesAvanzadosCat(forzarMostrar) {
+                            const bloque = document.getElementById('ajustesAvanzadosCat');
+                            const btn = document.getElementById('btnToggleAvanzadosCat');
+                            if (!bloque || !btn) return;
+
+                            const mostrar = typeof forzarMostrar === 'boolean'
+                                ? forzarMostrar
+                                : bloque.style.display === 'none';
+
+                            bloque.style.display = mostrar ? 'block' : 'none';
+                            btn.textContent = mostrar ? '⚙️ Ocultar ajustes avanzados' : '⚙️ Mostrar ajustes avanzados';
+                        }
 
                         // --- CREAR CATEGORÍAS SIN SALIR DE "REGISTRAR MOVIMIENTO" ---
                         // Abre el mismo modal de siempre, pero precargado con la cuenta y la
@@ -3176,7 +3198,8 @@
                                                                     document.getElementById('divMetaDias').style.display = (cat.meta_periodo === 'dias' || !cat.meta_periodo) ? 'block' : 'none';
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
                                                                     mostrarOcultarTicker();
-                                                                    mostrarOcultarTicker();
+                                                                    // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
+                                                                    toggleAjustesAvanzadosCat(!!cat.meta_monto || cat.desactivar_prediccion === true);
                                                                     document.getElementById('tituloCat').textContent = 'Editando Categoría';
                                         document.getElementById('btnGuardarCat').textContent = 'Actualizar';
                                         abrirModalCategoria();
