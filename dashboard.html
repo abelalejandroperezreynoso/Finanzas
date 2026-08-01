@@ -2123,10 +2123,21 @@
             currentUser = session.user;
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
             
+            // La app abre en el mes en curso. El filtro se deja puesto antes de cargar los datos para que
+            // el render que cierra cargarDatosBase ya salga con el mes aplicado, sin pintar primero todo
+            // el historial y corregirlo después.
+            //
+            // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el título saldría
+            // como un rango suelto, las flechas ◀ ▶ no avanzarían y el atajo "Mes" no aparecería marcado.
             const hoy = new Date();
-            // Quitamos la pre-carga de fechas en los filtros para mostrar todo al iniciar
-            document.getElementById('filtroInicio').value = '';
-            document.getElementById('filtroFin').value = '';
+            tipoFiltroActual = 'mes';
+            offsetFiltroActual = 0;
+            // Mismo criterio que el atajo "Mes": del día 1 al último del mes. Se escribe la fecha local en
+            // texto en lugar de usar valueAsDate, que interpreta el Date en UTC y adelanta un día el corte
+            // en las zonas horarias por delante de Greenwich.
+            const aFechaInput = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            document.getElementById('filtroInicio').value = aFechaInput(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+            document.getElementById('filtroFin').value = aFechaInput(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0));
             
             // La fecha del formulario de registro sí la mantenemos en el día de hoy
                                     const ahora = new Date();
