@@ -3442,7 +3442,6 @@
                                                         }
 
                                                         mapaFuturo[fString].movimientos.push({
-                                                            id: cat.id,
                                                             nombre: cat.nombre,
                                                             monto: monto,
                                                             esEntrada: esEntrada,
@@ -3918,15 +3917,9 @@
                                             const monto = parseFloat(mov.monto) || 0;
 
                                             // La proyección solo contempla categorías con patrón, así que todo
-                                            // lo que aparezca aquí es recurrente por construcción
-                                            if (mov.tipo === 'ingreso' && mov.esEntrada) {
-                                                if (mov.id) mapaMeses[ym].catsIngresoRecurrente.add(String(mov.id));
-                                                return;
-                                            }
-
+                                            // gasto que aparezca aquí es recurrente por construcción
                                             if (mov.tipo === 'gasto' && !mov.esEntrada) {
                                                 mapaMeses[ym].gastoRecurrenteProyectado += monto;
-                                                if (mov.id) mapaMeses[ym].catsGastoRecurrente.add(String(mov.id));
                                                 return;
                                             }
 
@@ -4053,10 +4046,21 @@
                                         }
                                     });
 
-                                    m.ingresoRecurrente = Math.min(
-                                        ingresoRecurrenteHistorico + m.corrienteIngresoProyectado,
-                                        m.corrienteIngreso
+                                    // Lo que ya pasó de verdad en el mes. El mes en curso mezcla movimientos
+                                    // registrados con proyección, y hay lecturas —el análisis escrito— que sólo
+                                    // deben apoyarse en lo primero.
+                                    const ocurrido = (t, direccion) => m.destacados[t.tipo][direccion] - m.destacadosProyectados[t.tipo][direccion];
+                                    const entradasDestacadasOcurridas = TIPOS_DESTACADOS_GRAFICA.reduce((acc, t) => acc + ocurrido(t, 'entradas'), 0);
+                                    const salidasDestacadasOcurridas = TIPOS_DESTACADOS_GRAFICA.reduce((acc, t) => acc + ocurrido(t, 'salidas'), 0);
+
+                                    m.ingresoRecurrenteOcurrido = Math.min(
+                                        ingresoRecurrenteHistorico,
+                                        m.corrienteIngreso - m.corrienteIngresoProyectado
                                     );
+                                    m.gastoRecurrenteOcurrido = m.gastoRecurrente - m.gastoRecurrentePorOcurrir;
+
+                                    m.ingresosOcurridos = (m.corrienteIngreso - m.corrienteIngresoProyectado) + entradasDestacadasOcurridas;
+                                    m.gastosOcurridos = m.gastoRecurrenteOcurrido + m.gastoVariable + salidasDestacadasOcurridas;
                                 });
 
                                 return meses;
@@ -4065,7 +4069,9 @@
                             // Redacta en lenguaje natural un análisis de los meses que alimentan la gráfica.
                             // Devuelve un arreglo de párrafos ya con formato, o null si no hay nada que contar.
                             function generarResumenFinanciero(meses) {
-                                const historicos = (meses || []).filter(m => !m.esFuturo && (m.ingresos > 0 || m.gastos > 0));
+                                // Todo el análisis se apoya en lo que ya ocurrió: el mes en curso trae proyección
+                                // y contarla sería afirmar que ya recibiste o gastaste algo que no ha pasado.
+                                const historicos = (meses || []).filter(m => !m.esFuturo && (m.ingresosOcurridos > 0 || m.gastosOcurridos > 0));
                                 if (historicos.length === 0) return null;
 
                                 const VERDE = '#3ecf8e', ROJO = '#ff5c5c', AMBAR = '#f39c12', CLARO = '#ffffff';
@@ -4096,8 +4102,12 @@
                                     .sort((a, b) => b.monto - a.monto)
                                     .slice(0, cantidad);
 
-                                const totalIngresos = sumar(historicos, m => m.ingresos);
-                                const totalGastos = sumar(historicos, m => m.gastos);
+                                // Reparto de un tipo destacado descontando su parte proyectada
+                                const destacadoOcurrido = (m, tipo, direccion) =>
+                                    m.destacados[tipo][direccion] - m.destacadosProyectados[tipo][direccion];
+
+                                const totalIngresos = sumar(historicos, m => m.ingresosOcurridos);
+                                const totalGastos = sumar(historicos, m => m.gastosOcurridos);
                                 const flujo = totalIngresos - totalGastos;
                                 const tasaAhorro = totalIngresos > 0 ? (flujo / totalIngresos) * 100 : 0;
 
@@ -4129,21 +4139,28 @@
                                 // cuánto ya estaba comprometido. Son las cifras reales de esos meses, no un
                                 // ritmo teórico del catálogo, que contradiría a la propia gráfica.
                                 const unSoloMes = historicos.length === 1;
-                                const promedioMensual = (obtener) => sumar(historicos, obtener) / historicos.length;
+
+                                // Para hablar de un ritmo mensual descartamos el mes en curso, que va a medias
+                                // y hundiría el promedio. Si es lo único que hay, describimos ese mes tal cual.
+                                const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
+                                const baseRitmo = (historicos.length > 1 && mesesCerrados.length > 0) ? mesesCerrados : historicos;
+
+                                const promedioMensual = (obtener) => sumar(baseRitmo, obtener) / baseRitmo.length;
                                 const unirCategorias = (obtener) => {
                                     const juntas = new Set();
-                                    historicos.forEach(m => (obtener(m) || new Set()).forEach(id => juntas.add(id)));
+                                    baseRitmo.forEach(m => (obtener(m) || new Set()).forEach(id => juntas.add(id)));
                                     return [...juntas];
                                 };
 
                                 const ingresoRecurrente = {
-                                    total: promedioMensual(m => m.ingresoRecurrente || 0),
+                                    total: promedioMensual(m => m.ingresoRecurrenteOcurrido || 0),
                                     categorias: unirCategorias(m => m.catsIngresoRecurrente).map(nombreCategoria)
                                 };
                                 ingresoRecurrente.cantidad = ingresoRecurrente.categorias.length;
 
                                 const recurrente = {
-                                    total: promedioMensual(m => m.gastoRecurrente || 0),
+                                    total: promedioMensual(m => m.gastoRecurrenteOcurrido || 0),
                                     categorias: unirCategorias(m => m.catsGastoRecurrente).map(nombreCategoria)
                                 };
                                 recurrente.cantidad = recurrente.categorias.length;
@@ -4165,11 +4182,9 @@
                                         ? `Ese mes, tus ingresos recurrentes sumaron ${destacar(dinero(ingresoMensual), VERDE)}${fuente}.`
                                         : `Tus ingresos recurrentes promedian ${destacar(dinero(ingresoMensual), VERDE)} al mes${fuente}.`;
                                 } else {
-                                    // Sin patrón fijo caemos al promedio, descartando el mes en curso porque va a medias
-                                    const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
-                                    const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
-                                    const baseIngreso = (historicos.length >= 3 && mesesCerrados.length >= 2) ? mesesCerrados : historicos;
-                                    ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso) / baseIngreso.length;
+                                    // Sin patrón fijo caemos al promedio, con el mismo criterio sobre el mes en curso
+                                    const baseIngreso = baseRitmo;
+                                    ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso - m.corrienteIngresoProyectado) / baseIngreso.length;
 
                                     if (ingresoMensual > 0) {
                                         const aclaracion = baseIngreso.length < historicos.length ? ', sin contar el mes en curso' : '';
@@ -4210,8 +4225,8 @@
                                     const ventana = historicos.length >= 6 ? 3 : 2;
                                     const recientes = historicos.slice(-ventana);
                                     const previos = historicos.slice(-ventana * 2, -ventana);
-                                    const promedioReciente = sumar(recientes, m => m.gastos) / recientes.length;
-                                    const promedioPrevio = sumar(previos, m => m.gastos) / previos.length;
+                                    const promedioReciente = sumar(recientes, m => m.gastosOcurridos) / recientes.length;
+                                    const promedioPrevio = sumar(previos, m => m.gastosOcurridos) / previos.length;
 
                                     if (promedioPrevio > 0) {
                                         const cambio = ((promedioReciente - promedioPrevio) / promedioPrevio) * 100;
@@ -4255,14 +4270,14 @@
                                 // 5. Meses que se salen de la norma
                                 if (historicos.length >= 3) {
                                     const promedioGasto = totalGastos / historicos.length;
-                                    const mesCaro = historicos.reduce((a, b) => b.gastos > a.gastos ? b : a);
-                                    if (promedioGasto > 0 && mesCaro.gastos > promedioGasto * 1.3) {
-                                        const exceso = ((mesCaro.gastos / promedioGasto) - 1) * 100;
+                                    const mesCaro = historicos.reduce((a, b) => b.gastosOcurridos > a.gastosOcurridos ? b : a);
+                                    if (promedioGasto > 0 && mesCaro.gastosOcurridos > promedioGasto * 1.3) {
+                                        const exceso = ((mesCaro.gastosOcurridos / promedioGasto) - 1) * 100;
                                         const culpables = mayoresGastos(mesCaro.gastosPorCategoria || {}, 3);
 
                                         let explicacion = ' No hay movimientos con categoría que expliquen el salto.';
                                         if (culpables.length > 0) {
-                                            const pesoPrimero = mesCaro.gastos > 0 ? (culpables[0].monto / mesCaro.gastos) * 100 : 0;
+                                            const pesoPrimero = mesCaro.gastosOcurridos > 0 ? (culpables[0].monto / mesCaro.gastosOcurridos) * 100 : 0;
                                             // Si una sola categoría se lleva la mayoría, la señalamos sin diluirla entre otras
                                             if (culpables.length === 1 || pesoPrimero >= 55) {
                                                 explicacion = ` Lo disparó ${destacar(nombreCategoria(culpables[0].id), CLARO)}, con ${destacar(dinero(culpables[0].monto), ROJO)}: el ${pesoPrimero.toFixed(0)}% del gasto de ese mes.`;
@@ -4273,12 +4288,12 @@
                                             }
                                         }
 
-                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
+                                        parrafos.push(`El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastosOcurridos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
                                     }
                                 }
 
                                 // 6. Inversión y deuda, que no son gasto corriente
-                                const netoInversion = sumar(historicos, m => m.destacados.inversion.salidas - m.destacados.inversion.entradas);
+                                const netoInversion = sumar(historicos, m => destacadoOcurrido(m, 'inversion', 'salidas') - destacadoOcurrido(m, 'inversion', 'entradas'));
                                 if (netoInversion > 0) {
                                     const pctInversion = totalIngresos > 0 ? ` (el ${((netoInversion / totalIngresos) * 100).toFixed(1)}% de lo que ingresó)` : '';
                                     parrafos.push(`Destinaste ${destacar(dinero(netoInversion), CLARO)} netos a inversión${pctInversion}. Ese dinero salió de tus cuentas, pero sigue siendo tuyo.`);
@@ -4286,8 +4301,8 @@
                                     parrafos.push(`Retiraste ${destacar(dinero(netoInversion), CLARO)} netos de tus inversiones durante el periodo.`);
                                 }
 
-                                const deudaAdquirida = sumar(historicos, m => m.destacados.deuda.entradas);
-                                const deudaPagada = sumar(historicos, m => m.destacados.deuda.salidas);
+                                const deudaAdquirida = sumar(historicos, m => destacadoOcurrido(m, 'deuda', 'entradas'));
+                                const deudaPagada = sumar(historicos, m => destacadoOcurrido(m, 'deuda', 'salidas'));
                                 if (deudaAdquirida > 0 || deudaPagada > 0) {
                                     const netoDeuda = deudaPagada - deudaAdquirida;
                                     if (netoDeuda > 0) {
@@ -4297,10 +4312,13 @@
                                     }
                                 }
 
-                                // 7. Lo que ya viene en camino
-                                const futuros = (meses || []).filter(m => m.esFuturo && m.gastos > 0);
-                                if (futuros.length > 0) {
-                                    parrafos.push(`Hacia adelante tienes ${destacar(dinero(sumar(futuros, m => m.gastos)), AMBAR)} en cargos recurrentes ya previstos.`);
+                                // 7. Lo que ya viene en camino. Incluye lo que le queda por ocurrir al mes en
+                                // curso, que los párrafos anteriores dejaron deliberadamente fuera.
+                                const porOcurrir = (meses || []).reduce((acc, m) =>
+                                    acc + (m.esFuturo ? m.gastos : (m.gastos - m.gastosOcurridos)), 0);
+
+                                if (porOcurrir > 0) {
+                                    parrafos.push(`Hacia adelante tienes ${destacar(dinero(porOcurrir), AMBAR)} en cargos recurrentes ya previstos.`);
                                 }
 
                                 return parrafos;
