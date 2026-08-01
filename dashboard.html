@@ -4374,12 +4374,29 @@
                                         .filter(c => c.monto > 0)
                                         .sort((a, b) => b.monto - a.monto);
 
+                                    const listar = (nombres) => nombres.length === 1
+                                        ? nombres[0]
+                                        : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+
+                                    // El grueso del gasto no está en una sola categoría, así que enseñamos las
+                                    // que más pesan —fijas y variables mezcladas, ordenadas por importe— en vez
+                                    // de señalar sólo la mayor. Es la lista por donde se empieza a mirar.
+                                    const frente = candidatos.slice(0, 3);
+                                    const sumaFrente = frente.reduce((acc, c) => acc + c.monto, 0);
+                                    const dondeSeVa = frente.length > 0
+                                        ? ` Donde más se va: ${listar(frente.map(c => `${destacar(nombreCategoria(c.id), CLARO)} ${dinero(c.monto)}`))}.`
+                                        : '';
+                                    // Con una sola categoría el "a las dos/tres" sobra, y ya va nombrada arriba
+                                    const aCuantas = frente.length === 1 ? '' : ` a ${frente.length === 2 ? 'las dos' : 'las tres'}`;
+
+                                    // Un margen negativo como "-140%" no se lee; se dice con palabras
+                                    const posicion = margenCorriente < 0
+                                        ? `Tu gasto corriente se come todo lo que entra`
+                                        : `Estás en el ${destacar((margenCorriente * 100).toFixed(0) + '%', margenCorriente >= MARGEN_OBJETIVO ? VERDE : AMBAR)} de margen`;
+                                    const objetivoPct = destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE);
+
                                     if (margenCorriente < MARGEN_OBJETIVO) {
-                                        const objetivoPct = destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE);
                                         const falta = ingresoMensual * MARGEN_OBJETIVO - flujoCorriente;
-                                        const desdeLoFijo = recurrente.total > 0
-                                            ? `: un ${destacar((falta / recurrente.total * 100).toFixed(0) + '%', AMBAR)} de lo recurrente`
-                                            : '';
 
                                         // Proponer que una categoría baje a casi cero no es un consejo: nadie
                                         // deja la renta en nada. Sólo la damos por suficiente si el recorte
@@ -4389,9 +4406,6 @@
                                         // que renegociar un contrato, así que va primero.
                                         const puedenSolas = candidatos.filter(c => falta <= c.monto * RECORTE_PLAUSIBLE);
                                         const elegida = puedenSolas.find(c => !c.fijo) || puedenSolas[0];
-                                        const listar = (nombres) => nombres.length === 1
-                                            ? nombres[0]
-                                            : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
 
                                         let accion;
                                         if (elegida) {
@@ -4399,34 +4413,29 @@
                                             const facilidad = elegida.fijo
                                                 ? ' Es un gasto fijo, así que toca renegociarlo o darlo de baja.'
                                                 : ' Es gasto variable: se decide día a día, no en un contrato.';
-                                            accion = ` Con bajar ${destacar(nombreCategoria(elegida.id), CLARO)} de ${dinero(elegida.monto)} a ${destacar(dinero(nuevoTope), VERDE)}${cadaMes} lo cubres entero.${facilidad}`;
-                                        } else if (candidatos.length > 0) {
-                                            const frente = candidatos.slice(0, 3);
-                                            const sumaFrente = frente.reduce((acc, c) => acc + c.monto, 0);
-                                            const nombres = listar(frente.map(c => destacar(nombreCategoria(c.id), CLARO)));
-                                            const cuantas = frente.length === 1 ? 'ella' : (frente.length === 2 ? 'las dos' : 'las tres');
-
-                                            accion = falta <= sumaFrente
-                                                ? ` Ninguna lo cubre sola sin quedarse en nada: ${nombres} suman ${dinero(sumaFrente)}${cadaMes}, así que hay que bajarles un ${destacar((falta / sumaFrente * 100).toFixed(0) + '%', AMBAR)} a ${cuantas}.`
-                                                : ` Ni vaciando ${nombres} llegarías: el resto tendría que venir de más ingreso.`;
+                                            accion = ` Con bajar ${destacar(nombreCategoria(elegida.id), CLARO)} a ${destacar(dinero(nuevoTope), VERDE)}${cadaMes} lo cubres entero.${facilidad}`;
+                                        } else if (frente.length > 0 && falta <= sumaFrente) {
+                                            accion = ` Ninguna lo cubre sola sin quedarse en nada: ${frente.length === 1 ? 'bajándole' : 'bajándoles'} un ${destacar((falta / sumaFrente * 100).toFixed(0) + '%', AMBAR)}${aCuantas} llegas.`;
+                                        } else if (frente.length > 0) {
+                                            accion = ` Ni vaciando esas ${frente.length === 1 ? 'categoría' : 'categorías'} llegarías: el resto tendría que venir de más ingreso.`;
                                         } else {
                                             accion = ` No hay categorías de gasto en el periodo, así que la única vía es subir el ingreso.`;
                                         }
 
-                                        agregar('Cómo mejorar', `Para dejar libre el ${objetivoPct} de lo que entra necesitas ${destacar(dinero(falta), AMBAR)}${cadaMes} menos de gasto${desdeLoFijo}.${accion}`, { objetivo: true });
-                                    } else {
-                                        // Con holgura la pregunta ya no es cómo llegar, sino qué cuesta de más.
-                                        // Lo anual es lo que abre los ojos: un fijo pequeño al mes no lo parece.
-                                        const sobra = flujoCorriente - ingresoMensual * MARGEN_OBJETIVO;
-                                        const mayorFijo = candidatos.find(c => c.fijo);
-                                        const cabecera = `Te sobran ${destacar(dinero(sobra), VERDE)}${cadaMes} por encima del objetivo del ${destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE)}.`;
+                                        const apertura = margenCorriente < 0
+                                            ? `${posicion}: para dejar libre el ${objetivoPct} te faltan ${destacar(dinero(falta), AMBAR)}${cadaMes}.`
+                                            : `${posicion} y buscas el ${objetivoPct}: te faltan ${destacar(dinero(falta), AMBAR)}${cadaMes}.`;
 
-                                        if (mayorFijo) {
-                                            const margenSinMitad = ((flujoCorriente + mayorFijo.monto / 2) / ingresoMensual) * 100;
-                                            agregar('Cómo mejorar', `${cabecera} Tu gasto fijo más pesado es ${destacar(nombreCategoria(mayorFijo.id), CLARO)}: ${dinero(mayorFijo.monto)}${cadaMes}, ${destacar(dinero(mayorFijo.monto * 12), AMBAR)} al año. Bajarlo a la mitad llevaría tu margen del ${(margenCorriente * 100).toFixed(0)}% al ${destacar(margenSinMitad.toFixed(0) + '%', VERDE)}.`, { objetivo: true });
-                                        } else {
-                                            agregar('Cómo mejorar', `${cabecera} No detecté gastos fijos que recortar, así que el siguiente paso es decidir dónde poner ese excedente.`, { objetivo: true });
-                                        }
+                                        agregar('Cómo mejorar', `${apertura}${dondeSeVa}${accion}`, { objetivo: true });
+                                    } else if (frente.length > 0) {
+                                        // Ya cumple el listón, así que la cifra útil no es el sobrante sino
+                                        // cuánto movería el margen un recorte razonable sobre lo que más pesa.
+                                        const ahorro = sumaFrente * 0.10;
+                                        const margenConRecorte = ((flujoCorriente + ahorro) / ingresoMensual) * 100;
+
+                                        agregar('Cómo mejorar', `${posicion}, por encima del ${objetivoPct} que buscas.${dondeSeVa} ${frente.length === 1 ? 'Recortarle' : 'Recortarles'} un ${destacar('10%', VERDE)}${aCuantas} son ${destacar(dinero(ahorro), VERDE)}${cadaMes} más y te dejaría en el ${destacar(margenConRecorte.toFixed(0) + '%', VERDE)}.`, { objetivo: true });
+                                    } else {
+                                        agregar('Cómo mejorar', `${posicion}, por encima del ${objetivoPct} que buscas. No hay categorías de gasto que recortar, así que el paso siguiente es decidir dónde poner ese excedente.`, { objetivo: true });
                                     }
                                 }
 
