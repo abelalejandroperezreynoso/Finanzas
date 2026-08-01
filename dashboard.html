@@ -4503,7 +4503,6 @@
                                     data,
                                     backgroundColor: proyectado ? colorTenue(color, ALPHA_PROYECTADO) : color,
                                     stack,
-                                    borderRadius: 3,
                                     borderSkipped: false
                                 });
 
@@ -4530,6 +4529,30 @@
                                         segmento(t.etiquetaSalida, series.salidas, color, 'salidas'),
                                         segmento(t.etiquetaSalida, series.salidasProy, color, 'salidas', true)
                                     );
+                                });
+
+                                // Con borderSkipped en false, Chart.js redondearía las cuatro esquinas de cada
+                                // segmento y los tramos delgados quedarían como píldoras sueltas sobre la pila.
+                                // Redondeamos sólo los extremos: la base del primero y la cima del último.
+                                const RADIO_BARRA = 3;
+                                ['entradas', 'salidas'].forEach(pila => {
+                                    const deLaPila = datasetsGrafico.filter(d => d.stack === pila);
+                                    deLaPila.forEach(d => {
+                                        d.borderRadius = d.data.map(() => ({ topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 }));
+                                    });
+
+                                    meses.forEach((_, i) => {
+                                        const conValor = deLaPila.filter(d => (d.data[i] || 0) > 0);
+                                        if (conValor.length === 0) return;
+
+                                        const base = conValor[0].borderRadius[i];
+                                        base.bottomLeft = RADIO_BARRA;
+                                        base.bottomRight = RADIO_BARRA;
+
+                                        const cima = conValor[conValor.length - 1].borderRadius[i];
+                                        cima.topLeft = RADIO_BARRA;
+                                        cima.topRight = RADIO_BARRA;
+                                    });
                                 });
 
                                 miGrafico = new Chart(ctx, {
