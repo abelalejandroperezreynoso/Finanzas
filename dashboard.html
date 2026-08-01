@@ -4886,28 +4886,14 @@
                             // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
                             let contextoTreemapCategorias = { meses: [], indice: null };
 
-                            // Tope duro de tiles, para que el mapa no se vuelva un mosaico ilegible aunque todas
-                            // las categorías pesen parecido.
-                            const MAX_TILES_TREEMAP = 10;
-
-                            // Y tope blando: un tile que no llegue a esta superficie no admite las tres cifras, así
-                            // que la categoría se va al montón de "Otras" en lugar de quedar como una astilla muda.
-                            // Es lo que permite que todo rectángulo dibujado lleve su porcentaje y su monto.
-                            const AREA_MIN_TILE_TREEMAP = 34 * 34;
-
-                            // Salvo que los datos sean degenerados —cientos de categorías diminutas y ninguna
-                            // grande—, en cuyo caso más vale enseñar unas pocas astillas que un único bloque gris.
-                            const MIN_TILES_TREEMAP = 3;
-
-                            const NOMBRE_TILE_OTRAS = 'Otras';
-
                             // Aire entre el texto y el borde del tile. Ajustado para que en los rectángulos
                             // pequeños el espacio se lo lleve el texto y no el margen.
                             const PADDING_ETIQUETA_TREEMAP = 2;
 
-                            // Por debajo de esto el rectángulo no admite ni un carácter reconocible y pintarlo
-                            // sólo ensuciaría el mapa.
-                            const MIN_LADO_ETIQUETA_TREEMAP = 26;
+                            // Cada categoría tiene su propio rectángulo, por diminuto que sea: no se agrupan en un
+                            // montón de "Otras". Por debajo de este lado el texto ya no formaría letras, sólo una
+                            // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
+                            const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
                             // Cuerpo mínimo del texto. Por debajo el treemap lo encoge él mismo con overflow 'fit',
                             // pero nunca partimos de algo más chico.
@@ -5011,15 +4997,17 @@
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
 
-                                // El título dice exactamente qué recorte se está mirando, porque el mapa sigue al
-                                // mes que la barra tenga señalado y no siempre coincide con el filtro de fechas.
+                                // El título es sólo la fecha del recorte que se está mirando: el mapa sigue al mes
+                                // que la barra tenga señalado, que no siempre coincide con el filtro. Sin un mes
+                                // concreto detrás, vale el mismo texto que muestra el selector de fechas.
                                 if (tituloEl) {
                                     const mesSeleccionado = (indice !== null && meses && meses[indice]) ? meses[indice] : null;
                                     if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
-                                        tituloEl.textContent = `Categorías · ${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
+                                        tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
                                     } else {
-                                        tituloEl.textContent = 'Categorías del periodo';
+                                        const rangoEl = document.getElementById('textoRangoFechas');
+                                        tituloEl.textContent = (rangoEl && rangoEl.textContent) ? rangoEl.textContent : 'Todo el tiempo';
                                     }
                                 }
 
@@ -5050,36 +5038,6 @@
                                 datos.sort((a, b) => b.monto - a.monto);
                                 const totalCategorias = datos.length;
 
-                                // Cuántas caben con tamaño legible. Como el treemap reparte el área en proporción
-                                // al monto, la superficie que le tocará a cada una se puede estimar antes de
-                                // dibujar: se corta en la primera que no llegue al mínimo.
-                                const totalBruto = datos.reduce((acc, d) => acc + d.monto, 0);
-                                const areaDisponible = Math.max(1, (contenedor.clientWidth || 320) * (contenedor.clientHeight || 250));
-                                const shareMinimo = AREA_MIN_TILE_TREEMAP / areaDisponible;
-
-                                let visibles = datos.length;
-                                for (let i = MIN_TILES_TREEMAP; i < datos.length; i++) {
-                                    if (totalBruto <= 0 || (datos[i].monto / totalBruto) < shareMinimo) { visibles = i; break; }
-                                }
-                                visibles = Math.min(visibles, MAX_TILES_TREEMAP);
-
-                                // Mandar una sola categoría al montón no gana espacio y le quita el nombre
-                                if (datos.length - visibles === 1) visibles = datos.length;
-
-                                // La cola se junta en un tile: ocupa lo mismo en total y deja legible el resto
-                                if (visibles < datos.length) {
-                                    const cola = datos.slice(visibles);
-                                    datos = datos.slice(0, visibles);
-                                    datos.push({
-                                        id: null,
-                                        cat: null,
-                                        nombre: NOMBRE_TILE_OTRAS,
-                                        monto: cola.reduce((acc, d) => acc + d.monto, 0),
-                                        proyectado: cola.reduce((acc, d) => acc + d.proyectado, 0),
-                                        agrupadas: cola.length
-                                    });
-                                }
-
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
                                     miTreemapCategorias = null;
@@ -5099,9 +5057,8 @@
                                     contenedor.innerHTML = '<canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>';
                                 }
 
-                                // Se recalculan en cada pasada, porque agrupar la cola cambia la lista
-                                let total = datos.reduce((acc, d) => acc + d.monto, 0);
-                                let proyectadoTotal = datos.reduce((acc, d) => acc + d.proyectado, 0);
+                                const total = datos.reduce((acc, d) => acc + d.monto, 0);
+                                const proyectadoTotal = datos.reduce((acc, d) => acc + d.proyectado, 0);
                                 const buscarDato = (raw) => {
                                     if (!raw) return null;
                                     const etiqueta = raw.g || (raw._data && raw._data.nombre);
@@ -5139,7 +5096,7 @@
                                     const h = raw.h;
                                     const d = buscarDato(raw);
                                     const tam = fuenteTreemap(w, h);
-                                    const nombre = d ? (d.agrupadas ? `${NOMBRE_TILE_OTRAS} (${d.agrupadas})` : d.nombre) : '';
+                                    const nombre = d ? d.nombre : '';
 
                                     // Al nombre se le baja el cuerpo hasta que quepa entero antes de recortarlo:
                                     // se lee mejor "Tarjeta oro" pequeño que "Tarjeta…" grande. Las cifras no
@@ -5153,10 +5110,6 @@
 
                                 const ctx = document.getElementById('graficoTreemapCategorias').getContext('2d');
 
-                                const construirTreemap = () => {
-                                total = datos.reduce((acc, d) => acc + d.monto, 0);
-                                proyectadoTotal = datos.reduce((acc, d) => acc + d.proyectado, 0);
-                                if (miTreemapCategorias) miTreemapCategorias.destroy();
                                 miTreemapCategorias = new Chart(ctx, {
                                     type: 'treemap',
                                     data: {
@@ -5232,7 +5185,7 @@
                                                     title: (items) => {
                                                         const d = buscarDato(items[0].raw);
                                                         if (!d) return '';
-                                                        return d.agrupadas ? `${NOMBRE_TILE_OTRAS} (${d.agrupadas} categorías)` : d.nombre;
+                                                        return d.nombre;
                                                     },
                                                     label: (item) => {
                                                         const d = buscarDato(item.raw);
@@ -5253,46 +5206,6 @@
                                         }
                                     }
                                 });
-                                };
-
-                                // La estimación por superficie no ve el aspecto: cuando una categoría se come casi
-                                // todo, al resto sólo le queda una tira angosta y un rectángulo con área de sobra
-                                // puede salir de 18px de ancho. Así que se mira el reparto ya hecho y, si alguno
-                                // quedó sin sitio para sus cifras, se rehace mandándolo al montón. Dos correcciones
-                                // bastan; más sería pelearse con una geometría que no da para más.
-                                const hayIlegibles = () => {
-                                    const rects = miTreemapCategorias.data.datasets[0].data;
-                                    const area = miTreemapCategorias.chartArea;
-                                    // Con la tarjeta oculta todo mide cero: ahí no hay nada que corregir
-                                    if (!area || area.width < MIN_LADO_ETIQUETA_TREEMAP || area.height < MIN_LADO_ETIQUETA_TREEMAP) return false;
-
-                                    const corte = rects.findIndex(r => {
-                                        const d = buscarDato(r);
-                                        if (!d || d.agrupadas) return false;
-                                        return r.w < MIN_LADO_ETIQUETA_TREEMAP || r.h < MIN_LADO_ETIQUETA_TREEMAP;
-                                    });
-                                    // Dejar sólo el dominante daría un mapa de dos bloques que no dice nada
-                                    if (corte < 1) return false;
-
-                                    // Si ya había un montón, se deshace y se rehace: así no quedan dos "Otras"
-                                    const nombresVivos = new Set(rects.slice(0, corte).map(r => r.g).filter(n => n !== NOMBRE_TILE_OTRAS));
-                                    const cola = datos.filter(d => !nombresVivos.has(d.nombre));
-                                    if (cola.length < 2) return false;
-
-                                    datos = datos.filter(d => nombresVivos.has(d.nombre));
-                                    datos.push({
-                                        id: null,
-                                        cat: null,
-                                        nombre: NOMBRE_TILE_OTRAS,
-                                        monto: cola.reduce((acc, d) => acc + d.monto, 0),
-                                        proyectado: cola.reduce((acc, d) => acc + d.proyectado, 0),
-                                        agrupadas: cola.reduce((acc, d) => acc + (d.agrupadas || 1), 0)
-                                    });
-                                    return true;
-                                };
-
-                                construirTreemap();
-                                for (let pasada = 0; pasada < 2 && hayIlegibles(); pasada++) construirTreemap();
 
                                 if (totalEl) {
                                     const color = entradas ? '#3ecf8e' : '#ff5c5c';
