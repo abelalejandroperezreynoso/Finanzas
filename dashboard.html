@@ -4333,9 +4333,16 @@
                                 // entra menos el gasto recurrente y el variable—, dejando fuera inversión,
                                 // deuda y préstamos: no son dinero consumido sino cambios de bolsillo, y
                                 // meterlos aquí pediría recortes para compensar algo que no es un gasto.
-                                // Aconsejar sobre un periodo ya cerrado hace tiempo no sirve de nada, así que
-                                // el bloque sólo sale cuando lo que se está viendo llega hasta hoy.
-                                const periodoVigente = meses.length > 0 && meses[meses.length - 1].ym >= ymEnCurso;
+                                // Aconsejar sobre un periodo cerrado hace tiempo no sirve de nada, pero el mes
+                                // o el trimestre recién terminados sí son terreno para decidir el siguiente.
+                                // Un mes de desfase cubre esos casos y deja fuera el historial antiguo.
+                                const distanciaEnMeses = (ymDesde, ymHasta) => {
+                                    const [a1, m1] = ymDesde.split('-').map(Number);
+                                    const [a2, m2] = ymHasta.split('-').map(Number);
+                                    return (a2 * 12 + m2) - (a1 * 12 + m1);
+                                };
+                                const periodoVigente = meses.length > 0 &&
+                                    distanciaEnMeses(meses[meses.length - 1].ym, ymEnCurso) <= 1;
                                 const MARGEN_OBJETIVO = margenObjetivo / 100;
                                 const gastoVariableMes = promedioMensual(m => m.gastoVariable || 0);
                                 const gastoCorrienteMes = recurrente.total + gastoVariableMes;
