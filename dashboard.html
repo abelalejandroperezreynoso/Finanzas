@@ -417,17 +417,6 @@
     </div>
     <!-- FIN TARJETA DE MAPA DE CATEGORÍAS -->
 
-    <!-- INICIO TARJETA DE ANÁLISIS -->
-    <div class="card" id="cardAnalisisIA" style="display: none; padding: 0; margin-bottom: 15px; background: #000000;">
-        <div style="background: #131313; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px;">
-            <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 10px;">
-                <div style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #3ecf8e, #3abff8); display: flex; align-items: center; justify-content: center; font-size: 0.8em; flex-shrink: 0;">✨</div>
-                <strong style="color: #e8e8e8; font-size: 0.85em;">Análisis de tus finanzas</strong>
-            </div>
-            <div id="contenidoAnalisisIA" style="font-size: 0.88em; color: #c8c8c8; line-height: 1.65;"></div>
-        </div>
-    </div>
-    <!-- FIN TARJETA DE ANÁLISIS -->
 
     <!-- INICIO NUEVA TARJETA DE OBJETIVOS -->
     <div class="card" id="cardObjetivosInicio" style="display: none; padding: 1rem 0; margin-bottom: 15px; background: #000000;">
@@ -439,6 +428,21 @@
         </div>
     </div>
     <!-- FIN NUEVA TARJETA DE OBJETIVOS -->
+
+    <!-- INICIO TARJETA DE ANÁLISIS -->
+    <!-- Va plegada: es un texto largo y va al final, después de los objetivos, para que
+         lo primero que se vea al abrir la app sigan siendo las cifras y las gráficas. -->
+    <div class="card" id="cardAnalisisIA" style="display: none; padding: 0; margin-bottom: 15px; background: #000000;">
+        <div style="background: #131313; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px;">
+            <button id="btnToggleAnalisisIA" onclick="toggleAnalisisIA()" style="width: 100%; margin: 0; padding: 0; background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 9px; text-align: left;">
+                <div style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #3ecf8e, #3abff8); display: flex; align-items: center; justify-content: center; font-size: 0.8em; flex-shrink: 0;">✨</div>
+                <strong style="color: #e8e8e8; font-size: 0.85em; flex: 1;">Análisis de tus finanzas</strong>
+                <span id="flechaAnalisisIA" style="color: #888; font-size: 1.1em; line-height: 1;">▼</span>
+            </button>
+            <div id="contenidoAnalisisIA" style="display: none; font-size: 0.88em; color: #c8c8c8; line-height: 1.65; margin-top: 10px;"></div>
+        </div>
+    </div>
+    <!-- FIN TARJETA DE ANÁLISIS -->
 
             </div>
 
@@ -3468,8 +3472,6 @@
 
                                                         mapaFuturo[fString].movimientos.push({
                                                             nombre: cat.nombre,
-                                                            // De qué categoría salió, para poder repartir la proyección en el mapa
-                                                            categoria_id: cat.id,
                                                             monto: monto,
                                                             esEntrada: esEntrada,
                                                             tipo: cat.tipo
@@ -3908,9 +3910,6 @@
                                     const registro = {
                                         ym, ingresos: 0, gastos: 0, destacados: {},
                                         gastosPorCategoria: {}, ingresosPorCategoria: {},
-                                        // El mismo reparto por categoría pero de lo que la app todavía sólo predice.
-                                        // Va en mapas aparte para no contaminar los acumuladores que arman las barras.
-                                        gastosPorCategoriaProyectado: {}, ingresosPorCategoriaProyectado: {},
                                         // Qué categorías con patrón participaron realmente en el mes
                                         catsIngresoRecurrente: new Set(), catsGastoRecurrente: new Set(),
                                         // Espejo de los acumuladores anteriores con sólo la parte que aún no ocurre
@@ -3945,16 +3944,6 @@
                                         // Los días proyectados ya traen su propio desglose por categoría
                                         (d.movimientos || []).forEach(mov => {
                                             const monto = parseFloat(mov.monto) || 0;
-
-                                            // Anotamos la predicción por categoría antes de repartirla por tipo:
-                                            // el mapa de categorías la necesita completa, venga del tipo que venga
-                                            if (mov.categoria_id !== undefined) {
-                                                const destinoProy = mov.esEntrada
-                                                    ? mapaMeses[ym].ingresosPorCategoriaProyectado
-                                                    : mapaMeses[ym].gastosPorCategoriaProyectado;
-                                                const claveProy = String(mov.categoria_id);
-                                                destinoProy[claveProy] = (destinoProy[claveProy] || 0) + monto;
-                                            }
 
                                             // La proyección solo contempla categorías con patrón, así que todo
                                             // gasto que aparezca aquí es recurrente por construcción
@@ -4929,15 +4918,13 @@
                             }
 
                             // Sobre el blanco de una inversión o el verde de un ingreso, el texto blanco desaparece.
-                            // Se mide el brillo real del tile —ya con la transparencia de lo proyectado aplicada,
-                            // porque el fondo de la tarjeta es negro— y se elige el texto que contrasta.
-                            function colorEtiquetaTreemap(hex, alpha) {
+                            // Se mide el brillo del tile y se elige el texto que contrasta.
+                            function colorEtiquetaTreemap(hex) {
                                 const limpio = String(hex).replace('#', '');
                                 const r = parseInt(limpio.slice(0, 2), 16);
                                 const g = parseInt(limpio.slice(2, 4), 16);
                                 const b = parseInt(limpio.slice(4, 6), 16);
-                                const brillo = ((0.299 * r + 0.587 * g + 0.114 * b) / 255) * alpha;
-                                return brillo > 0.6 ? '#0a0a0a' : '#ffffff';
+                                return ((0.299 * r + 0.587 * g + 0.114 * b) / 255) > 0.6 ? '#0a0a0a' : '#ffffff';
                             }
 
                             // Bajo qué interruptor de la gráfica cae esa categoría, para que ocultar un tipo en las
@@ -4958,23 +4945,22 @@
                             }
 
                             // Suma por categoría los meses que se están mirando. Con índice, sólo ese mes; sin él,
-                            // todo el periodo filtrado. Devuelve el monto y qué parte de ese monto es predicción.
+                            // todo el periodo filtrado.
+                            //
+                            // Aquí sólo entra lo que de verdad ocurrió. Las barras sí dibujan la proyección, porque
+                            // su asunto es cómo va el mes; el mapa responde a en qué se fue el dinero, y una compra
+                            // que la app supone no es dinero que se haya ido.
                             function acumularCategoriasDelPeriodo(meses, indice, entradas) {
                                 const fuente = (indice === null || !meses || !meses[indice]) ? (meses || []) : [meses[indice]];
                                 const acumulado = {};
 
-                                const sumar = (clave, monto, esProyeccion) => {
-                                    if (!(monto > 0)) return;
-                                    if (!acumulado[clave]) acumulado[clave] = { monto: 0, proyectado: 0 };
-                                    acumulado[clave].monto += monto;
-                                    if (esProyeccion) acumulado[clave].proyectado += monto;
-                                };
-
                                 fuente.forEach(m => {
-                                    const real = (entradas ? m.ingresosPorCategoria : m.gastosPorCategoria) || {};
-                                    const proyectado = (entradas ? m.ingresosPorCategoriaProyectado : m.gastosPorCategoriaProyectado) || {};
-                                    Object.keys(real).forEach(id => sumar(id, real[id], false));
-                                    Object.keys(proyectado).forEach(id => sumar(id, proyectado[id], true));
+                                    const registrado = (entradas ? m.ingresosPorCategoria : m.gastosPorCategoria) || {};
+                                    Object.keys(registrado).forEach(clave => {
+                                        const monto = registrado[clave];
+                                        if (!(monto > 0)) return;
+                                        acumulado[clave] = (acumulado[clave] || 0) + monto;
+                                    });
                                 });
 
                                 return acumulado;
@@ -5019,8 +5005,7 @@
                                         id: id,
                                         cat: cat,
                                         nombre: cat ? cat.nombre : 'Sin categoría',
-                                        monto: acumulado[id].monto,
-                                        proyectado: acumulado[id].proyectado
+                                        monto: acumulado[id]
                                     };
                                 }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
 
@@ -5045,7 +5030,12 @@
 
                                 if (datos.length === 0) {
                                     const ocultos = TIPOS_REGISTRO_GRAFICA.filter(t => !tiposVisiblesGrafica.has(t.tipo));
-                                    const motivo = ocultos.length > 0
+                                    // Un mes que aún no llega sólo tiene proyección, y el mapa no la cuenta: se dice
+                                    // por qué está vacío en vez de dejar creer que no habrá movimientos.
+                                    const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
+                                    const motivo = mesFuturo
+                                        ? 'Mes en proyección. El mapa sólo muestra movimientos ya registrados.'
+                                        : ocultos.length > 0
                                         ? 'No hay categorías visibles con este filtro.'
                                         : `No hay ${entradas ? 'entradas' : 'salidas'} en este periodo.`;
                                     contenedor.innerHTML = `<p style="color: #888; font-size: 0.85em; text-align: center; margin: 0; padding-top: 90px;">${motivo}</p>`;
@@ -5058,16 +5048,11 @@
                                 }
 
                                 const total = datos.reduce((acc, d) => acc + d.monto, 0);
-                                const proyectadoTotal = datos.reduce((acc, d) => acc + d.proyectado, 0);
                                 const buscarDato = (raw) => {
                                     if (!raw) return null;
                                     const etiqueta = raw.g || (raw._data && raw._data.nombre);
                                     return datos.find(d => d.nombre === etiqueta) || null;
                                 };
-
-                                // Lo que aún no ocurre se apaga igual que en las barras, en proporción a cuánto
-                                // de ese tile es todavía una predicción.
-                                const opacidadDe = (d) => 1 - (1 - ALPHA_PROYECTADO) * (d.monto > 0 ? Math.min(1, d.proyectado / d.monto) : 0);
 
                                 // Ancho aproximado de un texto en píxeles. La fuente es la del sistema en negrita,
                                 // así que 0.58 em por carácter se queda corto por poco y nunca invade al vecino.
@@ -5117,14 +5102,15 @@
                                             tree: datos,
                                             key: 'monto',
                                             groups: ['nombre'],
-                                            spacing: 2,
+                                            // Hilo apenas visible entre rectángulos: separa sin comerse área
+                                            spacing: 0.5,
                                             borderWidth: 0,
                                             backgroundColor: (context) => {
                                                 if (context.type !== 'data') return 'transparent';
                                                 const d = buscarDato(context.raw);
                                                 if (!d) return '#444444';
                                                 if (!d.cat) return '#3a3a3a';
-                                                return colorTenue(colorTreemapCategoria(d.cat, entradas), opacidadDe(d));
+                                                return colorTreemapCategoria(d.cat, entradas);
                                             },
                                             labels: {
                                                 display: true,
@@ -5136,7 +5122,7 @@
                                                     if (context.type !== 'data') return '#ffffff';
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
-                                                    return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas), opacidadDe(d));
+                                                    return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas));
                                                 },
                                                 padding: PADDING_ETIQUETA_TREEMAP,
                                                 font: (context) => {
@@ -5191,9 +5177,7 @@
                                                         const d = buscarDato(item.raw);
                                                         if (!d) return '';
                                                         const porc = total > 0 ? ((d.monto / total) * 100).toFixed(1) : '0.0';
-                                                        const lineas = [`${entradas ? '+' : '-'}$${fNum(d.monto)} · ${porc}% del total`];
-                                                        if (d.proyectado > 0) lineas.push(`Proyectado: $${fNum(d.proyectado)}`);
-                                                        return lineas;
+                                                        return `${entradas ? '+' : '-'}$${fNum(d.monto)} · ${porc}% del total`;
                                                     }
                                                 }
                                             }
@@ -5209,15 +5193,9 @@
 
                                 if (totalEl) {
                                     const color = entradas ? '#3ecf8e' : '#ff5c5c';
-                                    const avisoProyectado = proyectadoTotal > 0
-                                        ? `<span style="display: block; color: #f39c12; font-size: 0.82em; font-weight: normal;">incluye $${fNum(proyectadoTotal)} proyectados</span>`
-                                        : '';
                                     totalEl.innerHTML = `
                                         <span style="color: #888; white-space: nowrap;">${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}</span>
-                                        <span style="text-align: right;">
-                                            <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
-                                            ${avisoProyectado}
-                                        </span>
+                                        <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
                                     `;
                                 }
                             }
@@ -6789,6 +6767,21 @@
                             btn.innerHTML = '▼';
                             btn.style.color = '#888';
                             }
+                            }
+
+                            // El análisis nace plegado y sólo se abre a petición. Una vez abierto se queda así:
+                            // refrescar los datos reescribe el texto de dentro, no el estado del panel.
+                            function toggleAnalisisIA() {
+                                const contenedor = document.getElementById('contenidoAnalisisIA');
+                                const flecha = document.getElementById('flechaAnalisisIA');
+                                if (!contenedor) return;
+
+                                const abierto = contenedor.style.display !== 'none';
+                                contenedor.style.display = abierto ? 'none' : 'block';
+                                if (flecha) {
+                                    flecha.innerHTML = abierto ? '▼' : '▲';
+                                    flecha.style.color = abierto ? '#888' : '#ccc';
+                                }
                             }
 
                                                                                                                                                     document.querySelectorAll('.modal-overlay').forEach(modal => {
