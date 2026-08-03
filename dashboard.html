@@ -4916,6 +4916,10 @@
                             // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
                             const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
+                            // Alto a partir del cual merece la pena partir las cifras en dos renglones: por debajo,
+                            // el renglón de más deja las letras tan chicas que se pierde más de lo que se gana.
+                            const ALTO_MIN_CIFRAS_PARTIDAS_TREEMAP = 46;
+
                             // Cuántos meses de historia miran los objetivos, y cuántos hacen falta como mínimo
                             const MESES_HISTORIA_OBJETIVO_TREEMAP = 6;
                             const MIN_MESES_OBJETIVO_TREEMAP = 2;
@@ -4958,8 +4962,8 @@
 
                             // Cuerpo de letra que deja caber los tres renglones dentro del rectángulo: lo limita
                             // el alto (tres líneas más su interlineado) y el ancho del renglón más largo.
-                            function fuenteTreemap(w, h) {
-                                const porAlto = (h - PADDING_ETIQUETA_TREEMAP * 2) / 3.9;
+                            function fuenteTreemap(w, h, renglones = 3) {
+                                const porAlto = (h - PADDING_ETIQUETA_TREEMAP * 2) / (renglones * 1.3);
                                 const porAncho = (w - PADDING_ETIQUETA_TREEMAP * 2) / 3.2;
                                 return Math.max(MIN_FUENTE_TREEMAP, Math.min(MAX_FUENTE_TREEMAP, Math.floor(Math.min(porAlto, porAncho))));
                             }
@@ -5212,42 +5216,105 @@
                                     return texto.length > cabe ? `${texto.slice(0, cabe - 1)}…` : texto;
                                 };
 
-                                // De las formas de escribir el monto, la más completa que quepa en el tile
-                                const montoQueQuepa = (monto, ancho, tam) => {
-                                    const disponible = ancho - PADDING_ETIQUETA_TREEMAP * 2;
-                                    const formas = [`$${fNum(monto)}`, `$${Math.round(monto).toLocaleString('en-US')}`, montoCompactoTreemap(monto)];
-                                    return formas.find(f => anchoTexto(f, tam) <= disponible) || formas[formas.length - 1];
-                                };
-
-                                // "Llevas de esperado" en el renglón del monto. Es el doble de largo que una cifra
-                                // suelta, así que si no cabe ni compacto se queda sólo con lo que llevas gastado.
-                                const avanceQueQuepa = (real, esperado, ancho, tam) => {
-                                    const disponible = ancho - PADDING_ETIQUETA_TREEMAP * 2;
-                                    const formas = [
-                                        `$${Math.round(real).toLocaleString('en-US')} / $${Math.round(esperado).toLocaleString('en-US')}`,
-                                        `${montoCompactoTreemap(real)} / ${montoCompactoTreemap(esperado)}`
-                                    ];
-                                    return formas.find(f => anchoTexto(f, tam) <= disponible) || montoQueQuepa(real, ancho, tam);
-                                };
-
-                                // Medidas del texto de un tile. El cuerpo de letra lo deciden dos sitios —la opción
-                                // font y el formatter, que necesita saberlo para recortar— así que sale de aquí una
-                                // sola vez y los dos leen lo mismo.
+                                // Decide de una vez los renglones del recuadro y el cuerpo de cada uno. Antes esto
+                                // vivía repartido entre la opción font y el formatter, que tenían que coincidir a
+                                // ciegas; ahora ambos leen de aquí y no pueden discrepar.
+                                //
+                                // El objetivo es que las dos cifras —lo que llevas y lo que se espera— salgan
+                                // siempre, también en recuadros pequeños. Se intenta por este orden: la forma más
+                                // completa que quepa en un renglón, luego encoger la letra de ese renglón, y si aun
+                                // así no cabe se parten en dos. Un rectángulo estrecho suele ser alto, así que
+                                // repartir en vertical es justo lo que le sobra.
                                 const medidasEtiqueta = (raw) => {
                                     const w = raw.w;
                                     const h = raw.h;
                                     const d = buscarDato(raw);
-                                    const tam = fuenteTreemap(w, h);
-                                    const nombre = d ? d.nombre : '';
+                                    const vacio = { lineas: [], fuentes: [{ size: 12, weight: 'bold' }] };
 
-                                    // Al nombre se le baja el cuerpo hasta que quepa entero antes de recortarlo:
-                                    // se lee mejor "Tarjeta oro" pequeño que "Tarjeta…" grande. Las cifras no
-                                    // participan de ese ajuste, para que no encojan por un nombre largo.
+                                    if (!d || h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) return vacio;
+
                                     const disponible = w - PADDING_ETIQUETA_TREEMAP * 2;
-                                    let tamNombre = tam;
-                                    while (tamNombre > MIN_FUENTE_TREEMAP && anchoTexto(nombre, tamNombre) > disponible) tamNombre--;
+                                    const cabe = (texto, tam) => anchoTexto(texto, tam) <= disponible;
+                                    const conObjetivo = d.esperado > 0;
 
-                                    return { w, h, d, nombre, tamNombre, tamCifra: Math.max(MIN_FUENTE_TREEMAP - 1, tam - 1) };
+                                    const redondo = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+                                    // De más completo a más compacto
+                                    const formasCifra = conObjetivo
+                                        ? [`$${fNum(d.real)} / $${fNum(d.esperado)}`,
+                                           `${redondo(d.real)} / ${redondo(d.esperado)}`,
+                                           `${montoCompactoTreemap(d.real)}/${montoCompactoTreemap(d.esperado)}`]
+                                        : [`$${fNum(d.monto)}`, redondo(d.monto), montoCompactoTreemap(d.monto)];
+
+                                    const porc = conObjetivo
+                                        ? (d.real / d.esperado) * 100
+                                        : (total > 0 ? (d.monto / total) * 100 : 0);
+
+                                    // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre
+                                    const enUnRenglon = (tope) => {
+                                        for (let tam = tope; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
+                                            const forma = formasCifra.find(f => cabe(f, tam));
+                                            if (forma) return { forma, tam };
+                                        }
+                                        return null;
+                                    };
+
+                                    const armar = (renglones) => {
+                                        const tam = fuenteTreemap(w, h, renglones);
+                                        const tamCifra = Math.max(MIN_FUENTE_TREEMAP - 1, tam - 1);
+
+                                        // Al nombre se le baja el cuerpo hasta que quepa entero antes de recortarlo:
+                                        // se lee mejor "Tarjeta oro" pequeño que "Tarjeta…" grande.
+                                        let tamNombre = tam;
+                                        while (tamNombre > MIN_FUENTE_TREEMAP && !cabe(d.nombre, tamNombre)) tamNombre--;
+                                        const nombre = recortarEtiqueta(d.nombre, w, tamNombre);
+
+                                        const textoPorc = cabe(`${porc.toFixed(1)}%`, tamCifra)
+                                            ? `${porc.toFixed(1)}%`
+                                            : `${Math.round(porc)}%`;
+
+                                        const fuente = (size, weight) => ({ size, weight });
+                                        return { tam, tamCifra, tamNombre, nombre, textoPorc, fuente };
+                                    };
+
+                                    // Intento 1: tres renglones, cifras juntas en el último
+                                    const tres = armar(3);
+                                    const juntas = enUnRenglon(tres.tamCifra);
+                                    if (juntas) {
+                                        return {
+                                            lineas: [tres.nombre, tres.textoPorc, juntas.forma],
+                                            fuentes: [tres.fuente(tres.tamNombre, 'bold'),
+                                                      tres.fuente(tres.tamCifra, 'bold'),
+                                                      tres.fuente(juntas.tam, 'normal')]
+                                        };
+                                    }
+
+                                    // Intento 2: cuatro renglones, cada cifra en el suyo. Sólo con objetivo: sin él
+                                    // no hay nada que partir, y el alto tiene que dar para el renglón de más.
+                                    if (conObjetivo && h >= ALTO_MIN_CIFRAS_PARTIDAS_TREEMAP) {
+                                        const cuatro = armar(4);
+                                        for (let tam = cuatro.tamCifra; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
+                                            const llevas = [`$${fNum(d.real)}`, redondo(d.real), montoCompactoTreemap(d.real)].find(f => cabe(f, tam));
+                                            const meta = [`de $${fNum(d.esperado)}`, `de ${redondo(d.esperado)}`, `de ${montoCompactoTreemap(d.esperado)}`].find(f => cabe(f, tam));
+                                            if (llevas && meta) {
+                                                return {
+                                                    lineas: [cuatro.nombre, cuatro.textoPorc, llevas, meta],
+                                                    fuentes: [cuatro.fuente(cuatro.tamNombre, 'bold'),
+                                                              cuatro.fuente(cuatro.tamCifra, 'bold'),
+                                                              cuatro.fuente(tam, 'normal'),
+                                                              cuatro.fuente(tam, 'normal')]
+                                                };
+                                            }
+                                        }
+                                    }
+
+                                    // Último recurso: la forma más corta, que el treemap encogerá para que entre
+                                    const corta = formasCifra[formasCifra.length - 1];
+                                    return {
+                                        lineas: [tres.nombre, tres.textoPorc, corta],
+                                        fuentes: [tres.fuente(tres.tamNombre, 'bold'),
+                                                  tres.fuente(tres.tamCifra, 'bold'),
+                                                  tres.fuente(MIN_FUENTE_TREEMAP - 1, 'normal')]
+                                    };
                                 };
 
                                 const ctx = document.getElementById('graficoTreemapCategorias').getContext('2d');
@@ -5322,45 +5389,11 @@
                                                 padding: PADDING_ETIQUETA_TREEMAP,
                                                 font: (context) => {
                                                     if (context.type !== 'data') return { size: 12, weight: 'bold' };
-                                                    const { tamNombre, tamCifra } = medidasEtiqueta(context.raw);
-                                                    return [
-                                                        { size: tamNombre, weight: 'bold' },
-                                                        { size: tamCifra, weight: 'bold' },
-                                                        { size: tamCifra, weight: 'normal' }
-                                                    ];
+                                                    return medidasEtiqueta(context.raw).fuentes;
                                                 },
                                                 formatter: (context) => {
                                                     if (context.type !== 'data') return [];
-                                                    const d = buscarDato(context.raw);
-                                                    if (!d) return [];
-
-                                                    const { w, h, nombre, tamNombre, tamCifra } = medidasEtiqueta(context.raw);
-
-                                                    if (h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) return [];
-
-                                                    // Los tres renglones se dibujan siempre: el porcentaje y el monto
-                                                    // son el dato, no un adorno del que se pueda prescindir cuando el
-                                                    // rectángulo aprieta. Lo que se adapta es cómo se escriben.
-                                                    // Con objetivo, el porcentaje es el avance contra lo esperado y
-                                                    // el monto se lee "llevas / de". Sin objetivo se mantiene el
-                                                    // reparto de siempre: cuánto pesa esa categoría en el total.
-                                                    const conObjetivo = d.esperado > 0;
-                                                    const porc = conObjetivo
-                                                        ? (d.real / d.esperado) * 100
-                                                        : (total > 0 ? (d.monto / total) * 100 : 0);
-
-                                                    // Un decimal deja de aportar cuando la cifra ya no cabe entera
-                                                    const textoPorc = anchoTexto(`${porc.toFixed(1)}%`, tamCifra) <= (w - PADDING_ETIQUETA_TREEMAP * 2)
-                                                        ? `${porc.toFixed(1)}%`
-                                                        : `${Math.round(porc)}%`;
-
-                                                    return [
-                                                        recortarEtiqueta(nombre, w, tamNombre),
-                                                        textoPorc,
-                                                        conObjetivo
-                                                            ? avanceQueQuepa(d.real, d.esperado, w, tamCifra)
-                                                            : montoQueQuepa(d.monto, w, tamCifra)
-                                                    ];
+                                                    return medidasEtiqueta(context.raw).lineas;
                                                 }
                                             }
                                         }]
