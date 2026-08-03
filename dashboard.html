@@ -5017,9 +5017,21 @@
                             // Lo que se espera gastar en una categoría dentro del mes. Sale de la recurrencia que la
                             // app detectó: el monto sugerido es el de un movimiento, así que hay que multiplicarlo
                             // por las veces que ese movimiento cae en el mes —una nómina quincenal son dos—.
-                            // Sin patrón detectado no hay expectativa: devuelve 0 y el recuadro valdrá lo real.
+                            // Sin expectativa fiable devuelve 0 y el recuadro valdrá lo real.
+                            //
+                            // No basta con que haya recurrencia. El detector es deliberadamente laxo —acepta 60% de
+                            // consistencia y cadencias de un solo día para reconocer súper, gasolina o comida—, y en
+                            // esas categorías el monto sugerido es el de una compra suelta. Multiplicarlo por las
+                            // quince veces que cabe en el mes daría un objetivo enorme que lo real nunca llenaría.
+                            //
+                            // Lo que separa un recibo de un gasto frecuente es que su importe se repita: cuando la
+                            // app confirma monto fijo deja esMontoPromedio en false. Se pide además más de un
+                            // intervalo medido, para no extrapolar un mes entero a partir de un único hueco.
                             function esperadoEnMesCategoria(cat, ym) {
                                 if (!cat || !(cat.diasRecurrencia > 0)) return 0;
+                                if (cat.esMontoPromedio !== false) return 0;
+                                if (!(cat.periodosRecurrencia >= 2)) return 0;
+
                                 const monto = parseFloat(cat.montoSugerido || 0);
                                 if (!(monto > 0)) return 0;
 
