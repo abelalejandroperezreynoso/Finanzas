@@ -4916,6 +4916,10 @@
                             // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
                             const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
+                            // Cuántos meses de historia miran los objetivos, y cuántos hacen falta como mínimo
+                            const MESES_HISTORIA_OBJETIVO_TREEMAP = 6;
+                            const MIN_MESES_OBJETIVO_TREEMAP = 2;
+
                             // Lo que falta por gastar de una categoría se deja apenas insinuado: marca el tamaño del
                             // objetivo sin competir con la parte ya cubierta.
                             const ALPHA_PENDIENTE_TREEMAP = 0.22;
@@ -5035,32 +5039,58 @@
                                 return null;
                             }
 
-                            // Lo que se espera gastar en una categoría dentro del mes. Sale de la recurrencia que la
-                            // app detectó: el monto sugerido es el de un movimiento, así que hay que multiplicarlo
-                            // por las veces que ese movimiento cae en el mes —una nómina quincenal son dos—.
-                            // Sin expectativa fiable devuelve 0 y el recuadro valdrá lo real.
+                            // Cuánto se suele gastar al mes en cada categoría. Es el objetivo contra el que se
+                            // llenan los recuadros del mes en curso.
                             //
-                            // No basta con que haya recurrencia. El detector es deliberadamente laxo —acepta 60% de
-                            // consistencia y cadencias de un solo día para reconocer súper, gasolina o comida—, y en
-                            // esas categorías el monto sugerido es el de una compra suelta. Multiplicarlo por las
-                            // quince veces que cabe en el mes daría un objetivo enorme que lo real nunca llenaría.
+                            // Se mide directamente en meses: se suma lo de cada mes anterior y se toma la mediana de
+                            // esos totales. Antes se partía del monto sugerido, que es el importe de UN movimiento, y
+                            // había que multiplicarlo por la cadencia detectada; en categorías de uso diario como el
+                            // Oxxo eso daba objetivos disparatados —el precio de una ida por las veinte veces que
+                            // cabe en el mes—. Hablar de totales mensuales evita esa multiplicación por completo y
+                            // vale igual para un recibo fijo que para un gasto de importe variable.
                             //
-                            // Lo que separa un recibo de un gasto frecuente es que su importe se repita: cuando la
-                            // app confirma monto fijo deja esMontoPromedio en false. Se pide además más de un
-                            // intervalo medido, para no extrapolar un mes entero a partir de un único hueco.
-                            function esperadoEnMesCategoria(cat, ym) {
+                            // La mediana, y no el promedio, para que un mes atípico no desplace el objetivo. El mes
+                            // en curso queda fuera porque está a medias y hundiría la referencia.
+                            function calcularTipicoMensualPorCategoria(ymActual, entradas) {
+                                const porMes = {};
+
+                                datosUsoCompleto.forEach(u => {
+                                    if (!u.fecha) return;
+                                    const ym = obtenerFechaLocalCortada(u.fecha).slice(0, 7);
+                                    if (!ym || ym >= ymActual) return;
+
+                                    const monto = parseFloat(u.monto) || 0;
+                                    // Cada lado mira su propio signo: las salidas son los montos negativos
+                                    const valor = entradas ? monto : -monto;
+                                    if (!(valor > 0)) return;
+
+                                    const clave = String(u.categoria_id);
+                                    if (!porMes[clave]) porMes[clave] = {};
+                                    porMes[clave][ym] = (porMes[clave][ym] || 0) + valor;
+                                });
+
+                                const tipico = {};
+                                Object.keys(porMes).forEach(clave => {
+                                    // Sólo los meses recientes, para que el objetivo siga a los hábitos de ahora
+                                    const totales = Object.keys(porMes[clave]).sort().reverse()
+                                        .slice(0, MESES_HISTORIA_OBJETIVO_TREEMAP)
+                                        .map(ym => porMes[clave][ym]);
+                                    // Con un solo mes no hay costumbre que medir, sólo una anécdota
+                                    if (totales.length < MIN_MESES_OBJETIVO_TREEMAP) return;
+                                    tipico[clave] = calcularMedianaEstadistica(totales);
+                                });
+
+                                return tipico;
+                            }
+
+                            // Lo que se espera gastar en una categoría dentro del mes. Se pide que la app le haya
+                            // detectado recurrencia —es lo que el usuario entiende por categoría con objetivo— y que
+                            // haya historia suficiente para saber cuánto suele costar el mes. Si falta cualquiera de
+                            // las dos cosas devuelve 0 y el recuadro valdrá lo real, sin barra de avance.
+                            function esperadoEnMesCategoria(cat, tipicoMensual) {
                                 if (!cat || !(cat.diasRecurrencia > 0)) return 0;
-                                if (cat.esMontoPromedio !== false) return 0;
-                                if (!(cat.periodosRecurrencia >= 2)) return 0;
-
-                                const monto = parseFloat(cat.montoSugerido || 0);
-                                if (!(monto > 0)) return 0;
-
-                                const [anio, mm] = ym.split('-').map(Number);
-                                const diasDelMes = new Date(anio, mm, 0).getDate();
-                                // Se muestran sólo categorías con registros en el mes, así que al menos una cayó
-                                const veces = Math.max(1, Math.round(diasDelMes / cat.diasRecurrencia));
-                                return monto * veces;
+                                const tipico = tipicoMensual[String(cat.id)] || 0;
+                                return tipico > 0 ? tipico : 0;
                             }
 
                             function renderizarTreemapCategorias(meses, indice = null) {
@@ -5104,11 +5134,13 @@
                                 const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
 
                                 const mesAvance = mesDeAvanceTreemap(meses, indice);
+                                // Se calcula una vez por dibujo, no una por categoría: recorre todo el historial
+                                const tipicoMensual = mesAvance ? calcularTipicoMensualPorCategoria(mesAvance.ym, entradas) : {};
 
                                 let datos = Object.keys(acumulado).map(id => {
                                     const cat = datosCategorias.find(c => String(c.id) === String(id));
                                     const real = acumulado[id];
-                                    const esperado = mesAvance ? esperadoEnMesCategoria(cat, mesAvance.ym) : 0;
+                                    const esperado = mesAvance ? esperadoEnMesCategoria(cat, tipicoMensual) : 0;
 
                                     // El recuadro nunca es menor que lo gastado: si te pasas de lo esperado, el área
                                     // crece con el gasto real y la marca del objetivo queda dentro, en su altura.
