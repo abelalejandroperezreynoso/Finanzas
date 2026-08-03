@@ -1362,6 +1362,10 @@
                             btn.classList.add('activa');
                             }
                             document.getElementById(id).classList.add('activa');
+                            if (id === 'sec-inicio') {
+                            // La tarjeta ya tiene medidas: si quedó un mapa por dibujar, es el momento
+                            reintentarTreemapPendiente();
+                            }
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
                             }
@@ -4886,6 +4890,23 @@
                             // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
                             let contextoTreemapCategorias = { meses: [], indice: null };
 
+                            // Render aplazado porque la tarjeta estaba oculta cuando tocaba dibujar.
+                            //
+                            // Al guardar un movimiento la app recarga y repinta mientras el usuario sigue en la
+                            // pantalla de registro, y sólo después vuelve al inicio. Con la sección oculta los
+                            // rectángulos no tienen altura, y el relleno de cada recuadro se calcula justo a partir
+                            // de esa altura: se dibujaban llenos del todo, como si ya se hubiera gastado el objetivo.
+                            // En vez de dibujar con medidas falsas y confiar en que algo lo corrija —en el navegador
+                            // del teléfono esa corrección no llegaba—, se guarda la petición y se atiende al volver.
+                            let treemapPendiente = null;
+
+                            function reintentarTreemapPendiente() {
+                                if (!treemapPendiente) return;
+                                const pendiente = treemapPendiente;
+                                treemapPendiente = null;
+                                renderizarTreemapCategorias(pendiente.meses, pendiente.indice);
+                            }
+
                             // Aire entre el texto y el borde del tile. Ajustado para que en los rectángulos
                             // pequeños el espacio se lo lleve el texto y no el margen.
                             const PADDING_ETIQUETA_TREEMAP = 2;
@@ -5049,6 +5070,13 @@
                                 if (!contenedor) return;
 
                                 contextoTreemapCategorias = { meses: meses || [], indice: indice };
+
+                                // Sin tamaño no hay geometría de la que sacar el relleno: se aplaza el dibujo
+                                if (!contenedor.clientWidth || !contenedor.clientHeight) {
+                                    treemapPendiente = { meses: meses || [], indice: indice };
+                                    return;
+                                }
+
                                 const entradas = direccionTreemapCategorias === 'entradas';
 
                                 [['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']].forEach(([dir, idBoton]) => {
@@ -5212,7 +5240,12 @@
                                                 const f = fraccionLlenado(d);
                                                 const marca = fraccionObjetivo(d);
                                                 const { y, h } = context.raw;
-                                                if (!(h > 0) || (f >= 1 && marca === null)) return base;
+                                                if (f >= 1 && marca === null) return base;
+
+                                                // Sin altura no hay degradado que construir. Antes de dar por lleno
+                                                // un recuadro que no lo está, se pinta apagado: si algo va a fallar,
+                                                // que sea por defecto y no anunciando un gasto que no ocurrió.
+                                                if (!(h > 0)) return colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
 
                                                 // Relleno de abajo hacia arriba con un corte duro. El degradado va en
                                                 // coordenadas del lienzo, así que se arma con el rectángulo ya situado.
@@ -5302,6 +5335,10 @@
                                     },
                                     options: {
                                         maintainAspectRatio: false,
+                                        // El relleno de cada recuadro es un degradado en coordenadas del lienzo, así
+                                        // que al cambiar de tamaño —girar el teléfono— habría que recalcularlo:
+                                        // sin esto los rectángulos cambian de sitio y la línea de llenado no.
+                                        onResize: (chart) => chart.update(),
                                         plugins: {
                                             legend: { display: false },
                                             tooltip: {
