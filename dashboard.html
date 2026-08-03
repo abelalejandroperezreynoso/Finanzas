@@ -1829,6 +1829,62 @@
                                     let tipoFiltroActual = 'todo';
                                     let offsetFiltroActual = 0;
 
+                                    // Se escribe la fecha local en texto en lugar de usar valueAsDate, que interpreta el
+                                    // Date en UTC y adelanta un día el corte en las zonas horarias por delante de Greenwich.
+                                    function aValorInputFecha(d) {
+                                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                    }
+
+                                    // El mes en curso es el rango con el que abre la app: ése es el estado "sin filtrar".
+                                    function rangoPorDefecto() {
+                                        const hoy = new Date();
+                                        return {
+                                            inicio: aValorInputFecha(new Date(hoy.getFullYear(), hoy.getMonth(), 1)),
+                                            fin: aValorInputFecha(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0))
+                                        };
+                                    }
+
+                                    // Cualquier rango distinto al del arranque lo puso el usuario, así que cuenta como
+                                    // filtro activo. Se comparan las fechas y no sólo el atajo elegido para cazar también
+                                    // los rangos personalizados y los de "Calcular desde hoy".
+                                    function hayFiltroDeTiempoActivo() {
+                                        const porDefecto = rangoPorDefecto();
+                                        const inicio = document.getElementById('filtroInicio')?.value || '';
+                                        const fin = document.getElementById('filtroFin')?.value || '';
+                                        return tipoFiltroActual !== 'mes'
+                                            || offsetFiltroActual !== 0
+                                            || inicio !== porDefecto.inicio
+                                            || fin !== porDefecto.fin;
+                                    }
+
+                                    function restablecerRangoDeTiempo() {
+                                        const porDefecto = rangoPorDefecto();
+                                        // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el
+                                        // título saldría como un rango suelto y el atajo "Mes" no aparecería marcado.
+                                        tipoFiltroActual = 'mes';
+                                        offsetFiltroActual = 0;
+                                        const inputInicio = document.getElementById('filtroInicio');
+                                        const inputFin = document.getElementById('filtroFin');
+                                        if (inputInicio) inputInicio.value = porDefecto.inicio;
+                                        if (inputFin) inputFin.value = porDefecto.fin;
+                                        const checkDesdeHoy = document.getElementById('checkDesdeHoy');
+                                        if (checkDesdeHoy) checkDesdeHoy.checked = false;
+                                    }
+
+                                    // Un único lugar decide si se ve la ✕ de arriba, para que el rango de tiempo cuente
+                                    // igual que los filtros de cuenta, categoría o búsqueda.
+                                    function actualizarBotonQuitarFiltro() {
+                                        const hayFiltro = !!idCuentaFiltrada
+                                            || !!window.filtroMovimientosActivo
+                                            || (window.filtroTipoCategoriaActivo && window.filtroTipoCategoriaActivo !== 'todas')
+                                            || hayFiltroDeTiempoActivo();
+
+                                        ['btnQuitarFiltroInicio', 'btnQuitarFiltroLista'].forEach(id => {
+                                            const btn = document.getElementById(id);
+                                            if (btn) btn.style.display = hayFiltro ? 'flex' : 'none';
+                                        });
+                                    }
+
                                     function aplicarRangoManual() {
                                         tipoFiltroActual = 'personalizado';
                                         offsetFiltroActual = 0;
@@ -2133,16 +2189,10 @@
             //
             // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el título saldría
             // como un rango suelto, las flechas ◀ ▶ no avanzarían y el atajo "Mes" no aparecería marcado.
-            const hoy = new Date();
-            tipoFiltroActual = 'mes';
-            offsetFiltroActual = 0;
-            // Mismo criterio que el atajo "Mes": del día 1 al último del mes. Se escribe la fecha local en
-            // texto en lugar de usar valueAsDate, que interpreta el Date en UTC y adelanta un día el corte
-            // en las zonas horarias por delante de Greenwich.
-            const aFechaInput = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            document.getElementById('filtroInicio').value = aFechaInput(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
-            document.getElementById('filtroFin').value = aFechaInput(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0));
-            
+            // Mismo criterio que el atajo "Mes": del día 1 al último del mes. Es el mismo rango al que vuelve
+            // la ✕ de quitar filtros, así que se comparte la función para que no se separen.
+            restablecerRangoDeTiempo();
+
             // La fecha del formulario de registro sí la mantenemos en el día de hoy
                                     const ahora = new Date();
                                     ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset()); // Ajusta a la zona horaria local
@@ -3026,6 +3076,10 @@
                                                         window.filtroTipoCategoriaActivo = 'todas';
                                                         window.filtroMovimientosActivo = null;
 
+                                                        // 2.b El rango de tiempo del panel de filtros también es un filtro: se devuelve al
+                                                        // mes en curso, que es como abre la app.
+                                                        restablecerRangoDeTiempo();
+
                                                         // 3. Restaurar el texto del botón de la pestaña de cuentas
                                                         const btnTabCuentas = document.getElementById('btnTabCuentas');
                                                         if (btnTabCuentas) {
@@ -3388,6 +3442,10 @@
                                     }
                                     
                                     document.getElementById('textoRangoFechas').textContent = textoFiltro;
+
+                                    // La ✕ de arriba se recalcula aquí para que aparezca también cuando el único filtro
+                                    // puesto sea el rango de tiempo del panel de filtros.
+                                    actualizarBotonQuitarFiltro();
 
                                     // --- Identificar categorías de cuentas excluidas ---
                                     const cuentasExcluidas = new Set(datosCuentas.filter(c => c.incluir_en_total === false).map(c => String(c.id)));
