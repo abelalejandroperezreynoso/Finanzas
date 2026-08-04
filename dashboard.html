@@ -2351,6 +2351,10 @@
                                     const cuentaId = selectCuenta.value;
                                     const direccion = selectTipo.value;
 
+                                    // Al reconstruir la lista se libera cualquier bloqueo de la Caja GBM
+                                    selCat.disabled = false;
+                                    delete selCat.dataset.catAntesCaja;
+
                                     selCat.innerHTML = '<option value="" disabled selected>Categoría...</option>';
 
                                     if (!cuentaId || !direccion) {
@@ -2505,6 +2509,9 @@
 
                             // La categoría "Caja GBM" de cada cuenta agrupa las aportaciones y retiros:
                             // dinero que entra o sale de Trading USA sin pertenecer a ninguna empresa.
+                            // Marcador visual para cuando la caja aún no existe (se crea al guardar)
+                            const VALOR_CAJA_AUTO = '__caja_gbm_auto__';
+
                             function esCategoriaCajaGbm(cat) {
                                 return !!cat && cat.tipo === 'inversion' && !cat.ticker && (cat.nombre || '').trim().toLowerCase() === 'caja gbm';
                             }
@@ -2574,6 +2581,9 @@
                                                                 const inputMonto = document.getElementById('regMonto');
                                                                 inputMonto.style.display = '';
                                                                 inputMonto.required = true;
+                                                                const selCatReset = document.getElementById('regCategoriaSelect');
+                                                                selCatReset.disabled = false;
+                                                                delete selCatReset.dataset.catAntesCaja;
                                                             }
                                                         }
 
@@ -2591,11 +2601,46 @@
                                 const usaAcciones = tipoInv !== 'aportacion' && tipoInv !== 'retiro';
                                 const muevePesos = tipoInv !== 'compra' && tipoInv !== 'venta';
 
-                                const idCat = document.getElementById('regCategoriaSelect').value;
-                                const cat = datosCategorias.find(c => String(c.id) === String(idCat));
+                                const selCat = document.getElementById('regCategoriaSelect');
+                                const idCat = selCat.value;
+                                let cat = datosCategorias.find(c => String(c.id) === String(idCat));
+                                // Si el select muestra el marcador "Caja GBM (se creará al guardar)", el contexto
+                                // real (cuenta, validaciones) viene de la categoría desde la que se abrió
+                                if (!cat && idCat === VALOR_CAJA_AUTO && selCat.dataset.catAntesCaja) {
+                                    cat = datosCategorias.find(c => String(c.id) === String(selCat.dataset.catAntesCaja));
+                                }
                                 const cajaCta = (cat && window.cajaUsdPorCuenta) ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
                                 const hayCaja = !!(cajaCta && cajaCta.usd > 0.005);
                                 const cajaTxt = hayCaja ? `Caja GBM disponible: $${fNum(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
+
+                                // Aportaciones y retiros pertenecen a la Caja GBM, no a una empresa: fijamos
+                                // la categoría visiblemente y la bloqueamos mientras dure ese tipo de movimiento
+                                const esMovCaja = tipoInv === 'aportacion' || tipoInv === 'retiro';
+                                if (esMovCaja) {
+                                    if (cat && !esCategoriaCajaGbm(cat)) {
+                                        selCat.dataset.catAntesCaja = String(cat.id);
+                                        const catCaja = (datosCategorias || []).find(c => String(c.cuenta_id) === String(cat.cuenta_id) && esCategoriaCajaGbm(c));
+                                        const valorCaja = catCaja ? String(catCaja.id) : VALOR_CAJA_AUTO;
+                                        const textoCaja = catCaja ? '💵 Caja GBM' : '💵 Caja GBM (se creará al guardar)';
+                                        if (![...selCat.options].some(o => o.value === valorCaja)) {
+                                            const opCaja = document.createElement('option');
+                                            opCaja.value = valorCaja;
+                                            opCaja.textContent = textoCaja;
+                                            selCat.appendChild(opCaja);
+                                        }
+                                        selCat.value = valorCaja;
+                                    }
+                                    selCat.disabled = true;
+                                } else if (selCat.disabled) {
+                                    // Al regresar a compra/venta/directo restauramos la categoría original
+                                    selCat.disabled = false;
+                                    const catPrevia = selCat.dataset.catAntesCaja;
+                                    if (catPrevia && [...selCat.options].some(o => o.value === catPrevia)) {
+                                        selCat.value = catPrevia;
+                                        cat = datosCategorias.find(c => String(c.id) === String(catPrevia));
+                                    }
+                                    delete selCat.dataset.catAntesCaja;
+                                }
 
                                 divAcciones.style.display = usaAcciones ? '' : 'none';
                                 divCosto.style.display = usaAcciones ? '' : 'none';
@@ -2615,15 +2660,11 @@
                                 labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
                                 labelTC.textContent = (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
 
-                                // Aportaciones y retiros se guardan en la categoría "Caja GBM" de la cuenta,
-                                // no en la empresa seleccionada (en ese momento no hay ninguna empresa involucrada)
-                                const notaCaja = (cat && !esCategoriaCajaGbm(cat)) ? ` Se guardará en la categoría "Caja GBM" de la cuenta.` : '';
-
                                 let textoHint = '';
-                                if (tipoInv === 'aportacion') textoHint = `Pesos que enviaste de Smart Cash a Trading USA. Se convierten a USD con el tipo de cambio. ${cajaTxt}${notaCaja}`;
+                                if (tipoInv === 'aportacion') textoHint = `Pesos que enviaste de Smart Cash a Trading USA. Se convierten a USD con el tipo de cambio. ${cajaTxt}`;
                                 else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}${hayCaja ? '' : ' Sin caja, el costo en pesos del lote se estima con el TC capturado.'}`;
                                 else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
-                                else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}${notaCaja}`;
+                                else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}`;
                                 hint.textContent = textoHint;
                                 hint.style.display = textoHint ? 'block' : 'none';
                             }
@@ -6779,9 +6820,9 @@
                                                     document.getElementById('registroForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const catId = document.getElementById('regCategoriaSelect').value;
+            let catId = document.getElementById('regCategoriaSelect').value;
             const direccion = document.getElementById('regTipoSelect').value;
-            
+
             // 1. Validación manual para los botones
             if (!direccion) {
                 alert("⚠️ Por favor, selecciona si es una Entrada (+) o Salida (-).");
@@ -6792,6 +6833,16 @@
             if (!catId || catId === VALOR_NUEVA_CATEGORIA) {
                 alert("⚠️ Por favor, selecciona una categoría.");
                 return;
+            }
+
+            // El marcador "Caja GBM (se creará al guardar)" apunta a la categoría desde la
+            // que se abrió la aportación/retiro; la caja real se resuelve más abajo
+            if (catId === VALOR_CAJA_AUTO) {
+                catId = document.getElementById('regCategoriaSelect').dataset.catAntesCaja || '';
+                if (!catId) {
+                    alert("⚠️ Por favor, selecciona primero la cuenta y una categoría de inversión.");
+                    return;
+                }
             }
 
             let montoInput = Math.abs(parseFloat(document.getElementById('regMonto').value));
