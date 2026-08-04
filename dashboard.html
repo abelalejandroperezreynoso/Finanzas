@@ -552,19 +552,26 @@
 
     <input type="text" id="regDesc" placeholder="Descripción corta">
 
-    <div id="contenedorInversion" style="display: none; margin-top: 10px; gap: 10px; background: #222; padding: 12px; border-radius: 8px; border: 1px dashed #444;">
-    <div style="flex: 1;">
+    <div id="contenedorInversion" style="display: none; flex-direction: column; margin-top: 10px; gap: 10px; background: #222; padding: 12px; border-radius: 8px; border: 1px dashed #444;">
+    <div style="width: 100%;">
+    <label style="font-size: 0.75em; color: #aaa;">Movimiento GBM</label>
+    <select id="regTipoInversion" onchange="actualizarCamposInversion()" style="margin-bottom: 0;"></select>
+    </div>
+    <div style="display: flex; gap: 10px;">
+    <div style="flex: 1;" id="divRegAcciones">
     <label style="font-size: 0.75em; color: #aaa;">Acciones</label>
     <input type="number" inputmode="decimal" id="regAcciones" placeholder="Ej: 5.5" step="any" style="margin-bottom: 0;">
     </div>
-    <div style="flex: 1;">
-    <label style="font-size: 0.75em; color: #aaa;">Costo Acción (USD)</label>
+    <div style="flex: 1;" id="divRegCostoAccion">
+    <label style="font-size: 0.75em; color: #aaa;" id="labelRegCostoAccion">Costo Acción (USD)</label>
     <input type="number" inputmode="decimal" id="regCostoAccion" placeholder="Ej: 150.50" step="0.01" style="margin-bottom: 0;">
     </div>
-    <div style="flex: 1;">
-    <label style="font-size: 0.75em; color: #aaa;">Tipo de Cambio (MXN)</label>
+    <div style="flex: 1;" id="divRegTipoCambio">
+    <label style="font-size: 0.75em; color: #aaa;" id="labelRegTipoCambio">Tipo de Cambio (MXN)</label>
     <input type="number" inputmode="decimal" id="regTipoCambio" placeholder="Ej: 17.50" step="0.0001" style="margin-bottom: 0;">
     </div>
+    </div>
+    <div id="hintInversion" style="display: none; font-size: 0.78em; color: #4da6ff; line-height: 1.4;"></div>
     </div>
 
     <div style="display: flex; gap: 10px; margin-top: 15px;">
@@ -2387,8 +2394,8 @@
                                                     let sufijo = "";
                                                     if (direccion === 'entrada' && cat.tipo === 'prestamo') sufijo = " (Cobro a favor)";
                                                     if (direccion === 'salida' && cat.tipo === 'deuda') sufijo = " (Abono/Pago)";
-                                                    if (direccion === 'salida' && cat.tipo === 'inversion') sufijo = " (Aportación)";
-                                                    if (direccion === 'entrada' && cat.tipo === 'inversion') sufijo = " (Retiro/Rendimiento)";
+                                                    if (direccion === 'salida' && cat.tipo === 'inversion') sufijo = " (Compra/Aportación)";
+                                                    if (direccion === 'entrada' && cat.tipo === 'inversion') sufijo = " (Venta/Retiro)";
                                                     const txtTicker = cat.ticker ? ` [${cat.ticker}]` : '';
                                                     opcionesHtml += `<option value="${cat.id}">${cat.nombre}${txtTicker}${sufijo}</option>`;
                                                 });
@@ -2480,25 +2487,103 @@
         }
                             
                             
+                            // --- FLUJO GBM: clasificación de movimientos de inversión ---
+                            // Un registro nuevo lleva tipo_movimiento explícito ('aportacion' | 'compra' | 'venta' | 'retiro').
+                            // Los registros históricos (sin tipo_movimiento) se interpretan por el signo del monto:
+                            // monto < 0 con acciones = compra directa con pesos (aportación + compra fusionadas),
+                            // monto > 0 con acciones = venta directa a pesos (venta + retiro fusionados).
+                            function tipoMovInversion(r) {
+                                if (r && r.tipo_movimiento) return r.tipo_movimiento;
+                                if (!r) return null;
+                                const monto = parseFloat(r.monto) || 0;
+                                const acciones = parseFloat(r.cantidad_acciones) || 0;
+                                if (acciones > 0) return monto < 0 ? 'compra_directa' : 'venta_directa';
+                                return null;
+                            }
+                            function esCompraInversion(r) { const t = tipoMovInversion(r); return t === 'compra' || t === 'compra_directa'; }
+                            function esVentaInversion(r) { const t = tipoMovInversion(r); return t === 'venta' || t === 'venta_directa'; }
+
                             function verificarMostrarCostoAccion() {
                                                             const idCat = document.getElementById('regCategoriaSelect').value;
                                                             const cat = datosCategorias.find(c => String(c.id) === String(idCat));
                                                             const contenedorInversion = document.getElementById('contenedorInversion');
-                                                            
+
                                                             if (cat && cat.tipo === 'inversion') {
                                                                 contenedorInversion.style.display = 'flex';
-                                                                
+
+                                                                // Poblar el selector de tipo de movimiento GBM según la dirección elegida
+                                                                const direccion = document.getElementById('regTipoSelect').value;
+                                                                const selTipoInv = document.getElementById('regTipoInversion');
+                                                                const valorPrevio = selTipoInv.value;
+                                                                if (direccion === 'entrada') {
+                                                                    selTipoInv.innerHTML = `
+                                                                        <option value="venta">📤 Venta (los USD quedan en la caja GBM)</option>
+                                                                        <option value="retiro">🏦 Retiro (USD → MXN, sale de GBM)</option>
+                                                                        <option value="venta_directa">Venta directa a pesos (venta + retiro)</option>`;
+                                                                } else {
+                                                                    selTipoInv.innerHTML = `
+                                                                        <option value="compra">🛒 Compra (usa USD de la caja GBM)</option>
+                                                                        <option value="aportacion">💵 Aportación (MXN → USD a Trading)</option>
+                                                                        <option value="compra_directa">Compra directa con pesos (aportación + compra)</option>`;
+                                                                }
+                                                                // Conservar la elección si sigue disponible tras cambiar de categoría
+                                                                if (valorPrevio && [...selTipoInv.options].some(o => o.value === valorPrevio)) {
+                                                                    selTipoInv.value = valorPrevio;
+                                                                }
+
                                                                 // Sugerir el tipo de cambio actual por defecto si está vacío
                                                                 const inputTC = document.getElementById('regTipoCambio');
                                                                 if (!inputTC.value && globalUsdToMxn) {
                                                                     inputTC.value = globalUsdToMxn.toFixed(2);
                                                                 }
+
+                                                                actualizarCamposInversion();
                                                             } else {
                                                                 contenedorInversion.style.display = 'none';
                                                                 document.getElementById('regCostoAccion').value = '';
                                                                 document.getElementById('regTipoCambio').value = '';
+                                                                const inputMonto = document.getElementById('regMonto');
+                                                                inputMonto.style.display = '';
+                                                                inputMonto.required = true;
                                                             }
                                                         }
+
+                            // Muestra/oculta los campos del formulario según el tipo de movimiento GBM elegido.
+                            // Compra y venta no mueven pesos (monto = 0); aportación y retiro sí.
+                            function actualizarCamposInversion() {
+                                const tipoInv = document.getElementById('regTipoInversion').value;
+                                const inputMonto = document.getElementById('regMonto');
+                                const divAcciones = document.getElementById('divRegAcciones');
+                                const divCosto = document.getElementById('divRegCostoAccion');
+                                const labelCosto = document.getElementById('labelRegCostoAccion');
+                                const labelTC = document.getElementById('labelRegTipoCambio');
+                                const hint = document.getElementById('hintInversion');
+
+                                const usaAcciones = tipoInv !== 'aportacion' && tipoInv !== 'retiro';
+                                const muevePesos = tipoInv !== 'compra' && tipoInv !== 'venta';
+
+                                divAcciones.style.display = usaAcciones ? '' : 'none';
+                                divCosto.style.display = usaAcciones ? '' : 'none';
+                                inputMonto.style.display = muevePesos ? '' : 'none';
+                                inputMonto.required = muevePesos;
+                                if (!muevePesos) inputMonto.value = '';
+
+                                labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
+                                labelTC.textContent = (tipoInv === 'compra' || tipoInv === 'venta') ? 'TC referencia' : 'Tipo de Cambio (MXN)';
+
+                                const idCat = document.getElementById('regCategoriaSelect').value;
+                                const cat = datosCategorias.find(c => String(c.id) === String(idCat));
+                                const cajaCta = (cat && window.cajaUsdPorCuenta) ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
+                                const cajaTxt = cajaCta && cajaCta.usd > 0.005 ? `Caja GBM disponible: $${fNum(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
+
+                                let textoHint = '';
+                                if (tipoInv === 'aportacion') textoHint = `Pesos que enviaste de Smart Cash a Trading USA. Se convierten a USD con el tipo de cambio. ${cajaTxt}`;
+                                else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}`;
+                                else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
+                                else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}`;
+                                hint.textContent = textoHint;
+                                hint.style.display = textoHint ? 'block' : 'none';
+                            }
                             
                             
 
@@ -2511,7 +2596,7 @@
                             const { data: saldosData } = await clienteSupabase.rpc('saldos_categorias', { p_user_id: currentUser.id });
 
                             // NUEVO: Obtenemos uso, montos y fechas (últimos 100,000 movimientos) para ordenar, sugerir montos y detectar recurrencias
-                            const { data: usoData } = await clienteSupabase.from('registros').select('id, categoria_id, monto, fecha, costo_accion, tipo_cambio, cantidad_acciones').order('fecha', { ascending: false }).limit(100000);
+                            const { data: usoData } = await clienteSupabase.from('registros').select('id, categoria_id, monto, fecha, costo_accion, tipo_cambio, cantidad_acciones, tipo_movimiento, monto_usd').order('fecha', { ascending: false }).limit(100000);
 
                             datosUsoCompleto = usoData || []; // NUEVO: Copiamos la data a nivel global
 
@@ -2530,6 +2615,14 @@
                             const lotesPendientes = {};
                             window.accionesRestantesMap = {}; // Global para que el historial lo lea
                             window.gananciaRealizadaMap = {}; // NUEVO: Para guardar la ganancia por venta
+                            window.gananciaRealizadaUsdMap = {}; // FLUJO GBM: ganancia en USD de ventas cuyo dinero queda en la caja
+                            window.costoMxnLoteMap = {}; // FLUJO GBM: costo base MXN de compras pagadas con la caja (su monto es 0)
+
+                            // FLUJO GBM: caja de dólares por cuenta (dinero en Trading USA sin invertir).
+                            // usd = dólares disponibles; mxnBase = pesos que costaron esos dólares (para la ganancia al retirar).
+                            const cajaPorCuenta = {};
+                            const cuentaPorCategoria = {};
+                            (catData || []).forEach(c => cuentaPorCategoria[c.id] = c.cuenta_id);
 
                             if (usoData) {
                             const registrosAsc = [...usoData].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
@@ -2540,41 +2633,88 @@
                             // Ventana deslizante: conservamos SOLO los 12 movimientos más recientes de cada
                             // categoría. Como recorremos en orden ascendente, al descartar el primero cada vez
                             // que superamos el límite nos quedamos siempre con los últimos, no con los más viejos.
+                            // Las compras/ventas internas de la caja GBM (monto 0) no aportan nada al estimador.
+                            const montoAbsHist = Math.abs(parseFloat(u.monto));
+                            if (montoAbsHist > 0.00001) {
                             if (!montosRecientesMap[u.categoria_id]) montosRecientesMap[u.categoria_id] = [];
                             const historialMontos = montosRecientesMap[u.categoria_id];
-                            historialMontos.push(Math.abs(parseFloat(u.monto)));
+                            historialMontos.push(montoAbsHist);
                             if (historialMontos.length > 12) historialMontos.shift();
+                            }
 
                             if (!registrosPorCat[u.categoria_id]) registrosPorCat[u.categoria_id] = [];
                             registrosPorCat[u.categoria_id].push(new Date(u.fecha));
 
                             const monto = parseFloat(u.monto);
                             const acciones = parseFloat(u.cantidad_acciones) || 0;
+                            const tipoMov = tipoMovInversion(u);
 
-                            if (acciones > 0) {
+                            if (tipoMov) {
+                            const idCuentaCat = cuentaPorCategoria[u.categoria_id];
+                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0 };
+                            const caja = cajaPorCuenta[idCuentaCat];
+                            const usdRegistro = parseFloat(u.monto_usd) || 0;
+
+                            if (tipoMov === 'aportacion') {
+                            // Smart Cash → Trading USA: entran dólares a la caja, salen pesos
+                            const usdAportado = usdRegistro || (Math.abs(monto) / (parseFloat(u.tipo_cambio) || 1));
+                            caja.usd += usdAportado;
+                            caja.mxnBase += Math.abs(monto);
+
+                            } else if (tipoMov === 'retiro') {
+                            // Trading USA → Smart Cash: salen dólares de la caja, regresan pesos.
+                            // Aquí se materializa la ganancia REAL en pesos (acciones + tipo de cambio).
+                            const usdRetirado = usdRegistro || (Math.abs(monto) / (parseFloat(u.tipo_cambio) || 1));
+                            let baseMxnRetirada = Math.abs(monto);
+                            if (caja.usd > 0.00001) {
+                            baseMxnRetirada = Math.min(caja.mxnBase, usdRetirado * (caja.mxnBase / caja.usd));
+                            }
+                            window.gananciaRealizadaMap[u.id] = Math.abs(monto) - baseMxnRetirada;
+                            caja.usd = Math.max(0, caja.usd - usdRetirado);
+                            caja.mxnBase = Math.max(0, caja.mxnBase - baseMxnRetirada);
+
+                            } else if (acciones > 0 && (tipoMov === 'compra' || tipoMov === 'compra_directa')) {
                             if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
                             if (!costoBaseMap[u.categoria_id]) costoBaseMap[u.categoria_id] = 0;
                             if (!costoBaseUsdMap[u.categoria_id]) costoBaseUsdMap[u.categoria_id] = 0;
                             if (!lotesPendientes[u.categoria_id]) lotesPendientes[u.categoria_id] = [];
 
-                            if (monto < 0) {
-                            // Es una COMPRA
+                            const usdCompra = usdRegistro || (acciones * parseFloat(u.costo_accion || 0));
+                            let mxnCompra, tcLote;
+
+                            if (tipoMov === 'compra_directa') {
+                            // Pesos → acciones en un paso (registros históricos): el monto ES el costo MXN
+                            mxnCompra = Math.abs(monto);
+                            tcLote = parseFloat(u.tipo_cambio || 1);
+                            } else {
+                            // Compra pagada con la caja USD: hereda el TC promedio real de las aportaciones
+                            tcLote = caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1);
+                            mxnCompra = usdCompra * tcLote;
+                            caja.usd = Math.max(0, caja.usd - usdCompra);
+                            caja.mxnBase = Math.max(0, caja.mxnBase - mxnCompra);
+                            }
+
                             accionesMap[u.categoria_id] += acciones;
-                            costoBaseMap[u.categoria_id] += Math.abs(monto);
-                            costoBaseUsdMap[u.categoria_id] += (acciones * parseFloat(u.costo_accion || 0));
+                            costoBaseMap[u.categoria_id] += mxnCompra;
+                            costoBaseUsdMap[u.categoria_id] += usdCompra;
+                            window.costoMxnLoteMap[u.id] = mxnCompra;
 
                             // Registramos el lote para el FIFO (ahora memoriza el TC y Costo exacto)
                             lotesPendientes[u.categoria_id].push({
                             id: u.id,
                             restantes: acciones,
                             costoAccion: parseFloat(u.costo_accion || 0),
-                            tipoCambio: parseFloat(u.tipo_cambio || 1),
+                            tipoCambio: tcLote,
                             fecha: u.fecha
                             });
                             window.accionesRestantesMap[u.id] = acciones;
 
-                            } else if (monto > 0) {
-                            // Es una VENTA
+                            } else if (acciones > 0 && (tipoMov === 'venta' || tipoMov === 'venta_directa')) {
+                            if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
+                            if (!costoBaseMap[u.categoria_id]) costoBaseMap[u.categoria_id] = 0;
+                            if (!costoBaseUsdMap[u.categoria_id]) costoBaseUsdMap[u.categoria_id] = 0;
+                            if (!lotesPendientes[u.categoria_id]) lotesPendientes[u.categoria_id] = [];
+
                             const costoPromedioActual = accionesMap[u.categoria_id] > 0
                             ? (costoBaseMap[u.categoria_id] / accionesMap[u.categoria_id])
                             : 0;
@@ -2583,9 +2723,20 @@
                             ? (costoBaseUsdMap[u.categoria_id] / accionesMap[u.categoria_id])
                             : 0;
 
-                            // Guardamos la ganancia de esta venta específica
                             const costoDeLoVendido = acciones * costoPromedioActual;
+                            const costoDeLoVendidoUsd = acciones * costoPromedioActualUsd;
+
+                            if (tipoMov === 'venta_directa') {
+                            // Acciones → pesos en un paso: la ganancia MXN se realiza aquí (comportamiento histórico)
                             window.gananciaRealizadaMap[u.id] = monto - costoDeLoVendido;
+                            } else {
+                            // Venta que se queda en la caja USD: la ganancia realizada es en dólares;
+                            // el costo MXN de lo vendido regresa a la caja y saldrá en pesos hasta el retiro
+                            const usdVenta = usdRegistro || (acciones * parseFloat(u.costo_accion || 0));
+                            window.gananciaRealizadaUsdMap[u.id] = usdVenta - costoDeLoVendidoUsd;
+                            caja.usd += usdVenta;
+                            caja.mxnBase += costoDeLoVendido;
+                            }
 
                             accionesMap[u.categoria_id] -= acciones;
                             costoBaseMap[u.categoria_id] -= (acciones * costoPromedioActual);
@@ -2617,6 +2768,17 @@
                             }
                             });
                             }
+
+                            // FLUJO GBM: publicamos la caja USD por cuenta para la UI y las validaciones del formulario
+                            window.cajaUsdPorCuenta = {};
+                            Object.keys(cajaPorCuenta).forEach(idCuenta => {
+                            const caja = cajaPorCuenta[idCuenta];
+                            window.cajaUsdPorCuenta[idCuenta] = {
+                            usd: caja.usd,
+                            mxnBase: caja.mxnBase,
+                            tcPromedio: caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : 0
+                            };
+                            });
 
                             // --- NUEVO ALGORITMO: Detección de Recurrencia ---
                             const recurrenciasMap = {};
@@ -2921,7 +3083,7 @@
                                                                                                                                         const fechaHoyCat = new Date();
 
                                                                                                                                         const lotesCompraCat = datosUsoCompleto
-                                                                                                                                        .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && parseFloat(u.cantidad_acciones) > 0)
+                                                                                                                                        .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
                                                                                                                                         .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
                                                                                                                                         for (let idx = 0; idx < lotesCompraCat.length; idx++) {
@@ -2932,7 +3094,7 @@
                                                                                                                                         : accionesOriginales;
 
                                                                                                                                         if (accionesVivas > 0.00001) {
-                                                                                                                                        const montoAbsoluto = Math.abs(parseFloat(lote.monto));
+                                                                                                                                        const montoAbsoluto = (window.costoMxnLoteMap && window.costoMxnLoteMap[lote.id] !== undefined) ? window.costoMxnLoteMap[lote.id] : Math.abs(parseFloat(lote.monto));
                                                                                                                                         const costoInvertidoVivoMxn = accionesOriginales > 0 ? montoAbsoluto * (accionesVivas / accionesOriginales) : montoAbsoluto;
                                                                                                                                         const valorActualLoteMxn = accionesVivas * precioUsd * globalUsdToMxn;
                                                                                                                                         const plusvaliaLoteMxn = valorActualLoteMxn - costoInvertidoVivoMxn;
@@ -3750,10 +3912,58 @@
                                                                                                 let montoArribaHtml = `<strong class="${esEntrada ? 'exito' : 'error'}" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${esEntrada ? '+' : '-'}$${fNum(montoAbsoluto)}</strong>`;
                                                                                                 let montoAbajoHtml = "";
 
-                                                                                                if (tipoCat === 'inversion' && r.costo_accion > 0) {
-                                                    const tipoCambioHist = parseFloat(r.tipo_cambio) || 1;
+                                                                                                const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
+
+                                                                                                if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
+                                                    // --- MOVIMIENTO DE CAJA GBM (MXN ↔ USD, sin acciones) ---
+                                                    const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
+                                                    const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
+
+                                                    if (tipoMovR === 'aportacion') {
+                                                        infoDetalleInversion = `
+                                                        <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed #4da6ff;">
+                                                            <div style="text-align: left; line-height: 1.5;">
+                                                                <span style="color: #fff; font-size: 1.05em;">💵 Aportación a Trading USA</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: $${fNum(tcMovCaja)}</span>
+                                                            </div>
+                                                            <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
+                                                                <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Entró a la caja</span><br>
+                                                                <span style="color: #4da6ff; font-weight: bold; font-size: 1.1em;">+$${fNum(usdMovCaja)} USD</span>
+                                                            </div>
+                                                        </div>`;
+                                                    } else {
+                                                        let gananciaRetiro = 0;
+                                                        if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
+                                                            gananciaRetiro = window.gananciaRealizadaMap[r.id];
+                                                        }
+                                                        const colorGananciaRetiro = gananciaRetiro >= 0 ? '#2ac555' : '#ff5c5c';
+                                                        const signoGananciaRetiro = gananciaRetiro >= 0 ? '+' : '';
+                                                        const costoRetiro = montoAbsoluto - gananciaRetiro;
+                                                        const pctGananciaRetiro = costoRetiro > 0 ? (gananciaRetiro / costoRetiro) * 100 : 0;
+
+                                                        infoDetalleInversion = `
+                                                        <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed ${colorGananciaRetiro};">
+                                                            <div style="text-align: left; line-height: 1.5;">
+                                                                <span style="color: #fff; font-size: 1.05em;">🏦 Retiro de Trading USA</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Salieron $${fNum(usdMovCaja)} USD de la caja</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: $${fNum(tcMovCaja)}</span>
+                                                            </div>
+                                                            <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
+                                                                <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Ganancia Real</span><br>
+                                                                <span style="color: ${colorGananciaRetiro}; font-weight: bold; font-size: 1.1em;">${signoGananciaRetiro}$${fNum(gananciaRetiro)} MXN</span><br>
+                                                                <span style="color: ${colorGananciaRetiro}; font-size: 0.9em;">${signoGananciaRetiro}${pctGananciaRetiro.toFixed(2)}%</span>
+                                                            </div>
+                                                        </div>`;
+                                                    }
+                                                                                                } else if (tipoCat === 'inversion' && r.costo_accion > 0) {
+                                                    let tipoCambioHist = parseFloat(r.tipo_cambio) || 1;
+                                                    const costoMxnBaseLote = (window.costoMxnLoteMap && window.costoMxnLoteMap[r.id] !== undefined) ? window.costoMxnLoteMap[r.id] : montoAbsoluto;
                                                     const costoPagadoPorAccionMxn = r.costo_accion * tipoCambioHist;
                                                     const numAccionesOriginal = parseFloat(r.cantidad_acciones) || (montoAbsoluto / costoPagadoPorAccionMxn);
+                                                    // Una compra pagada con la caja hereda el TC promedio real de las aportaciones
+                                                    if (tipoMovR === 'compra' && numAccionesOriginal > 0 && r.costo_accion > 0 && costoMxnBaseLote > 0) {
+                                                        tipoCambioHist = costoMxnBaseLote / (numAccionesOriginal * r.costo_accion);
+                                                    }
                                                     const numAccionesStr = numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 });
 
                                                     // Calculamos la plusvalía del Tipo de Cambio para este lote
@@ -3766,8 +3976,13 @@
                                                         ? window.accionesRestantesMap[r.id]
                                                         : numAccionesOriginal;
 
-                                                    if (!esEntrada) {
+                                                    if (esCompraInversion(r)) {
                                                         // --- ES UNA COMPRA (Lote Invertido) ---
+                                                        if (tipoMovR === 'compra') {
+                                                            // Compra pagada con la caja USD: el monto MXN del registro es 0,
+                                                            // mostramos el costo base heredado de las aportaciones
+                                                            montoArribaHtml = `<strong class="error" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">-$${fNum(costoMxnBaseLote)}</strong>`;
+                                                        }
                                                         let tagEstado = "";
                                                         if (accionesVivas < numAccionesOriginal) {
                                                             if (accionesVivas <= 0.00001) {
@@ -3785,7 +4000,7 @@
                                                                     const valorActualUsd = accionesVivas * precioMercadoUsd;
 
                                                                     // --- 1. Cálculos de rendimiento en Pesos (MXN) ---
-                                                                                                                                        const costoInvertidoVivoMxn = numAccionesOriginal > 0 ? montoAbsoluto * (accionesVivas / numAccionesOriginal) : montoAbsoluto;
+                                                                                                                                        const costoInvertidoVivoMxn = numAccionesOriginal > 0 ? costoMxnBaseLote * (accionesVivas / numAccionesOriginal) : costoMxnBaseLote;
                                                                                                                                         const rendimientoMxn = valorActualMxn - costoInvertidoVivoMxn;
                                                                                                                                         const porcentajeMxn = costoInvertidoVivoMxn > 0 ? (rendimientoMxn / costoInvertidoVivoMxn) * 100 : 0;
 
@@ -3852,8 +4067,35 @@
                                                                             </div>
                                                                         </div>`;
                                                         }
+                                                    } else if (tipoMovR === 'venta') {
+                                                        // --- VENTA QUE SE QUEDA EN LA CAJA USD (no entran pesos) ---
+                                                        const ventaUsd = parseFloat(r.monto_usd) || (numAccionesOriginal * r.costo_accion);
+                                                        let gananciaUsd = 0;
+                                                        if (window.gananciaRealizadaUsdMap && window.gananciaRealizadaUsdMap[r.id] !== undefined) {
+                                                            gananciaUsd = window.gananciaRealizadaUsdMap[r.id];
+                                                        }
+                                                        const colorGananciaUsd = gananciaUsd >= 0 ? '#2ac555' : '#ff5c5c';
+                                                        const signoGananciaUsd = gananciaUsd >= 0 ? '+' : '';
+                                                        const costoUsdOriginal = ventaUsd - gananciaUsd;
+                                                        const pctGananciaUsd = costoUsdOriginal > 0 ? (gananciaUsd / costoUsdOriginal) * 100 : 0;
+
+                                                        montoArribaHtml = `<strong class="exito" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">+$${fNum(ventaUsd)} USD</strong>`;
+
+                                                        infoDetalleInversion = `
+                                                        <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed ${colorGananciaUsd};">
+                                                            <div style="text-align: left; line-height: 1.5;">
+                                                                <span style="color: #fff; font-size: 1.05em;">${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs. (Vendidas)</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Precio Venta: $${fNum(r.costo_accion)} USD</span><br>
+                                                                <span style="color: #4da6ff; font-size: 0.85em;">💰 $${fNum(ventaUsd)} USD quedaron en la caja GBM</span>
+                                                            </div>
+                                                            <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
+                                                                <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Ganancia USD</span><br>
+                                                                <span style="color: ${colorGananciaUsd}; font-weight: bold; font-size: 1.1em;">${signoGananciaUsd}$${fNum(gananciaUsd)} USD</span><br>
+                                                                <span style="color: ${colorGananciaUsd}; font-size: 0.9em;">${signoGananciaUsd}${pctGananciaUsd.toFixed(2)}%</span>
+                                                            </div>
+                                                        </div>`;
                                                     } else {
-                                                        // --- ES UNA VENTA / RETIRO ---
+                                                        // --- VENTA DIRECTA A PESOS (venta + retiro fusionados) ---
                                                                                                                 let ganancia = 0;
                                                                                                                 if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
                                                                                                                     ganancia = window.gananciaRealizadaMap[r.id];
@@ -5921,7 +6163,7 @@
                             const fechaHoy = new Date();
 
                             const lotesCompra = datosUsoCompleto
-                            .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && parseFloat(u.cantidad_acciones) > 0)
+                            .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
                             .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
                             for (let i = 0; i < lotesCompra.length; i++) {
@@ -5932,7 +6174,7 @@
                             : accionesOriginales;
 
                             if (accionesVivas > 0.00001) {
-                            const montoAbsoluto = Math.abs(parseFloat(lote.monto));
+                            const montoAbsoluto = (window.costoMxnLoteMap && window.costoMxnLoteMap[lote.id] !== undefined) ? window.costoMxnLoteMap[lote.id] : Math.abs(parseFloat(lote.monto));
                             const costoInvertidoVivoMxn = accionesOriginales > 0 ? montoAbsoluto * (accionesVivas / accionesOriginales) : montoAbsoluto;
                             const valorActualLoteMxn = accionesVivas * precioUsd * globalUsdToMxn;
                             const plusvaliaLoteMxn = valorActualLoteMxn - costoInvertidoVivoMxn;
@@ -6282,7 +6524,7 @@
                                 // Consultamos todos los registros de la categoría (no solo los 50 en memoria)
                                 const { data, error } = await clienteSupabase
                                     .from('registros')
-                                    .select('id, fecha, monto, descripcion, costo_accion, tipo_cambio, cantidad_acciones')
+                                    .select('id, fecha, monto, descripcion, costo_accion, tipo_cambio, cantidad_acciones, tipo_movimiento, monto_usd')
                                     .eq('categoria_id', idCat)
                                     .order('fecha', { ascending: false });
 
@@ -6306,6 +6548,8 @@
                                         fila.cantidad_acciones = parseFloat(r.cantidad_acciones) || 0;
                                         fila.costo_accion = parseFloat(r.costo_accion) || 0;
                                         fila.tipo_cambio = parseFloat(r.tipo_cambio) || 0;
+                                        fila.tipo_movimiento = r.tipo_movimiento || 'directo';
+                                        fila.monto_usd = parseFloat(r.monto_usd) || 0;
                                     }
                                     return fila;
                                 });
@@ -6356,7 +6600,24 @@
         let detallesInversion = '';
         let infoTopInversion = ''; 
         
-        if (tipoCat === 'inversion' && r.costo_accion > 0) {
+        const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
+
+        if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
+            const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
+            const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
+            if (tipoMovR === 'aportacion') {
+                detallesInversion = `<br><br><strong style="color:#fff;">💵 APORTACIÓN A TRADING USA</strong><br>Pesos convertidos: $${fNum(montoAbsoluto)} MXN<br>Dólares recibidos: $${fNum(usdMovCaja)} USD<br>TC de conversión: $${fNum(tcMovCaja)}<br><span style="color:#4da6ff;">El dinero quedó disponible en la caja GBM para comprar acciones.</span>`;
+            } else {
+                let gananciaRetiro = 0;
+                if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
+                    gananciaRetiro = window.gananciaRealizadaMap[r.id];
+                }
+                const signoGananciaRetiro = gananciaRetiro >= 0 ? '+' : '';
+                const costoRetiro = montoAbsoluto - gananciaRetiro;
+                const pctGananciaRetiro = costoRetiro > 0 ? (gananciaRetiro / costoRetiro) * 100 : 0;
+                detallesInversion = `<br><br><strong style="color:#fff;">🏦 RETIRO DE TRADING USA</strong><br>Dólares retirados: $${fNum(usdMovCaja)} USD<br>Pesos recibidos: $${fNum(montoAbsoluto)} MXN<br>TC de conversión: $${fNum(tcMovCaja)}<br>Ganancia Real: ${signoGananciaRetiro}$${fNum(gananciaRetiro)} MXN (${signoGananciaRetiro}${pctGananciaRetiro.toFixed(2)}%)`;
+            }
+        } else if (tipoCat === 'inversion' && r.costo_accion > 0) {
             const tipoCambioHist = parseFloat(r.tipo_cambio) || 1;
             const costoPagadoPorAccionMxn = r.costo_accion * tipoCambioHist;
             const numAccionesOriginal = parseFloat(r.cantidad_acciones) || (montoAbsoluto / costoPagadoPorAccionMxn);
@@ -6372,7 +6633,7 @@
                 divMeses = Math.max(1, mesesEfectivosHistorial);
             }
             
-            if (!esEntrada) {
+            if (esCompraInversion(r)) {
                 const accionesVivas = window.accionesRestantesMap && window.accionesRestantesMap[r.id] !== undefined ? window.accionesRestantesMap[r.id] : numAccionesOriginal;
                 let estadoAcciones = accionesVivas < numAccionesOriginal ? (accionesVivas <= 0.00001 ? " (Cerrada)" : ` (Quedan ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })})`) : "";
                 const invertidoUsd = accionesVivas * r.costo_accion;
@@ -6399,7 +6660,8 @@
                     // -----------------------------------------------------------
 
                     const valorActualMxn = accionesVivas * precioMercadoUsd * globalUsdToMxn;
-                    const costoInvertidoVivoMxn = numAccionesOriginal > 0 ? montoAbsoluto * (accionesVivas / numAccionesOriginal) : montoAbsoluto;
+                    const costoMxnBaseLote = (window.costoMxnLoteMap && window.costoMxnLoteMap[r.id] !== undefined) ? window.costoMxnLoteMap[r.id] : montoAbsoluto;
+                    const costoInvertidoVivoMxn = numAccionesOriginal > 0 ? costoMxnBaseLote * (accionesVivas / numAccionesOriginal) : costoMxnBaseLote;
                     const rendimientoMxn = valorActualMxn - costoInvertidoVivoMxn;
                     
                     // ¡CORREGIDO AQUÍ! Ya no usa "totalInvertido"
@@ -6414,6 +6676,16 @@
                     const totalUsdOriginal = numAccionesOriginal * r.costo_accion;
                     detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: $${fNum(r.costo_accion)} USD<br>Total Compra: $${fNum(totalUsdOriginal)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: $${fNum(tipoCambioHist)}<br>TC Hoy: $${fNum(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m`;
                 }
+            } else if (tipoMovR === 'venta') {
+                const ventaUsd = parseFloat(r.monto_usd) || (numAccionesOriginal * r.costo_accion);
+                let gananciaUsd = 0;
+                if (window.gananciaRealizadaUsdMap && window.gananciaRealizadaUsdMap[r.id] !== undefined) {
+                    gananciaUsd = window.gananciaRealizadaUsdMap[r.id];
+                }
+                const signoGananciaUsd = gananciaUsd >= 0 ? '+' : '';
+                const costoUsdOriginal = ventaUsd - gananciaUsd;
+                const pctGananciaUsd = costoUsdOriginal > 0 ? (gananciaUsd / costoUsdOriginal) * 100 : 0;
+                detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA (queda en caja USD)</strong><br>Acciones Vendidas: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Precio Venta: $${fNum(r.costo_accion)} USD<br>Total Venta: $${fNum(ventaUsd)} USD<br>Ganancia USD: ${signoGananciaUsd}$${fNum(gananciaUsd)} USD (${signoGananciaUsd}${pctGananciaUsd.toFixed(2)}%)<br><span style="color:#4da6ff;">El dinero quedó en la caja GBM; la ganancia en pesos se realiza al retirar.</span>`;
             } else {
                 let ganancia = 0;
                 if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
@@ -6474,12 +6746,54 @@
             }
 
             let montoInput = Math.abs(parseFloat(document.getElementById('regMonto').value));
-            const montoFinal = direccion === 'salida' ? -montoInput : montoInput;
+            let montoFinal = direccion === 'salida' ? -montoInput : montoInput;
 
             const costoAccion = parseFloat(document.getElementById('regCostoAccion').value) || 0;
                         const tipoCambio = parseFloat(document.getElementById('regTipoCambio').value) || 1;
                         const inputAcciones = document.getElementById('regAcciones');
-                        const cantidadAcciones = inputAcciones ? parseFloat(inputAcciones.value) || 0 : 0;
+                        let cantidadAcciones = inputAcciones ? parseFloat(inputAcciones.value) || 0 : 0;
+
+                        // --- FLUJO GBM: monto y monto_usd según el tipo de movimiento de inversión ---
+                        const catSeleccionada = datosCategorias.find(c => String(c.id) === String(catId));
+                        const esInversion = catSeleccionada && catSeleccionada.tipo === 'inversion';
+                        const tipoInvSel = esInversion ? document.getElementById('regTipoInversion').value : '';
+                        // Los movimientos "directos" (pesos → acciones en un paso) se guardan sin tipo,
+                        // igual que los registros históricos, y se interpretan por el signo del monto.
+                        const tipoMovimiento = (tipoInvSel === 'compra' || tipoInvSel === 'venta' || tipoInvSel === 'aportacion' || tipoInvSel === 'retiro') ? tipoInvSel : null;
+                        let montoUsd = 0;
+
+                        if (esInversion) {
+                            const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[catSeleccionada.cuenta_id] : null;
+                            const cajaDisponibleUsd = cajaCta ? cajaCta.usd : 0;
+
+                            if (tipoMovimiento === 'aportacion' || tipoMovimiento === 'retiro') {
+                                if (!montoInput || montoInput <= 0 || tipoCambio <= 0) {
+                                    alert("⚠️ Para una aportación o retiro captura el monto en pesos y el tipo de cambio.");
+                                    return;
+                                }
+                                montoUsd = montoInput / tipoCambio;
+                                cantidadAcciones = 0;
+                                if (tipoMovimiento === 'retiro' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
+                                    if (!confirm(`⚠️ Este retiro usa $${fNum(montoUsd)} USD pero la caja GBM registrada tiene $${fNum(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
+                                }
+                            } else if (tipoMovimiento === 'compra' || tipoMovimiento === 'venta') {
+                                if (!cantidadAcciones || cantidadAcciones <= 0 || costoAccion <= 0) {
+                                    alert("⚠️ Para una compra o venta captura la cantidad de acciones y el precio en USD.");
+                                    return;
+                                }
+                                montoUsd = cantidadAcciones * costoAccion;
+                                montoFinal = 0; // No se mueven pesos: todo ocurre dentro de la caja USD
+                                if (tipoMovimiento === 'compra' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
+                                    if (!confirm(`⚠️ Esta compra usa $${fNum(montoUsd)} USD pero la caja GBM registrada tiene $${fNum(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
+                                }
+                                if (tipoMovimiento === 'venta' && !editIdMov && cantidadAcciones > (catSeleccionada.totalAcciones || 0) + 0.00001) {
+                                    if (!confirm(`⚠️ Estás vendiendo ${cantidadAcciones} acciones pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
+                                }
+                            } else {
+                                // Movimiento directo (histórico): pesos + acciones en un solo paso
+                                montoUsd = cantidadAcciones > 0 && costoAccion > 0 ? cantidadAcciones * costoAccion : (tipoCambio > 0 ? montoInput / tipoCambio : 0);
+                            }
+                        }
 
                         const body = {
                             categoria_id: catId,
@@ -6489,6 +6803,8 @@
                             costo_accion: costoAccion,
                             tipo_cambio: tipoCambio,
                             cantidad_acciones: cantidadAcciones,
+                            tipo_movimiento: tipoMovimiento,
+                            monto_usd: montoUsd,
                             user_id: currentUser.id
                         };
             
@@ -6535,9 +6851,14 @@
                                 if (cat) {
                                     document.getElementById('regCuentaSelect').value = cat.cuenta_id;
                                     
-                                    // Calculamos si originalmente fue entrada o salida basándonos estrictamente en el signo del monto
+                                    // Calculamos si originalmente fue entrada o salida basándonos en el signo del monto.
+                                                // Las compras/ventas de la caja GBM tienen monto 0, así que su dirección
+                                                // sale del tipo de movimiento, no del signo.
                                                 const montoNum = parseFloat(r.monto) || 0;
-                                                seleccionarTipoRegistro(montoNum >= 0 ? 'entrada' : 'salida');
+                                                let direccionEdit = montoNum >= 0 ? 'entrada' : 'salida';
+                                                if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'aportacion') direccionEdit = 'salida';
+                                                if (r.tipo_movimiento === 'venta' || r.tipo_movimiento === 'retiro') direccionEdit = 'entrada';
+                                                seleccionarTipoRegistro(direccionEdit);
                                     
                                     document.getElementById('regCategoriaSelect').value = r.categoria_id;
                                     document.getElementById('regCategoriaSelect').dataset.valorPrevio = r.categoria_id;
@@ -6564,6 +6885,19 @@
                                 document.getElementById('regTipoCambio').value = r.tipo_cambio || '';
                                 document.getElementById('regAcciones').value = r.cantidad_acciones || '';
                                                                 verificarMostrarCostoAccion();
+
+                                                                // Reflejar el tipo de movimiento GBM guardado (los históricos sin tipo son "directos")
+                                                                if (cat && cat.tipo === 'inversion') {
+                                                                    const selTipoInvEdit = document.getElementById('regTipoInversion');
+                                                                    const tipoGuardado = r.tipo_movimiento || (montoNum < 0 ? 'compra_directa' : 'venta_directa');
+                                                                    if ([...selTipoInvEdit.options].some(o => o.value === tipoGuardado)) {
+                                                                        selTipoInvEdit.value = tipoGuardado;
+                                                                    }
+                                                                    actualizarCamposInversion();
+                                                                    if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'venta') {
+                                                                        document.getElementById('regMonto').value = '';
+                                                                    }
+                                                                }
                                                                 
                                                                 document.getElementById('tituloRegistro').textContent = 'Editar Movimiento';
                                 document.getElementById('btnCrearRegistro').textContent = 'Actualizar';
@@ -7144,7 +7478,7 @@
                             totalMesesPonderados += (cat.mesesPromedioExacto || 0) * (cat.costoBaseInvertido || 0);
 
                             const lotesCompra = datosUsoCompleto
-                            .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && parseFloat(u.cantidad_acciones) > 0)
+                            .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
                             .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
                             for (let i = 0; i < lotesCompra.length; i++) {
@@ -7155,7 +7489,7 @@
                             : accionesOriginales;
 
                             if (accionesVivas > 0.00001) {
-                            const montoAbsoluto = Math.abs(parseFloat(lote.monto));
+                            const montoAbsoluto = (window.costoMxnLoteMap && window.costoMxnLoteMap[lote.id] !== undefined) ? window.costoMxnLoteMap[lote.id] : Math.abs(parseFloat(lote.monto));
                             const costoInvertidoVivoMxn = accionesOriginales > 0 ? montoAbsoluto * (accionesVivas / accionesOriginales) : montoAbsoluto;
                             const valorActualLoteMxn = accionesVivas * precioUsd * globalUsdToMxn;
                             const plusvaliaLoteMxn = valorActualLoteMxn - costoInvertidoVivoMxn;
@@ -7174,6 +7508,17 @@
                             }
                             }
                             });
+
+                            // FLUJO GBM: la caja USD es dinero real de la cuenta que ya no está en pesos.
+                            // La sumamos al valor de inversiones (a TC de hoy) y su costo MXN al costo base
+                            // para que el neto y el rendimiento de la cuenta sigan cuadrando.
+                            const cajaCuenta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cuentaId] : null;
+                            const cajaUsdCuenta = cajaCuenta ? cajaCuenta.usd : 0;
+                            if (cajaUsdCuenta > 0.005) {
+                            tieneInversion = true;
+                            valorInversiones += cajaUsdCuenta * globalUsdToMxn;
+                            totalCostoBase += cajaCuenta.mxnBase;
+                            }
 
                             if (tieneInversion) {
                             const elInversionCuenta = document.getElementById(`valor-actual-cuenta-${cuentaId}`);
@@ -7223,8 +7568,13 @@
 
                             const colorReal = totalCombinado >= 0 ? '#3ecf8e' : '#ff5c5c';
 
+                            const lineaCajaGbm = cajaUsdCuenta > 0.005
+                            ? `<small style="color:#4da6ff; font-weight:bold; display:block; margin-top:2px;">Caja GBM: $${fNum(cajaUsdCuenta)} USD (~$${fNum(cajaUsdCuenta * globalUsdToMxn)})</small>`
+                            : '';
+
                             elInversionCuenta.innerHTML = `
                             <small style="color:${colorReal}; font-weight:bold; display:block; margin-top:2px;">Real: $${fNum(valorInversiones)}</small>
+                            ${lineaCajaGbm}
                             <div style="margin-top: 6px;">
                             <span style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorFondoDin}; box-shadow: ${sombraDin}; border: none; color: ${colorTextoDin}; font-weight: bold; white-space: nowrap; cursor: pointer; transition: all 0.3s;" onclick="event.stopPropagation(); window.estadoBotonCuenta = ((window.estadoBotonCuenta || 0) + 1) % 3; datosCuentas.forEach(c => actualizarUIValorActualCuenta(c.id));">
                             ${textoBadge}
