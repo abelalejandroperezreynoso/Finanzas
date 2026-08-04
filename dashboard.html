@@ -2562,23 +2562,33 @@
                                 const usaAcciones = tipoInv !== 'aportacion' && tipoInv !== 'retiro';
                                 const muevePesos = tipoInv !== 'compra' && tipoInv !== 'venta';
 
+                                const idCat = document.getElementById('regCategoriaSelect').value;
+                                const cat = datosCategorias.find(c => String(c.id) === String(idCat));
+                                const cajaCta = (cat && window.cajaUsdPorCuenta) ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
+                                const hayCaja = !!(cajaCta && cajaCta.usd > 0.005);
+                                const cajaTxt = hayCaja ? `Caja GBM disponible: $${fNum(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
+
                                 divAcciones.style.display = usaAcciones ? '' : 'none';
                                 divCosto.style.display = usaAcciones ? '' : 'none';
                                 inputMonto.style.display = muevePesos ? '' : 'none';
                                 inputMonto.required = muevePesos;
                                 if (!muevePesos) inputMonto.value = '';
 
-                                labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
-                                labelTC.textContent = (tipoInv === 'compra' || tipoInv === 'venta') ? 'TC referencia' : 'Tipo de Cambio (MXN)';
+                                // El TC solo importa cuando hay conversión de pesos: aportación, retiro y los
+                                // movimientos directos. En una venta todo queda en dólares (no se pide), y en
+                                // una compra solo sirve de estimación del costo MXN si la caja está vacía.
+                                const divTC = document.getElementById('divRegTipoCambio');
+                                let muestraTC = true;
+                                if (tipoInv === 'venta') muestraTC = false;
+                                if (tipoInv === 'compra') muestraTC = !hayCaja;
+                                divTC.style.display = muestraTC ? '' : 'none';
 
-                                const idCat = document.getElementById('regCategoriaSelect').value;
-                                const cat = datosCategorias.find(c => String(c.id) === String(idCat));
-                                const cajaCta = (cat && window.cajaUsdPorCuenta) ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
-                                const cajaTxt = cajaCta && cajaCta.usd > 0.005 ? `Caja GBM disponible: $${fNum(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
+                                labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
+                                labelTC.textContent = (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
 
                                 let textoHint = '';
                                 if (tipoInv === 'aportacion') textoHint = `Pesos que enviaste de Smart Cash a Trading USA. Se convierten a USD con el tipo de cambio. ${cajaTxt}`;
-                                else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}`;
+                                else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}${hayCaja ? '' : ' Sin caja, el costo en pesos del lote se estima con el TC capturado.'}`;
                                 else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
                                 else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}`;
                                 hint.textContent = textoHint;
