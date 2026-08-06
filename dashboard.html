@@ -6097,87 +6097,15 @@
                                             ? '<span style="color: #ffffff; background: #444; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.85em; opacity: 0.5;">Proyección</span>'
                                             : '';
                     
-                    let html = `
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 6px; font-size: 0.95em;">
+                    // Sólo el flujo del día seleccionado. El desglose de los tres movimientos más
+                    // grandes se quitó de aquí: ocupaba tres renglones fijos —rellenados con filas
+                    // invisibles los días con menos apuntes— y el detalle ya está en el historial.
+                    detallesEl.innerHTML = `
+                                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.95em;">
                                         <span>Movimientos del día: <strong style="color: ${colorFlujo}; opacity: ${diaData.esFuturo ? '0.5' : '1'};">${signo}$${fNum(flujo)}</strong></span>
                                         ${tagTipo}
                                         </div>
                                         `;
-                    
-                    const fechaTarget = diaData.fecha.slice(0, 10);
-                    let topMovimientos = [];
-
-                    if (diaData.esFuturo) {
-                        topMovimientos = diaData.movimientos || [];
-                        topMovimientos.sort((a, b) => b.monto - a.monto);
-                    } else {
-                        const checkboxSoloFuturo = document.getElementById('simularSoloFuturo');
-                        const soloFuturo = checkboxSoloFuturo ? checkboxSoloFuturo.checked : false;
-
-                        const cuentasOcultas = new Set(datosCuentas.filter(c => c.incluir_en_total === false).map(c => String(c.id)));
-                        const catsOcultas = new Set(datosCategorias.filter(c => cuentasOcultas.has(String(c.cuenta_id))).map(c => String(c.id)));
-
-                        const regsDelDia = datosUsoCompleto.filter(u => {
-                        if (!u.fecha || obtenerFechaLocalCortada(u.fecha) !== fechaTarget) return false;
-                        if (!soloFuturo && categoriasExcluidasSimulacion.has(String(u.categoria_id))) return false;
-                        if (catsOcultas.has(String(u.categoria_id))) return false;
-                        if (window.filtroMovimientosActivo) {
-                        const fActivo = window.filtroMovimientosActivo;
-                        if (fActivo.tipo === 'categoria' && String(u.categoria_id) !== String(fActivo.valor)) return false;
-                        if (fActivo.tipo === 'cuenta') {
-                        const catA = datosCategorias.find(c => String(c.id) === String(u.categoria_id));
-                        if (!catA || String(catA.cuenta_id) !== String(fActivo.valor)) return false;
-                        }
-                        if (fActivo.tipo === 'busqueda') {
-                        const txt = fActivo.valor.toLowerCase();
-                        const catA = datosCategorias.find(c => String(c.id) === String(u.categoria_id));
-                        const nom = catA ? catA.nombre.toLowerCase() : '';
-                        const reg = datosRegistros.find(r => String(r.id) === String(u.id));
-                        const des = reg && reg.descripcion ? reg.descripcion.toLowerCase() : '';
-                        if (!des.includes(txt) && !nom.includes(txt)) return false;
-                        }
-                        }
-                        return true;
-                        });
-                        
-                        regsDelDia.forEach(u => {
-                            const cat = datosCategorias.find(c => String(c.id) === String(u.categoria_id));
-                            const mNum = parseFloat(u.monto);
-                            topMovimientos.push({
-                                nombre: cat ? cat.nombre : 'Sin categoría',
-                                monto: Math.abs(mNum),
-                                esEntrada: mNum >= 0
-                            });
-                        });
-                        topMovimientos.sort((a, b) => b.monto - a.monto);
-                    }
-
-                    html += `
-                    <ul style="list-style: none; padding: 0; margin: 0;">
-                    `;
-                    
-                    for (let i = 0; i < 3; i++) {
-                        if (i < topMovimientos.length) {
-                                                        const mov = topMovimientos[i];
-                                                        const sig = mov.esEntrada ? '+' : '-';
-                                                        const col = mov.esEntrada ? '#3ecf8e' : '#ff5c5c';
-                                                        html += `
-                                                            <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
-                                                                <span style="color: #aaa;">• ${mov.nombre}</span>
-                                                                <strong style="color: ${col}; opacity: ${diaData.esFuturo ? '0.5' : '1'};">${sig}$${fNum(mov.monto)}</strong>
-                                                            </li>
-                                                        `;
-                                                    } else {
-                            html += `
-                                <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed transparent;">
-                                    <span style="visibility: hidden;">• Espacio</span>
-                                    <strong style="visibility: hidden;">$0.00</strong>
-                                </li>
-                            `;
-                        }
-                    }
-                    html += `</ul>`;
-                    detallesEl.innerHTML = html;
                 } catch(e) {}
             }
 
