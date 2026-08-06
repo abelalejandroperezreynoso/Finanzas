@@ -1866,20 +1866,26 @@
                                         };
                                     }
 
-                                    // Cualquier rango distinto al del arranque lo puso el usuario, así que cuenta como
-                                    // filtro activo. Se comparan las fechas y no sólo el atajo elegido para cazar también
-                                    // los rangos personalizados y los de "Calcular desde hoy".
+                                    // Dos rangos cuentan como "sin filtrar": el mes en curso, con el que abre la app, y
+                                    // el tiempo completo, al que lleva la ✕. Cualquier otro lo puso el usuario. Se
+                                    // comparan las fechas y no sólo el atajo elegido para cazar también los rangos
+                                    // personalizados y los de "Calcular desde hoy".
                                     function hayFiltroDeTiempoActivo() {
                                         const porDefecto = rangoPorDefecto();
                                         const inicio = document.getElementById('filtroInicio')?.value || '';
                                         const fin = document.getElementById('filtroFin')?.value || '';
+
+                                        // Sin fechas no hay recorte de tiempo que quitar, se haya llegado por la ✕ o
+                                        // por el atajo "Todo el Tiempo".
+                                        if (!inicio && !fin) return false;
+
                                         return tipoFiltroActual !== 'mes'
                                             || offsetFiltroActual !== 0
                                             || inicio !== porDefecto.inicio
                                             || fin !== porDefecto.fin;
                                     }
 
-                                    function restablecerRangoDeTiempo() {
+                                    function aplicarRangoDeArranque() {
                                         const porDefecto = rangoPorDefecto();
                                         // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el
                                         // título saldría como un rango suelto y el atajo "Mes" no aparecería marcado.
@@ -1889,6 +1895,21 @@
                                         const inputFin = document.getElementById('filtroFin');
                                         if (inputInicio) inputInicio.value = porDefecto.inicio;
                                         if (inputFin) inputFin.value = porDefecto.fin;
+                                        const checkDesdeHoy = document.getElementById('checkDesdeHoy');
+                                        if (checkDesdeHoy) checkDesdeHoy.checked = false;
+                                    }
+
+                                    // La ✕ quita el recorte de tiempo entero, igual que deja las cuentas y las
+                                    // categorías en "todas". Es el mismo estado del atajo "Todo el Tiempo": sin fechas
+                                    // en los inputs, para que el dashboard, la gráfica y el historial muestren todo.
+                                    // No vuelve al mes de arranque a propósito: eso seguiría siendo un filtro puesto.
+                                    function quitarRangoDeTiempo() {
+                                        tipoFiltroActual = 'todo';
+                                        offsetFiltroActual = 0;
+                                        const inputInicio = document.getElementById('filtroInicio');
+                                        const inputFin = document.getElementById('filtroFin');
+                                        if (inputInicio) inputInicio.value = '';
+                                        if (inputFin) inputFin.value = '';
                                         const checkDesdeHoy = document.getElementById('checkDesdeHoy');
                                         if (checkDesdeHoy) checkDesdeHoy.checked = false;
                                     }
@@ -2211,9 +2232,9 @@
             //
             // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el título saldría
             // como un rango suelto, las flechas ◀ ▶ no avanzarían y el atajo "Mes" no aparecería marcado.
-            // Mismo criterio que el atajo "Mes": del día 1 al último del mes. Es el mismo rango al que vuelve
-            // la ✕ de quitar filtros, así que se comparte la función para que no se separen.
-            restablecerRangoDeTiempo();
+            // Mismo criterio que el atajo "Mes": del día 1 al último del mes. La ✕ de quitar filtros no vuelve
+            // aquí, sino a "Todo el Tiempo", así que son dos funciones distintas.
+            aplicarRangoDeArranque();
 
             // La fecha del formulario de registro sí la mantenemos en el día de hoy
                                     const ahora = new Date();
@@ -3412,9 +3433,10 @@
                                                         window.filtroTipoCategoriaActivo = 'todas';
                                                         window.filtroMovimientosActivo = null;
 
-                                                        // 2.b El rango de tiempo del panel de filtros también es un filtro: se devuelve al
-                                                        // mes en curso, que es como abre la app.
-                                                        restablecerRangoDeTiempo();
+                                                        // 2.b El rango de tiempo del panel de filtros también es un filtro: se quita
+                                                        // entero, dejando "Todo el Tiempo", igual que cuentas y categorías vuelven a
+                                                        // mostrarse todas.
+                                                        quitarRangoDeTiempo();
 
                                                         // 3. Restaurar el texto del botón de la pestaña de cuentas
                                                         const btnTabCuentas = document.getElementById('btnTabCuentas');
@@ -7623,6 +7645,10 @@
                         }
                         
                         window.filtroMovimientosActivo = { tipo: 'busqueda', valor: textoBusqueda }; // NUEVO: Memorizar filtro
+
+                        // La búsqueda no pasa por aplicarFiltrosYRenderizar, así que la ✕ de arriba se
+                        // recalcula aquí: si no, buscar dejaba un filtro puesto sin forma de quitarlo.
+                        actualizarBotonQuitarFiltro();
 
                         // 2. Indicador visual para que el usuario sepa que la app está procesando
             document.getElementById('textoRangoFechas').textContent = `Escribiendo...`;
