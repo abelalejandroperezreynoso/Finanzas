@@ -6485,12 +6485,13 @@
                                 // Las tres capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de empresas las muestra y la de compras abre una.
                                 //
-                                // La de cuentas sólo aparece si hay más de una con posiciones. Con una sola no
-                                // reparte nada —sería un recuadro que ocupa el mapa entero— y obligaría a un
-                                // toque para cruzarla cada vez; ese total ya lo dice el pie.
+                                // El portafolio siempre abre por cuentas, también con una sola. Con una, ese
+                                // primer recuadro ocupa el mapa entero y hay que cruzarlo para llegar a las
+                                // empresas; a cambio, el camino es el mismo siempre y no cambia de forma según
+                                // cuántas cuentas tengas ese día.
                                 const empresasPortafolio = esPortafolio ? datosInversionesTreemap() : [];
                                 const cuentasPortafolio = esPortafolio ? agruparPorCuentaTreemap(empresasPortafolio) : [];
-                                const hayCapaCuentas = cuentasPortafolio.length > 1;
+                                const hayCapaCuentas = cuentasPortafolio.length > 0;
 
                                 // Dónde está parado el mapa se resuelve en cada dibujo: si se salió del
                                 // portafolio, si la cuenta se quedó sin posiciones o si la categoría ya no
