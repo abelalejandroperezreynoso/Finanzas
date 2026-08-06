@@ -416,7 +416,7 @@
     <div class="card" id="cardTreemapCategorias" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0; gap: 10px;">
             <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #888; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
-            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+            <div id="pastillaDireccionTreemap" style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0; transition: opacity 0.2s;">
                 <button id="btnTreemapSalidas" onclick="cambiarDireccionTreemapCategorias('salidas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Salidas</button>
                 <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Entradas</button>
             </div>
@@ -5488,10 +5488,25 @@
 
                             // Tipos que la segunda pastilla puede acotar. Son los que no son gasto ni ingreso
                             // corriente: los que tienen dos caras y se leen mejor por separado.
+                            // Cada modo arma sus recuadros a su manera, y ninguno se parte por dirección: por eso
+                            // la pastilla de Salidas/Entradas queda al margen mientras uno esté puesto.
+                            //   'abre'   es la cara que crea el compromiso y fija el tamaño del recuadro
+                            //   'cierra' es la que lo salda y lo va llenando
                             const TIPOS_PASTILLA_TREEMAP = [
-                                { tipo: 'inversion', boton: 'btnTreemapInversion', etiqueta: 'inversiones' },
-                                { tipo: 'prestamo', boton: 'btnTreemapPrestamo', etiqueta: 'préstamos' },
-                                { tipo: 'deuda', boton: 'btnTreemapDeuda', etiqueta: 'deudas' }
+                                {
+                                    tipo: 'inversion', boton: 'btnTreemapInversion', etiqueta: 'inversiones',
+                                    unidad: ['empresa', 'empresas'], avance: 'de lo invertido'
+                                },
+                                {
+                                    tipo: 'prestamo', boton: 'btnTreemapPrestamo', etiqueta: 'préstamos',
+                                    unidad: ['préstamo', 'préstamos'], avance: 'cobrado',
+                                    abre: 'salidas', cierra: 'entradas'
+                                },
+                                {
+                                    tipo: 'deuda', boton: 'btnTreemapDeuda', etiqueta: 'deudas',
+                                    unidad: ['deuda', 'deudas'], avance: 'pagado',
+                                    abre: 'entradas', cierra: 'salidas'
+                                }
                             ];
 
                             // Tipo al que está acotado el mapa; cadena vacía significa "todos". Se recuerda entre
@@ -5617,7 +5632,86 @@
                             function cambiarDireccionTreemapCategorias(direccion) {
                                 direccionTreemapCategorias = direccion === 'entradas' ? 'entradas' : 'salidas';
                                 localStorage.setItem('direccionTreemapCategorias', direccionTreemapCategorias);
+
+                                // Salidas y Entradas sólo parten el mapa de gastos e ingresos corrientes. Tocarla
+                                // suelta el modo de la otra pastilla, que es la forma de volver al mapa normal
+                                // sin tener que acordarse de cuál de los tres botones estaba encendido.
+                                if (tipoTreemapCategorias) {
+                                    tipoTreemapCategorias = '';
+                                    localStorage.setItem('tipoTreemapCategorias', '');
+                                }
+
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
+                            }
+
+                            // Préstamos y deudas se leen mal partidos en dos mapas: prestar y cobrar, endeudarse y
+                            // pagar, son las dos mitades de una misma historia. Cada recuadro las junta con el mismo
+                            // relleno que ya marca el avance de un gasto sobre lo esperado: la caja vale la cara que
+                            // abre el compromiso y se llena con la que lo salda. Un préstamo cobrado a medias sale a
+                            // medio llenar, y uno cobrado de más, lleno y con la raya de lo prestado por dentro.
+                            function datosDosCarasTreemap(meses, indice, modo) {
+                                const porDireccion = {
+                                    salidas: acumularCategoriasDelPeriodo(meses, indice, false),
+                                    entradas: acumularCategoriasDelPeriodo(meses, indice, true)
+                                };
+                                const abre = porDireccion[modo.abre];
+                                const cierra = porDireccion[modo.cierra];
+
+                                const ids = new Set([...Object.keys(abre), ...Object.keys(cierra)]);
+                                const datos = [];
+
+                                ids.forEach(id => {
+                                    const cat = datosCategorias.find(c => String(c.id) === String(id));
+                                    if (!cat || cat.tipo !== modo.tipo) return;
+
+                                    const abierto = abre[id] || 0;
+                                    const cerrado = cierra[id] || 0;
+                                    if (!(abierto > 0) && !(cerrado > 0)) return;
+
+                                    datos.push({
+                                        id: String(id),
+                                        cat: cat,
+                                        nombre: cat.nombre,
+                                        // Como en el resto del mapa, el recuadro nunca miente sobre el dinero que
+                                        // representa: si se cobró más de lo prestado, crece con lo cobrado.
+                                        monto: Math.max(abierto, cerrado),
+                                        real: cerrado,
+                                        esperado: abierto
+                                    });
+                                });
+
+                                return datos;
+                            }
+
+                            // El mapa de inversiones no mira el periodo: una posición es una foto de hoy, no algo
+                            // que ocurra dentro de un mes. Cada recuadro es una empresa; vale lo que costó y se
+                            // llena con lo que vale hoy, así una posición a la baja sale a medio llenar y una en
+                            // ganancia, llena y con la raya de lo que costó por dentro.
+                            function datosInversionesTreemap() {
+                                return datosCategorias
+                                    .filter(cat => cat.tipo === 'inversion' && (cat.costoBaseInvertido || 0) > 0)
+                                    .map(cat => {
+                                        const costo = cat.costoBaseInvertido || 0;
+                                        const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
+
+                                        // Sin precio de mercado —o sin ticker, como el efectivo de la casa de
+                                        // bolsa— lo único que se sabe es lo que costó. Se pinta como recuadro
+                                        // lleno y de una sola cifra, sin inventar una ganancia que no se conoce.
+                                        if (!precio) {
+                                            return { id: String(cat.id), cat, nombre: cat.ticker || cat.nombre, monto: costo, real: costo, esperado: 0 };
+                                        }
+
+                                        const valor = (cat.totalAcciones || 0) * precio * globalUsdToMxn;
+                                        return {
+                                            id: String(cat.id),
+                                            cat: cat,
+                                            nombre: cat.ticker || cat.nombre,
+                                            monto: Math.max(costo, valor),
+                                            real: valor,
+                                            esperado: costo
+                                        };
+                                    })
+                                    .filter(d => d.monto > 0);
                             }
 
                             // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
@@ -5744,6 +5838,8 @@
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
 
+                                const modoActivo = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias) || null;
+
                                 TIPOS_PASTILLA_TREEMAP.forEach(({ tipo, boton }) => {
                                     const btn = document.getElementById(boton);
                                     if (!btn) return;
@@ -5752,12 +5848,22 @@
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
 
+                                // Ninguno de los tres modos se parte por dirección, así que la pastilla de arriba
+                                // se apaga mientras uno esté puesto. Sigue pulsable a propósito: es la salida del
+                                // modo, y dejarla muerta obligaría a recordar cuál de los tres estaba encendido.
+                                const pastillaDireccion = document.getElementById('pastillaDireccionTreemap');
+                                if (pastillaDireccion) pastillaDireccion.style.opacity = modoActivo ? '0.35' : '1';
+
                                 // El título es sólo la fecha del recorte que se está mirando: el mapa sigue al mes
                                 // que la barra tenga señalado, que no siempre coincide con el filtro. Sin un mes
                                 // concreto detrás, vale el mismo texto que muestra el selector de fechas.
                                 if (tituloEl) {
                                     const mesSeleccionado = (indice !== null && meses && meses[indice]) ? meses[indice] : null;
-                                    if (mesSeleccionado) {
+                                    // Las posiciones no pertenecen a ningún mes: poner una fecha encima haría creer
+                                    // que el mapa muestra lo comprado en ese periodo.
+                                    if (modoActivo && modoActivo.tipo === 'inversion') {
+                                        tituloEl.textContent = 'Portafolio · hoy';
+                                    } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
                                     } else {
@@ -5766,37 +5872,37 @@
                                     }
                                 }
 
-                                const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
-
-                                const mesAvance = mesDeAvanceTreemap(meses, indice);
+                                // El avance del mes sólo vale en el mapa normal: en los tres modos el relleno del
+                                // recuadro ya significa otra cosa —lo cobrado, lo pagado, lo que vale hoy—.
+                                const mesAvance = modoActivo ? null : mesDeAvanceTreemap(meses, indice);
                                 // Se calcula una vez por dibujo, no una por categoría: recorre todo el historial
                                 const tipicoMensual = mesAvance ? calcularTipicoMensualPorCategoria(mesAvance.ym, entradas) : {};
 
-                                let datos = Object.keys(acumulado).map(id => {
-                                    const cat = datosCategorias.find(c => String(c.id) === String(id));
-                                    const real = acumulado[id];
-                                    const esperado = mesAvance ? esperadoEnMesCategoria(cat, tipicoMensual) : 0;
+                                let datos;
+                                if (modoActivo && modoActivo.tipo === 'inversion') {
+                                    datos = datosInversionesTreemap();
+                                } else if (modoActivo) {
+                                    datos = datosDosCarasTreemap(meses, indice, modoActivo);
+                                } else {
+                                    const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
+                                    datos = Object.keys(acumulado).map(id => {
+                                        const cat = datosCategorias.find(c => String(c.id) === String(id));
+                                        const real = acumulado[id];
+                                        const esperado = mesAvance ? esperadoEnMesCategoria(cat, tipicoMensual) : 0;
 
-                                    // El recuadro nunca es menor que lo gastado: si te pasas de lo esperado, el área
-                                    // crece con el gasto real y la marca del objetivo queda dentro, en su altura.
-                                    // Así el mapa sigue diciendo la verdad sobre cuánto dinero es cada rectángulo.
-                                    return {
-                                        id: id,
-                                        cat: cat,
-                                        nombre: cat ? cat.nombre : 'Sin categoría',
-                                        monto: Math.max(real, esperado),
-                                        real: real,
-                                        esperado: esperado
-                                    };
-                                }).filter(d => {
-                                    if (!d.cat || !(d.monto > 0)) return false;
-                                    // Elegir un tipo en la pastilla es una orden directa sobre este mapa, así que
-                                    // manda sobre los tipos ocultos en el panel de filtros, que es un ajuste
-                                    // general de las gráficas. Si no, tocar "Deudas" con las deudas ocultas allí
-                                    // dejaría el recuadro vacío sin explicación.
-                                    if (tipoTreemapCategorias) return d.cat.tipo === tipoTreemapCategorias;
-                                    return tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas));
-                                });
+                                        // El recuadro nunca es menor que lo gastado: si te pasas de lo esperado, el área
+                                        // crece con el gasto real y la marca del objetivo queda dentro, en su altura.
+                                        // Así el mapa sigue diciendo la verdad sobre cuánto dinero es cada rectángulo.
+                                        return {
+                                            id: id,
+                                            cat: cat,
+                                            nombre: cat ? cat.nombre : 'Sin categoría',
+                                            monto: Math.max(real, esperado),
+                                            real: real,
+                                            esperado: esperado
+                                        };
+                                    }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
+                                }
 
                                 // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
                                 // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
@@ -5822,13 +5928,14 @@
                                     // Un mes que aún no llega sólo tiene proyección, y el mapa no la cuenta: se dice
                                     // por qué está vacío en vez de dejar creer que no habrá movimientos.
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
-                                    const acotado = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias);
-                                    const motivo = mesFuturo
+                                    const motivo = modoActivo && modoActivo.tipo === 'inversion'
+                                        ? 'No hay empresas en tu portafolio aún.'
+                                        : modoActivo
+                                        // En estos modos los tipos ocultos del panel no pintan nada y la dirección
+                                        // tampoco: el motivo sólo puede ser que no hubo movimiento.
+                                        ? `No hay ${modoActivo.etiqueta} en este periodo.`
+                                        : mesFuturo
                                         ? 'Mes en proyección. El mapa sólo muestra movimientos ya registrados.'
-                                        : acotado
-                                        // Con un tipo acotado los tipos ocultos del panel no pintan nada, así que
-                                        // el motivo es siempre el mismo: ahí no hubo movimiento.
-                                        ? `No hay ${entradas ? 'entradas' : 'salidas'} de ${acotado.etiqueta} en este periodo.`
                                         : ocultos.length > 0
                                         ? 'No hay categorías visibles con este filtro.'
                                         : `No hay ${entradas ? 'entradas' : 'salidas'} en este periodo.`;
@@ -6078,25 +6185,36 @@
                                 });
 
                                 if (totalEl) {
-                                    const color = entradas ? '#3ecf8e' : '#ff5c5c';
-                                    const etiquetaCats = `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
+                                    const color = modoActivo ? obtenerColorCategoria(modoActivo.tipo) : (entradas ? '#3ecf8e' : '#ff5c5c');
+                                    const etiquetaCats = modoActivo
+                                        ? `${totalCategorias} ${totalCategorias === 1 ? modoActivo.unidad[0] : modoActivo.unidad[1]}`
+                                        : `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
 
                                     // En modo avance el pie deja de ser un total y pasa a ser el marcador del mes:
                                     // lo que llevas frente a lo que se espera. Sólo cuentan las que tienen objetivo,
                                     // porque sumar ahí las variables mezclaría un gasto con una expectativa.
-                                    const conObjetivo = datos.filter(d => d.esperado > 0);
-                                    if (mesAvance && conObjetivo.length > 0) {
+                                    // Los tres modos de la pastilla usan el mismo pie con su propia palabra: lo
+                                    // cobrado de lo prestado, lo pagado de lo adquirido, lo que vale de lo invertido.
+                                    // En inversiones una posición sin precio de mercado vale lo que costó, así que
+                                    // entra en el total con esa cifra: el pie tiene que sumar el portafolio entero
+                                    // y no sólo la parte que cotiza.
+                                    const conObjetivo = (modoActivo && modoActivo.tipo === 'inversion')
+                                        ? datos
+                                        : datos.filter(d => d.esperado > 0);
+                                    const metaDe = (d) => d.esperado > 0 ? d.esperado : d.monto;
+
+                                    if ((mesAvance || modoActivo) && conObjetivo.length > 0) {
                                         const llevaObjetivo = conObjetivo.reduce((acc, d) => acc + d.real, 0);
-                                        const metaObjetivo = conObjetivo.reduce((acc, d) => acc + d.esperado, 0);
+                                        const metaObjetivo = conObjetivo.reduce((acc, d) => acc + metaDe(d), 0);
                                         const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
                                         totalEl.innerHTML = `
-                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% del mes</span>
+                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}</span>
                                             <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}</span></strong>
                                         `;
                                     } else {
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats}</span>
-                                            <strong style="color: ${color};">${entradas ? '+' : '-'}${fMoneda(total)}</strong>
+                                            <strong style="color: ${color};">${modoActivo ? '' : (entradas ? '+' : '-')}${fMoneda(total)}</strong>
                                         `;
                                     }
                                 }
