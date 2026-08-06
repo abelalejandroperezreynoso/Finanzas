@@ -422,6 +422,18 @@
             </div>
         </div>
 
+        <!-- Segunda pastilla: acota el mapa a un solo tipo. Va en su propia fila porque junto al
+             título y a la pastilla de dirección no cabría en un teléfono estrecho. Se combina con
+             Salidas/Entradas, así que "Salidas + Deudas" son los pagos y "Entradas + Deudas" lo
+             adquirido. Volver a tocar el botón activo lo suelta y el mapa vuelve a mostrarlo todo. -->
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                <button id="btnTreemapInversion" onclick="cambiarTipoTreemapCategorias('inversion')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Inversiones</button>
+                <button id="btnTreemapPrestamo" onclick="cambiarTipoTreemapCategorias('prestamo')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Préstamos</button>
+                <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Deudas</button>
+            </div>
+        </div>
+
         <!-- Sin padding lateral: el mapa llega a las orillas igual que el listado de registros -->
         <div id="contenedorTreemapCategorias" style="position: relative; width: 100%; height: 290px; padding: 0; box-sizing: border-box;">
             <canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
@@ -5474,6 +5486,21 @@
                             // Qué lado de la barra se está mirando. Se recuerda entre sesiones.
                             let direccionTreemapCategorias = localStorage.getItem('direccionTreemapCategorias') === 'entradas' ? 'entradas' : 'salidas';
 
+                            // Tipos que la segunda pastilla puede acotar. Son los que no son gasto ni ingreso
+                            // corriente: los que tienen dos caras y se leen mejor por separado.
+                            const TIPOS_PASTILLA_TREEMAP = [
+                                { tipo: 'inversion', boton: 'btnTreemapInversion', etiqueta: 'inversiones' },
+                                { tipo: 'prestamo', boton: 'btnTreemapPrestamo', etiqueta: 'préstamos' },
+                                { tipo: 'deuda', boton: 'btnTreemapDeuda', etiqueta: 'deudas' }
+                            ];
+
+                            // Tipo al que está acotado el mapa; cadena vacía significa "todos". Se recuerda entre
+                            // sesiones, y se valida al leerlo por si el catálogo de tipos cambia.
+                            let tipoTreemapCategorias = (function () {
+                                const guardado = localStorage.getItem('tipoTreemapCategorias') || '';
+                                return TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === guardado) ? guardado : '';
+                            })();
+
                             // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
                             let contextoTreemapCategorias = { meses: [], indice: null };
 
@@ -5593,6 +5620,15 @@
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
 
+                            // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
+                            // completo desde la propia pastilla, que no tiene un botón de "todos".
+                            function cambiarTipoTreemapCategorias(tipo) {
+                                const valido = TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === tipo);
+                                tipoTreemapCategorias = (!valido || tipo === tipoTreemapCategorias) ? '' : tipo;
+                                localStorage.setItem('tipoTreemapCategorias', tipoTreemapCategorias);
+                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
+                            }
+
                             // Suma por categoría los meses que se están mirando. Con índice, sólo ese mes; sin él,
                             // todo el periodo filtrado.
                             //
@@ -5708,6 +5744,14 @@
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
 
+                                TIPOS_PASTILLA_TREEMAP.forEach(({ tipo, boton }) => {
+                                    const btn = document.getElementById(boton);
+                                    if (!btn) return;
+                                    const activo = tipo === tipoTreemapCategorias;
+                                    btn.style.background = activo ? '#333' : 'none';
+                                    btn.style.color = activo ? '#ffffff' : '#888';
+                                });
+
                                 // El título es sólo la fecha del recorte que se está mirando: el mapa sigue al mes
                                 // que la barra tenga señalado, que no siempre coincide con el filtro. Sin un mes
                                 // concreto detrás, vale el mismo texto que muestra el selector de fechas.
@@ -5744,7 +5788,15 @@
                                         real: real,
                                         esperado: esperado
                                     };
-                                }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
+                                }).filter(d => {
+                                    if (!d.cat || !(d.monto > 0)) return false;
+                                    // Elegir un tipo en la pastilla es una orden directa sobre este mapa, así que
+                                    // manda sobre los tipos ocultos en el panel de filtros, que es un ajuste
+                                    // general de las gráficas. Si no, tocar "Deudas" con las deudas ocultas allí
+                                    // dejaría el recuadro vacío sin explicación.
+                                    if (tipoTreemapCategorias) return d.cat.tipo === tipoTreemapCategorias;
+                                    return tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas));
+                                });
 
                                 // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
                                 // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
@@ -5770,8 +5822,13 @@
                                     // Un mes que aún no llega sólo tiene proyección, y el mapa no la cuenta: se dice
                                     // por qué está vacío en vez de dejar creer que no habrá movimientos.
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
+                                    const acotado = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias);
                                     const motivo = mesFuturo
                                         ? 'Mes en proyección. El mapa sólo muestra movimientos ya registrados.'
+                                        : acotado
+                                        // Con un tipo acotado los tipos ocultos del panel no pintan nada, así que
+                                        // el motivo es siempre el mismo: ahí no hubo movimiento.
+                                        ? `No hay ${entradas ? 'entradas' : 'salidas'} de ${acotado.etiqueta} en este periodo.`
                                         : ocultos.length > 0
                                         ? 'No hay categorías visibles con este filtro.'
                                         : `No hay ${entradas ? 'entradas' : 'salidas'} en este periodo.`;
