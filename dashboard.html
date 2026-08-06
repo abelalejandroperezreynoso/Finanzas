@@ -5811,6 +5811,53 @@
 
                                 const ctx = document.getElementById('graficoTreemapCategorias').getContext('2d');
 
+                                // El relleno de cada recuadro. Va aparte porque se usa dos veces: el mismo color
+                                // sirve para el estado normal y para el de "activo". Chart.js marca como activo el
+                                // recuadro pulsado y, si no se le da un color propio, se lo inventa más saturado y
+                                // lo deja así hasta que se toca otro. Aquí no hay nada que seleccionar —tocar abre
+                                // la ficha de la categoría—, así que los dos estados se pintan igual.
+                                const fondoRecuadro = (context) => {
+                                    if (context.type !== 'data') return 'transparent';
+                                    const d = buscarDato(context.raw);
+                                    if (!d) return '#444444';
+                                    if (!d.cat) return '#3a3a3a';
+
+                                    const base = colorTreemapCategoria(d.cat, entradas);
+                                    const f = fraccionLlenado(d);
+                                    const marca = fraccionObjetivo(d);
+                                    const { y, h } = context.raw;
+                                    if (f >= 1 && marca === null) return base;
+
+                                    // Sin altura no hay degradado que construir. Antes de dar por lleno
+                                    // un recuadro que no lo está, se pinta apagado: si algo va a fallar,
+                                    // que sea por defecto y no anunciando un gasto que no ocurrió.
+                                    if (!(h > 0)) return colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
+
+                                    // Relleno de abajo hacia arriba con un corte duro. El degradado va en
+                                    // coordenadas del lienzo, así que se arma con el rectángulo ya situado.
+                                    const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
+                                    const vacio = colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
+                                    grad.addColorStop(0, base);
+                                    if (f < 1) {
+                                        grad.addColorStop(f, base);
+                                        grad.addColorStop(f, vacio);
+                                    }
+                                    grad.addColorStop(1, f < 1 ? vacio : base);
+
+                                    // Si el gasto se pasó de lo esperado, el recuadro creció con lo real y
+                                    // aquí queda dibujada la raya de hasta dónde llegaba el objetivo.
+                                    if (marca !== null) {
+                                        const grosor = Math.min(0.06, 2 / h);
+                                        const desde = Math.max(0, marca - grosor / 2);
+                                        const hasta = Math.min(1, marca + grosor / 2);
+                                        grad.addColorStop(desde, base);
+                                        grad.addColorStop(desde, COLOR_MARCA_OBJETIVO_TREEMAP);
+                                        grad.addColorStop(hasta, COLOR_MARCA_OBJETIVO_TREEMAP);
+                                        grad.addColorStop(hasta, base);
+                                    }
+                                    return grad;
+                                };
+
                                 miTreemapCategorias = new Chart(ctx, {
                                     type: 'treemap',
                                     data: {
@@ -5821,47 +5868,9 @@
                                             // Hilo apenas visible entre rectángulos: separa sin comerse área
                                             spacing: 0.5,
                                             borderWidth: 0,
-                                            backgroundColor: (context) => {
-                                                if (context.type !== 'data') return 'transparent';
-                                                const d = buscarDato(context.raw);
-                                                if (!d) return '#444444';
-                                                if (!d.cat) return '#3a3a3a';
-
-                                                const base = colorTreemapCategoria(d.cat, entradas);
-                                                const f = fraccionLlenado(d);
-                                                const marca = fraccionObjetivo(d);
-                                                const { y, h } = context.raw;
-                                                if (f >= 1 && marca === null) return base;
-
-                                                // Sin altura no hay degradado que construir. Antes de dar por lleno
-                                                // un recuadro que no lo está, se pinta apagado: si algo va a fallar,
-                                                // que sea por defecto y no anunciando un gasto que no ocurrió.
-                                                if (!(h > 0)) return colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
-
-                                                // Relleno de abajo hacia arriba con un corte duro. El degradado va en
-                                                // coordenadas del lienzo, así que se arma con el rectángulo ya situado.
-                                                const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
-                                                const vacio = colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
-                                                grad.addColorStop(0, base);
-                                                if (f < 1) {
-                                                    grad.addColorStop(f, base);
-                                                    grad.addColorStop(f, vacio);
-                                                }
-                                                grad.addColorStop(1, f < 1 ? vacio : base);
-
-                                                // Si el gasto se pasó de lo esperado, el recuadro creció con lo real y
-                                                // aquí queda dibujada la raya de hasta dónde llegaba el objetivo.
-                                                if (marca !== null) {
-                                                    const grosor = Math.min(0.06, 2 / h);
-                                                    const desde = Math.max(0, marca - grosor / 2);
-                                                    const hasta = Math.min(1, marca + grosor / 2);
-                                                    grad.addColorStop(desde, base);
-                                                    grad.addColorStop(desde, COLOR_MARCA_OBJETIVO_TREEMAP);
-                                                    grad.addColorStop(hasta, COLOR_MARCA_OBJETIVO_TREEMAP);
-                                                    grad.addColorStop(hasta, base);
-                                                }
-                                                return grad;
-                                            },
+                                            backgroundColor: fondoRecuadro,
+                                            hoverBackgroundColor: fondoRecuadro,
+                                            hoverBorderWidth: 0,
                                             labels: {
                                                 display: true,
                                                 align: 'center',
@@ -5898,36 +5907,15 @@
                                         onResize: (chart) => chart.update(),
                                         plugins: {
                                             legend: { display: false },
-                                            tooltip: {
-                                                displayColors: false,
-                                                callbacks: {
-                                                    title: (items) => {
-                                                        const d = buscarDato(items[0].raw);
-                                                        if (!d) return '';
-                                                        return d.nombre;
-                                                    },
-                                                    label: (item) => {
-                                                        const d = buscarDato(item.raw);
-                                                        if (!d) return '';
-                                                        const signo = entradas ? '+' : '-';
-
-                                                        if (d.esperado > 0) {
-                                                            const avance = ((d.real / d.esperado) * 100).toFixed(0);
-                                                            const lineas = [`${signo}$${fNum(d.real)} de $${fNum(d.esperado)} esperados · ${avance}%`];
-                                                            if (d.real > d.esperado) {
-                                                                lineas.push(`Se pasó por $${fNum(d.real - d.esperado)}`);
-                                                            } else {
-                                                                lineas.push(`Faltan $${fNum(d.esperado - d.real)}`);
-                                                            }
-                                                            return lineas;
-                                                        }
-
-                                                        const porc = total > 0 ? ((d.monto / total) * 100).toFixed(1) : '0.0';
-                                                        return `${signo}$${fNum(d.monto)} · ${porc}% del total`;
-                                                    }
-                                                }
-                                            }
+                                            // Sin globo de información: tocar un recuadro abre la ficha de la
+                                            // categoría, que trae el mismo desglose y más. La etiqueta sólo tapaba
+                                            // el mapa justo donde estaba el dedo.
+                                            tooltip: { enabled: false }
                                         },
+                                        // Sólo se escucha el clic. Con los eventos por defecto Chart.js marca como
+                                        // activo el recuadro que queda bajo el dedo al arrastrar y lo deja
+                                        // resaltado hasta tocar fuera; sin selección que mantener, sobra.
+                                        events: ['click'],
                                         onClick: (event, elements) => {
                                             if (!elements || elements.length === 0) return;
                                             const nodo = miTreemapCategorias.data.datasets[0].data[elements[0].index];
