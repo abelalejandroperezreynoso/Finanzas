@@ -3295,12 +3295,7 @@
                                                                                                                                         const costoPromedioMxn = totalAcciones > 0 ? totalInvertido / totalAcciones : 0;
                                                                                                                                         const invertidoUsdMostrar = totalInvertidoUsd > 0 ? totalInvertidoUsd : (totalInvertido / globalUsdToMxn);
                                                                                                                                         const costoPromedioUsd = totalInvertidoUsd > 0 ? (totalInvertidoUsd / totalAcciones) : (costoPromedioMxn / globalUsdToMxn);
-                                                                                                                                        const tcPromedioCompra = tcPromedioExacto > 0 ? tcPromedioExacto : (invertidoUsdMostrar > 0 ? (totalInvertido / invertidoUsdMostrar) : 0);
                                                                                                                                         
-                                                                                                                                        const rendimientoTc = globalUsdToMxn - tcPromedioCompra;
-                                                                                                                                        const porcentajeTc = tcPromedioCompra > 0 ? (rendimientoTc / tcPromedioCompra) * 100 : 0;
-                                                                                                                                        const colorTc = rendimientoTc >= 0 ? '#3ecf8e' : '#ff5c5c';
-                                                                                                                                        const signoTc = rendimientoTc >= 0 ? '+' : '';
 
                                                                                                                                         const valorActualMxn = totalAcciones * precioUsd * globalUsdToMxn;
                                                                                                                                         const valorActualUsd = totalAcciones * precioUsd;
@@ -3384,12 +3379,14 @@
 
                                                                                                                                         if (window.estadoBotonCategoria === 0) {
                                                                                                                                             // Agregamos el porcentaje entre paréntesis al lado del monto
-                                                                                                                                            textoMostrar = `${signoMxn}${fMoneda(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)${marcaRealizadaCat}`;
-                                                                                                                                            colorFondoDin = rendimientoMxn >= 0 ? '#22c55e' : '#ff5c5c';
-                                                                                                                                            colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
+                                                                                                                                            // En dólares: el rendimiento de la empresa no lleva dentro el tipo de
+                                                                                                                                            // cambio, que es cosa de la cuenta y tiene su renglón en el detalle
+                                                                                                                                            textoMostrar = `${signoUsd}${fMoneda(rendimientoUsd)} (${signoUsd}${porcentajeUsd.toFixed(2)}%) USD${marcaRealizadaCat}`;
+                                                                                                                                            colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
+                                                                                                                                            colorTextoDin = rendimientoUsd >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else if (window.estadoBotonCategoria === 1) {
-                                                                                                                                        textoMostrar = `${signoMxn}${(porcentajeMxn / mesesPromedioExacto).toFixed(2)}% /${mesesPromedioExacto.toFixed(1)}m${marcaRealizadaCat}`;
-                                                                                                                                        colorFondoDin = rendimientoMxn >= 0 ? '#22c55e' : '#ff5c5c';
+                                                                                                                                        textoMostrar = `${signoUsd}${(porcentajeUsd / mesesPromedioExacto).toFixed(2)}% /${mesesPromedioExacto.toFixed(1)}m${marcaRealizadaCat}`;
+                                                                                                                                        colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
                                                                                                                                         colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else {
                                                                                                                                         const signoAcc = plusvaliaAccesibleCat >= 0 ? '+' : '';
@@ -3422,7 +3419,6 @@
                                                                                                                                                 <div style="text-align: left; line-height: 1.4;">
                                                                                                                                                     <span style="color: #fff; font-size: 1.05em;">${totalAcciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.</span><br>
                                                                                                                                                     <span style="color: #aaa; font-size: 0.8em;">Promedio: ${fMoneda(costoPromedioUsd)} USD</span><br>
-                                                                                                                                                    <span style="color: #888; font-size: 0.8em;">TC: Prom. ${fMoneda(tcPromedioCompra)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTc}; font-weight: bold; margin-left: 3px;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesPromedioExacto).toFixed(2)}%/m)</span></span>
                                                                                                                                                 </div>
                                                                                                                                                 <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                                                                                                     <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
@@ -4275,10 +4271,6 @@
                                                     const numAccionesStr = numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 });
 
                                                     // Calculamos la plusvalía del Tipo de Cambio para este lote
-                                                    const rendimientoTcHist = globalUsdToMxn - tipoCambioHist;
-                                                    const porcentajeTcHist = tipoCambioHist > 0 ? (rendimientoTcHist / tipoCambioHist) * 100 : 0;
-                                                    const colorTcHist = rendimientoTcHist >= 0 ? '#3ecf8e' : '#ff5c5c';
-                                                    const signoTcHist = rendimientoTcHist >= 0 ? '+' : '';
 
                                                     const accionesVivas = window.accionesRestantesMap && window.accionesRestantesMap[r.id] !== undefined
                                                         ? window.accionesRestantesMap[r.id]
@@ -4328,10 +4320,10 @@
                                                                                                                                                                                                             montoArribaHtml = `<strong style="color: #ffffff; white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(valorActualMxn)}</strong>`;
                                                                                                                                                                                                             
                                                                                                                                                                                                             const textoMostrarHistorial = window.mostrarInversionEnPorcentaje
-                                                                                                                                                                                                                ? `${signoMxn}${(porcentajeMxn / mesesEfectivosHistorial).toFixed(2)}% /${mesesEfectivosHistorial.toFixed(1)}m`
-                                                                                                                                                                                                                : `${signoMxn}${fMoneda(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)`;
+                                                                                                                                                                                                                ? `${signoUsd}${(porcentajeUsd / mesesEfectivosHistorial).toFixed(2)}% /${mesesEfectivosHistorial.toFixed(1)}m`
+                                                                                                                                                                                                                : `${signoUsd}${fMoneda(rendimientoUsd)} (${signoUsd}${porcentajeUsd.toFixed(2)}%) USD`;
 
-                                                                                                                                                                                                                montoAbajoHtml = `<span onclick="event.stopPropagation(); toggleModoInversion(event); aplicarFiltrosYRenderizar();" style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorMxn}; border: none; color: ${rendimientoMxn >= 0 ? '#000000' : '#ffffff'}; font-weight: bold; white-space: nowrap; cursor: pointer; margin-top: 2px;">${textoMostrarHistorial}</span>`;
+                                                                                                                                                                                                                montoAbajoHtml = `<span onclick="event.stopPropagation(); toggleModoInversion(event); aplicarFiltrosYRenderizar();" style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorUsd}; border: none; color: ${rendimientoUsd >= 0 ? '#000000' : '#ffffff'}; font-weight: bold; white-space: nowrap; cursor: pointer; margin-top: 2px;">${textoMostrarHistorial}</span>`;
 
                                                                                                                                         // --- 4. Recuadro inferior: Datos en USD y Tipo de Cambio ---
                                                                                                                                         infoDetalleInversion = `
@@ -4339,7 +4331,6 @@
                                                                         <div style="text-align: left; line-height: 1.4;">
                                                                             <span style="color: #fff; font-size: 1.05em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
                                                                             <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
-                                                                            <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                         </div>
                                                                         <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                             <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
@@ -4353,7 +4344,6 @@
                                                                             <div style="text-align: left; line-height: 1.4;">
                                                                                 <span style="color: #fff; font-size: 1.05em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
                                                                                 <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
-                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                             </div>
                                                                             <div style="text-align: right; line-height: 1.3;">
                                                                                 <span style="color: #f39c12; font-weight: bold; font-size: 0.85em;">⚠️ ${window.cacheErroresMercado[cat.ticker]}</span>
@@ -4367,7 +4357,6 @@
                                                                             <div style="text-align: left; line-height: 1.4;">
                                                                                 <span style="color: #fff; font-size: 1.05em;">${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
                                                                                 <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
-                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                             </div>
                                                                             <div style="text-align: right; line-height: 1.3;">
                                                                                 <span style="color: #aaa; font-size: 0.85em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
@@ -6602,32 +6591,63 @@
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
                                                     if (r.tieneInversion) {
-                                                        // --- Caja GBM ---
+                                                        // --- Dólares de la cuenta y tipo de cambio ---
+                                                        // Todo lo cambiario vive aquí, y no en cada acción: los pesos se vuelven dólares
+                                                        // al aportar y regresan a pesos al retirar. Comprar una acción no cambia tu
+                                                        // exposición al peso, sólo cambia de forma los mismos dólares, así que la cuenta
+                                                        // se hace sobre todos: los de la caja y los que están dentro de las empresas.
                                                         const hayCaja = r.cajaUsd > 0.005;
-                                                        let filasCaja = filaDetalleCuenta('Dólares disponibles',
-                                                            `<span style="color:#4da6ff; font-size:1.15em;">${fMoneda(r.cajaUsd)} USD</span>`);
-                                                        if (hayCaja) {
-                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `${fMoneda(r.cajaUsd * globalUsdToMxn)} MXN`, '#fff', `TC ${fMoneda(globalUsdToMxn)}`);
-                                                            filasCaja += filaDetalleCuenta('Te costaron', `${fMoneda(r.cajaMxnBase)} MXN`, '#fff', `TC promedio ${fMoneda(r.cajaTcPromedio)}`);
-                                                            const gananciaCaja = (r.cajaUsd * globalUsdToMxn) - r.cajaMxnBase;
-                                                            filasCaja += filaDetalleCuenta('Ganancia si retiras hoy',
-                                                                `${signo(gananciaCaja)}${fMoneda(gananciaCaja)} MXN`, colorGan(gananciaCaja));
+
+                                                        // Los dólares que compraste con pesos, frente a los que tienes hoy. La diferencia
+                                                        // entre ambos es lo que ganaron las empresas, y no lleva pesos de por medio.
+                                                        const usdBase = r.cajaUsd + r.costoAccionesUsd;
+                                                        const usdHoy = r.cajaUsd + r.valorAccionesUsd;
+                                                        const baseMxn = r.cajaMxnBase + r.costoAccionesMxn;
+                                                        const tcPromedioCuenta = usdBase > 0.005 ? baseMxn / usdBase : 0;
+
+                                                        // Las dos ganancias no se solapan y suman el total exacto: lo que rindieron las
+                                                        // empresas se valúa al cambio de hoy, y lo cambiario aplica sólo a los dólares
+                                                        // que ya tenías. (gananciaUsd + usdBase) × TC = usdHoy × TC.
+                                                        const gananciaEmpresasUsd = r.valorAccionesUsd - r.costoAccionesUsd;
+                                                        const gananciaEmpresasMxn = gananciaEmpresasUsd * globalUsdToMxn;
+                                                        const gananciaCambiaria = usdBase * (globalUsdToMxn - tcPromedioCuenta);
+                                                        const totalSobreAportado = (usdHoy * globalUsdToMxn) - baseMxn;
+
+                                                        let filasCaja = filaDetalleCuenta('Dólares hoy',
+                                                            `<span style="color:#4da6ff; font-size:1.15em;">${fMoneda(usdHoy)} USD</span>`, null,
+                                                            `${fMoneda(r.cajaUsd)} en la caja · ${fMoneda(r.valorAccionesUsd)} en acciones`);
+
+                                                        if (usdBase > 0.005) {
+                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `${fMoneda(usdHoy * globalUsdToMxn)} MXN`, '#fff', `TC ${fMoneda(globalUsdToMxn)}`);
+                                                            filasCaja += filaDetalleCuenta('Te costaron', `${fMoneda(baseMxn)} MXN`, '#fff', `TC promedio ${fMoneda(tcPromedioCuenta)}`);
+                                                            filasCaja += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
+                                                            filasCaja += filaDetalleCuenta('Ganancia cambiaria',
+                                                                `${signo(gananciaCambiaria)}${fMoneda(gananciaCambiaria)} MXN`, colorGan(gananciaCambiaria),
+                                                                `${fMoneda(usdBase)} USD × (${fMoneda(globalUsdToMxn)} − ${fMoneda(tcPromedioCuenta)})`);
+                                                            filasCaja += filaDetalleCuenta('Ganancia de las empresas',
+                                                                `${signo(gananciaEmpresasMxn)}${fMoneda(gananciaEmpresasMxn)} MXN`, colorGan(gananciaEmpresasMxn),
+                                                                `${signo(gananciaEmpresasUsd)}${fMoneda(gananciaEmpresasUsd)} USD al cambio de hoy`);
+                                                            filasCaja += filaDetalleCuenta('Total sobre lo aportado',
+                                                                `${signo(totalSobreAportado)}${fMoneda(totalSobreAportado)} MXN`, colorGan(totalSobreAportado));
                                                         } else {
-                                                            filasCaja += `<div style="color:#666; font-size:0.85em; margin-top:6px;">Sin dólares esperando: todo tu dinero está invertido en acciones.</div>`;
+                                                            filasCaja += `<div style="color:#666; font-size:0.85em; margin-top:6px;">Sin dólares en la cuenta.</div>`;
                                                         }
-                                                        html += bloqueDetalleCuenta('💵 Caja GBM (Trading USA)', filasCaja, hayCaja ? '#4da6ff' : '#333');
+                                                        html += bloqueDetalleCuenta('💱 Tus dólares (Trading USA)', filasCaja, hayCaja ? '#4da6ff' : '#333');
 
                                                         // --- Portafolio de acciones ---
-                                                        const plusvaliaAcciones = r.valorAccionesMxn - r.costoAccionesMxn;
-                                                        const pctAcciones = r.costoAccionesMxn > 0 ? (plusvaliaAcciones / r.costoAccionesMxn) * 100 : 0;
+                                                        // En dólares, que es la moneda en la que se compran y se venden. La cifra en
+                                                        // pesos queda de referencia debajo, pero el rendimiento no se mide con ella:
+                                                        // llevaría dentro el tipo de cambio, que ya tiene su propio renglón arriba.
+                                                        const plusvaliaAccionesUsd = r.valorAccionesUsd - r.costoAccionesUsd;
+                                                        const pctAcciones = r.costoAccionesUsd > 0 ? (plusvaliaAccionesUsd / r.costoAccionesUsd) * 100 : 0;
                                                         // El aviso de empresas sin precio ya se da en el resumen, donde afecta al neto
                                                         const filasPort =
                                                             filaDetalleCuenta('Empresas con posición', `${empresasConPosicion}`) +
-                                                            filaDetalleCuenta('Valor de mercado', `${fMoneda(r.valorAccionesMxn)} MXN`, '#fff', `${fMoneda(r.valorAccionesUsd)} USD`) +
-                                                            filaDetalleCuenta('Costo invertido', `${fMoneda(r.costoAccionesMxn)} MXN`, '#fff', `${fMoneda(r.costoAccionesUsd)} USD`) +
+                                                            filaDetalleCuenta('Valor de mercado', `${fMoneda(r.valorAccionesUsd)} USD`, '#fff', `${fMoneda(r.valorAccionesMxn)} MXN al cambio de hoy`) +
+                                                            filaDetalleCuenta('Costo invertido', `${fMoneda(r.costoAccionesUsd)} USD`, '#fff', `${fMoneda(r.costoAccionesMxn)} MXN que te costaron esos dólares`) +
                                                             filaDetalleCuenta('Plusvalía en papel',
-                                                                `${signo(plusvaliaAcciones)}${fMoneda(plusvaliaAcciones)} (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
-                                                                colorGan(plusvaliaAcciones), 'Aún no vendida');
+                                                                `${signo(plusvaliaAccionesUsd)}${fMoneda(plusvaliaAccionesUsd)} USD (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
+                                                                colorGan(plusvaliaAccionesUsd), 'Aún no vendida · sólo lo que hicieron las empresas');
                                                         html += bloqueDetalleCuenta('📈 Portafolio de acciones', filasPort);
 
                                                         // --- Rendimiento global ---
@@ -6668,8 +6688,10 @@
                                                         if (r.empresas.length > 0) {
                                                             let filasEmpresas = '';
                                                             r.empresas.forEach(e => {
-                                                                const pct = e.costoMxn > 0 ? (e.plusvaliaMxn / e.costoMxn) * 100 : 0;
-                                                                const peso = r.valorAccionesMxn > 0 ? (e.valorMxn / r.valorAccionesMxn) * 100 : 0;
+                                                                // El rendimiento de cada empresa, en su moneda. El peso dentro del
+                                                                // portafolio da igual medirlo en una u otra: es una proporción.
+                                                                const pct = e.costoUsd > 0 ? (e.plusvaliaUsd / e.costoUsd) * 100 : 0;
+                                                                const peso = r.valorAccionesUsd > 0 ? (e.valorUsd / r.valorAccionesUsd) * 100 : 0;
                                                                 filasEmpresas += `
                                                                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #262626; gap: 10px;">
                                                                     <div style="text-align: left; line-height: 1.35; min-width: 0;">
@@ -6679,8 +6701,8 @@
                                                                         ${Math.abs(e.realizadaMxn) > 0.005 ? `<br><span style="color:#4da6ff; font-size:0.78em;">✓ Realizado: ${signo(e.realizadaMxn)}${fMoneda(e.realizadaMxn)}</span>` : ''}
                                                                     </div>
                                                                     <div style="text-align: right; line-height: 1.35; white-space: nowrap;">
-                                                                        <strong style="color: #fff;">${fMoneda(e.valorMxn)}</strong><br>
-                                                                        <span style="color: ${colorGan(e.plusvaliaMxn)}; font-size: 0.8em;">${signo(e.plusvaliaMxn)}${fMoneda(e.plusvaliaMxn)} (${signo(pct)}${pct.toFixed(1)}%)</span>
+                                                                        <strong style="color: #fff;">${fMoneda(e.valorUsd)} <span style="color:#888; font-size:0.7em; font-weight:normal;">USD</span></strong><br>
+                                                                        <span style="color: ${colorGan(e.plusvaliaUsd)}; font-size: 0.8em;">${signo(e.plusvaliaUsd)}${fMoneda(e.plusvaliaUsd)} (${signo(pct)}${pct.toFixed(1)}%)</span>
                                                                     </div>
                                                                 </div>`;
                                                             });
@@ -6716,10 +6738,6 @@
                             const costoPromedioMxn = cat.costoBaseInvertido / totalAcciones;
                             const invertidoUsdMostrar = cat.costoBaseInvertidoUsd > 0 ? cat.costoBaseInvertidoUsd : (cat.costoBaseInvertido / globalUsdToMxn);
                             const costoPromedioUsd = cat.costoBaseInvertidoUsd > 0 ? (cat.costoBaseInvertidoUsd / totalAcciones) : (costoPromedioMxn / globalUsdToMxn);
-                            const tcPromedioCompra = cat.tcPromedioExacto > 0 ? cat.tcPromedioExacto : (invertidoUsdMostrar > 0 ? (cat.costoBaseInvertido / invertidoUsdMostrar) : 0);
-                            const rendimientoTc = globalUsdToMxn - tcPromedioCompra;
-                            const porcentajeTc = tcPromedioCompra > 0 ? (rendimientoTc / tcPromedioCompra) * 100 : 0;
-                            const signoTc = rendimientoTc >= 0 ? '+' : '';
                             const mesesEfectivosCat = Math.max(1, cat.mesesPromedioExacto);
                             const valorActualUsd = totalAcciones * precioUsd;
                             const rendimientoUsd = valorActualUsd - invertidoUsdMostrar;
@@ -6782,7 +6800,6 @@
                             <span style="color: #aaa;">Precio Mercado:</span> <strong style="color: #fff;">${fMoneda(precioUsd)} USD</strong><br>
                             <span style="color: #aaa;">Invertido:</span> <strong style="color: #fff;">${fMoneda(invertidoUsdMostrar)} USD</strong><br>
                             <span style="color: #aaa;">Promedio:</span> <strong style="color: #fff;">${fMoneda(costoPromedioUsd)} USD</strong><br>
-                            <span style="color: #aaa;">TC Compra:</span> <strong style="color: #fff;">${fMoneda(tcPromedioCompra)}</strong> | <span style="color: #aaa;">Hoy:</span> <strong style="color: #fff;">${fMoneda(globalUsdToMxn)}</strong> <span style="color: ${rendimientoTc >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesEfectivosCat).toFixed(2)}%/m)</span><br>
                             <span style="color: #aaa;">Total Hoy:</span> <strong style="color: #fff;">${fMoneda(valorActualUsd)} USD</strong> <span style="color: ${rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoUsd}${porcentajeUsd.toFixed(2)}% | ${signoUsd}${(porcentajeUsd / mesesEfectivosCat).toFixed(2)}%/m)</span>
 
                             <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border: 1px solid #3ecf8e; border-radius: 8px;">
@@ -7192,9 +7209,6 @@
             const tipoCambioHist = parseFloat(r.tipo_cambio) || 1;
             const costoPagadoPorAccionMxn = r.costo_accion * tipoCambioHist;
             const numAccionesOriginal = parseFloat(r.cantidad_acciones) || (montoAbsoluto / costoPagadoPorAccionMxn);
-            const rendimientoTcHist = globalUsdToMxn - tipoCambioHist;
-            const porcentajeTcHist = tipoCambioHist > 0 ? (rendimientoTcHist / tipoCambioHist) * 100 : 0;
-            const signoTcHist = rendimientoTcHist >= 0 ? '+' : '';
             let mesesEfectivosHistorial = 1;
             let divMeses = 1;
             
@@ -7240,12 +7254,12 @@
                     
                     const signoMxn = rendimientoMxn >= 0 ? '+' : '';
                     
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
                 } else if (window.cacheErroresMercado && window.cacheErroresMercado[cat.ticker] && accionesVivas > 0.00001) {
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Invertido (Vivo): ${fMoneda(invertidoUsd)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Invertido (Vivo): ${fMoneda(invertidoUsd)} USD<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
                 } else {
                     const totalUsdOriginal = numAccionesOriginal * r.costo_accion;
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Total Compra: ${fMoneda(totalUsdOriginal)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Total Compra: ${fMoneda(totalUsdOriginal)} USD`;
                 }
             } else if (tipoMovR === 'venta') {
                 const ventaUsd = parseFloat(r.monto_usd) || (numAccionesOriginal * r.costo_accion);
@@ -8097,6 +8111,10 @@
                             valorMxn: valorCatMxn,
                             valorUsd: cat.totalAcciones * precioUsd,
                             costoMxn: cat.costoBaseInvertido || 0,
+                            // El costo en dólares es el que mide a la empresa: el de pesos lleva dentro
+                            // el tipo de cambio al que compraste, que es cosa de la cuenta y no de ella
+                            costoUsd: cat.costoBaseInvertidoUsd || 0,
+                            plusvaliaUsd: (cat.totalAcciones * precioUsd) - (cat.costoBaseInvertidoUsd || 0),
                             plusvaliaMxn: valorCatMxn - (cat.costoBaseInvertido || 0),
                             realizadaMxn: realizadaCat,
                             meses: Math.max(1, cat.mesesPromedioExacto || 1)
