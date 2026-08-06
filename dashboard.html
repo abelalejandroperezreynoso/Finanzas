@@ -2532,7 +2532,8 @@
 
                                 const { data, error } = await clienteSupabase
                                     .from('categorias')
-                                    .insert([{ cuenta_id: cuentaId, nombre: 'Caja GBM', tipo: 'inversion', ticker: null, user_id: currentUser.id }])
+                                    // Sin predicciones: la caja no es un gasto recurrente que anticipar
+                                    .insert([{ cuenta_id: cuentaId, nombre: 'Caja GBM', tipo: 'inversion', ticker: null, desactivar_prediccion: true, user_id: currentUser.id }])
                                     .select();
 
                                 if (error || !data || !data[0]) {
