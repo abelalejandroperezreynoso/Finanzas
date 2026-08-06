@@ -549,6 +549,18 @@
             </div>
         </div>
 
+        <!-- Controles que sólo son del portafolio. Viven en su propia fila y sólo aparecen con ese
+             mapa puesto: en uno de gastos no hay moneda que elegir. Antes se colaban dentro de la
+             pastilla de Salidas/Entradas, que se quedaba sin sus botones y obligaba a recordar que
+             ahí ponía otra cosa. -->
+        <div id="controlesPortafolioTreemap" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 10px;">
+            <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Moneda</span>
+            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">USD</button>
+                <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">MXN</button>
+            </div>
+        </div>
+
         <!-- Sin padding lateral: el mapa llega a las orillas igual que el listado de registros -->
         <div id="contenedorTreemapCategorias" style="position: relative; width: 100%; height: 290px; padding: 0; box-sizing: border-box;">
             <canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
@@ -6478,8 +6490,6 @@
                                 const entradas = direccionTreemapCategorias === 'entradas';
                                 const modoActivo = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias) || null;
 
-                                // En el portafolio la dirección no parte nada, pero la moneda sí: esa pastilla
-                                // quedaba muerta en pantalla y aquí pasa a elegir en qué se leen las cifras.
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
 
                                 // Las tres capas del portafolio salen de las mismas cifras por empresa: la de
@@ -6508,36 +6518,32 @@
                                     : null;
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
-                                const opcionesPastilla = esPortafolio
-                                    ? [['usd', 'btnTreemapSalidas', 'USD', monedaTreemapInversiones, cambiarMonedaTreemapInversiones],
-                                       ['mxn', 'btnTreemapEntradas', 'MXN', monedaTreemapInversiones, cambiarMonedaTreemapInversiones]]
-                                    : [['salidas', 'btnTreemapSalidas', 'Salidas', direccionTreemapCategorias, cambiarDireccionTreemapCategorias],
-                                       ['entradas', 'btnTreemapEntradas', 'Entradas', direccionTreemapCategorias, cambiarDireccionTreemapCategorias]];
+                                // Cada pastilla dice cuál de sus mitades está puesta. El texto y lo que hace cada
+                                // botón viven en el HTML: aquí sólo se enciende el elegido.
+                                const encenderPastilla = (opciones, elegido) => {
+                                    opciones.forEach(([valor, idBoton]) => {
+                                        const btn = document.getElementById(idBoton);
+                                        if (!btn) return;
+                                        const activo = valor === elegido;
+                                        btn.style.background = activo ? '#333' : 'none';
+                                        btn.style.color = activo ? '#ffffff' : '#888';
+                                    });
+                                };
 
-                                opcionesPastilla.forEach(([valor, idBoton, texto, elegido, alTocar]) => {
-                                    const btn = document.getElementById(idBoton);
-                                    if (!btn) return;
-                                    const activo = valor === elegido;
-                                    btn.textContent = texto;
-                                    btn.onclick = () => alTocar(valor);
-                                    btn.style.background = activo ? '#333' : 'none';
-                                    btn.style.color = activo ? '#ffffff' : '#888';
-                                });
+                                encenderPastilla([['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']], direccionTreemapCategorias);
+                                encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
+                                encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
 
-                                TIPOS_PASTILLA_TREEMAP.forEach(({ tipo, boton }) => {
-                                    const btn = document.getElementById(boton);
-                                    if (!btn) return;
-                                    const activo = tipo === tipoTreemapCategorias;
-                                    btn.style.background = activo ? '#333' : 'none';
-                                    btn.style.color = activo ? '#ffffff' : '#888';
-                                });
+                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, su fila
+                                // desaparece en vez de quedarse ahí sin nada que hacer.
+                                const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
+                                if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
 
-                                // En préstamos y deudas la pastilla de arriba no parte nada, así que se apaga.
-                                // Sigue pulsable a propósito: es la salida del modo, y dejarla muerta obligaría a
-                                // recordar cuál de los tres botones de abajo estaba encendido. En el portafolio no
-                                // se apaga, porque ahí elige la moneda; de ese modo se sale por "Inversiones".
+                                // En los tres modos la pastilla de arriba no parte nada, así que se apaga. Sigue
+                                // pulsable a propósito: es la salida del modo, y dejarla muerta obligaría a
+                                // recordar cuál de los tres botones de abajo estaba encendido.
                                 const pastillaDireccion = document.getElementById('pastillaDireccionTreemap');
-                                if (pastillaDireccion) pastillaDireccion.style.opacity = (modoActivo && !esPortafolio) ? '0.35' : '1';
+                                if (pastillaDireccion) pastillaDireccion.style.opacity = modoActivo ? '0.35' : '1';
 
                                 // El título es sólo la fecha del recorte que se está mirando: el mapa sigue al mes
                                 // que la barra tenga señalado, que no siempre coincide con el filtro. Sin un mes
