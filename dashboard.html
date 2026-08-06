@@ -310,6 +310,19 @@
                     color: #aaa;
                     margin-top: 4px;
                 }
+                /* El tamaño de partida del saldo. Va en la hoja de estilos y no en el atributo style
+                   del elemento porque ajustarSaldoAlAncho() borra su font-size en línea para volver a
+                   medir, y necesita que quede este valor debajo al que regresar. */
+                #saldoTotalDisponible {
+                    font-size: clamp(1.8em, 10vw, 3.5em);
+                    font-weight: bold;
+                    line-height: 1.1;
+                    display: block;
+                    width: 100%;
+                    /* Sin nowrap la cifra se parte en dos renglones en cuanto crece */
+                    white-space: nowrap;
+                    overflow: hidden;
+                }
                             </style>
         </head>
 <body>
@@ -344,7 +357,8 @@
             </div>
             </div>
     <div class="card" style="background: #000000; padding: 1.5rem; text-align: center;">
-    <span id="saldoTotalDisponible" style="font-size: clamp(1.8em, 10vw, 3.5em); font-weight: bold; word-break: break-word; line-height: 1.1; display: inline-block;">$0.00</span>
+    <!-- El tamaño de partida lo pone el CSS; si la cifra no cabe de una línea, ajustarSaldoAlAncho() la encoge -->
+    <span id="saldoTotalDisponible">$0.00</span>
     </div>
 
     <div class="card" style="padding: 0; margin: 0; background: #000000;">
@@ -3700,6 +3714,36 @@
             aplicarFiltrosYRenderizar();
         }
 
+                            // El saldo es la cifra más grande de la pantalla y la que más crece: con seis dígitos
+                            // y decimales se salía del ancho en un teléfono estrecho. El clamp del CSS reacciona al
+                            // ancho de la pantalla pero no sabe cuántos dígitos hay, así que aquí se mide el texto
+                            // ya pintado y, si no cabe de una línea, se encoge la fuente en proporción justa.
+                            const TAMANO_MINIMO_SALDO = 16;
+                            function ajustarSaldoAlAncho() {
+                                const el = document.getElementById('saldoTotalDisponible');
+                                if (!el) return;
+
+                                // Se suelta el tamaño anterior para que el CSS vuelva a decidir el de partida:
+                                // si no, un saldo largo dejaría encogido al siguiente aunque quepa de sobra.
+                                el.style.fontSize = '';
+
+                                const disponible = el.clientWidth;
+                                const necesario = el.scrollWidth;
+                                if (!(disponible > 0) || !(necesario > disponible)) return;
+
+                                const base = parseFloat(getComputedStyle(el).fontSize);
+                                if (!(base > 0)) return;
+
+                                // El ancho del texto es proporcional al tamaño de letra. El resto de píxel se
+                                // recorta hacia abajo para no quedarse a un pelo de caber.
+                                const ajustado = Math.floor(base * (disponible / necesario));
+                                el.style.fontSize = Math.max(TAMANO_MINIMO_SALDO, ajustado) + 'px';
+                            }
+
+                            // Girar el teléfono cambia el ancho y el tamaño de partida del clamp, así que hay que
+                            // volver a medir aunque el saldo no haya cambiado.
+                            window.addEventListener('resize', ajustarSaldoAlAncho);
+
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
                                     window.filtroMovimientosActivo = null;
@@ -3988,6 +4032,7 @@
                                     }
                                     
                                     document.getElementById('saldoTotalDisponible').textContent = `$${fNum(saldoTotal)}`;
+                                    ajustarSaldoAlAncho();
 
                                     // 4. Renderizamos UI (Pasamos el nuevo parámetro a la gráfica)
                                         actualizarResumenEHistorial(filtradosRegs);
