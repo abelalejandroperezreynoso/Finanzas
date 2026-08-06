@@ -1025,6 +1025,9 @@
                                                             <button id="btnEditarCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #3ecf8e; color: #000000; font-weight: bold; font-size: 1em;">Editar</button>
                                                             <button id="btnVerMovsCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">Ver movimientos</button>
                                                         </div>
+                                                        <div style="margin-bottom: 20px;">
+                                                            <button id="btnCopiarJsonCuenta" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">📋 Copiar registros (JSON)</button>
+                                                        </div>
                                                     </div>
                                                 </div>
 
@@ -7656,6 +7659,9 @@
                                                     const btnMovsCta = document.getElementById('btnVerMovsCuentaModal');
                                                     if (btnMovsCta) btnMovsCta.onclick = () => { cerrarModalDetallesCuenta(); filtrarDashboardPorCuenta(id); };
 
+                                                    prepararBotonCopiarJson(document.getElementById('btnCopiarJsonCuenta'),
+                                                        () => copiarRegistrosCuentaJSON(id));
+
                                                     document.getElementById('modalDetallesCuenta').classList.add('activa');
                                                     document.body.classList.add('modal-abierto');
                                                     }
@@ -7963,14 +7969,8 @@
                                 };
                             }
 
-                            const btnCopiarJson = document.getElementById('btnCopiarJsonCategoria');
-                            if (btnCopiarJson) {
-                                btnCopiarJson.textContent = '📋 Copiar registros (JSON)';
-                                btnCopiarJson.style.backgroundColor = '#333';
-                                btnCopiarJson.style.color = '#ffffff';
-                                btnCopiarJson.disabled = false;
-                                btnCopiarJson.onclick = () => copiarRegistrosCategoriaJSON(id);
-                            }
+                            prepararBotonCopiarJson(document.getElementById('btnCopiarJsonCategoria'),
+                                () => copiarRegistrosCategoriaJSON(id));
 
                             document.getElementById('modalDetallesCategoria').classList.add('activa');
                             document.body.classList.add('modal-abierto');
@@ -8024,33 +8024,95 @@
                             }
 
                             // Exporta al portapapeles todos los movimientos de una categoría en formato JSON
-                            async function copiarRegistrosCategoriaJSON(idCat) {
-                                const cat = datosCategorias.find(x => String(x.id) === String(idCat));
-                                if (!cat) return;
+                            // Las columnas que se piden para exportar. Las de inversión sólo salen en las
+                            // categorías que lo son; en un gasto serían cinco ceros por fila.
+                            const COLUMNAS_EXPORTAR_JSON = 'id, fecha, monto, descripcion, costo_accion, tipo_cambio, cantidad_acciones, tipo_movimiento, monto_usd';
+                            const ETIQUETA_COPIAR_JSON = '📋 Copiar registros (JSON)';
 
-                                const btn = document.getElementById('btnCopiarJsonCategoria');
-                                const restaurarBoton = (mensaje, color, colorTexto = '#ffffff') => {
+                            // El aviso lo da el propio botón: se apaga mientras consulta y vuelve a su sitio a
+                            // los dos segundos. Devuelve la función que lo cierra con el resultado.
+                            function avisoBotonCopiarJson(btn) {
+                                if (btn) {
+                                    btn.disabled = true;
+                                    btn.textContent = 'Preparando...';
+                                }
+                                return (mensaje, color, colorTexto = '#ffffff') => {
                                     if (!btn) return;
                                     btn.textContent = mensaje;
                                     btn.style.backgroundColor = color;
                                     btn.style.color = colorTexto;
                                     setTimeout(() => {
-                                        btn.textContent = '📋 Copiar registros (JSON)';
+                                        btn.textContent = ETIQUETA_COPIAR_JSON;
                                         btn.style.backgroundColor = '#333';
                                         btn.style.color = '#ffffff';
                                         btn.disabled = false;
                                     }, 2000);
                                 };
+                            }
 
-                                if (btn) {
-                                    btn.disabled = true;
-                                    btn.textContent = 'Preparando...';
+                            // Deja el botón como recién puesto: si se cerró la ficha a media copia, el temporizador
+                            // que lo restauraba se quedó por el camino.
+                            function prepararBotonCopiarJson(btn, alTocar) {
+                                if (!btn) return;
+                                btn.textContent = ETIQUETA_COPIAR_JSON;
+                                btn.style.backgroundColor = '#333';
+                                btn.style.color = '#ffffff';
+                                btn.disabled = false;
+                                btn.onclick = alTocar;
+                            }
+
+                            function filaRegistroExportado(r, esInversion) {
+                                const fila = {
+                                    id: r.id,
+                                    fecha: r.fecha,
+                                    monto: parseFloat(r.monto),
+                                    descripcion: r.descripcion || null
+                                };
+                                if (esInversion) {
+                                    fila.cantidad_acciones = parseFloat(r.cantidad_acciones) || 0;
+                                    fila.costo_accion = parseFloat(r.costo_accion) || 0;
+                                    fila.tipo_cambio = parseFloat(r.tipo_cambio) || 0;
+                                    fila.tipo_movimiento = r.tipo_movimiento || 'directo';
+                                    fila.monto_usd = parseFloat(r.monto_usd) || 0;
                                 }
+                                return fila;
+                            }
+
+                            function totalesExportados(registros) {
+                                const entradas = registros.filter(r => r.monto >= 0).reduce((acc, r) => acc + r.monto, 0);
+                                const salidas = registros.filter(r => r.monto < 0).reduce((acc, r) => acc + Math.abs(r.monto), 0);
+                                return {
+                                    total_entradas: Number(entradas.toFixed(2)),
+                                    total_salidas: Number(salidas.toFixed(2)),
+                                    balance: Number((entradas - salidas).toFixed(2))
+                                };
+                            }
+
+                            // Deja el JSON en el portapapeles y lo cuenta en el botón. Si el navegador bloquea el
+                            // portapapeles, el texto va a la consola antes que perderse.
+                            async function entregarJsonExportado(exportacion, cuantos, restaurarBoton) {
+                                const json = JSON.stringify(exportacion, null, 2);
+                                const copiado = await copiarTextoAlPortapapeles(json);
+
+                                if (copiado) {
+                                    restaurarBoton(`✅ ${cuantos} registros copiados`, '#3ecf8e', '#000000');
+                                } else {
+                                    restaurarBoton('⚠️ No se pudo copiar', '#ff5c5c');
+                                    alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo o copia manualmente desde la consola.');
+                                    console.log(json);
+                                }
+                            }
+
+                            async function copiarRegistrosCategoriaJSON(idCat) {
+                                const cat = datosCategorias.find(x => String(x.id) === String(idCat));
+                                if (!cat) return;
+
+                                const restaurarBoton = avisoBotonCopiarJson(document.getElementById('btnCopiarJsonCategoria'));
 
                                 // Consultamos todos los registros de la categoría (no solo los 50 en memoria)
                                 const { data, error } = await clienteSupabase
                                     .from('registros')
-                                    .select('id, fecha, monto, descripcion, costo_accion, tipo_cambio, cantidad_acciones, tipo_movimiento, monto_usd')
+                                    .select(COLUMNAS_EXPORTAR_JSON)
                                     .eq('categoria_id', idCat)
                                     .order('fecha', { ascending: false });
 
@@ -8060,29 +8122,9 @@
                                     return;
                                 }
 
-                                const registros = data || [];
                                 const esInversion = cat.tipo === 'inversion';
-
-                                const registrosLimpios = registros.map(r => {
-                                    const fila = {
-                                        id: r.id,
-                                        fecha: r.fecha,
-                                        monto: parseFloat(r.monto),
-                                        descripcion: r.descripcion || null
-                                    };
-                                    if (esInversion) {
-                                        fila.cantidad_acciones = parseFloat(r.cantidad_acciones) || 0;
-                                        fila.costo_accion = parseFloat(r.costo_accion) || 0;
-                                        fila.tipo_cambio = parseFloat(r.tipo_cambio) || 0;
-                                        fila.tipo_movimiento = r.tipo_movimiento || 'directo';
-                                        fila.monto_usd = parseFloat(r.monto_usd) || 0;
-                                    }
-                                    return fila;
-                                });
-
+                                const registrosLimpios = (data || []).map(r => filaRegistroExportado(r, esInversion));
                                 const cuenta = datosCuentas.find(c => String(c.id) === String(cat.cuenta_id));
-                                const totalEntradas = registrosLimpios.filter(r => r.monto >= 0).reduce((acc, r) => acc + r.monto, 0);
-                                const totalSalidas = registrosLimpios.filter(r => r.monto < 0).reduce((acc, r) => acc + Math.abs(r.monto), 0);
 
                                 const exportacion = {
                                     categoria: {
@@ -8094,24 +8136,76 @@
                                     },
                                     exportado_en: new Date().toISOString(),
                                     total_registros: registrosLimpios.length,
-                                    total_entradas: Number(totalEntradas.toFixed(2)),
-                                    total_salidas: Number(totalSalidas.toFixed(2)),
-                                    balance: Number((totalEntradas - totalSalidas).toFixed(2)),
+                                    ...totalesExportados(registrosLimpios),
                                     registros: registrosLimpios
                                 };
 
-                                const json = JSON.stringify(exportacion, null, 2);
-                                const copiado = await copiarTextoAlPortapapeles(json);
-
-                                if (copiado) {
-                                    restaurarBoton(`✅ ${registrosLimpios.length} registros copiados`, '#3ecf8e', '#000000');
-                                } else {
-                                    restaurarBoton('⚠️ No se pudo copiar', '#ff5c5c');
-                                    alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo o copia manualmente desde la consola.');
-                                    console.log(json);
-                                }
+                                await entregarJsonExportado(exportacion, registrosLimpios.length, restaurarBoton);
                             }
-                            
+
+                            // Lo mismo, pero de una cuenta entera: todos los registros de todas sus categorías.
+                            // Cada fila se lleva a qué categoría pertenece —suelta no diría de qué es— y las
+                            // columnas de inversión salen sólo en las filas de una categoría de inversión, que en
+                            // una cuenta pueden convivir con gastos e ingresos corrientes.
+                            async function copiarRegistrosCuentaJSON(idCuenta) {
+                                const cuenta = datosCuentas.find(c => String(c.id) === String(idCuenta));
+                                if (!cuenta) return;
+
+                                const restaurarBoton = avisoBotonCopiarJson(document.getElementById('btnCopiarJsonCuenta'));
+
+                                const categorias = (datosCategorias || []).filter(c => String(c.cuenta_id) === String(idCuenta));
+                                if (categorias.length === 0) {
+                                    restaurarBoton('Esta cuenta no tiene categorías', '#f39c12', '#000000');
+                                    return;
+                                }
+
+                                // Los registros cuelgan de la categoría, no de la cuenta: se piden por las suyas
+                                const { data, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select(`${COLUMNAS_EXPORTAR_JSON}, categoria_id`)
+                                    .in('categoria_id', categorias.map(c => c.id))
+                                    .order('fecha', { ascending: false });
+
+                                if (error) {
+                                    restaurarBoton('⚠️ Error al consultar', '#ff5c5c');
+                                    alert('No se pudieron obtener los registros: ' + error.message);
+                                    return;
+                                }
+
+                                const porId = {};
+                                categorias.forEach(c => { porId[String(c.id)] = c; });
+
+                                const registrosLimpios = (data || []).map(r => {
+                                    const cat = porId[String(r.categoria_id)];
+                                    const { id, fecha, ...resto } = filaRegistroExportado(r, !!cat && cat.tipo === 'inversion');
+                                    return { id, fecha, categoria: cat ? cat.nombre : null, categoria_id: r.categoria_id, ...resto };
+                                });
+
+                                const exportacion = {
+                                    cuenta: {
+                                        id: cuenta.id,
+                                        nombre: cuenta.nombre,
+                                        saldo_inicial: Number((parseFloat(cuenta.saldo_inicial) || 0).toFixed(2)),
+                                        // El balance de la cuenta lleva dentro su saldo inicial; el de abajo sólo
+                                        // suma los movimientos. Van los dos para que no se confundan.
+                                        balance: Number((cuenta.balanceReal || 0).toFixed(2))
+                                    },
+                                    exportado_en: new Date().toISOString(),
+                                    total_categorias: categorias.length,
+                                    total_registros: registrosLimpios.length,
+                                    ...totalesExportados(registrosLimpios),
+                                    categorias: categorias.map(c => ({
+                                        id: c.id,
+                                        nombre: c.nombre,
+                                        tipo: c.tipo,
+                                        ticker: c.ticker || null
+                                    })),
+                                    registros: registrosLimpios
+                                };
+
+                                await entregarJsonExportado(exportacion, registrosLimpios.length, restaurarBoton);
+                            }
+
                             function verDetallesMovimiento(id) {
     // La lista de movimientos sólo carga los más recientes, pero el mapa de inversiones abre
     // lotes de cualquier antigüedad: si no está ahí, se lee de la copia completa con la que se
