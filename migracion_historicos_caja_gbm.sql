@@ -51,6 +51,29 @@ WHERE r.tipo_movimiento IS NULL
 GROUP BY c.nombre
 ORDER BY c.nombre;
 
+-- 0.2 CONTROL · Registros de inversión que NO se migrarán y por qué.
+--     Lo esperado es que salga vacío. Si aparece algo, esos registros se
+--     quedan con la mecánica antigua (la app los sigue soportando), pero
+--     conviene revisarlos antes de continuar.
+SELECT
+    c.nombre                       AS empresa,
+    r.fecha,
+    ROUND(r.monto::numeric, 2)     AS monto,
+    r.cantidad_acciones,
+    r.costo_accion,
+    CASE
+        WHEN r.monto >= 0                 THEN 'Es una entrada (venta o ajuste), no una compra'
+        WHEN COALESCE(r.cantidad_acciones, 0) <= 0 THEN 'Sin cantidad de acciones'
+        WHEN COALESCE(r.costo_accion, 0)      <= 0 THEN 'Sin precio por acción'
+    END                            AS motivo
+FROM registros r
+JOIN categorias c ON c.id = r.categoria_id
+WHERE r.tipo_movimiento IS NULL
+  AND c.tipo = 'inversion'
+  AND c.ticker IS NOT NULL
+  AND NOT (r.monto < 0 AND r.cantidad_acciones > 0 AND r.costo_accion > 0)
+ORDER BY c.nombre, r.fecha;
+
 
 -- =============================================================================
 -- PASO 1 · MIGRACIÓN  (ejecuta todo este bloque de una vez)
@@ -76,6 +99,16 @@ WHERE c.tipo = 'inversion'
           AND c2.ticker IS NULL
           AND lower(trim(c2.nombre)) = 'caja gbm'
   );
+
+-- 1.2b Si la Caja GBM ya existía (creada por la app), apagar sus predicciones.
+--      Va a recibir decenas de aportaciones históricas y sin esto la app
+--      detectaría una "recurrencia" y te sugeriría aportaciones fantasma.
+UPDATE categorias
+SET desactivar_prediccion = true
+WHERE tipo = 'inversion'
+  AND ticker IS NULL
+  AND lower(trim(nombre)) = 'caja gbm'
+  AND desactivar_prediccion IS DISTINCT FROM true;
 
 -- 1.3 Crear la aportación que precede a cada compra histórica -----------------
 --     Mismos pesos, los dólares exactos de la compra, un segundo antes.
