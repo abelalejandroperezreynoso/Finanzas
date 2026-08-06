@@ -3719,25 +3719,42 @@
                             // ancho de la pantalla pero no sabe cuántos dígitos hay, así que aquí se mide el texto
                             // ya pintado y, si no cabe de una línea, se encoge la fuente en proporción justa.
                             const TAMANO_MINIMO_SALDO = 16;
+                            // Tope para que un saldo corto —"$0.00" -— no acabe con letras de cuatro centímetros.
+                            // Hasta aquí, la cifra crece cuanto haga falta para llenar el ancho de la tarjeta.
+                            const TAMANO_MAXIMO_SALDO = 72;
                             function ajustarSaldoAlAncho() {
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
 
-                                // Se suelta el tamaño anterior para que el CSS vuelva a decidir el de partida:
-                                // si no, un saldo largo dejaría encogido al siguiente aunque quepa de sobra.
+                                // Se suelta el tamaño anterior para medir desde el que decide el CSS: si no, cada
+                                // ajuste partiría del anterior y el error se iría acumulando.
                                 el.style.fontSize = '';
 
                                 const disponible = el.clientWidth;
-                                const necesario = el.scrollWidth;
-                                if (!(disponible > 0) || !(necesario > disponible)) return;
-
                                 const base = parseFloat(getComputedStyle(el).fontSize);
-                                if (!(base > 0)) return;
+                                if (!(disponible > 0) || !(base > 0)) return;
 
-                                // El ancho del texto es proporcional al tamaño de letra. El resto de píxel se
-                                // recorta hacia abajo para no quedarse a un pelo de caber.
-                                const ajustado = Math.floor(base * (disponible / necesario));
-                                el.style.fontSize = Math.max(TAMANO_MINIMO_SALDO, ajustado) + 'px';
+                                // El ancho del texto se mide con un rango sobre su contenido, no con scrollWidth:
+                                // cuando la cifra es más corta que la caja, scrollWidth devuelve el ancho de la
+                                // caja y no el del texto, con lo que no habría forma de saber cuánto puede crecer.
+                                const rango = document.createRange();
+                                rango.selectNodeContents(el);
+                                const anchoTexto = rango.getBoundingClientRect().width;
+                                if (!(anchoTexto > 0)) return;
+
+                                // El ancho del texto es proporcional al tamaño de letra, así que la regla de tres
+                                // da el tamaño que llena la línea justa.
+                                const ideal = Math.floor(base * (disponible / anchoTexto));
+                                let tamano = Math.min(TAMANO_MAXIMO_SALDO, Math.max(TAMANO_MINIMO_SALDO, ideal));
+                                el.style.fontSize = tamano + 'px';
+
+                                // El redondeo de la medición puede dejar la cifra un pelo fuera, y el overflow la
+                                // cortaría. Se baja de uno en uno hasta que entre; con la proporción bien hecha
+                                // esto no suele dar ni una vuelta.
+                                while (tamano > TAMANO_MINIMO_SALDO && el.scrollWidth > el.clientWidth) {
+                                    tamano -= 1;
+                                    el.style.fontSize = tamano + 'px';
+                                }
                             }
 
                             // Girar el teléfono cambia el ancho y el tamaño de partida del clamp, así que hay que
