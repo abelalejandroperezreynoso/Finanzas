@@ -1866,23 +1866,19 @@
                                         };
                                     }
 
-                                    // Dos rangos cuentan como "sin filtrar": el mes en curso, con el que abre la app, y
-                                    // el tiempo completo, al que lleva la ✕. Cualquier otro lo puso el usuario. Se
-                                    // comparan las fechas y no sólo el atajo elegido para cazar también los rangos
-                                    // personalizados y los de "Calcular desde hoy".
+                                    // Cualquier fecha puesta recorta lo que se ve, así que cuenta como filtro: da igual
+                                    // que venga del mes de arranque, de un atajo, de las flechas o de un rango escrito
+                                    // a mano. El único estado sin filtrar es el de las dos fechas vacías, que es donde
+                                    // deja la ✕ y el atajo "Todo el Tiempo".
+                                    //
+                                    // Se miran las fechas y no el atajo elegido para no dejar fuera los rangos
+                                    // personalizados ni los de "Calcular desde hoy". Como consecuencia el botón se ve
+                                    // desde que abre la app: el mes en curso también es un recorte, y hasta ahora era
+                                    // el único que se aplicaba sin avisar ni ofrecer forma de quitarlo.
                                     function hayFiltroDeTiempoActivo() {
-                                        const porDefecto = rangoPorDefecto();
                                         const inicio = document.getElementById('filtroInicio')?.value || '';
                                         const fin = document.getElementById('filtroFin')?.value || '';
-
-                                        // Sin fechas no hay recorte de tiempo que quitar, se haya llegado por la ✕ o
-                                        // por el atajo "Todo el Tiempo".
-                                        if (!inicio && !fin) return false;
-
-                                        return tipoFiltroActual !== 'mes'
-                                            || offsetFiltroActual !== 0
-                                            || inicio !== porDefecto.inicio
-                                            || fin !== porDefecto.fin;
+                                        return !!(inicio || fin);
                                     }
 
                                     function aplicarRangoDeArranque() {
