@@ -305,7 +305,7 @@
             margin: 0;
             padding: 0;
             border-radius: 50%;
-            background-color: #3ecf8e;
+            background-color: #ffffff;
             color: #0f0f0f;
             display: flex;
             align-items: center;
@@ -322,6 +322,8 @@
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+        /* Hace falta explícito: si no, el :hover verde de los botones generales gana. */
+        .hoja-ios-accion:hover { background-color: #e6e6e6; }
         .hoja-ios-accion:active { transform: scale(0.92); }
         .hoja-ios-cuerpo {
             flex: 1 1 auto;
@@ -1140,7 +1142,7 @@
                     Object.entries(botones).forEach(([modo, btn]) => {
                         if (!btn) return;
                         if (modo === modoGrafica) {
-                            btn.style.background = '#3ecf8e';
+                            btn.style.background = '#ffffff';
                             btn.style.color = '#000000';
                         } else {
                             btn.style.background = '#444';
@@ -1774,7 +1776,7 @@
                             document.querySelectorAll('.grid-atajos .btn-shortcut').forEach(btn => {
                             const accion = String(btn.getAttribute('onclick') || '');
                             if (accion.includes(`'${tipoFiltroActual}'`) || accion.includes(`"${tipoFiltroActual}"`)) {
-                            btn.style.background = '#3ecf8e';
+                            btn.style.background = '#ffffff';
                             btn.style.color = '#000000';
                             } else {
                             btn.style.background = '#444';
