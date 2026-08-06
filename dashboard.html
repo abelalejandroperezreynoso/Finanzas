@@ -223,6 +223,80 @@
         .modal-overlay.activa { display: flex; opacity: 1; }
         .modal-content { background: #2a2a2a; padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 400px; box-sizing: border-box; box-shadow: 0 10px 25px rgba(0,0,0,0.8); transform: translateY(20px); transition: transform 0.3s; overflow-x: hidden; overscroll-behavior: none; }
         
+        /* --- Hoja estilo iOS (panel de filtros) ---
+           Se apoya en .modal-overlay/.modal-content pero se ancla abajo, sube deslizándose
+           y se puede cerrar arrastrándola hacia abajo. Solo aplica a los modales con .hoja-ios. */
+        .modal-overlay.hoja-ios {
+            align-items: flex-end;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0);
+            transition: background-color 0.35s ease;
+        }
+        .modal-overlay.hoja-ios.activa { opacity: 1; }
+        .modal-overlay.hoja-ios.hoja-abierta { background: rgba(0, 0, 0, 0.55); }
+
+        .hoja-ios .modal-content {
+            width: 100%;
+            max-width: 520px;
+            padding: 0;
+            border-radius: 16px 16px 0 0;
+            background: #1f1f1f;
+            box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            max-height: 92vh;
+            max-height: 92dvh;
+            /* Arranca fuera de pantalla: la curva es la de las hojas de iOS. */
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+            will-change: transform;
+            overscroll-behavior: contain;
+        }
+        .hoja-ios.hoja-abierta .modal-content { transform: translateY(0); }
+        /* Mientras el dedo manda, el transform lo fija el JS y la transición estorba. */
+        .hoja-ios.hoja-arrastrando .modal-content { transition: none; }
+
+        .hoja-ios-tirador {
+            flex: 0 0 auto;
+            padding: 10px 0 6px;
+            display: flex;
+            justify-content: center;
+            cursor: grab;
+            touch-action: none;
+        }
+        .hoja-ios-tirador::before {
+            content: '';
+            display: block;
+            width: 40px;
+            height: 5px;
+            border-radius: 3px;
+            background: #5a5a5e;
+        }
+        .hoja-ios-encabezado {
+            flex: 0 0 auto;
+            padding: 0 20px 12px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            touch-action: none;
+        }
+        .hoja-ios-encabezado h3 { margin: 0; font-size: 1.05em; }
+        .hoja-ios-cuerpo {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding: 16px 20px;
+        }
+        .hoja-ios-pie {
+            flex: 0 0 auto;
+            display: flex;
+            gap: 10px;
+            padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: #1f1f1f;
+        }
+        .hoja-ios-pie button { margin: 0; }
+
         .grid-atajos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 
                 
@@ -694,9 +768,11 @@
     </div>
 </div>
 
-    <div class="modal-overlay" id="modalFiltros">
-    <div class="modal-content">
-    <h3 style="margin-top: 0;">Filtro</h3>
+    <div class="modal-overlay hoja-ios" id="modalFiltros" onclick="if (event.target === this) cerrarModalFiltros();">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Filtro">
+    <div class="hoja-ios-tirador" id="tiradorHojaFiltros"></div>
+    <div class="hoja-ios-encabezado"><h3>Filtro</h3></div>
+    <div class="hoja-ios-cuerpo">
 
     <div id="indicadorFiltroContexto" style="display: none; background: rgba(62, 207, 142, 0.15); border: 1px solid #3ecf8e; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
         <span id="textoFiltroContexto" style="color: #3ecf8e; font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 0;"></span>
@@ -744,7 +820,9 @@
             </div>
         </div>
 
-        <div style="display: flex; gap: 10px;">
+        </div>
+
+        <div class="hoja-ios-pie">
         <button onclick="aplicarRangoManual()" style="flex: 2;">Aplicar Rango</button>
         <button onclick="cerrarModalFiltros()" style="flex: 1; background:#666;">Cerrar</button>
         </div>
@@ -1625,7 +1703,16 @@
                         }
 
                             function abrirModalFiltros() {
-                            document.getElementById('modalFiltros').classList.add('activa');
+                            const hoja = document.getElementById('modalFiltros');
+                            clearTimeout(hoja._temporizadorCierre);
+                            hoja.classList.add('activa');
+                            hoja.classList.remove('hoja-arrastrando');
+                            hoja.querySelector('.modal-content').style.transform = '';
+                            const cuerpoHoja = hoja.querySelector('.hoja-ios-cuerpo');
+                            if (cuerpoHoja) cuerpoHoja.scrollTop = 0;
+                            // Un frame con la hoja ya visible pero abajo: si no, el navegador
+                            // no tiene estado inicial que animar y aparecería de golpe.
+                            requestAnimationFrame(() => requestAnimationFrame(() => hoja.classList.add('hoja-abierta')));
                             document.body.classList.add('modal-abierto');
                             const indicador = document.getElementById('indicadorFiltroContexto');
                             const textoIndicador = document.getElementById('textoFiltroContexto');
@@ -1662,9 +1749,85 @@
                             renderizarChecksTiposGrafica();
                             }
                             function cerrarModalFiltros() {
-                                document.getElementById('modalFiltros').classList.remove('activa');
+                                const hoja = document.getElementById('modalFiltros');
+                                if (!hoja.classList.contains('activa')) return;
+                                hoja.classList.remove('hoja-arrastrando');
+                                hoja.querySelector('.modal-content').style.transform = '';
+                                hoja.classList.remove('hoja-abierta');
                                 document.body.classList.remove('modal-abierto');
+                                // El display: none tiene que esperar a que baje la hoja, si no la corta.
+                                clearTimeout(hoja._temporizadorCierre);
+                                hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
                             }
+
+                            // Arrastre de la hoja de filtros: se agarra por el tirador o el encabezado
+                            // (el cuerpo se deja libre para desplazar su contenido).
+                            (function habilitarArrastreHojaFiltros() {
+                                const hoja = document.getElementById('modalFiltros');
+                                if (!hoja) return;
+                                const contenido = hoja.querySelector('.modal-content');
+                                const zonas = hoja.querySelectorAll('.hoja-ios-tirador, .hoja-ios-encabezado');
+                                let yInicial = 0;
+                                let desplazamiento = 0;
+                                let arrastrando = false;
+                                let yPrevia = 0;
+                                let instantePrevio = 0;
+                                let velocidad = 0;
+
+                                function iniciar(y) {
+                                    yInicial = y;
+                                    yPrevia = y;
+                                    instantePrevio = Date.now();
+                                    desplazamiento = 0;
+                                    velocidad = 0;
+                                    arrastrando = true;
+                                    hoja.classList.add('hoja-arrastrando');
+                                }
+
+                                function mover(y) {
+                                    if (!arrastrando) return;
+                                    // Hacia arriba no se estira: la hoja solo baja.
+                                    desplazamiento = Math.max(0, y - yInicial);
+                                    const ahora = Date.now();
+                                    const lapso = ahora - instantePrevio;
+                                    if (lapso > 0) velocidad = (y - yPrevia) / lapso;
+                                    yPrevia = y;
+                                    instantePrevio = ahora;
+                                    contenido.style.transform = `translateY(${desplazamiento}px)`;
+                                }
+
+                                function soltar() {
+                                    if (!arrastrando) return;
+                                    arrastrando = false;
+                                    hoja.classList.remove('hoja-arrastrando');
+                                    contenido.style.transform = '';
+                                    // Cierra si se arrastró más de un cuarto de la hoja o si el gesto
+                                    // fue un tirón rápido hacia abajo, como en iOS.
+                                    const pasoElUmbral = desplazamiento > Math.max(80, contenido.offsetHeight * 0.25);
+                                    const fueUnTiron = velocidad > 0.5 && desplazamiento > 40;
+                                    if (pasoElUmbral || fueUnTiron) {
+                                        cerrarModalFiltros();
+                                    }
+                                    desplazamiento = 0;
+                                    velocidad = 0;
+                                }
+
+                                zonas.forEach(zona => {
+                                    zona.addEventListener('touchstart', e => iniciar(e.touches[0].clientY), { passive: true });
+                                    zona.addEventListener('touchmove', e => {
+                                        mover(e.touches[0].clientY);
+                                        if (arrastrando) e.preventDefault();
+                                    }, { passive: false });
+                                    zona.addEventListener('touchend', soltar);
+                                    zona.addEventListener('touchcancel', soltar);
+                                    zona.addEventListener('mousedown', e => { iniciar(e.clientY); e.preventDefault(); });
+                                });
+                                document.addEventListener('mousemove', e => mover(e.clientY));
+                                document.addEventListener('mouseup', soltar);
+                                document.addEventListener('keydown', e => {
+                                    if (e.key === 'Escape' && hoja.classList.contains('activa')) cerrarModalFiltros();
+                                });
+                            })();
 
                             function abrirModalCuenta() {
                                 document.getElementById('modalCuenta').classList.add('activa');
@@ -8204,7 +8367,9 @@
 
                                                                                                                                                     // Estos modales tienen contenido más alto que la pantalla y necesitan
                                                                                                                                                     // conservar el scroll táctil; en el resto se bloquea para que el fondo no se mueva.
-                                                                                                                                                    const MODALES_CON_SCROLL = ['modalDetallesMovimiento', 'modalDetallesCuenta'];
+                                                                                                                                                    // modalFiltros es una hoja estilo iOS: su cuerpo se desplaza solo y el arrastre
+                                                                                                                                                    // lo maneja su propio gesto, así que tampoco se le bloquea el touchmove.
+                                                                                                                                                    const MODALES_CON_SCROLL = ['modalDetallesMovimiento', 'modalDetallesCuenta', 'modalFiltros'];
                                                                                                                                                     document.querySelectorAll('.modal-overlay').forEach(modal => {
                                                                                                                                                                                     modal.addEventListener('touchmove', function(e) {
                                                                                                                                                                                         if (!MODALES_CON_SCROLL.includes(modal.id)) {
