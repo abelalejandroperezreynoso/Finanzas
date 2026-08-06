@@ -584,6 +584,10 @@
     <select id="regTipoInversion" onchange="actualizarCamposInversion()" style="margin-bottom: 0;"></select>
     </div>
     <div style="display: flex; gap: 10px;">
+    <div style="flex: 1; display: none;" id="divRegMontoUsd">
+    <label style="font-size: 0.75em; color: #aaa;">Dólares recibidos (USD)</label>
+    <input type="number" inputmode="decimal" id="regMontoUsd" placeholder="Ej: 500.00" step="0.01" style="margin-bottom: 0;" oninput="recalcularMontoAportacion()">
+    </div>
     <div style="flex: 1;" id="divRegAcciones">
     <label style="font-size: 0.75em; color: #aaa;">Acciones</label>
     <input type="number" inputmode="decimal" id="regAcciones" placeholder="Ej: 5.5" step="any" style="margin-bottom: 0;">
@@ -594,9 +598,10 @@
     </div>
     <div style="flex: 1;" id="divRegTipoCambio">
     <label style="font-size: 0.75em; color: #aaa;" id="labelRegTipoCambio">Tipo de Cambio (MXN)</label>
-    <input type="number" inputmode="decimal" id="regTipoCambio" placeholder="Ej: 17.50" step="0.0001" style="margin-bottom: 0;">
+    <input type="number" inputmode="decimal" id="regTipoCambio" placeholder="Ej: 17.50" step="0.0001" style="margin-bottom: 0;" oninput="recalcularMontoAportacion()">
     </div>
     </div>
+    <div id="resumenAportacion" style="display: none; font-size: 0.85em; color: #ddd; background: #1a1a1a; border: 1px dashed #4da6ff; border-radius: 6px; padding: 8px 10px; line-height: 1.4;"></div>
     <div id="hintInversion" style="display: none; font-size: 0.78em; color: #4da6ff; line-height: 1.4;"></div>
     </div>
 
@@ -2678,9 +2683,17 @@
                                                                 contenedorInversion.style.display = 'none';
                                                                 document.getElementById('regCostoAccion').value = '';
                                                                 document.getElementById('regTipoCambio').value = '';
+                                                                document.getElementById('regMontoUsd').value = '';
+                                                                document.getElementById('divRegMontoUsd').style.display = 'none';
+                                                                document.getElementById('resumenAportacion').style.display = 'none';
                                                                 const inputMonto = document.getElementById('regMonto');
                                                                 inputMonto.style.display = '';
                                                                 inputMonto.required = true;
+                                                                // Fuera de una aportación el monto en pesos vuelve a capturarse a mano
+                                                                inputMonto.readOnly = false;
+                                                                inputMonto.placeholder = '0.00';
+                                                                inputMonto.style.background = '';
+                                                                inputMonto.style.color = '';
                                                                 const selCatReset = document.getElementById('regCategoriaSelect');
                                                                 selCatReset.disabled = false;
                                                                 delete selCatReset.dataset.catAntesCaja;
@@ -2750,6 +2763,26 @@
                                 inputMonto.required = muevePesos;
                                 if (!muevePesos) inputMonto.value = '';
 
+                                // En una aportación GBM ajusta los dólares que realmente te acredita, así que
+                                // el dato firme es el USD recibido: se captura ése y los pesos se calculan solos.
+                                const esAportacion = tipoInv === 'aportacion';
+                                document.getElementById('divRegMontoUsd').style.display = esAportacion ? '' : 'none';
+                                if (esAportacion) {
+                                    inputMonto.readOnly = true;
+                                    inputMonto.required = false;
+                                    inputMonto.dataset.autofill = 'false'; // El valor lo manda el cálculo, no la sugerencia
+                                    inputMonto.placeholder = 'Se calcula solo';
+                                    inputMonto.style.background = '#262626';
+                                    inputMonto.style.color = '#bbb';
+                                } else {
+                                    inputMonto.readOnly = false;
+                                    inputMonto.placeholder = '0.00';
+                                    inputMonto.style.background = '';
+                                    inputMonto.style.color = '';
+                                    document.getElementById('regMontoUsd').value = '';
+                                }
+                                recalcularMontoAportacion();
+
                                 // El TC solo importa cuando hay conversión de pesos: aportación, retiro y los
                                 // movimientos directos. En una venta todo queda en dólares (no se pide), y en
                                 // una compra solo sirve de estimación del costo MXN si la caja está vacía.
@@ -2763,15 +2796,49 @@
                                 labelTC.textContent = (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
 
                                 let textoHint = '';
-                                if (tipoInv === 'aportacion') textoHint = `Pesos que enviaste de Smart Cash a Trading USA. Se convierten a USD con el tipo de cambio. ${cajaTxt}`;
+                                if (tipoInv === 'aportacion') textoHint = `Captura los dólares que GBM te acreditó y el tipo de cambio: los pesos que salieron de Smart Cash se calculan solos. ${cajaTxt}`;
                                 else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}${hayCaja ? '' : ' Sin caja, el costo en pesos del lote se estima con el TC capturado.'}`;
                                 else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
                                 else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}`;
                                 hint.textContent = textoHint;
                                 hint.style.display = textoHint ? 'block' : 'none';
                             }
-                            
-                            
+
+                            // Pesos de una aportación = dólares acreditados × tipo de cambio.
+                            // GBM redondea los dólares que entrega, por eso el USD es el dato que se captura
+                            // y el gasto en pesos se deriva (y se redondea a centavos, como el cargo real).
+                            function pesosDeAportacion(usd, tc) {
+                                if (!(usd > 0) || !(tc > 0)) return 0;
+                                return Math.round(usd * tc * 100) / 100;
+                            }
+
+                            // Mantiene el campo de pesos (solo lectura) al día mientras se captura una aportación.
+                            function recalcularMontoAportacion() {
+                                const selTipoInv = document.getElementById('regTipoInversion');
+                                const inputMonto = document.getElementById('regMonto');
+                                const resumen = document.getElementById('resumenAportacion');
+                                if (!selTipoInv || !inputMonto || !resumen) return;
+
+                                if (selTipoInv.value !== 'aportacion') {
+                                    resumen.style.display = 'none';
+                                    return;
+                                }
+
+                                const usd = parseFloat(document.getElementById('regMontoUsd').value) || 0;
+                                const tc = parseFloat(document.getElementById('regTipoCambio').value) || 0;
+                                const pesos = pesosDeAportacion(usd, tc);
+
+                                inputMonto.value = pesos > 0 ? pesos.toFixed(2) : '';
+
+                                if (pesos > 0) {
+                                    resumen.innerHTML = `${fMoneda(usd)} USD × ${tc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} = <strong style="color:#fff;">${fMoneda(pesos)} MXN</strong> de gasto`;
+                                } else {
+                                    resumen.innerHTML = 'Captura los dólares recibidos y el tipo de cambio para calcular el gasto en pesos.';
+                                }
+                                resumen.style.display = 'block';
+                            }
+
+
 
                             // --- GESTIÓN DE CATEGORÍAS ---
                             async function cargarCategorias() {
@@ -7424,14 +7491,25 @@
                             const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[catSeleccionada.cuenta_id] : null;
                             const cajaDisponibleUsd = cajaCta ? cajaCta.usd : 0;
 
-                            if (tipoMovimiento === 'aportacion' || tipoMovimiento === 'retiro') {
+                            if (tipoMovimiento === 'aportacion') {
+                                // GBM ajusta los dólares que acredita: el USD recibido es el dato real y
+                                // el gasto en pesos se deriva de él con el tipo de cambio de la operación.
+                                montoUsd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value)) || 0;
+                                if (!montoUsd || montoUsd <= 0 || tipoCambio <= 0) {
+                                    alert("⚠️ Para una aportación captura los dólares recibidos y el tipo de cambio.");
+                                    return;
+                                }
+                                montoInput = pesosDeAportacion(montoUsd, tipoCambio);
+                                montoFinal = direccion === 'salida' ? -montoInput : montoInput;
+                                cantidadAcciones = 0;
+                            } else if (tipoMovimiento === 'retiro') {
                                 if (!montoInput || montoInput <= 0 || tipoCambio <= 0) {
-                                    alert("⚠️ Para una aportación o retiro captura el monto en pesos y el tipo de cambio.");
+                                    alert("⚠️ Para un retiro captura el monto en pesos y el tipo de cambio.");
                                     return;
                                 }
                                 montoUsd = montoInput / tipoCambio;
                                 cantidadAcciones = 0;
-                                if (tipoMovimiento === 'retiro' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
+                                if (!editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
                                     if (!confirm(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
                                 }
                             } else if (tipoMovimiento === 'compra' || tipoMovimiento === 'venta') {
@@ -7559,6 +7637,13 @@
                                                                     const tipoGuardado = r.tipo_movimiento || (montoNum < 0 ? 'compra_directa' : 'venta_directa');
                                                                     if ([...selTipoInvEdit.options].some(o => o.value === tipoGuardado)) {
                                                                         selTipoInvEdit.value = tipoGuardado;
+                                                                    }
+                                                                    // Al corregir una aportación se edita el USD recibido; si el registro
+                                                                    // es viejo y no lo guardó, se reconstruye con sus pesos y su TC
+                                                                    if (r.tipo_movimiento === 'aportacion') {
+                                                                        const tcGuardado = parseFloat(r.tipo_cambio) || 0;
+                                                                        const usdGuardado = parseFloat(r.monto_usd) || (tcGuardado > 0 ? Math.abs(parseFloat(r.monto) || 0) / tcGuardado : 0);
+                                                                        document.getElementById('regMontoUsd').value = usdGuardado > 0 ? usdGuardado.toFixed(2) : '';
                                                                     }
                                                                     actualizarCamposInversion();
                                                                     if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'venta') {
