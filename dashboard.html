@@ -155,7 +155,11 @@
                 /* --- Elementos UI mantenidos --- */
                 .selector-lista { display: flex; background: #333; border-radius: 8px; padding: 4px; margin-bottom: 15px; }
                 .tab-btn { flex: 1; padding: 8px; border: none; background: none; color: #888; font-size: 0.85em; cursor: pointer; border-radius: 6px; font-weight: bold; }
-                .tab-btn.active { background: #3ecf8e; color: #000000; }
+                .tab-btn.active { background: #ffffff; color: #000000; }
+                /* Acciones principales de Gestión de Datos, con el mismo blanco que la hoja
+                   de filtros. Como clase y no en línea, para conservar el realce del ratón. */
+                .btn-claro { background-color: #ffffff; color: #000000; }
+                .btn-claro:hover { background-color: #e6e6e6; }
                 .resumen-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center; }
 .caja-resumen { background: #333; padding: 15px 5px; border-radius: 8px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
 .caja-resumen h4 { margin: 0 0 10px 0; font-size: 0.75em; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -623,11 +627,11 @@
     <div id="sub-cats" class="sub-lista" style="display:none; margin-top: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
     <h3 style="margin: 0; text-align: left;">Categorías</h3>
-    <button onclick="abrirModalCategoriaNuevo()" style="width: auto; padding: 6px 12px; font-size: 0.85em;">➕ Nueva</button>
+    <button onclick="abrirModalCategoriaNuevo()" class="btn-claro" style="width: auto; padding: 6px 12px; font-size: 0.85em;">➕ Nueva</button>
     </div>
 
     <div class="filtros-scroll">
-    <button id="btnCatTodas" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('todas')" style="background: #3ecf8e; color: #000000;">Todas</button>
+    <button id="btnCatTodas" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('todas')" style="background: #ffffff; color: #000000;">Todas</button>
     <button id="btnCatGasto" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('gasto')">Gastos</button>
     <button id="btnCatIngreso" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('ingreso')">Ingresos</button>
     <button id="btnCatDeuda" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('deuda')">Deudas</button>
@@ -641,7 +645,7 @@
     <div id="sub-cuentas" class="sub-lista" style="display:none; margin-top: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
     <h3 style="margin: 0; text-align: left;">Cuentas</h3>
-    <button onclick="abrirModalCuentaNuevo()" style="width: auto; padding: 6px 12px; font-size: 0.85em;">➕ Nueva</button>
+    <button onclick="abrirModalCuentaNuevo()" class="btn-claro" style="width: auto; padding: 6px 12px; font-size: 0.85em;">➕ Nueva</button>
     </div>
     <ul id="listaCuentas" class="lista-items"></ul>
     </div>
@@ -3841,7 +3845,7 @@
                                                         botones.forEach(b => {
                                                             const btn = document.getElementById('btnCat' + b);
                                                             if (btn) {
-                                                                btn.style.background = b === 'Todas' ? '#3ecf8e' : '#333';
+                                                                btn.style.background = b === 'Todas' ? '#ffffff' : '#333';
                                                                 btn.style.color = b === 'Todas' ? '#000000' : '#ccc';
                                                             }
                                                         });
@@ -3918,7 +3922,7 @@
                                         if (tipo === 'inversion') btnActivo = document.getElementById('btnCatInversion');
 
                                         if (btnActivo) {
-                                                                                            btnActivo.style.background = tipo === 'todas' ? '#3ecf8e' : obtenerColorCategoria(tipo);
+                                                                                            btnActivo.style.background = tipo === 'todas' ? '#ffffff' : obtenerColorCategoria(tipo);
                                                                                             btnActivo.style.color = '#000000';
                                                                                         }
 
