@@ -5504,10 +5504,7 @@
                             const TIPOS_PASTILLA_TREEMAP = [
                                 {
                                     tipo: 'inversion', boton: 'btnTreemapInversion', etiqueta: 'inversiones',
-                                    unidad: ['empresa', 'empresas'], avance: 'de lo invertido',
-                                    // Único mapa que no va en pesos, así que lo dice en el pie: las cifras de
-                                    // los recuadros son dólares y sin esto no habría cómo saberlo.
-                                    moneda: 'USD'
+                                    unidad: ['empresa', 'empresas'], avance: 'de lo invertido'
                                 },
                                 {
                                     tipo: 'prestamo', boton: 'btnTreemapPrestamo', etiqueta: 'préstamos',
@@ -5527,6 +5524,14 @@
                                 const guardado = localStorage.getItem('tipoTreemapCategorias') || '';
                                 return TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === guardado) ? guardado : '';
                             })();
+
+                            // En qué moneda se leen las cifras del portafolio. Las acciones se compran en dólares
+                            // y nunca se registra lo pagado en pesos, así que la vista en pesos es una conversión
+                            // al tipo de cambio de hoy —el que habría que aplicar para sacar el dinero—, no lo que
+                            // costó en su momento. Se convierten las dos caras con el mismo número, de modo que
+                            // porcentajes, tamaños y rellenos salen idénticos: sólo cambia la cifra.
+                            // Abre en pesos, que es la moneda del resto de la app y en la que se gasta.
+                            let monedaTreemapInversiones = localStorage.getItem('monedaTreemapInversiones') === 'usd' ? 'usd' : 'mxn';
 
                             // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
                             let contextoTreemapCategorias = { meses: [], indice: null };
@@ -5700,6 +5705,10 @@
                             // llena con lo que vale hoy, así una posición a la baja sale a medio llenar y una en
                             // ganancia, llena y con la raya de lo que costó por dentro.
                             function datosInversionesTreemap() {
+                                // Las dos caras se convierten con el mismo número, así que el porcentaje y el
+                                // relleno no se mueven al cambiar de moneda: sólo cambia la cifra que se lee.
+                                const factor = monedaTreemapInversiones === 'mxn' ? (globalUsdToMxn || 1) : 1;
+
                                 return datosCategorias
                                     .filter(cat => cat.tipo === 'inversion')
                                     .map(cat => {
@@ -5708,9 +5717,9 @@
                                         // distintas: lo que hizo la empresa y lo que hizo el tipo de cambio. Una
                                         // acción plana en dólares aparecía en verde si el peso se había
                                         // depreciado, y el mapa no sabía decir cuánto era de cada quién.
-                                        const costo = cat.costoBaseInvertidoUsd || 0;
+                                        const costo = (cat.costoBaseInvertidoUsd || 0) * factor;
                                         const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
-                                        const valor = precio ? (cat.totalAcciones || 0) * precio : 0;
+                                        const valor = precio ? (cat.totalAcciones || 0) * precio * factor : 0;
 
                                         const base = { id: String(cat.id), cat: cat, nombre: cat.ticker || cat.nombre };
 
@@ -5729,6 +5738,12 @@
                                         };
                                     })
                                     .filter(d => d.monto > 0);
+                            }
+
+                            function cambiarMonedaTreemapInversiones(moneda) {
+                                monedaTreemapInversiones = moneda === 'usd' ? 'usd' : 'mxn';
+                                localStorage.setItem('monedaTreemapInversiones', monedaTreemapInversiones);
+                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
 
                             // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
@@ -5846,16 +5861,26 @@
                                 }
 
                                 const entradas = direccionTreemapCategorias === 'entradas';
+                                const modoActivo = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias) || null;
 
-                                [['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']].forEach(([dir, idBoton]) => {
+                                // En el portafolio la dirección no parte nada, pero la moneda sí: esa pastilla
+                                // quedaba muerta en pantalla y aquí pasa a elegir en qué se leen las cifras.
+                                const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
+                                const opcionesPastilla = esPortafolio
+                                    ? [['usd', 'btnTreemapSalidas', 'USD', monedaTreemapInversiones, cambiarMonedaTreemapInversiones],
+                                       ['mxn', 'btnTreemapEntradas', 'MXN', monedaTreemapInversiones, cambiarMonedaTreemapInversiones]]
+                                    : [['salidas', 'btnTreemapSalidas', 'Salidas', direccionTreemapCategorias, cambiarDireccionTreemapCategorias],
+                                       ['entradas', 'btnTreemapEntradas', 'Entradas', direccionTreemapCategorias, cambiarDireccionTreemapCategorias]];
+
+                                opcionesPastilla.forEach(([valor, idBoton, texto, elegido, alTocar]) => {
                                     const btn = document.getElementById(idBoton);
                                     if (!btn) return;
-                                    const activo = dir === direccionTreemapCategorias;
+                                    const activo = valor === elegido;
+                                    btn.textContent = texto;
+                                    btn.onclick = () => alTocar(valor);
                                     btn.style.background = activo ? '#333' : 'none';
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
-
-                                const modoActivo = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias) || null;
 
                                 TIPOS_PASTILLA_TREEMAP.forEach(({ tipo, boton }) => {
                                     const btn = document.getElementById(boton);
@@ -5865,11 +5890,12 @@
                                     btn.style.color = activo ? '#ffffff' : '#888';
                                 });
 
-                                // Ninguno de los tres modos se parte por dirección, así que la pastilla de arriba
-                                // se apaga mientras uno esté puesto. Sigue pulsable a propósito: es la salida del
-                                // modo, y dejarla muerta obligaría a recordar cuál de los tres estaba encendido.
+                                // En préstamos y deudas la pastilla de arriba no parte nada, así que se apaga.
+                                // Sigue pulsable a propósito: es la salida del modo, y dejarla muerta obligaría a
+                                // recordar cuál de los tres botones de abajo estaba encendido. En el portafolio no
+                                // se apaga, porque ahí elige la moneda; de ese modo se sale por "Inversiones".
                                 const pastillaDireccion = document.getElementById('pastillaDireccionTreemap');
-                                if (pastillaDireccion) pastillaDireccion.style.opacity = modoActivo ? '0.35' : '1';
+                                if (pastillaDireccion) pastillaDireccion.style.opacity = (modoActivo && !esPortafolio) ? '0.35' : '1';
 
                                 // El título es sólo la fecha del recorte que se está mirando: el mapa sigue al mes
                                 // que la barra tenga señalado, que no siempre coincide con el filtro. Sin un mes
@@ -6226,7 +6252,7 @@
                                         const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}</span>
-                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${modoActivo && modoActivo.moneda ? ' ' + modoActivo.moneda : ''}</span></strong>
+                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${esPortafolio ? ' ' + monedaTreemapInversiones.toUpperCase() : ''}</span></strong>
                                         `;
                                     } else {
                                         totalEl.innerHTML = `
