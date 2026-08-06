@@ -3147,6 +3147,7 @@
                             window.gananciaRealizadaMap = {}; // NUEVO: Para guardar la ganancia por venta
                             window.gananciaRealizadaUsdMap = {}; // FLUJO GBM: ganancia en USD de ventas cuyo dinero queda en la caja
                             window.costoMxnLoteMap = {}; // FLUJO GBM: costo base MXN de compras pagadas con la caja (su monto es 0)
+                            window.costoUsdLoteMap = {}; // Lo que costó cada lote en dólares, que es en lo que se mide una posición
 
                             // FLUJO GBM: caja de dólares por cuenta (dinero en Trading USA sin invertir).
                             // usd = dólares disponibles; mxnBase = pesos que costaron esos dólares (para la ganancia al retirar).
@@ -3239,6 +3240,7 @@
                             costoBaseMap[u.categoria_id] += mxnCompra;
                             costoBaseUsdMap[u.categoria_id] += usdCompra;
                             window.costoMxnLoteMap[u.id] = mxnCompra;
+                            window.costoUsdLoteMap[u.id] = usdCompra;
 
                             // Registramos el lote para el FIFO (ahora memoriza el TC y Costo exacto)
                             lotesPendientes[u.categoria_id].push({
@@ -5851,6 +5853,128 @@
                             // Abre en pesos, que es la moneda del resto de la app y en la que se gasta.
                             let monedaTreemapInversiones = localStorage.getItem('monedaTreemapInversiones') === 'usd' ? 'usd' : 'mxn';
 
+                            // Empresa abierta por dentro del mapa de inversiones. Con una puesta, los
+                            // recuadros dejan de ser empresas y pasan a ser las compras vivas de ésa. No se
+                            // recuerda entre sesiones a propósito: es un sitio al que se entra, no un ajuste.
+                            let empresaTreemapInversiones = null;
+
+                            // Cuánto hay que sostener el dedo para que el toque cuente como pulsación larga.
+                            // Medio segundo se siente deliberado sin llegar a parecer que la app se colgó.
+                            const MS_PULSACION_LARGA_TREEMAP = 450;
+
+                            // A partir de aquí el dedo está desplazando la pantalla, no señalando un recuadro
+                            const TOLERANCIA_ARRASTRE_TREEMAP = 10;
+
+                            function abrirEmpresaTreemap(id) {
+                                empresaTreemapInversiones = String(id);
+                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
+                            }
+
+                            function cerrarEmpresaTreemap() {
+                                if (!empresaTreemapInversiones) return;
+                                empresaTreemapInversiones = null;
+                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
+                            }
+
+                            // ---- Toque corto y pulsación sostenida sobre el mapa ----
+                            // Chart.js sólo entiende de clics, así que los dos gestos se arman aquí sobre el
+                            // lienzo. Al apoyar el dedo arranca un temporizador: si llega al final sin soltar ni
+                            // arrastrar, manda la pulsación larga y el toque de salida ya no cuenta.
+                            //
+                            // El mismo lienzo se reutiliza entre dibujos y entre modos del mapa, así que los
+                            // oyentes anteriores tienen que irse: si no, un mapa de gastos seguiría respondiendo
+                            // con los gestos del portafolio que estuvo antes en su sitio.
+                            function desconectarGestosTreemap(canvas) {
+                                if (!canvas || !canvas._gestosTreemap) return;
+                                canvas._gestosTreemap.forEach(([evento, fn]) => canvas.removeEventListener(evento, fn));
+                                canvas._gestosTreemap = null;
+                            }
+
+                            function conectarGestosTreemap(canvas, grafica, alTocar, alMantener) {
+                                desconectarGestosTreemap(canvas);
+                                if (!canvas || !grafica) return;
+
+                                // El dedo se queda quieto encima un buen rato: sin esto, el teléfono ofrece copiar
+                                // la imagen justo cuando la pulsación larga estaba a punto de contar.
+                                canvas.style.webkitTouchCallout = 'none';
+                                canvas.style.userSelect = 'none';
+
+                                let temporizador = null;
+                                let atendido = false;
+                                let indice = null;
+                                let origen = null;
+
+                                // El recuadro que de verdad está bajo el dedo, con el mismo criterio con el que el
+                                // treemap resuelve un clic. Por cercanía no valdría: un rectángulo grande de al
+                                // lado puede tener el centro más próximo que el pequeño que se tocó.
+                                const recuadroEn = (e) => {
+                                    const encontrados = grafica.getElementsAtEventForMode(e, 'point', { intersect: true, includeInvisible: true }, false);
+                                    return (encontrados && encontrados.length) ? encontrados[0].index : null;
+                                };
+
+                                const soltarTemporizador = () => {
+                                    if (temporizador) clearTimeout(temporizador);
+                                    temporizador = null;
+                                };
+
+                                const abajo = (e) => {
+                                    atendido = false;
+                                    origen = { x: e.clientX, y: e.clientY };
+                                    indice = recuadroEn(e);
+                                    soltarTemporizador();
+                                    if (indice === null) return;
+
+                                    const recuadro = indice;
+                                    temporizador = setTimeout(() => {
+                                        temporizador = null;
+                                        atendido = true;
+                                        // Un golpecito avisa de que el gesto ya se cumplió y se puede soltar
+                                        if (navigator.vibrate) navigator.vibrate(12);
+                                        alMantener(recuadro);
+                                    }, MS_PULSACION_LARGA_TREEMAP);
+                                };
+
+                                const moviendo = (e) => {
+                                    if (!origen || indice === null || atendido) return;
+                                    if (Math.abs(e.clientX - origen.x) > TOLERANCIA_ARRASTRE_TREEMAP ||
+                                        Math.abs(e.clientY - origen.y) > TOLERANCIA_ARRASTRE_TREEMAP) {
+                                        soltarTemporizador();
+                                        atendido = true;
+                                    }
+                                };
+
+                                const arriba = (e) => {
+                                    soltarTemporizador();
+                                    const recuadro = indice;
+                                    const yaAtendido = atendido;
+                                    indice = null;
+                                    origen = null;
+                                    atendido = false;
+                                    if (yaAtendido || recuadro === null) return;
+                                    // Levantar el dedo en otro recuadro es un arrepentimiento, no un toque
+                                    if (recuadroEn(e) === recuadro) alTocar(recuadro);
+                                };
+
+                                const abortar = () => {
+                                    soltarTemporizador();
+                                    indice = null;
+                                    origen = null;
+                                    atendido = false;
+                                };
+
+                                const oyentes = [
+                                    ['pointerdown', abajo],
+                                    ['pointermove', moviendo],
+                                    ['pointerup', arriba],
+                                    ['pointercancel', abortar],
+                                    ['pointerleave', abortar],
+                                    ['contextmenu', (e) => e.preventDefault()]
+                                ];
+
+                                oyentes.forEach(([evento, fn]) => canvas.addEventListener(evento, fn));
+                                canvas._gestosTreemap = oyentes;
+                            }
+
                             // Último contexto dibujado, para repintar al cambiar de lado sin rehacer la gráfica
                             let contextoTreemapCategorias = { meses: [], indice: null };
 
@@ -5987,6 +6111,7 @@
                                     tipoTreemapCategorias = '';
                                     localStorage.setItem('tipoTreemapCategorias', '');
                                 }
+                                empresaTreemapInversiones = null;
 
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
@@ -6070,6 +6195,75 @@
                                     .filter(d => d.monto > 0);
                             }
 
+                            // Lo que costó un lote en dólares. Normalmente lo tiene memorizado el recorrido del
+                            // historial, que es donde se resuelve el tipo de cambio real de cada compra; el
+                            // respaldo reconstruye lo que se pueda de un registro que no pasó por ahí, y si no
+                            // hay con qué, devuelve cero antes que inventar un costo.
+                            function costoUsdDeLote(u) {
+                                if (window.costoUsdLoteMap && window.costoUsdLoteMap[u.id] !== undefined) {
+                                    return window.costoUsdLoteMap[u.id];
+                                }
+                                const acciones = parseFloat(u.cantidad_acciones) || 0;
+                                const usd = parseFloat(u.monto_usd) || (acciones * parseFloat(u.costo_accion || 0));
+                                if (usd > 0) return usd;
+                                const tc = parseFloat(u.tipo_cambio) || 0;
+                                return tc > 1 ? Math.abs(parseFloat(u.monto) || 0) / tc : 0;
+                            }
+
+                            // A un lote lo identifica el día en que se compró, y en un recuadro estrecho cabe:
+                            // "15 ene 25" ocupa lo mismo que un ticker.
+                            function etiquetaLoteTreemap(fechaISO) {
+                                const dia = obtenerFechaLocalCortada(fechaISO);
+                                if (!dia) return 'Compra';
+                                const [anio, mes, numero] = dia.split('-');
+                                const nombreMes = NOMBRES_MESES[parseInt(mes, 10) - 1] || '';
+                                return `${parseInt(numero, 10)} ${nombreMes.slice(0, 3).toLowerCase()} ${anio.slice(2)}`;
+                            }
+
+                            // El mapa de una empresa por dentro: cada recuadro es una de sus compras, con las
+                            // mismas reglas que el recuadro de la empresa entera —vale lo que costó y se llena con
+                            // lo que vale hoy—, de modo que las piezas suman justo la caja de la que salieron.
+                            //
+                            // Sólo entran las compras que siguen en pie, y una vendida a medias entra por la mitad
+                            // que queda: lo vendido ya no es de esta empresa, es dinero en la caja, y pintarlo aquí
+                            // haría que el mapa dijera que tienes más de lo que tienes.
+                            function datosMovimientosEmpresaTreemap(cat) {
+                                const factor = monedaTreemapInversiones === 'mxn' ? (globalUsdToMxn || 1) : 1;
+                                const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
+                                const vistos = {};
+
+                                return (datosUsoCompleto || [])
+                                    .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
+                                    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+                                    .map(u => {
+                                        const compradas = parseFloat(u.cantidad_acciones) || 0;
+                                        const vivas = (window.accionesRestantesMap && window.accionesRestantesMap[u.id] !== undefined)
+                                            ? window.accionesRestantesMap[u.id]
+                                            : compradas;
+                                        if (!(vivas > 0.00001)) return null;
+
+                                        const parteViva = compradas > 0 ? Math.min(1, vivas / compradas) : 1;
+                                        const costo = costoUsdDeLote(u) * parteViva * factor;
+                                        const valor = precio ? vivas * precio * factor : 0;
+
+                                        // El recuadro se busca por su etiqueta, así que dos compras del mismo día
+                                        // no pueden llamarse igual o se fundirían en una sola caja.
+                                        let nombre = etiquetaLoteTreemap(u.fecha);
+                                        vistos[nombre] = (vistos[nombre] || 0) + 1;
+                                        if (vistos[nombre] > 1) nombre = `${nombre} ·${vistos[nombre]}`;
+
+                                        const base = { id: String(u.id), cat: cat, nombre: nombre };
+
+                                        // Mismo criterio que en el mapa de empresas: sin costo o sin precio de
+                                        // mercado no hay dos cifras que comparar, y el recuadro sale lleno.
+                                        if (!(costo > 0)) return { ...base, monto: valor, real: valor, esperado: 0 };
+                                        if (!precio) return { ...base, monto: costo, real: costo, esperado: 0 };
+
+                                        return { ...base, monto: Math.max(costo, valor), real: valor, esperado: costo };
+                                    })
+                                    .filter(d => d && d.monto > 0);
+                            }
+
                             function cambiarMonedaTreemapInversiones(moneda) {
                                 monedaTreemapInversiones = moneda === 'usd' ? 'usd' : 'mxn';
                                 localStorage.setItem('monedaTreemapInversiones', monedaTreemapInversiones);
@@ -6082,6 +6276,8 @@
                                 const valido = TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === tipo);
                                 tipoTreemapCategorias = (!valido || tipo === tipoTreemapCategorias) ? '' : tipo;
                                 localStorage.setItem('tipoTreemapCategorias', tipoTreemapCategorias);
+                                // Cambiar de mapa deja atrás la empresa que estuviera abierta por dentro
+                                empresaTreemapInversiones = null;
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
 
@@ -6196,6 +6392,15 @@
                                 // En el portafolio la dirección no parte nada, pero la moneda sí: esa pastilla
                                 // quedaba muerta en pantalla y aquí pasa a elegir en qué se leen las cifras.
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
+
+                                // La empresa abierta por dentro se resuelve en cada dibujo: si se salió del
+                                // portafolio o la categoría ya no existe, el mapa vuelve solo al nivel de arriba
+                                // en vez de quedarse dentro de algo que no está.
+                                const empresaAbierta = (esPortafolio && empresaTreemapInversiones)
+                                    ? (datosCategorias || []).find(c => String(c.id) === String(empresaTreemapInversiones) && c.tipo === 'inversion')
+                                    : null;
+                                if (!empresaAbierta) empresaTreemapInversiones = null;
+
                                 const opcionesPastilla = esPortafolio
                                     ? [['usd', 'btnTreemapSalidas', 'USD', monedaTreemapInversiones, cambiarMonedaTreemapInversiones],
                                        ['mxn', 'btnTreemapEntradas', 'MXN', monedaTreemapInversiones, cambiarMonedaTreemapInversiones]]
@@ -6232,9 +6437,17 @@
                                 // concreto detrás, vale el mismo texto que muestra el selector de fechas.
                                 if (tituloEl) {
                                     const mesSeleccionado = (indice !== null && meses && meses[indice]) ? meses[indice] : null;
+
+                                    // Dentro de una empresa el título es además la salida: el mapa no tiene otro
+                                    // sitio donde poner un "volver" sin quitarle espacio a los recuadros.
+                                    tituloEl.style.cursor = empresaAbierta ? 'pointer' : '';
+                                    tituloEl.onclick = empresaAbierta ? (() => cerrarEmpresaTreemap()) : null;
+
                                     // Las posiciones no pertenecen a ningún mes: poner una fecha encima haría creer
                                     // que el mapa muestra lo comprado en ese periodo.
-                                    if (modoActivo && modoActivo.tipo === 'inversion') {
+                                    if (empresaAbierta) {
+                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · compras`;
+                                    } else if (modoActivo && modoActivo.tipo === 'inversion') {
                                         tituloEl.textContent = 'Portafolio · hoy';
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
@@ -6252,7 +6465,9 @@
                                 const tipicoMensual = mesAvance ? calcularTipicoMensualPorCategoria(mesAvance.ym, entradas) : {};
 
                                 let datos;
-                                if (modoActivo && modoActivo.tipo === 'inversion') {
+                                if (empresaAbierta) {
+                                    datos = datosMovimientosEmpresaTreemap(empresaAbierta);
+                                } else if (modoActivo && modoActivo.tipo === 'inversion') {
                                     datos = datosInversionesTreemap();
                                 } else if (modoActivo) {
                                     datos = datosDosCarasTreemap(meses, indice, modoActivo);
@@ -6301,7 +6516,9 @@
                                     // Un mes que aún no llega sólo tiene proyección, y el mapa no la cuenta: se dice
                                     // por qué está vacío en vez de dejar creer que no habrá movimientos.
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
-                                    const motivo = modoActivo && modoActivo.tipo === 'inversion'
+                                    const motivo = empresaAbierta
+                                        ? `No quedan compras vivas de ${empresaAbierta.ticker || empresaAbierta.nombre}.`
+                                        : modoActivo && modoActivo.tipo === 'inversion'
                                         ? 'No hay empresas en tu portafolio aún.'
                                         : modoActivo
                                         // En estos modos los tipos ocultos del panel no pintan nada y la dirección
@@ -6599,6 +6816,10 @@
                                         // resaltado hasta tocar fuera; sin selección que mantener, sobra.
                                         events: ['click'],
                                         onClick: (event, elements) => {
+                                            // En el portafolio el toque no es un clic: ahí manda el gesto de abajo,
+                                            // que distingue entre pulsar y sostener. Si este también actuara, un
+                                            // toque haría las dos cosas a la vez.
+                                            if (esPortafolio) return;
                                             if (!elements || elements.length === 0) return;
                                             const nodo = miTreemapCategorias.data.datasets[0].data[elements[0].index];
                                             const d = buscarDato(nodo);
@@ -6608,10 +6829,37 @@
                                     plugins: [pluginJuntaTreemap]
                                 });
 
+                                // El portafolio es el único mapa con dos niveles, y por eso el único que necesita
+                                // separar los dos gestos: un toque entra en la empresa —o sale de ella, que dentro
+                                // ya no hay a dónde bajar— y sostener el dedo abre la ficha de lo que hay debajo,
+                                // la de la categoría arriba y la del lote dentro.
+                                const datoDelRecuadro = (indice) => {
+                                    if (!miTreemapCategorias) return null;
+                                    return buscarDato(miTreemapCategorias.data.datasets[0].data[indice]);
+                                };
+
+                                if (esPortafolio) {
+                                    conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
+                                        const d = datoDelRecuadro(indice);
+                                        if (!d || !d.id) return;
+                                        if (empresaAbierta) cerrarEmpresaTreemap();
+                                        else abrirEmpresaTreemap(d.id);
+                                    }, (indice) => {
+                                        const d = datoDelRecuadro(indice);
+                                        if (!d || !d.id) return;
+                                        if (empresaAbierta) verDetallesMovimiento(d.id);
+                                        else verDetallesCategoria(d.id);
+                                    });
+                                } else {
+                                    desconectarGestosTreemap(ctx.canvas);
+                                }
+
                                 if (totalEl) {
                                     const color = modoActivo ? obtenerColorCategoria(modoActivo.tipo) : (entradas ? '#3ecf8e' : '#ff5c5c');
-                                    const etiquetaCats = modoActivo
-                                        ? `${totalCategorias} ${totalCategorias === 1 ? modoActivo.unidad[0] : modoActivo.unidad[1]}`
+                                    // Dentro de una empresa lo que se cuenta ya no son empresas, son sus compras
+                                    const unidadNivel = empresaAbierta ? ['compra', 'compras'] : (modoActivo ? modoActivo.unidad : null);
+                                    const etiquetaCats = unidadNivel
+                                        ? `${totalCategorias} ${totalCategorias === 1 ? unidadNivel[0] : unidadNivel[1]}`
                                         : `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
 
                                     // En modo avance el pie deja de ser un total y pasa a ser el marcador del mes:
@@ -7567,7 +7815,12 @@
                             }
                             
                             function verDetallesMovimiento(id) {
-    const r = datosRegistros.find(x => String(x.id) === String(id));
+    // La lista de movimientos sólo carga los más recientes, pero el mapa de inversiones abre
+    // lotes de cualquier antigüedad: si no está ahí, se lee de la copia completa con la que se
+    // calculan las posiciones. Esa copia trae menos columnas, y de ahí sale enLista.
+    const enLista = datosRegistros.some(x => String(x.id) === String(id));
+    const r = datosRegistros.find(x => String(x.id) === String(id))
+        || (datosUsoCompleto || []).find(x => String(x.id) === String(id));
     if (r) {
         const cat = datosCategorias.find(c => String(c.id) === String(r.categoria_id));
         const nombreCat = cat ? cat.nombre : 'Desconocida';
@@ -7682,9 +7935,13 @@
             detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA</strong><br>Ganancia Real: ${signoGanancia}${fMoneda(ganancia)} MXN (${signoGanancia}${porcentajeGanancia.toFixed(2)}%)`;
         }
         
+        // De la copia ligera no viene la descripción, y decir "Ninguna" sería afirmar que no la
+        // tiene cuando lo único cierto es que no se cargó.
+        const descripcionMov = ('descripcion' in r) ? (r.descripcion || 'Ninguna') : 'No disponible';
+
         const htmlContenido = `
         <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${nombreCat}</strong><br>
-        <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${r.descripcion || 'Ninguna'}</strong><br>
+        <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${descripcionMov}</strong><br>
         <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong><br>
         <span style="color: #aaa;">Fecha:</span> <strong style="color: #fff;">${fechaLocal}</strong>
         ${infoTopInversion}
@@ -7693,7 +7950,11 @@
         document.getElementById('contenidoDetallesMovimiento').innerHTML = htmlContenido;
         
         const btnEditar = document.getElementById('btnEditarMovimiento');
-        btnEditar.onclick = () => {
+        // Editar necesita el registro completo. De uno viejo sólo tenemos la copia ligera, así
+        // que el botón se apaga en lugar de abrir un formulario a medio llenar.
+        btnEditar.disabled = !enLista;
+        btnEditar.style.opacity = enLista ? '1' : '0.4';
+        btnEditar.onclick = !enLista ? null : () => {
             cerrarModalDetallesMovimiento();
             prepEditMov(id);
         };
