@@ -274,12 +274,27 @@
         }
         .hoja-ios-encabezado {
             flex: 0 0 auto;
-            padding: 0 20px 12px;
+            padding: 2px 20px 12px;
             text-align: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            /* La línea aparece solo cuando el contenido se mete debajo, como en iOS. */
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
             touch-action: none;
         }
-        .hoja-ios-encabezado h3 { margin: 0; font-size: 1.05em; }
+        .hoja-ios-encabezado.con-separador { border-bottom-color: rgba(255, 255, 255, 0.14); }
+        .hoja-ios-encabezado h3 {
+            margin: 0;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+        }
+        .hoja-ios-encabezado p {
+            margin: 2px 0 0;
+            font-size: 13px;
+            color: #8e8e93;
+            letter-spacing: -0.01em;
+        }
         .hoja-ios-cuerpo {
             flex: 1 1 auto;
             overflow-y: auto;
@@ -295,7 +310,15 @@
             border-top: 1px solid rgba(255, 255, 255, 0.08);
             background: #1f1f1f;
         }
-        .hoja-ios-pie button { margin: 0; }
+        .hoja-ios-pie button {
+            margin: 0;
+            flex: 1;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
 
         .grid-atajos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 
@@ -771,7 +794,10 @@
     <div class="modal-overlay hoja-ios" id="modalFiltros" onclick="if (event.target === this) cerrarModalFiltros();">
     <div class="modal-content" role="dialog" aria-modal="true" aria-label="Filtro">
     <div class="hoja-ios-tirador" id="tiradorHojaFiltros"></div>
-    <div class="hoja-ios-encabezado"><h3>Filtro</h3></div>
+    <div class="hoja-ios-encabezado" id="encabezadoHojaFiltros">
+        <h3>Filtro</h3>
+        <p>Desliza hacia abajo para cerrar</p>
+    </div>
     <div class="hoja-ios-cuerpo">
 
     <div id="indicadorFiltroContexto" style="display: none; background: rgba(62, 207, 142, 0.15); border: 1px solid #3ecf8e; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
@@ -823,8 +849,7 @@
         </div>
 
         <div class="hoja-ios-pie">
-        <button onclick="aplicarRangoManual()" style="flex: 2;">Aplicar Rango</button>
-        <button onclick="cerrarModalFiltros()" style="flex: 1; background:#666;">Cerrar</button>
+        <button onclick="aplicarRangoManual()">Aplicar Rango</button>
         </div>
             </div>
         </div>
@@ -1710,6 +1735,7 @@
                             hoja.querySelector('.modal-content').style.transform = '';
                             const cuerpoHoja = hoja.querySelector('.hoja-ios-cuerpo');
                             if (cuerpoHoja) cuerpoHoja.scrollTop = 0;
+                            hoja.querySelector('.hoja-ios-encabezado').classList.remove('con-separador');
                             // Un frame con la hoja ya visible pero abajo: si no, el navegador
                             // no tiene estado inicial que animar y aparecería de golpe.
                             requestAnimationFrame(() => requestAnimationFrame(() => hoja.classList.add('hoja-abierta')));
@@ -1760,12 +1786,15 @@
                                 hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
                             }
 
-                            // Arrastre de la hoja de filtros: se agarra por el tirador o el encabezado
-                            // (el cuerpo se deja libre para desplazar su contenido).
+                            // Arrastre de la hoja de filtros: se agarra por el tirador, el encabezado o,
+                            // con el dedo, por el cuerpo cuando ya está arriba del todo. Como no hay
+                            // botón de cerrar, este gesto es la única salida junto al fondo y Escape.
                             (function habilitarArrastreHojaFiltros() {
                                 const hoja = document.getElementById('modalFiltros');
                                 if (!hoja) return;
                                 const contenido = hoja.querySelector('.modal-content');
+                                const cuerpo = hoja.querySelector('.hoja-ios-cuerpo');
+                                const encabezado = hoja.querySelector('.hoja-ios-encabezado');
                                 const zonas = hoja.querySelectorAll('.hoja-ios-tirador, .hoja-ios-encabezado');
                                 let yInicial = 0;
                                 let desplazamiento = 0;
@@ -1822,6 +1851,37 @@
                                     zona.addEventListener('touchcancel', soltar);
                                     zona.addEventListener('mousedown', e => { iniciar(e.clientY); e.preventDefault(); });
                                 });
+
+                                // En el cuerpo el gesto compite con el desplazamiento del contenido:
+                                // solo se convierte en arrastre si ya estaba arriba del todo y el dedo baja.
+                                if (cuerpo) {
+                                    let yToque = 0;
+                                    let puedeArrastrar = false;
+
+                                    cuerpo.addEventListener('touchstart', e => {
+                                        yToque = e.touches[0].clientY;
+                                        puedeArrastrar = cuerpo.scrollTop <= 0;
+                                    }, { passive: true });
+
+                                    cuerpo.addEventListener('touchmove', e => {
+                                        const y = e.touches[0].clientY;
+                                        if (!arrastrando) {
+                                            if (!puedeArrastrar || y - yToque <= 8) return;
+                                            iniciar(yToque);
+                                        }
+                                        mover(y);
+                                        e.preventDefault();
+                                    }, { passive: false });
+
+                                    cuerpo.addEventListener('touchend', () => { puedeArrastrar = false; soltar(); });
+                                    cuerpo.addEventListener('touchcancel', () => { puedeArrastrar = false; soltar(); });
+
+                                    // La línea del encabezado solo se ve con contenido pasando por debajo.
+                                    cuerpo.addEventListener('scroll', () => {
+                                        if (encabezado) encabezado.classList.toggle('con-separador', cuerpo.scrollTop > 0);
+                                    }, { passive: true });
+                                }
+
                                 document.addEventListener('mousemove', e => mover(e.clientY));
                                 document.addEventListener('mouseup', soltar);
                                 document.addEventListener('keydown', e => {
