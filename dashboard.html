@@ -1160,6 +1160,10 @@
                 function obtenerFechaLocalCortada(fechaISO) {
                     if (!fechaISO) return '';
                     const fecha = new Date(fechaISO);
+                    // Una fecha que no se deja leer sale vacía, como la que no viene: toISOString
+                    // lanza con ella, y un registro con la fecha estropeada tumbaría la pantalla
+                    // entera desde donde sea que se le pida.
+                    if (isNaN(fecha.getTime())) return '';
                     fecha.setMinutes(fecha.getMinutes() - fecha.getTimezoneOffset());
                     return fecha.toISOString().slice(0, 10);
                 }
@@ -6004,9 +6008,10 @@
                             // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
                             const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
-                            // Alto a partir del cual merece la pena partir las cifras en dos renglones: por debajo,
-                            // el renglón de más deja las letras tan chicas que se pierde más de lo que se gana.
-                            const ALTO_MIN_CIFRAS_PARTIDAS_TREEMAP = 46;
+                            // Alto a partir del cual merece la pena un cuarto renglón —el ritmo de una compra, o
+                            // las dos cifras partidas—: por debajo, el renglón de más deja las letras tan chicas
+                            // que se pierde más de lo que se gana.
+                            const ALTO_MIN_CUARTO_RENGLON_TREEMAP = 46;
 
                             // Cuántos meses de historia miran los objetivos, y cuántos hacen falta como mínimo
                             const MESES_HISTORIA_OBJETIVO_TREEMAP = 6;
@@ -6210,6 +6215,15 @@
                                 return tc > 1 ? Math.abs(parseFloat(u.monto) || 0) / tc : 0;
                             }
 
+                            // Meses transcurridos desde una fecha, con el mismo mes de 30.416 días con el que la
+                            // ficha del lote cuenta los suyos: el recuadro y la ficha que abre no pueden decir
+                            // dos antigüedades distintas de la misma compra.
+                            function mesesDesdeTreemap(fechaISO) {
+                                const cuando = new Date(fechaISO).getTime();
+                                if (isNaN(cuando)) return null;
+                                return Math.max(0, (Date.now() - cuando) / (1000 * 60 * 60 * 24 * 30.416));
+                            }
+
                             // A un lote lo identifica el día en que se compró, y en un recuadro estrecho cabe:
                             // "15 ene 25" ocupa lo mismo que un ticker.
                             function etiquetaLoteTreemap(fechaISO) {
@@ -6259,7 +6273,21 @@
                                         if (!(costo > 0)) return { ...base, monto: valor, real: valor, esperado: 0 };
                                         if (!precio) return { ...base, monto: costo, real: costo, esperado: 0 };
 
-                                        return { ...base, monto: Math.max(costo, valor), real: valor, esperado: costo };
+                                        const lote = { ...base, monto: Math.max(costo, valor), real: valor, esperado: costo };
+
+                                        // A qué ritmo ha rendido esa compra y desde cuándo. Dos posiciones con el
+                                        // mismo porcentaje no valen lo mismo si una tardó un año y la otra un mes,
+                                        // y el recuadro solo no lo dice. El reparto entre los meses es el mismo que
+                                        // hace la ficha del lote, para que el recuadro y lo que abre coincidan.
+                                        // Las dos caras se convirtieron con el mismo número, así que el ritmo sale
+                                        // igual en pesos que en dólares.
+                                        const meses = mesesDesdeTreemap(u.fecha);
+                                        if (meses !== null) {
+                                            lote.meses = meses;
+                                            lote.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                        }
+
+                                        return lote;
                                     })
                                     .filter(d => d && d.monto > 0);
                             }
@@ -6566,6 +6594,9 @@
                                 // completa que quepa en un renglón, luego encoger la letra de ese renglón, y si aun
                                 // así no cabe se parten en dos. Un rectángulo estrecho suele ser alto, así que
                                 // repartir en vertical es justo lo que le sobra.
+                                //
+                                // Las compras de una empresa llevan además un renglón con su ritmo mensual, que se
+                                // intenta antes que nada y se cae solo si el recuadro no da para cuatro renglones.
                                 const medidasEtiqueta = (raw) => {
                                     const w = raw.w;
                                     const h = raw.h;
@@ -6590,10 +6621,22 @@
                                         ? (d.real / d.esperado) * 100
                                         : (total > 0 ? (d.monto / total) * 100 : 0);
 
+                                    // Renglón de más que sólo llevan las compras de una empresa: a qué ritmo rinde
+                                    // esa posición y cuánto lleva puesta. De más completo a más compacto, y los
+                                    // meses son lo último que se suelta: sin ellos el ritmo no se puede juzgar.
+                                    const conRitmo = d.mensual !== undefined && d.meses !== undefined;
+                                    const signoRitmo = conRitmo && d.mensual >= 0 ? '+' : '';
+                                    const formasRitmo = !conRitmo ? [] : [
+                                        `${signoRitmo}${d.mensual.toFixed(2)}%/m · ${d.meses.toFixed(1)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m · ${Math.round(d.meses)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m·${Math.round(d.meses)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m`
+                                    ];
+
                                     // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre
-                                    const enUnRenglon = (tope) => {
+                                    const enUnRenglon = (tope, formas = formasCifra) => {
                                         for (let tam = tope; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
-                                            const forma = formasCifra.find(f => cabe(f, tam));
+                                            const forma = formas.find(f => cabe(f, tam));
                                             if (forma) return { forma, tam };
                                         }
                                         return null;
@@ -6617,7 +6660,26 @@
                                         return { tam, tamCifra, tamNombre, nombre, textoPorc, fuente };
                                     };
 
-                                    // Intento 1: tres renglones, cifras juntas en el último
+                                    // Intento 1: cuatro renglones, con el ritmo de la compra al final. Va el
+                                    // primero porque es lo que más dice de un lote, pero cede en cuanto el
+                                    // recuadro no da para el renglón de más: antes que un ritmo ilegible, el
+                                    // recuadro de siempre.
+                                    if (conRitmo && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
+                                        const conMes = armar(4);
+                                        const cifras = enUnRenglon(conMes.tamCifra);
+                                        const ritmo = enUnRenglon(conMes.tamCifra, formasRitmo);
+                                        if (cifras && ritmo) {
+                                            return {
+                                                lineas: [conMes.nombre, conMes.textoPorc, cifras.forma, ritmo.forma],
+                                                fuentes: [conMes.fuente(conMes.tamNombre, 'bold'),
+                                                          conMes.fuente(conMes.tamCifra, 'bold'),
+                                                          conMes.fuente(cifras.tam, 'normal'),
+                                                          conMes.fuente(ritmo.tam, 'normal')]
+                                            };
+                                        }
+                                    }
+
+                                    // Intento 2: tres renglones, cifras juntas en el último
                                     const tres = armar(3);
                                     const juntas = enUnRenglon(tres.tamCifra);
                                     if (juntas) {
@@ -6629,9 +6691,9 @@
                                         };
                                     }
 
-                                    // Intento 2: cuatro renglones, cada cifra en el suyo. Sólo con objetivo: sin él
+                                    // Intento 3: cuatro renglones, cada cifra en el suyo. Sólo con objetivo: sin él
                                     // no hay nada que partir, y el alto tiene que dar para el renglón de más.
-                                    if (conObjetivo && h >= ALTO_MIN_CIFRAS_PARTIDAS_TREEMAP) {
+                                    if (conObjetivo && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
                                         const cuatro = armar(4);
                                         for (let tam = cuatro.tamCifra; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
                                             const llevas = [`${fMoneda(d.real)}`, redondo(d.real), montoCompactoTreemap(d.real)].find(f => cabe(f, tam));
