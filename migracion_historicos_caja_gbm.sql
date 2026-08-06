@@ -23,6 +23,12 @@
 --
 -- Es idempotente: solo toca registros con tipo_movimiento IS NULL, así que
 -- ejecutarlo dos veces no duplica nada. Tus registros nuevos no se tocan.
+--
+-- CÓMO IDENTIFICAR LO MIGRADO
+-- Todo registro creado o modificado por este script queda marcado con el
+-- sufijo "[migrado]" en su descripción, así que lo reconoces en el historial
+-- de la app y puedes buscarlo escribiendo  migrado  en el buscador.
+-- El PASO 3 lista todo lo marcado.
 -- =============================================================================
 
 
@@ -82,7 +88,7 @@ SELECT
     caja.id,
     r.monto,                                        -- mismos pesos que salieron
     r.fecha - interval '1 second',                  -- se procesa antes que la compra
-    'Aportación previa a ' || emp.nombre,
+    'Aportación previa a ' || emp.nombre || ' [migrado]',
     0,
     ABS(r.monto) / (r.cantidad_acciones * r.costo_accion),   -- TC efectivo real
     0,
@@ -108,7 +114,8 @@ WHERE r.tipo_movimiento IS NULL
 UPDATE registros r
 SET tipo_movimiento = 'compra',
     monto_usd       = r.cantidad_acciones * r.costo_accion,
-    monto           = 0
+    monto           = 0,
+    descripcion     = COALESCE(NULLIF(trim(r.descripcion), ''), 'Compra ' || emp.nombre) || ' [migrado]'
 FROM categorias emp
 WHERE emp.id = r.categoria_id
   AND r.tipo_movimiento IS NULL
@@ -156,6 +163,33 @@ ORDER BY emp.nombre;
 
 
 -- =============================================================================
+-- PASO 3 · LISTAR LO MIGRADO  (todo lleva el sufijo "[migrado]")
+-- =============================================================================
+-- 3.1 Resumen: cuántos registros tocó la migración
+SELECT
+    CASE WHEN r.tipo_movimiento = 'aportacion' THEN 'Aportaciones creadas'
+         ELSE 'Compras convertidas' END        AS tipo,
+    COUNT(*)                                   AS cantidad
+FROM registros r
+WHERE r.descripcion LIKE '%[migrado]'
+GROUP BY 1
+ORDER BY 1;
+
+-- 3.2 Detalle de cada registro migrado
+SELECT
+    r.fecha,
+    c.nombre                          AS categoria,
+    r.tipo_movimiento,
+    ROUND(r.monto::numeric, 2)        AS pesos,
+    ROUND(r.monto_usd::numeric, 2)    AS dolares,
+    r.descripcion
+FROM registros r
+JOIN categorias c ON c.id = r.categoria_id
+WHERE r.descripcion LIKE '%[migrado]'
+ORDER BY r.fecha DESC;
+
+
+-- =============================================================================
 -- ROLLBACK · Solo si algo salió mal. Restaura el estado exacto previo.
 -- =============================================================================
 -- BEGIN;
@@ -164,8 +198,14 @@ ORDER BY emp.nombre;
 --   UPDATE registros r
 --      SET tipo_movimiento = b.tipo_movimiento,
 --          monto           = b.monto,
---          monto_usd       = b.monto_usd
+--          monto_usd       = b.monto_usd,
+--          descripcion     = b.descripcion
 --     FROM registros_backup_pre_caja_gbm b
 --    WHERE b.id = r.id;
 -- COMMIT;
+--
+-- Para quitar solo las marcas "[migrado]" conservando la migración:
+--   UPDATE registros
+--      SET descripcion = NULLIF(trim(replace(descripcion, ' [migrado]', '')), '')
+--    WHERE descripcion LIKE '%[migrado]';
 -- =============================================================================
