@@ -5563,8 +5563,20 @@
                             // objetivo sin competir con la parte ya cubierta.
                             const ALPHA_PENDIENTE_TREEMAP = 0.22;
 
-                            // Raya de hasta dónde llegaba lo esperado, en los recuadros que se pasaron
-                            const COLOR_MARCA_OBJETIVO_TREEMAP = 'rgba(255, 255, 255, 0.85)';
+                            // La junta entre las dos partes de un recuadro, del color del fondo de la tarjeta: se
+                            // lee como el mismo hilo que separa un recuadro de otro. Antes era blanca y con dos
+                            // píxeles de cuerpo, que sobre un recuadro blanco —las inversiones— desaparecía.
+                            const COLOR_MARCA_OBJETIVO_TREEMAP = '#000000';
+
+                            // Hilo entre rectángulos. La raya de dentro del recuadro usa el mismo grosor: separa
+                            // dos partes de la misma caja, igual que el hilo separa dos cajas, y con más cuerpo
+                            // pasaría por un dato en vez de por una junta.
+                            const ESPACIO_TREEMAP = 0.5;
+
+                            // En el portafolio la franja que sobra no es "lo que falta por gastar" sino lo que la
+                            // posición ha ganado o perdido desde que se compró, y por eso se pinta y no se insinúa.
+                            const VERDE_GANANCIA_TREEMAP = '#3ecf8e';
+                            const ROJO_PERDIDA_TREEMAP = '#ff5c5c';
 
                             // Qué parte del recuadro está cubierta por gasto real. Fuera del modo avance el esperado
                             // es cero, el recuadro vale lo registrado y sale lleno: el mapa de siempre.
@@ -6124,29 +6136,79 @@
                                     // que sea por defecto y no anunciando un gasto que no ocurrió.
                                     if (!(h > 0)) return colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
 
-                                    // Relleno de abajo hacia arriba con un corte duro. El degradado va en
-                                    // coordenadas del lienzo, así que se arma con el rectángulo ya situado.
-                                    const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
-                                    const vacio = colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
-                                    grad.addColorStop(0, base);
-                                    if (f < 1) {
-                                        grad.addColorStop(f, base);
-                                        grad.addColorStop(f, vacio);
-                                    }
-                                    grad.addColorStop(1, f < 1 ? vacio : base);
+                                    // Dos partes con un corte duro entre ellas: abajo el color de la categoría
+                                    // —lo invertido, lo gastado— y arriba lo que sobra del recuadro.
+                                    //
+                                    // Qué es "lo que sobra" depende del mapa. En el normal es presupuesto sin
+                                    // gastar y va apenas insinuado, para no competir con lo ya cubierto. En el
+                                    // portafolio es la diferencia contra lo que pusiste, y ahí sí tiene color
+                                    // propio: verde si la posición subió, rojo si bajó.
+                                    const arriba = esPortafolio
+                                        ? (f < 1 ? ROJO_PERDIDA_TREEMAP : VERDE_GANANCIA_TREEMAP)
+                                        : (f < 1 ? colorTenue(base, ALPHA_PENDIENTE_TREEMAP) : base);
 
-                                    // Si el gasto se pasó de lo esperado, el recuadro creció con lo real y
-                                    // aquí queda dibujada la raya de hasta dónde llegaba el objetivo.
-                                    if (marca !== null) {
-                                        const grosor = Math.min(0.06, 2 / h);
-                                        const desde = Math.max(0, marca - grosor / 2);
-                                        const hasta = Math.min(1, marca + grosor / 2);
-                                        grad.addColorStop(desde, base);
-                                        grad.addColorStop(desde, COLOR_MARCA_OBJETIVO_TREEMAP);
-                                        grad.addColorStop(hasta, COLOR_MARCA_OBJETIVO_TREEMAP);
-                                        grad.addColorStop(hasta, base);
-                                    }
+                                    // Dónde está ese corte: si la posición subió —o el gasto se pasó—, el recuadro
+                                    // creció con lo real y el corte queda en la marca de lo esperado; si se quedó
+                                    // corto, en la cima de lo que sí ocurrió.
+                                    const corte = marca !== null ? marca : f;
+
+                                    // El degradado va en coordenadas del lienzo, así que se arma con el
+                                    // rectángulo ya situado. La junta entre las dos partes no se pinta aquí: va
+                                    // como trazo en un plugin, porque media raya de píxel dentro de un degradado
+                                    // no sobrevive al rasterizado.
+                                    const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
+                                    grad.addColorStop(0, base);
+                                    grad.addColorStop(corte, base);
+                                    grad.addColorStop(corte, arriba);
+                                    grad.addColorStop(1, arriba);
+
                                     return grad;
+                                };
+
+                                // Dónde va la junta de cada recuadro, o null si no lleva. Se usa desde el plugin
+                                // que la traza y sigue el mismo criterio que el relleno.
+                                const juntaDelRecuadro = (d) => {
+                                    if (!d || !d.cat) return null;
+                                    const f = fraccionLlenado(d);
+                                    const marca = fraccionObjetivo(d);
+                                    // Los recuadros llenos y sin marca no tienen dos partes que separar
+                                    if (f >= 1 && marca === null) return null;
+                                    // Fuera del portafolio sólo se marcaba lo que se pasó del objetivo; ahí el
+                                    // corte de un recuadro a medias ya lo dice el cambio de tono.
+                                    if (marca === null && !esPortafolio) return null;
+                                    return marca !== null ? marca : f;
+                                };
+
+                                // La junta se traza, no se degrada. Chrome resuelve los gradientes con una tabla de
+                                // pasos, y una banda de medio píxel cae entre dos y desaparece; la de dos píxeles
+                                // que había antes sobrevivía por gorda. Como trazo se controla al píxel y sale del
+                                // mismo grosor que el hilo que separa un recuadro de otro, que es de lo que se
+                                // trata: es una junta, no un dato.
+                                const pluginJuntaTreemap = {
+                                    id: 'juntaTreemap',
+                                    afterDatasetsDraw(chart) {
+                                        const meta = chart.getDatasetMeta(0);
+                                        if (!meta || !meta.data || !meta.data.length) return;
+
+                                        const lienzo = chart.ctx;
+                                        lienzo.save();
+                                        lienzo.strokeStyle = COLOR_MARCA_OBJETIVO_TREEMAP;
+                                        lienzo.lineWidth = ESPACIO_TREEMAP;
+
+                                        meta.data.forEach((el, i) => {
+                                            const junta = juntaDelRecuadro(buscarDato(chart.data.datasets[0].data[i]));
+                                            if (junta === null || !(el.height > 0)) return;
+
+                                            // La fracción se mide desde abajo, que es por donde se llena
+                                            const alturaJunta = el.y + el.height * (1 - junta);
+                                            lienzo.beginPath();
+                                            lienzo.moveTo(el.x, alturaJunta);
+                                            lienzo.lineTo(el.x + el.width, alturaJunta);
+                                            lienzo.stroke();
+                                        });
+
+                                        lienzo.restore();
+                                    }
                                 };
 
                                 miTreemapCategorias = new Chart(ctx, {
@@ -6157,7 +6219,7 @@
                                             key: 'monto',
                                             groups: ['nombre'],
                                             // Hilo apenas visible entre rectángulos: separa sin comerse área
-                                            spacing: 0.5,
+                                            spacing: ESPACIO_TREEMAP,
                                             borderWidth: 0,
                                             backgroundColor: fondoRecuadro,
                                             hoverBackgroundColor: fondoRecuadro,
@@ -6213,7 +6275,8 @@
                                             const d = buscarDato(nodo);
                                             if (d && d.id) verDetallesCategoria(d.id);
                                         }
-                                    }
+                                    },
+                                    plugins: [pluginJuntaTreemap]
                                 });
 
                                 if (totalEl) {
