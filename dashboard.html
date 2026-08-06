@@ -842,6 +842,21 @@
                                                 </div>
                                                 </div>
 
+                                                <div class="modal-overlay" id="modalDetallesCuenta" style="background: #000000; overflow-y: auto; -webkit-overflow-scrolling: touch; align-items: flex-start;">
+                                                    <div class="modal-content" style="width: 100%; max-width: 100%; min-height: 100%; height: auto; border-radius: 0; transform: none; box-shadow: none; background: #000000; padding: calc(20px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom)) 20px; box-sizing: border-box; margin: 0;">
+                                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+                                                            <h2 class="titulo-seccion" style="margin: 0;">Detalles de Cuenta</h2>
+                                                            <button onclick="cerrarModalDetallesCuenta()" style="width: auto; margin: 0; padding: 5px 0 5px 15px; background: none; border: none; color: #ffffff; font-size: 1.6em; cursor: pointer; line-height: 1;">✕</button>
+                                                        </div>
+                                                        <div id="contenidoDetallesCuenta" style="text-align: left; font-size: 0.95em; line-height: 1.5; color: #ccc; margin-bottom: 20px;">
+                                                        </div>
+                                                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                                                            <button id="btnEditarCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #3ecf8e; color: #000000; font-weight: bold; font-size: 1em;">Editar</button>
+                                                            <button id="btnVerMovsCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">Ver movimientos</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
                                                 <div class="modal-overlay" id="modalDetallesCategoria" style="background: #000000; overflow-y: auto; -webkit-overflow-scrolling: touch; align-items: flex-start;">
                                                     <div class="modal-content" style="width: 100%; max-width: 100%; min-height: 100%; height: auto; border-radius: 0; transform: none; box-shadow: none; background: #000000; padding: calc(20px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom)) 20px; box-sizing: border-box; margin: 0;">
                                                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
@@ -6277,20 +6292,150 @@
                                                     }
                                                     }
                             
+                                                    // --- PANEL DE DETALLES DE CUENTA ---
+                                                    // Bloque de tarjeta con título, para agrupar cada sección del panel
+                                                    function bloqueDetalleCuenta(titulo, filasHtml, colorBorde) {
+                                                        return `
+                                                        <div style="background: #1c1c1c; padding: 15px; border-radius: 8px; margin-bottom: 12px; border: 1px solid ${colorBorde || '#333'};">
+                                                            <h4 style="font-size: 0.75em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px;">${titulo}</h4>
+                                                            ${filasHtml}
+                                                        </div>`;
+                                                    }
+
+                                                    // Fila etiqueta / valor de una sola línea
+                                                    function filaDetalleCuenta(etiqueta, valor, color, ayuda) {
+                                                        return `
+                                                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 10px;">
+                                                            <span style="color: #aaa; font-size: 0.9em;">${etiqueta}${ayuda ? `<br><span style="color:#666; font-size:0.8em;">${ayuda}</span>` : ''}</span>
+                                                            <strong style="color: ${color || '#fff'}; white-space: nowrap; text-align: right;">${valor}</strong>
+                                                        </div>`;
+                                                    }
+
                                                     function verDetallesCuenta(id) {
                                                     const c = datosCuentas.find(x => String(x.id) === String(id));
-                                                    if (c) {
-                                                    alert(`📊 DETALLES DE CUENTA\n\nNombre: ${c.nombre}\nSaldo Base: $${fNum(c.saldo_inicial || 0)}\nBalance Actual: $${fNum(c.balanceReal)}`);
+                                                    if (!c) return;
+
+                                                    const r = calcularResumenInversionCuenta(id);
+                                                    const signo = n => n >= 0 ? '+' : '';
+                                                    const colorGan = n => n >= 0 ? '#2ac555' : '#ff5c5c';
+                                                    let html = '';
+
+                                                    // --- Resumen en pesos ---
+                                                    const netoTotal = c.balanceReal + r.valorInversiones;
+                                                    let filasResumen =
+                                                        filaDetalleCuenta('Saldo base', `$${fNum(c.saldo_inicial || 0)}`) +
+                                                        filaDetalleCuenta('Balance en pesos', `$${fNum(c.balanceReal)}`, c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c');
+                                                    if (r.tieneInversion) {
+                                                        filasResumen += filaDetalleCuenta('Valor de inversiones', `$${fNum(r.valorInversiones)}`, '#fff', 'Acciones a precio de hoy + caja');
+                                                        filasResumen += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
+                                                        filasResumen += filaDetalleCuenta('Neto total', `$${fNum(netoTotal)}`, netoTotal >= 0 ? '#2ac555' : '#ff5c5c');
                                                     }
+                                                    html += bloqueDetalleCuenta('Resumen', filasResumen);
+
+                                                    if (r.tieneInversion) {
+                                                        // --- Caja GBM ---
+                                                        const hayCaja = r.cajaUsd > 0.005;
+                                                        let filasCaja = filaDetalleCuenta('Dólares disponibles',
+                                                            `<span style="color:#4da6ff; font-size:1.15em;">$${fNum(r.cajaUsd)} USD</span>`);
+                                                        if (hayCaja) {
+                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `$${fNum(r.cajaUsd * globalUsdToMxn)} MXN`, '#fff', `TC $${fNum(globalUsdToMxn)}`);
+                                                            filasCaja += filaDetalleCuenta('Te costaron', `$${fNum(r.cajaMxnBase)} MXN`, '#fff', `TC promedio $${fNum(r.cajaTcPromedio)}`);
+                                                            const gananciaCaja = (r.cajaUsd * globalUsdToMxn) - r.cajaMxnBase;
+                                                            filasCaja += filaDetalleCuenta('Ganancia si retiras hoy',
+                                                                `${signo(gananciaCaja)}$${fNum(gananciaCaja)} MXN`, colorGan(gananciaCaja));
+                                                        } else {
+                                                            filasCaja += `<div style="color:#666; font-size:0.85em; margin-top:6px;">Sin dólares esperando: todo tu dinero está invertido en acciones.</div>`;
+                                                        }
+                                                        html += bloqueDetalleCuenta('💵 Caja GBM (Trading USA)', filasCaja, hayCaja ? '#4da6ff' : '#333');
+
+                                                        // --- Portafolio de acciones ---
+                                                        const plusvaliaAcciones = r.valorAccionesMxn - r.costoAccionesMxn;
+                                                        const pctAcciones = r.costoAccionesMxn > 0 ? (plusvaliaAcciones / r.costoAccionesMxn) * 100 : 0;
+                                                        let filasPort =
+                                                            filaDetalleCuenta('Empresas con posición', `${r.empresas.filter(e => e.acciones > 0.00001).length}`) +
+                                                            filaDetalleCuenta('Valor de mercado', `$${fNum(r.valorAccionesMxn)} MXN`, '#fff', `$${fNum(r.valorAccionesUsd)} USD`) +
+                                                            filaDetalleCuenta('Costo invertido', `$${fNum(r.costoAccionesMxn)} MXN`, '#fff', `$${fNum(r.costoAccionesUsd)} USD`) +
+                                                            filaDetalleCuenta('Plusvalía en papel',
+                                                                `${signo(plusvaliaAcciones)}$${fNum(plusvaliaAcciones)} (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
+                                                                colorGan(plusvaliaAcciones), 'Aún no vendida');
+                                                        if (r.empresasSinPrecio > 0) {
+                                                            filasPort += `<div style="color:#f39c12; font-size:0.8em; margin-top:6px;">⚠️ ${r.empresasSinPrecio} empresa(s) sin precio de mercado disponible; no entran en estos totales.</div>`;
+                                                        }
+                                                        html += bloqueDetalleCuenta('📈 Portafolio de acciones', filasPort);
+
+                                                        // --- Rendimiento global ---
+                                                        let filasRend =
+                                                            filaDetalleCuenta('Rendimiento total',
+                                                                `${signo(r.rendimientoInversionMxn)}$${fNum(r.rendimientoInversionMxn)} (${signo(r.pctRendimiento)}${r.pctRendimiento.toFixed(2)}%)`,
+                                                                colorGan(r.rendimientoInversionMxn), 'Acciones + caja + lo ya vendido') +
+                                                            filaDetalleCuenta('Rendimiento mensual',
+                                                                `${signo(r.pctMensual)}${r.pctMensual.toFixed(2)}% / mes`,
+                                                                colorGan(r.pctMensual), `Antigüedad promedio ${r.avgMeses.toFixed(1)} meses`);
+                                                        if (Math.abs(r.totalRealizadaCuenta) > 0.005) {
+                                                            filasRend += filaDetalleCuenta('✓ Ganancia ya materializada',
+                                                                `${signo(r.totalRealizadaCuenta)}$${fNum(r.totalRealizadaCuenta)}`,
+                                                                colorGan(r.totalRealizadaCuenta), 'Retiros y ventas cobradas en pesos');
+                                                        }
+                                                        html += bloqueDetalleCuenta('🎯 Rendimiento', filasRend);
+
+                                                        // --- Plusvalía accesible ---
+                                                        const totalHoy = r.valorAccionesMxn + (r.cajaUsd * globalUsdToMxn);
+                                                        let pctBarra = totalHoy > 0 ? (r.plusvaliaAccesibleTotal / totalHoy) * 100 : 0;
+                                                        pctBarra = Math.max(0, Math.min(100, pctBarra));
+                                                        const filasAcc =
+                                                            filaDetalleCuenta('Monto accesible',
+                                                                `${signo(r.plusvaliaAccesibleTotal)}$${fNum(r.plusvaliaAccesibleTotal)} MXN`,
+                                                                colorGan(r.plusvaliaAccesibleTotal), 'Ganancia que podrías tomar sin vender en pérdida') +
+                                                            filaDetalleCuenta('Rendimiento accesible',
+                                                                `${signo(r.pctMensualAccesible)}${r.pctMensualAccesible.toFixed(2)}% / ${r.avgMesesAccesible.toFixed(1)}m`,
+                                                                colorGan(r.pctMensualAccesible)) +
+                                                            `<div style="width: 100%; background: #333; border-radius: 6px; height: 20px; overflow: hidden; position: relative; margin-top: 10px;">
+                                                                <div style="width: ${pctBarra}%; background: #3ecf8e; height: 100%; transition: width 0.3s;"></div>
+                                                                <span style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px #000;">
+                                                                    ${pctBarra.toFixed(2)}% de tu saldo es ganancia
+                                                                </span>
+                                                            </div>`;
+                                                        html += bloqueDetalleCuenta('💚 Plusvalía accesible', filasAcc, '#3ecf8e');
+
+                                                        // --- Desglose por empresa ---
+                                                        if (r.empresas.length > 0) {
+                                                            let filasEmpresas = '';
+                                                            r.empresas.forEach(e => {
+                                                                const pct = e.costoMxn > 0 ? (e.plusvaliaMxn / e.costoMxn) * 100 : 0;
+                                                                const peso = r.valorAccionesMxn > 0 ? (e.valorMxn / r.valorAccionesMxn) * 100 : 0;
+                                                                filasEmpresas += `
+                                                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #262626; gap: 10px;">
+                                                                    <div style="text-align: left; line-height: 1.35; min-width: 0;">
+                                                                        <span style="color: #fff; font-size: 0.95em;">${e.nombre}</span>
+                                                                        <span style="font-size:0.7em; background:#333; color:#bbb; padding:1px 5px; border-radius:3px; margin-left:4px;">${e.ticker}</span><br>
+                                                                        <span style="color: #888; font-size: 0.78em;">${e.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs · $${fNum(e.precioUsd)} USD · ${peso.toFixed(1)}% del portafolio</span>
+                                                                        ${Math.abs(e.realizadaMxn) > 0.005 ? `<br><span style="color:#4da6ff; font-size:0.78em;">✓ Realizado: ${signo(e.realizadaMxn)}$${fNum(e.realizadaMxn)}</span>` : ''}
+                                                                    </div>
+                                                                    <div style="text-align: right; line-height: 1.35; white-space: nowrap;">
+                                                                        <strong style="color: #fff;">$${fNum(e.valorMxn)}</strong><br>
+                                                                        <span style="color: ${colorGan(e.plusvaliaMxn)}; font-size: 0.8em;">${signo(e.plusvaliaMxn)}$${fNum(e.plusvaliaMxn)} (${signo(pct)}${pct.toFixed(1)}%)</span>
+                                                                    </div>
+                                                                </div>`;
+                                                            });
+                                                            html += bloqueDetalleCuenta(`🏢 Empresas (${r.empresas.length})`, filasEmpresas);
+                                                        }
                                                     }
-                                                    
-                                                    function verDetallesCuenta(id) {
-                                                    const c = datosCuentas.find(x => String(x.id) === String(id));
-                                                    if (c) {
-                                                    if (confirm(`📊 DETALLES DE CUENTA\n\nNombre: ${c.nombre}\nSaldo Base: $${fNum(c.saldo_inicial || 0)}\nBalance Actual: $${fNum(c.balanceReal)}\n\n¿Deseas editar esta cuenta?`)) {
-                                                    prepEditCuenta(id);
+
+                                                    document.getElementById('contenidoDetallesCuenta').innerHTML = html;
+
+                                                    const btnEditarCta = document.getElementById('btnEditarCuentaModal');
+                                                    if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
+
+                                                    const btnMovsCta = document.getElementById('btnVerMovsCuentaModal');
+                                                    if (btnMovsCta) btnMovsCta.onclick = () => { cerrarModalDetallesCuenta(); filtrarDashboardPorCuenta(id); };
+
+                                                    document.getElementById('modalDetallesCuenta').classList.add('activa');
+                                                    document.body.classList.add('modal-abierto');
                                                     }
-                                                    }
+
+                                                    function cerrarModalDetallesCuenta() {
+                                                    document.getElementById('modalDetallesCuenta').classList.remove('activa');
+                                                    document.body.classList.remove('modal-abierto');
                                                     }
                             
                             function verDetallesCategoria(id) {
@@ -7624,9 +7769,12 @@
                                 }
                             }
 
+                                                                                                                                                    // Estos modales tienen contenido más alto que la pantalla y necesitan
+                                                                                                                                                    // conservar el scroll táctil; en el resto se bloquea para que el fondo no se mueva.
+                                                                                                                                                    const MODALES_CON_SCROLL = ['modalDetallesMovimiento', 'modalDetallesCuenta'];
                                                                                                                                                     document.querySelectorAll('.modal-overlay').forEach(modal => {
                                                                                                                                                                                     modal.addEventListener('touchmove', function(e) {
-                                                                                                                                                                                        if (modal.id !== 'modalDetallesMovimiento') {
+                                                                                                                                                                                        if (!MODALES_CON_SCROLL.includes(modal.id)) {
                                                                                                                                                                                             e.preventDefault();
                                                                                                                                                                                         }
                                                                                                                                                                                     }, { passive: false });
@@ -7634,9 +7782,9 @@
                             
                             
                             
-                            function actualizarUIValorActualCuenta(cuentaId) {
-                            const cuenta = datosCuentas.find(c => String(c.id) === String(cuentaId));
-                            if (!cuenta) return;
+                            // Reúne en un solo lugar todas las métricas de inversión de una cuenta:
+                            // las usan tanto la pastilla del listado como el panel de detalles.
+                            function calcularResumenInversionCuenta(cuentaId) {
                             let tieneInversion = false;
                             let valorInversiones = 0;
                             let totalCostoBase = 0;
@@ -7644,8 +7792,12 @@
                             let totalPlusvaliaAccesibleCuenta = 0;
                             let costoInvertidoAccesibleCuenta = 0;
                             let mesesPonderadosAccesibleCuenta = 0;
-                            let totalRealizadaCuenta = 0;
-                            let totalCostoVendidoCuenta = 0;
+                            let valorAccionesMxn = 0;
+                            let valorAccionesUsd = 0;
+                            let costoAccionesMxn = 0;
+                            let costoAccionesUsd = 0;
+                            const empresas = [];
+                            let empresasSinPrecio = 0;
                             const fechaHoyCuenta = new Date();
 
                             datosCategorias.forEach(cat => {
@@ -7654,9 +7806,31 @@
 
                             if (cachePreciosMercado[cat.ticker]) {
                             const precioUsd = cachePreciosMercado[cat.ticker];
-                            valorInversiones += cat.totalAcciones * precioUsd * globalUsdToMxn;
+                            const valorCatMxn = cat.totalAcciones * precioUsd * globalUsdToMxn;
+                            valorInversiones += valorCatMxn;
                             totalCostoBase += cat.costoBaseInvertido || 0;
                             totalMesesPonderados += (cat.mesesPromedioExacto || 0) * (cat.costoBaseInvertido || 0);
+
+                            valorAccionesMxn += valorCatMxn;
+                            valorAccionesUsd += cat.totalAcciones * precioUsd;
+                            costoAccionesMxn += cat.costoBaseInvertido || 0;
+                            costoAccionesUsd += cat.costoBaseInvertidoUsd || 0;
+
+                            const realizadaCat = realizadaMxnDeCategoria(cat);
+                            if ((cat.totalAcciones || 0) > 0.00001 || Math.abs(realizadaCat) > 0.005) {
+                            empresas.push({
+                            nombre: cat.nombre,
+                            ticker: cat.ticker,
+                            acciones: cat.totalAcciones || 0,
+                            precioUsd: precioUsd,
+                            valorMxn: valorCatMxn,
+                            valorUsd: cat.totalAcciones * precioUsd,
+                            costoMxn: cat.costoBaseInvertido || 0,
+                            plusvaliaMxn: valorCatMxn - (cat.costoBaseInvertido || 0),
+                            realizadaMxn: realizadaCat,
+                            meses: Math.max(1, cat.mesesPromedioExacto || 1)
+                            });
+                            }
 
                             const lotesCompra = datosUsoCompleto
                             .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
@@ -7686,6 +7860,8 @@
                             }
                             }
                             }
+                            } else if ((cat.totalAcciones || 0) > 0.00001) {
+                            empresasSinPrecio++;
                             }
                             }
                             });
@@ -7704,30 +7880,62 @@
                             // Ganancia que ya salió de la caja (retiros y ventas directas): la caja ya no la
                             // refleja, así que se suma aparte para no perderla del rendimiento de la cuenta
                             const realizadaCuenta = window.realizadaFueraCajaPorCuenta ? window.realizadaFueraCajaPorCuenta[cuentaId] : null;
-                            totalRealizadaCuenta = realizadaCuenta ? realizadaCuenta.ganancia : 0;
-                            totalCostoVendidoCuenta = realizadaCuenta ? realizadaCuenta.costo : 0;
+                            const totalRealizadaCuenta = realizadaCuenta ? realizadaCuenta.ganancia : 0;
+                            const totalCostoVendidoCuenta = realizadaCuenta ? realizadaCuenta.costo : 0;
                             if (Math.abs(totalRealizadaCuenta) > 0.005) tieneInversion = true;
 
-                            if (tieneInversion) {
-                            const elInversionCuenta = document.getElementById(`valor-actual-cuenta-${cuentaId}`);
-                            if (elInversionCuenta) {
-                            const totalCombinado = cuenta.balanceReal + valorInversiones;
                             const rendimientoInversionMxn = (valorInversiones - totalCostoBase) + totalRealizadaCuenta;
                             const baseRendimientoCuenta = totalCostoBase + totalCostoVendidoCuenta;
                             let avgMeses = totalCostoBase > 0 ? (totalMesesPonderados / totalCostoBase) : 1;
                             if (avgMeses < 1) avgMeses = 1;
                             const pctRendimiento = baseRendimientoCuenta > 0 ? (rendimientoInversionMxn / baseRendimientoCuenta) * 100 : 0;
                             const pctMensual = pctRendimiento / avgMeses;
-                            const signoMxn = pctMensual >= 0 ? '+' : '';
 
                             // Lo ya realizado es dinero en mano: entra completo a la plusvalía accesible
-                            totalPlusvaliaAccesibleCuenta += totalRealizadaCuenta;
-                            costoInvertidoAccesibleCuenta += totalCostoVendidoCuenta;
+                            const plusvaliaAccesibleTotal = totalPlusvaliaAccesibleCuenta + totalRealizadaCuenta;
+                            const costoAccesibleTotal = costoInvertidoAccesibleCuenta + totalCostoVendidoCuenta;
 
-                            let avgMesesAccesible = costoInvertidoAccesibleCuenta > 0 ? (mesesPonderadosAccesibleCuenta / costoInvertidoAccesibleCuenta) : 1;
+                            let avgMesesAccesible = costoAccesibleTotal > 0 ? (mesesPonderadosAccesibleCuenta / costoAccesibleTotal) : 1;
                             if (avgMesesAccesible < 1) avgMesesAccesible = 1;
-                            const pctTotalAccesible = costoInvertidoAccesibleCuenta > 0 ? (totalPlusvaliaAccesibleCuenta / costoInvertidoAccesibleCuenta) * 100 : 0;
+                            const pctTotalAccesible = costoAccesibleTotal > 0 ? (plusvaliaAccesibleTotal / costoAccesibleTotal) * 100 : 0;
                             const pctMensualAccesible = pctTotalAccesible / avgMesesAccesible;
+
+                            empresas.sort((a, b) => b.valorMxn - a.valorMxn);
+
+                            return {
+                            tieneInversion, valorInversiones, totalCostoBase, rendimientoInversionMxn,
+                            pctRendimiento, avgMeses, pctMensual,
+                            plusvaliaAccesibleTotal, pctTotalAccesible, pctMensualAccesible, avgMesesAccesible,
+                            totalRealizadaCuenta, totalCostoVendidoCuenta,
+                            cajaUsd: cajaUsdCuenta,
+                            cajaMxnBase: cajaCuenta ? cajaCuenta.mxnBase : 0,
+                            cajaTcPromedio: cajaCuenta ? cajaCuenta.tcPromedio : 0,
+                            valorAccionesMxn, valorAccionesUsd, costoAccionesMxn, costoAccionesUsd,
+                            empresas, empresasSinPrecio
+                            };
+                            }
+
+                            function actualizarUIValorActualCuenta(cuentaId) {
+                            const cuenta = datosCuentas.find(c => String(c.id) === String(cuentaId));
+                            if (!cuenta) return;
+
+                            const resumen = calcularResumenInversionCuenta(cuentaId);
+                            const valorInversiones = resumen.valorInversiones;
+                            const totalRealizadaCuenta = resumen.totalRealizadaCuenta;
+                            const cajaUsdCuenta = resumen.cajaUsd;
+
+                            if (resumen.tieneInversion) {
+                            const elInversionCuenta = document.getElementById(`valor-actual-cuenta-${cuentaId}`);
+                            if (elInversionCuenta) {
+                            const totalCombinado = cuenta.balanceReal + valorInversiones;
+                            const rendimientoInversionMxn = resumen.rendimientoInversionMxn;
+                            const avgMeses = resumen.avgMeses;
+                            const pctMensual = resumen.pctMensual;
+                            const signoMxn = pctMensual >= 0 ? '+' : '';
+
+                            const totalPlusvaliaAccesibleCuenta = resumen.plusvaliaAccesibleTotal;
+                            const avgMesesAccesible = resumen.avgMesesAccesible;
+                            const pctMensualAccesible = resumen.pctMensualAccesible;
                             const signoAccMonto = totalPlusvaliaAccesibleCuenta >= 0 ? '+' : '';
 
                             window.estadoBotonCuenta = window.estadoBotonCuenta || 0;
