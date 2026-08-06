@@ -6302,12 +6302,13 @@
                                                         </div>`;
                                                     }
 
-                                                    // Fila etiqueta / valor de una sola línea
-                                                    function filaDetalleCuenta(etiqueta, valor, color, ayuda) {
+                                                    // Fila etiqueta / valor de una sola línea. Con sub=true queda indentada
+                                                    // y atenuada, para los componentes que suman hacia un total.
+                                                    function filaDetalleCuenta(etiqueta, valor, color, ayuda, sub) {
                                                         return `
-                                                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 10px;">
-                                                            <span style="color: #aaa; font-size: 0.9em;">${etiqueta}${ayuda ? `<br><span style="color:#666; font-size:0.8em;">${ayuda}</span>` : ''}</span>
-                                                            <strong style="color: ${color || '#fff'}; white-space: nowrap; text-align: right;">${valor}</strong>
+                                                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 10px;${sub ? ' padding-left: 14px;' : ''}">
+                                                            <span style="color: ${sub ? '#888' : '#aaa'}; font-size: ${sub ? '0.85em' : '0.9em'};">${etiqueta}${ayuda ? `<br><span style="color:#666; font-size:0.8em;">${ayuda}</span>` : ''}</span>
+                                                            <strong style="color: ${color || (sub ? '#bbb' : '#fff')}; white-space: nowrap; text-align: right; font-size: ${sub ? '0.9em' : '1em'};">${valor}</strong>
                                                         </div>`;
                                                     }
 
@@ -6320,15 +6321,36 @@
                                                     const colorGan = n => n >= 0 ? '#2ac555' : '#ff5c5c';
                                                     let html = '';
 
-                                                    // --- Resumen en pesos ---
+                                                    // --- Resumen en pesos, desglosando de dónde sale el neto ---
                                                     const netoTotal = c.balanceReal + r.valorInversiones;
+                                                    const cajaEnPesos = r.cajaUsd * globalUsdToMxn;
+                                                    const empresasConPosicion = r.empresas.filter(e => e.acciones > 0.00001).length;
+
                                                     let filasResumen =
                                                         filaDetalleCuenta('Saldo base', `$${fNum(c.saldo_inicial || 0)}`) +
-                                                        filaDetalleCuenta('Balance en pesos', `$${fNum(c.balanceReal)}`, c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c');
+                                                        filaDetalleCuenta('Balance en pesos', `$${fNum(c.balanceReal)}`,
+                                                            c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c',
+                                                            c.balanceReal < 0 && r.tieneInversion ? 'Capital que has aportado' : '');
+
                                                     if (r.tieneInversion) {
-                                                        filasResumen += filaDetalleCuenta('Valor de inversiones', `$${fNum(r.valorInversiones)}`, '#fff', 'Acciones a precio de hoy + caja');
+                                                        // El valor de inversiones se muestra sumando sus dos partes, para que
+                                                        // se vea de dónde sale el neto en lugar de aparecer como un solo número.
+                                                        filasResumen +=
+                                                            filaDetalleCuenta(`Acciones${empresasConPosicion ? ` (${empresasConPosicion})` : ''}`,
+                                                                `$${fNum(r.valorAccionesMxn)}`, null, 'A precio de mercado de hoy', true) +
+                                                            filaDetalleCuenta('Caja GBM',
+                                                                `$${fNum(cajaEnPesos)}`, null,
+                                                                r.cajaUsd > 0.005 ? `$${fNum(r.cajaUsd)} USD sin invertir` : 'Sin dólares esperando', true) +
+                                                            filaDetalleCuenta('Valor de inversiones', `$${fNum(r.valorInversiones)}`);
+
+                                                        if (r.empresasSinPrecio > 0) {
+                                                            filasResumen += `<div style="color:#f39c12; font-size:0.78em; margin: 4px 0 6px 14px; line-height:1.35;">⚠️ ${r.empresasSinPrecio} empresa(s) sin precio de mercado no entran aquí, pero su costo sí está restado arriba: el neto queda subestimado.</div>`;
+                                                        }
+
                                                         filasResumen += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
-                                                        filasResumen += filaDetalleCuenta('Neto total', `$${fNum(netoTotal)}`, netoTotal >= 0 ? '#2ac555' : '#ff5c5c');
+                                                        filasResumen += filaDetalleCuenta('Neto total', `$${fNum(netoTotal)}`,
+                                                            netoTotal >= 0 ? '#2ac555' : '#ff5c5c',
+                                                            c.balanceReal < 0 ? (netoTotal >= 0 ? 'Ganancia sobre lo aportado' : 'Aún por debajo de lo aportado') : '');
                                                     }
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
@@ -6351,16 +6373,14 @@
                                                         // --- Portafolio de acciones ---
                                                         const plusvaliaAcciones = r.valorAccionesMxn - r.costoAccionesMxn;
                                                         const pctAcciones = r.costoAccionesMxn > 0 ? (plusvaliaAcciones / r.costoAccionesMxn) * 100 : 0;
-                                                        let filasPort =
-                                                            filaDetalleCuenta('Empresas con posición', `${r.empresas.filter(e => e.acciones > 0.00001).length}`) +
+                                                        // El aviso de empresas sin precio ya se da en el resumen, donde afecta al neto
+                                                        const filasPort =
+                                                            filaDetalleCuenta('Empresas con posición', `${empresasConPosicion}`) +
                                                             filaDetalleCuenta('Valor de mercado', `$${fNum(r.valorAccionesMxn)} MXN`, '#fff', `$${fNum(r.valorAccionesUsd)} USD`) +
                                                             filaDetalleCuenta('Costo invertido', `$${fNum(r.costoAccionesMxn)} MXN`, '#fff', `$${fNum(r.costoAccionesUsd)} USD`) +
                                                             filaDetalleCuenta('Plusvalía en papel',
                                                                 `${signo(plusvaliaAcciones)}$${fNum(plusvaliaAcciones)} (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
                                                                 colorGan(plusvaliaAcciones), 'Aún no vendida');
-                                                        if (r.empresasSinPrecio > 0) {
-                                                            filasPort += `<div style="color:#f39c12; font-size:0.8em; margin-top:6px;">⚠️ ${r.empresasSinPrecio} empresa(s) sin precio de mercado disponible; no entran en estos totales.</div>`;
-                                                        }
                                                         html += bloqueDetalleCuenta('📈 Portafolio de acciones', filasPort);
 
                                                         // --- Rendimiento global ---
