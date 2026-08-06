@@ -553,11 +553,20 @@
              mapa puesto: en uno de gastos no hay moneda que elegir. Antes se colaban dentro de la
              pastilla de Salidas/Entradas, que se quedaba sin sus botones y obligaba a recordar que
              ahí ponía otra cosa. -->
-        <div id="controlesPortafolioTreemap" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 10px;">
-            <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Moneda</span>
-            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
-                <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">USD</button>
-                <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">MXN</button>
+        <div id="controlesPortafolioTreemap" style="display: none; flex-direction: column; gap: 6px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Moneda</span>
+                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                    <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">USD</button>
+                    <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">MXN</button>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Mostrar</span>
+                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                    <button id="btnTreemapTodo" onclick="cambiarVistaTreemapInversiones('todo')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Todo</button>
+                    <button id="btnTreemapAccesible" onclick="cambiarVistaTreemapInversiones('accesible')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Accesible</button>
+                </div>
             </div>
         </div>
 
@@ -5869,6 +5878,11 @@
                             // Abre en pesos, que es la moneda del resto de la app y en la que se gasta.
                             let monedaTreemapInversiones = localStorage.getItem('monedaTreemapInversiones') === 'usd' ? 'usd' : 'mxn';
 
+                            // Qué enseña el portafolio: todo lo que tienes puesto, o sólo lo que podrías vender
+                            // hoy sin realizar una pérdida. Lo segundo responde a otra pregunta —cuánto puedo
+                            // sacar— y por eso se mide con otra vara; queda explicado donde se calcula.
+                            let vistaTreemapInversiones = localStorage.getItem('vistaTreemapInversiones') === 'accesible' ? 'accesible' : 'todo';
+
                             // Dónde está parado el portafolio: cuentas arriba, empresas de una cuenta en medio y
                             // compras de una empresa abajo. Cada capa reparte lo que la de encima tenía en un
                             // solo recuadro. Nada de esto se recuerda entre sesiones a propósito: son sitios a
@@ -6228,6 +6242,110 @@
                                     .filter(d => d.monto > 0);
                             }
 
+                            // ---- Lo accesible: lo que se puede vender hoy sin realizar una pérdida ----
+                            // Las compras se recorren de la más vieja a la más nueva y se van sumando mientras
+                            // cada una vaya en ganancia. La primera que vaya en pérdida corta la cuenta: vender
+                            // más allá de ella obligaría a realizarla, porque el broker va sacando las acciones
+                            // por orden de compra. Es el mismo recorrido con el que la ficha de la categoría
+                            // calcula su "Total accesible", y de ahí sale el mismo número.
+                            //
+                            // Y se mide en pesos, también como la ficha. En el mapa normal el rendimiento va en
+                            // dólares a propósito, para que el tipo de cambio no se cuele en lo que hizo la
+                            // empresa; aquí la pregunta es otra —cuánto puedo sacar sin perder— y sacar es sacar
+                            // pesos, así que el tipo de cambio al que compraste sí cuenta.
+                            function lotesAccesiblesTreemap(cat) {
+                                const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
+                                if (!precio) return [];
+
+                                const lotes = (datosUsoCompleto || [])
+                                    .filter(u => String(u.categoria_id) === String(cat.id) && esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0)
+                                    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+                                const accesibles = [];
+                                for (const u of lotes) {
+                                    const compradas = parseFloat(u.cantidad_acciones) || 0;
+                                    const vivas = (window.accionesRestantesMap && window.accionesRestantesMap[u.id] !== undefined)
+                                        ? window.accionesRestantesMap[u.id]
+                                        : compradas;
+                                    // Una compra ya vendida del todo no estorba: no hay nada suyo que sacar
+                                    if (!(vivas > 0.00001)) continue;
+
+                                    const costoLote = (window.costoMxnLoteMap && window.costoMxnLoteMap[u.id] !== undefined)
+                                        ? window.costoMxnLoteMap[u.id]
+                                        : Math.abs(parseFloat(u.monto) || 0);
+                                    const costo = compradas > 0 ? costoLote * (vivas / compradas) : costoLote;
+                                    const valor = vivas * precio * (globalUsdToMxn || 1);
+
+                                    if (valor < costo) break;
+                                    accesibles.push({ registro: u, costo: costo, valor: valor });
+                                }
+
+                                return accesibles;
+                            }
+
+                            // Lo accesible se calcula en pesos, así que para leerlo en dólares hay que deshacer
+                            // la conversión, no aplicarla: es al revés que en el mapa normal.
+                            function factorAccesibleTreemap() {
+                                return monedaTreemapInversiones === 'mxn' ? 1 : (1 / (globalUsdToMxn || 1));
+                            }
+
+                            // La capa de empresas cuando se mira lo accesible: cada recuadro vale lo que sacarías
+                            // de esa empresa y se llena hasta lo que pusiste, de modo que la franja de arriba es
+                            // justo la ganancia que te llevarías. Ninguno sale en rojo, y no es un adorno: lo que
+                            // saldría en rojo es precisamente lo que no está accesible.
+                            function datosAccesiblesTreemap() {
+                                const factor = factorAccesibleTreemap();
+
+                                return datosCategorias
+                                    .filter(cat => cat.tipo === 'inversion')
+                                    .map(cat => {
+                                        const lotes = lotesAccesiblesTreemap(cat);
+                                        if (lotes.length === 0) return null;
+
+                                        const costo = lotes.reduce((acc, l) => acc + l.costo, 0) * factor;
+                                        const valor = lotes.reduce((acc, l) => acc + l.valor, 0) * factor;
+
+                                        return {
+                                            id: String(cat.id),
+                                            cat: cat,
+                                            nombre: cat.ticker || cat.nombre,
+                                            monto: Math.max(costo, valor),
+                                            real: valor,
+                                            esperado: costo
+                                        };
+                                    })
+                                    .filter(d => d && d.monto > 0);
+                            }
+
+                            // Y la capa de compras: las mismas que la de arriba acaba de sumar, una por recuadro
+                            function datosAccesiblesEmpresaTreemap(cat) {
+                                const factor = factorAccesibleTreemap();
+                                const vistos = {};
+
+                                return lotesAccesiblesTreemap(cat).map(({ registro, costo, valor }) => {
+                                    let nombre = etiquetaLoteTreemap(registro.fecha);
+                                    vistos[nombre] = (vistos[nombre] || 0) + 1;
+                                    if (vistos[nombre] > 1) nombre = `${nombre} ·${vistos[nombre]}`;
+
+                                    const lote = {
+                                        id: String(registro.id),
+                                        cat: cat,
+                                        nombre: nombre,
+                                        monto: Math.max(costo, valor) * factor,
+                                        real: valor * factor,
+                                        esperado: costo * factor
+                                    };
+
+                                    const meses = mesesDesdeTreemap(registro.fecha);
+                                    if (meses !== null && costo > 0) {
+                                        lote.meses = meses;
+                                        lote.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                    }
+
+                                    return lote;
+                                }).filter(d => d.monto > 0);
+                            }
+
                             // La capa de arriba del portafolio: cada recuadro es una cuenta y vale lo que costaron
                             // sus posiciones, lleno con lo que valen hoy. Se arma sumando los recuadros de la capa
                             // de abajo en vez de calcularlo por su cuenta: así una capa no puede contradecir a otra
@@ -6364,6 +6482,12 @@
                                     .filter(d => d && d.monto > 0);
                             }
 
+                            function cambiarVistaTreemapInversiones(vista) {
+                                vistaTreemapInversiones = vista === 'accesible' ? 'accesible' : 'todo';
+                                localStorage.setItem('vistaTreemapInversiones', vistaTreemapInversiones);
+                                repintarTreemapCategorias();
+                            }
+
                             function cambiarMonedaTreemapInversiones(moneda) {
                                 monedaTreemapInversiones = moneda === 'usd' ? 'usd' : 'mxn';
                                 localStorage.setItem('monedaTreemapInversiones', monedaTreemapInversiones);
@@ -6491,6 +6615,7 @@
                                 const modoActivo = TIPOS_PASTILLA_TREEMAP.find(t => t.tipo === tipoTreemapCategorias) || null;
 
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
+                                const vistaAccesible = esPortafolio && vistaTreemapInversiones === 'accesible';
 
                                 // Las tres capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de empresas las muestra y la de compras abre una.
@@ -6499,7 +6624,8 @@
                                 // primer recuadro ocupa el mapa entero y hay que cruzarlo para llegar a las
                                 // empresas; a cambio, el camino es el mismo siempre y no cambia de forma según
                                 // cuántas cuentas tengas ese día.
-                                const empresasPortafolio = esPortafolio ? datosInversionesTreemap() : [];
+                                const empresasPortafolio = !esPortafolio ? []
+                                    : vistaAccesible ? datosAccesiblesTreemap() : datosInversionesTreemap();
                                 const cuentasPortafolio = esPortafolio ? agruparPorCuentaTreemap(empresasPortafolio) : [];
                                 const hayCapaCuentas = cuentasPortafolio.length > 0;
 
@@ -6533,6 +6659,7 @@
                                 encenderPastilla([['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']], direccionTreemapCategorias);
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
                                 encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
+                                encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
 
                                 // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, su fila
                                 // desaparece en vez de quedarse ahí sin nada que hacer.
@@ -6559,12 +6686,14 @@
 
                                     // Las posiciones no pertenecen a ningún mes: poner una fecha encima haría creer
                                     // que el mapa muestra lo comprado en ese periodo.
+                                    // Lo accesible se dice en el título de las tres capas: el mapa se ve muy
+                                    // distinto —todo en ganancia— y hay que saber por qué antes de leerlo.
                                     if (empresaAbierta) {
-                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · compras`;
+                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · ${vistaAccesible ? 'accesible' : 'compras'}`;
                                     } else if (cuentaAbierta) {
-                                        tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · empresas`;
-                                    } else if (modoActivo && modoActivo.tipo === 'inversion') {
-                                        tituloEl.textContent = 'Portafolio · hoy';
+                                        tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · ${vistaAccesible ? 'accesible' : 'empresas'}`;
+                                    } else if (esPortafolio) {
+                                        tituloEl.textContent = `Portafolio · ${vistaAccesible ? 'accesible' : 'hoy'}`;
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
@@ -6582,7 +6711,9 @@
 
                                 let datos;
                                 if (empresaAbierta) {
-                                    datos = datosMovimientosEmpresaTreemap(empresaAbierta);
+                                    datos = vistaAccesible
+                                        ? datosAccesiblesEmpresaTreemap(empresaAbierta)
+                                        : datosMovimientosEmpresaTreemap(empresaAbierta);
                                 } else if (cuentaAbierta) {
                                     datos = empresasPortafolio.filter(d => String(d.cat.cuenta_id) === String(cuentaAbierta.id));
                                 } else if (esPortafolio) {
@@ -6634,11 +6765,19 @@
                                     // Un mes que aún no llega sólo tiene proyección, y el mapa no la cuenta: se dice
                                     // por qué está vacío en vez de dejar creer que no habrá movimientos.
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
-                                    const motivo = empresaAbierta
+                                    // Vacío en "Accesible" no es lo mismo que vacío en "Todo": ahí sí hay
+                                    // posiciones, lo que no hay es nada que salga sin realizar una pérdida.
+                                    const motivo = (vistaAccesible && empresaAbierta)
+                                        ? `De ${empresaAbierta.ticker || empresaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
+                                        : (vistaAccesible && cuentaAbierta)
+                                        ? `De ${cuentaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
+                                        : vistaAccesible
+                                        ? 'No puedes sacar nada sin vender en pérdida.'
+                                        : empresaAbierta
                                         ? `No quedan compras vivas de ${empresaAbierta.ticker || empresaAbierta.nombre}.`
                                         : cuentaAbierta
                                         ? `${cuentaAbierta.nombre} ya no tiene posiciones.`
-                                        : modoActivo && modoActivo.tipo === 'inversion'
+                                        : esPortafolio
                                         ? 'No hay empresas en tu portafolio aún.'
                                         : modoActivo
                                         // En estos modos los tipos ocultos del panel no pintan nada y la dirección
