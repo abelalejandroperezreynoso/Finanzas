@@ -1209,6 +1209,24 @@
                         });
                     }
 
+                    // Importe con símbolo. El signo va delante del $ —"-$8,000.00"— y no entre medias, que es
+                    // como salía al anteponer el símbolo a un número que ya venía firmado: "$-8,000.00".
+                    // Se formatea el valor absoluto y el menos se pone aparte.
+                    //
+                    // Los sitios que ya traen su propio signo lo ponen antes: unos usan '+' o cadena vacía y
+                    // dejan que el menos salga del número, y otros escriben el '-' y pasan el valor absoluto.
+                    // Ambos siguen encajando, porque aquí el valor absoluto nunca añade un segundo signo.
+                    //
+                    // 'formatear' permite usar otra presentación del número —el saldo de arriba se come los
+                    // centavos en cero— sin repetir la lógica del signo.
+                    function fMoneda(num, formatear = fNum) {
+                        const valor = Number(num) || 0;
+                        // Se mira el valor ya redondeado a centavos: -0.004 se muestra como 0.00, y sin esto
+                        // se anunciaría como "-$0.00".
+                        const signo = Math.round(valor * 100) < 0 ? '-' : '';
+                        return `${signo}$${formatear(Math.abs(valor))}`;
+                    }
+
                     function calcularMedianaEstadistica(valores) {
                         if (!valores || valores.length === 0) return 0;
                         const ordenados = [...valores].sort((a, b) => a - b);
@@ -1380,7 +1398,7 @@
                                                                                         if (porcentajeRestante <= 25) colorBarra = '#ff5c5c'; // Rojo (Cuidado)
                                                                                         else if (porcentajeRestante <= 50) colorBarra = '#f39c12'; // Naranja (Mitad)
                                                                                         
-                                                                                        const textoRestante = restante >= 0 ? `Quedan $${fNum(restante)}` : `Excedido por $${fNum(Math.abs(restante))}`;
+                                                                                        const textoRestante = restante >= 0 ? `Quedan ${fMoneda(restante)}` : `Excedido por ${fMoneda(Math.abs(restante))}`;
                                                                                         const colorTexto = restante >= 0 ? '#ffffff' : '#ff5c5c';
 
                                                                                         html += `
@@ -1388,7 +1406,7 @@
                                                                                                         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px;">
                                                                                                             <div>
                                                                                                                 <strong style="color: ${obtenerColorCategoria(cat.tipo)}; font-size: 0.95em;">${cat.nombre}</strong><br>
-                                                                                                                <span style="color: #aaa; font-size: 0.75em;">Meta: $${fNum(cat.meta_monto)} / ${etiqueta}</span> <span style="color: #888; font-size: 0.85em; margin-left: 3px;">(${rangoFechas})</span>
+                                                                                                                <span style="color: #aaa; font-size: 0.75em;">Meta: ${fMoneda(cat.meta_monto)} / ${etiqueta}</span> <span style="color: #888; font-size: 0.85em; margin-left: 3px;">(${rangoFechas})</span>
                                                                                                             </div>
                                                                                                             <div style="text-align: right;">
                                                                                                                 <strong style="color: ${colorTexto}; font-size: 0.85em;">${textoRestante}</strong>
@@ -1563,14 +1581,15 @@
                         }
 
                         // NUEVO: Si es promedio, agregamos un símbolo visual (~)
-                        const prefijoMonto = cat.esMontoPromedio ? "~$" : "$";
+                        // El $ lo pone fMoneda, que necesita quedar pegado a la cifra por si lleva signo
+                        const prefijoMonto = cat.esMontoPromedio ? "~" : "";
 
                         lista.innerHTML += `
                         <li style="border-color:${colorTipo};">
                         <div class="swipe-content" style="cursor:pointer;" onclick="abrirModalInfoRecurrente('${cat.id}')">
                         <div style="flex:1;">
                         <strong style="color:${colorTipo}; vertical-align: middle;">${cat.nombre}</strong>${alertaAtraso}<br>
-                        <small style="color:#aaa;">Sugerido: ${prefijoMonto}${fNum(cat.montoSugerido || 0)} • ⏳ ${fechaSugeridaTexto}</small><br>
+                        <small style="color:#aaa;">Sugerido: ${prefijoMonto}${fMoneda(cat.montoSugerido || 0)} • ⏳ ${fechaSugeridaTexto}</small><br>
                         <small style="color:${exactitudColor}; font-size: 0.75em; font-weight: bold;">${exactitudTexto}</small>
                         </div>
                         <div style="text-align: right;">
@@ -1810,8 +1829,8 @@
                                                     // NUEVO: Mostrar el monto con una etiqueta explicativa según su origen
                                                     if (cat.montoSugerido) {
                                                         document.getElementById('infoRecMonto').textContent = cat.esMontoPromedio
-                                                            ? `~$${fNum(cat.montoSugerido)} (Estimado)`
-                                                            : `$${fNum(cat.montoSugerido)} (Fijo)`;
+                                                            ? `~${fMoneda(cat.montoSugerido)} (Estimado)`
+                                                            : `${fMoneda(cat.montoSugerido)} (Fijo)`;
                                                     } else {
                                                         document.getElementById('infoRecMonto').textContent = 'Variable / No detectado';
                                                     }
@@ -2182,7 +2201,7 @@
                                                                                                                                                                                                                                         const valorMxn = (invOrig.totalAcciones || 0) * cachePreciosMercado[t] * globalUsdToMxn;
                                                                                                                                                                                                                                         const rendimiento = valorMxn - inv;
                                                                                                                                                                                                                                         const signo = rendimiento >= 0 ? '+' : '';
-                                                                                                                                                                                                                                        rendimientoTexto = `${signo}$${fNum(rendimiento)}`;
+                                                                                                                                                                                                                                        rendimientoTexto = `${signo}${fMoneda(rendimiento)}`;
                                                                                                                                                                                                                                     }
                                                                                                                                                                                                                                     
                                                                                                                                                                                                                                     // Límites reducidos para aprovechar la nueva fuente pequeña de 10px
@@ -2203,7 +2222,7 @@
                                                                                                                                                                             const t = item.raw.g || item.raw._data.ticker;
                                                                                                                                                                             const invOrig = inversiones.find(i => i.ticker === t);
                                                                                                                                                                             const inv = invOrig ? (invOrig.costoBaseInvertido || 0) : 0;
-                                                                                                                                                                            return `Inversión base: $${fNum(inv)} MXN`;
+                                                                                                                                                                            return `Inversión base: ${fMoneda(inv)} MXN`;
                                                                                                                                                                         }
                                                                                                                                                                     }
                                                                                                                                                                 }
@@ -2345,10 +2364,10 @@
                             <div class="swipe-content" style="cursor:pointer;" onclick="filtrarCategoriasPorCuenta('${c.id}')">
                             <div style="flex:1;">
                             <strong style="color:#ffffff;">${c.nombre}</strong><br>
-                            <small style="color:#aaa;">Base: $${fNum(c.saldo_inicial || 0)}</small>
+                            <small style="color:#aaa;">Base: ${fMoneda(c.saldo_inicial || 0)}</small>
                             </div>
                             <div style="text-align: right;">
-                            <small style="font-weight:bold; color:${c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c'};">$${fNum(c.balanceReal)}</small>
+                            <small style="font-weight:bold; color:${c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${fMoneda(c.balanceReal)}</small>
                             <div id="valor-actual-cuenta-${c.id}"></div>
                             </div>
                             </div>
@@ -2680,7 +2699,7 @@
                                 }
                                 const cajaCta = (cat && window.cajaUsdPorCuenta) ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
                                 const hayCaja = !!(cajaCta && cajaCta.usd > 0.005);
-                                const cajaTxt = hayCaja ? `Caja GBM disponible: $${fNum(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
+                                const cajaTxt = hayCaja ? `Caja GBM disponible: ${fMoneda(cajaCta.usd)} USD.` : 'Caja GBM sin saldo registrado.';
 
                                 // Aportaciones y retiros pertenecen a la Caja GBM, no a una empresa: fijamos
                                 // la categoría visiblemente y la bloqueamos mientras dure ese tipo de movimiento
@@ -3232,19 +3251,19 @@
                                                                                                                                 
                                                                                                                                 let badgeTickerTexto = "";
                                                                                                                                 let htmlPrecioMercado = "";
-                                                                                                                                let divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">$${fNum(cat.costoBaseInvertido || Math.abs(cat.totalSuma))}</strong>`;
+                                                                                                                                let divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(cat.costoBaseInvertido || Math.abs(cat.totalSuma))}</strong>`;
                                                                                                                                 let divBadgePlusvalia = "";
 
                                                                                                                                 if (esCategoriaCajaGbm(cat)) {
                                                                                                                                     // La tarjeta de la caja muestra los dólares disponibles de su cuenta a TC de hoy
                                                                                                                                     const cajaDeCuenta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
                                                                                                                                     const usdCaja = cajaDeCuenta ? cajaDeCuenta.usd : 0;
-                                                                                                                                    divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">$${fNum(usdCaja * globalUsdToMxn)}</strong>`;
-                                                                                                                                    divBadgePlusvalia = `<span style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: #4da6ff; border: none; color: #000000; font-weight: bold; white-space: nowrap; margin-top: 2px;">💵 $${fNum(usdCaja)} USD</span>`;
+                                                                                                                                    divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(usdCaja * globalUsdToMxn)}</strong>`;
+                                                                                                                                    divBadgePlusvalia = `<span style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: #4da6ff; border: none; color: #000000; font-weight: bold; white-space: nowrap; margin-top: 2px;">💵 ${fMoneda(usdCaja)} USD</span>`;
                                                                                                                                 } else if (cat.tipo === 'inversion' && cat.ticker) {
                                                                                                                                     if (cachePreciosMercado[cat.ticker]) {
                                                                                                                                         const precioUsd = cachePreciosMercado[cat.ticker];
-                                                                                                                                        badgeTickerTexto = ` · $${fNum(precioUsd)}`;
+                                                                                                                                        badgeTickerTexto = ` · ${fMoneda(precioUsd)}`;
                                                                                                                                         
                                                                                                                                         const totalAcciones = cat.totalAcciones || 0;
                                                                                                                                         const totalInvertido = cat.costoBaseInvertido || 0;
@@ -3284,7 +3303,7 @@
                                                                                                                                         const colorUsd = rendimientoUsd >= 0 ? '#2ac555' : '#ff5c5c';
                                                                                                                                         const signoUsd = rendimientoUsd >= 0 ? '+' : '';
 
-                                                                                                                                        divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">$${fNum(valorActualMxn)}</strong>`;
+                                                                                                                                        divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(valorActualMxn)}</strong>`;
 
                                                                                                                                         // --- CÁLCULO DE PLUSVALÍA ACCESIBLE ---
                                                                                                                                         let plusvaliaAccesibleCat = 0;
@@ -3344,7 +3363,7 @@
 
                                                                                                                                         if (window.estadoBotonCategoria === 0) {
                                                                                                                                             // Agregamos el porcentaje entre paréntesis al lado del monto
-                                                                                                                                            textoMostrar = `${signoMxn}$${fNum(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)${marcaRealizadaCat}`;
+                                                                                                                                            textoMostrar = `${signoMxn}${fMoneda(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)${marcaRealizadaCat}`;
                                                                                                                                             colorFondoDin = rendimientoMxn >= 0 ? '#22c55e' : '#ff5c5c';
                                                                                                                                             colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else if (window.estadoBotonCategoria === 1) {
@@ -3353,7 +3372,7 @@
                                                                                                                                         colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else {
                                                                                                                                         const signoAcc = plusvaliaAccesibleCat >= 0 ? '+' : '';
-                                                                                                                                        textoMostrar = `${signoPctAccesibleCat}${pctMensualAccesibleCat.toFixed(2)}% /${avgMesesAccesibleCat.toFixed(1)}m | Acc: ${signoAcc}$${fNum(plusvaliaAccesibleCat)}`;
+                                                                                                                                        textoMostrar = `${signoPctAccesibleCat}${pctMensualAccesibleCat.toFixed(2)}% /${avgMesesAccesibleCat.toFixed(1)}m | Acc: ${signoAcc}${fMoneda(plusvaliaAccesibleCat)}`;
 
                                                                                                                                         if (pctMensualAccesibleCat <= 0) {
                                                                                                                                         colorFondoDin = '#9ca3af';
@@ -3381,14 +3400,14 @@
                                                                                                                                             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                                                                                                                                                 <div style="text-align: left; line-height: 1.4;">
                                                                                                                                                     <span style="color: #fff; font-size: 1.05em;">${totalAcciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.</span><br>
-                                                                                                                                                    <span style="color: #aaa; font-size: 0.8em;">Promedio: $${fNum(costoPromedioUsd)} USD</span><br>
-                                                                                                                                                    <span style="color: #888; font-size: 0.8em;">TC: Prom. $${fNum(tcPromedioCompra)} | Hoy $${fNum(globalUsdToMxn)} <span style="color: ${colorTc}; font-weight: bold; margin-left: 3px;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesPromedioExacto).toFixed(2)}%/m)</span></span>
+                                                                                                                                                    <span style="color: #aaa; font-size: 0.8em;">Promedio: ${fMoneda(costoPromedioUsd)} USD</span><br>
+                                                                                                                                                    <span style="color: #888; font-size: 0.8em;">TC: Prom. ${fMoneda(tcPromedioCompra)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTc}; font-weight: bold; margin-left: 3px;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesPromedioExacto).toFixed(2)}%/m)</span></span>
                                                                                                                                                 </div>
                                                                                                                                                 <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                                                                                                     <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
-                                                                                                                                                    <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">$${fNum(valorActualUsd)} USD</span><br>
+                                                                                                                                                    <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">${fMoneda(valorActualUsd)} USD</span><br>
                                                                                                                                                     <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${porcentajeUsd.toFixed(2)}% <span style="opacity: 0.7; font-size: 0.85em;">(${signoUsd}${(porcentajeUsd / mesesPromedioExacto).toFixed(2)}%/m)</span></span>
-                                                                                                                                                    ${hayRealizadaCat ? `<br><span style="color: #4da6ff; font-size: 0.8em;">✓ Realizado: ${realizadaCatMxn >= 0 ? '+' : ''}$${fNum(realizadaCatMxn)}</span>` : ''}
+                                                                                                                                                    ${hayRealizadaCat ? `<br><span style="color: #4da6ff; font-size: 0.8em;">✓ Realizado: ${realizadaCatMxn >= 0 ? '+' : ''}${fMoneda(realizadaCatMxn)}</span>` : ''}
                                                                                                                                                 </div>
                                                                                                                                             </div>
                                                                                                                                         </div>`;
@@ -3428,7 +3447,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                             ${divBadgePlusvalia}
                                                                                                                                                                                                                                                                                                                                                                                                         ` : `
                                                                                                                                                                                 <small style="font-weight:bold; color:${cat.esPositivo ? '#3ecf8e' : '#ff5c5c'};">
-                                                                                                                                                                                Total: ${cat.esPositivo ? '+' : '-'}$${fNum(Math.abs(cat.totalSuma))}
+                                                                                                                                                                                Total: ${cat.esPositivo ? '+' : '-'}${fMoneda(Math.abs(cat.totalSuma))}
                                                                                                                                                                                 </small>
                                                                                                                                                                             `}
                                                                                                                                                                             </div>
@@ -4021,11 +4040,11 @@
                                     });
                                     
                                     const flujo = tIP - tGP;
-                                    document.getElementById('resumenIngresos').textContent = `$${fNum(tIP)}`;
-                                    document.getElementById('resumenGastos').textContent = `$${fNum(tGP)}`;
+                                    document.getElementById('resumenIngresos').textContent = `${fMoneda(tIP)}`;
+                                    document.getElementById('resumenGastos').textContent = `${fMoneda(tGP)}`;
                                     
                                     const balanceEl = document.getElementById('resumenBalance');
-                                    balanceEl.textContent = `$${fNum(flujo)}`;
+                                    balanceEl.textContent = `${fMoneda(flujo)}`;
                                     balanceEl.className = flujo >= 0 ? 'exito' : 'error';
 
                                     let optimizacionTexto = "0.0%";
@@ -4062,7 +4081,7 @@
                                         saldoTotal -= ahorroSimulado;
                                     }
                                     
-                                    document.getElementById('saldoTotalDisponible').textContent = `$${fNumSaldo(saldoTotal)}`;
+                                    document.getElementById('saldoTotalDisponible').textContent = fMoneda(saldoTotal, fNumSaldo);
                                     ajustarSaldoAlAncho();
 
                                     // 4. Renderizamos UI (Pasamos el nuevo parámetro a la gráfica)
@@ -4177,7 +4196,7 @@
                                                                                                 let infoRendimientoDerecha = "";
                                                                                                 let infoDetalleInversion = "";
                                                                                                 let badgePlusvalia = "";
-                                                                                                let montoArribaHtml = `<strong class="${esEntrada ? 'exito' : 'error'}" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${esEntrada ? '+' : '-'}$${fNum(montoAbsoluto)}</strong>`;
+                                                                                                let montoArribaHtml = `<strong class="${esEntrada ? 'exito' : 'error'}" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${esEntrada ? '+' : '-'}${fMoneda(montoAbsoluto)}</strong>`;
                                                                                                 let montoAbajoHtml = "";
 
                                                                                                 const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
@@ -4192,11 +4211,11 @@
                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed #4da6ff;">
                                                             <div style="text-align: left; line-height: 1.5;">
                                                                 <span style="color: #fff; font-size: 1.05em;">💵 Aportación a Trading USA</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: $${fNum(tcMovCaja)}</span>
+                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: ${fMoneda(tcMovCaja)}</span>
                                                             </div>
                                                             <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                 <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Entró a la caja</span><br>
-                                                                <span style="color: #4da6ff; font-weight: bold; font-size: 1.1em;">+$${fNum(usdMovCaja)} USD</span>
+                                                                <span style="color: #4da6ff; font-weight: bold; font-size: 1.1em;">+${fMoneda(usdMovCaja)} USD</span>
                                                             </div>
                                                         </div>`;
                                                     } else {
@@ -4213,12 +4232,12 @@
                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed ${colorGananciaRetiro};">
                                                             <div style="text-align: left; line-height: 1.5;">
                                                                 <span style="color: #fff; font-size: 1.05em;">🏦 Retiro de Trading USA</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">Salieron $${fNum(usdMovCaja)} USD de la caja</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: $${fNum(tcMovCaja)}</span>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Salieron ${fMoneda(usdMovCaja)} USD de la caja</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">TC de conversión: ${fMoneda(tcMovCaja)}</span>
                                                             </div>
                                                             <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                 <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Ganancia Real</span><br>
-                                                                <span style="color: ${colorGananciaRetiro}; font-weight: bold; font-size: 1.1em;">${signoGananciaRetiro}$${fNum(gananciaRetiro)} MXN</span><br>
+                                                                <span style="color: ${colorGananciaRetiro}; font-weight: bold; font-size: 1.1em;">${signoGananciaRetiro}${fMoneda(gananciaRetiro)} MXN</span><br>
                                                                 <span style="color: ${colorGananciaRetiro}; font-size: 0.9em;">${signoGananciaRetiro}${pctGananciaRetiro.toFixed(2)}%</span>
                                                             </div>
                                                         </div>`;
@@ -4249,7 +4268,7 @@
                                                         if (tipoMovR === 'compra') {
                                                             // Compra pagada con la caja USD: el monto MXN del registro es 0,
                                                             // mostramos el costo base heredado de las aportaciones
-                                                            montoArribaHtml = `<strong class="error" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">-$${fNum(costoMxnBaseLote)}</strong>`;
+                                                            montoArribaHtml = `<strong class="error" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">-${fMoneda(costoMxnBaseLote)}</strong>`;
                                                         }
                                                         let tagEstado = "";
                                                         if (accionesVivas < numAccionesOriginal) {
@@ -4285,11 +4304,11 @@
 
                                                                     badgePlusvalia = ""; // Eliminamos el badge del título
                                                                                                                                                                                                             
-                                                                                                                                                                                                            montoArribaHtml = `<strong style="color: #ffffff; white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">$${fNum(valorActualMxn)}</strong>`;
+                                                                                                                                                                                                            montoArribaHtml = `<strong style="color: #ffffff; white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(valorActualMxn)}</strong>`;
                                                                                                                                                                                                             
                                                                                                                                                                                                             const textoMostrarHistorial = window.mostrarInversionEnPorcentaje
                                                                                                                                                                                                                 ? `${signoMxn}${(porcentajeMxn / mesesEfectivosHistorial).toFixed(2)}% /${mesesEfectivosHistorial.toFixed(1)}m`
-                                                                                                                                                                                                                : `${signoMxn}$${fNum(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)`;
+                                                                                                                                                                                                                : `${signoMxn}${fMoneda(rendimientoMxn)} (${signoMxn}${porcentajeMxn.toFixed(2)}%)`;
 
                                                                                                                                                                                                                 montoAbajoHtml = `<span onclick="event.stopPropagation(); toggleModoInversion(event); aplicarFiltrosYRenderizar();" style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorMxn}; border: none; color: ${rendimientoMxn >= 0 ? '#000000' : '#ffffff'}; font-weight: bold; white-space: nowrap; cursor: pointer; margin-top: 2px;">${textoMostrarHistorial}</span>`;
 
@@ -4298,12 +4317,12 @@
                                                                     <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #333;">
                                                                         <div style="text-align: left; line-height: 1.4;">
                                                                             <span style="color: #fff; font-size: 1.05em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
-                                                                            <span style="color: #aaa; font-size: 0.8em;">Precio: $${fNum(r.costo_accion)} USD</span><br>
-                                                                            <span style="color: #888; font-size: 0.8em;">TC: Compra $${fNum(tipoCambioHist)} | Hoy $${fNum(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
+                                                                            <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                            <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                         </div>
                                                                         <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                             <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
-                                                                            <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">$${fNum(valorActualUsd)} USD</span><br>
+                                                                            <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">${fMoneda(valorActualUsd)} USD</span><br>
                                                                             <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${(porcentajeUsd / mesesEfectivosHistorial).toFixed(2)}%/m</span>
                                                                         </div>
                                                                     </div>`;
@@ -4312,8 +4331,8 @@
                                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #333;">
                                                                             <div style="text-align: left; line-height: 1.4;">
                                                                                 <span style="color: #fff; font-size: 1.05em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
-                                                                                <span style="color: #aaa; font-size: 0.8em;">Precio: $${fNum(r.costo_accion)} USD</span><br>
-                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra $${fNum(tipoCambioHist)} | Hoy $${fNum(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
+                                                                                <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                             </div>
                                                                             <div style="text-align: right; line-height: 1.3;">
                                                                                 <span style="color: #f39c12; font-weight: bold; font-size: 0.85em;">⚠️ ${window.cacheErroresMercado[cat.ticker]}</span>
@@ -4326,12 +4345,12 @@
                                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #333;">
                                                                             <div style="text-align: left; line-height: 1.4;">
                                                                                 <span style="color: #fff; font-size: 1.05em;">${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs.${tagEstado}</span><br>
-                                                                                <span style="color: #aaa; font-size: 0.8em;">Precio: $${fNum(r.costo_accion)} USD</span><br>
-                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra $${fNum(tipoCambioHist)} | Hoy $${fNum(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
+                                                                                <span style="color: #aaa; font-size: 0.8em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                                <span style="color: #888; font-size: 0.8em;">TC: Compra ${fMoneda(tipoCambioHist)} | Hoy ${fMoneda(globalUsdToMxn)} <span style="color: ${colorTcHist}; font-weight: bold; margin-left: 3px;">(${signoTcHist}${(porcentajeTcHist / mesesEfectivosHistorial).toFixed(2)}%/m)</span></span>
                                                                             </div>
                                                                             <div style="text-align: right; line-height: 1.3;">
-                                                                                <span style="color: #aaa; font-size: 0.85em;">Precio: $${fNum(r.costo_accion)} USD</span><br>
-                                                                                <span style="color: #aaa; font-size: 0.85em;">Total: $${fNum(totalUsdOriginal)} USD</span>
+                                                                                <span style="color: #aaa; font-size: 0.85em;">Precio: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                                <span style="color: #aaa; font-size: 0.85em;">Total: ${fMoneda(totalUsdOriginal)} USD</span>
                                                                             </div>
                                                                         </div>`;
                                                         }
@@ -4347,18 +4366,18 @@
                                                         const costoUsdOriginal = ventaUsd - gananciaUsd;
                                                         const pctGananciaUsd = costoUsdOriginal > 0 ? (gananciaUsd / costoUsdOriginal) * 100 : 0;
 
-                                                        montoArribaHtml = `<strong class="exito" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">+$${fNum(ventaUsd)} USD</strong>`;
+                                                        montoArribaHtml = `<strong class="exito" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">+${fMoneda(ventaUsd)} USD</strong>`;
 
                                                         infoDetalleInversion = `
                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed ${colorGananciaUsd};">
                                                             <div style="text-align: left; line-height: 1.5;">
                                                                 <span style="color: #fff; font-size: 1.05em;">${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs. (Vendidas)</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">Precio Venta: $${fNum(r.costo_accion)} USD</span><br>
-                                                                <span style="color: #4da6ff; font-size: 0.85em;">💰 $${fNum(ventaUsd)} USD quedaron en la caja GBM</span>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Precio Venta: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                <span style="color: #4da6ff; font-size: 0.85em;">💰 ${fMoneda(ventaUsd)} USD quedaron en la caja GBM</span>
                                                             </div>
                                                             <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                 <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Ganancia USD</span><br>
-                                                                <span style="color: ${colorGananciaUsd}; font-weight: bold; font-size: 1.1em;">${signoGananciaUsd}$${fNum(gananciaUsd)} USD</span><br>
+                                                                <span style="color: ${colorGananciaUsd}; font-weight: bold; font-size: 1.1em;">${signoGananciaUsd}${fMoneda(gananciaUsd)} USD</span><br>
                                                                 <span style="color: ${colorGananciaUsd}; font-size: 0.9em;">${signoGananciaUsd}${pctGananciaUsd.toFixed(2)}%</span>
                                                             </div>
                                                         </div>`;
@@ -4379,12 +4398,12 @@
                                                         <div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px dashed ${colorGanancia};">
                                                             <div style="text-align: left; line-height: 1.5;">
                                                                 <span style="color: #fff; font-size: 1.05em;">${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs. (Vendidas)</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">Precio Venta: $${fNum(r.costo_accion)} USD</span><br>
-                                                                <span style="color: #aaa; font-size: 0.85em;">Total Venta: $${fNum(ventaUsd)} USD</span>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Precio Venta: ${fMoneda(r.costo_accion)} USD</span><br>
+                                                                <span style="color: #aaa; font-size: 0.85em;">Total Venta: ${fMoneda(ventaUsd)} USD</span>
                                                             </div>
                                                             <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                 <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Ganancia Real</span><br>
-                                                                <span style="color: ${colorGanancia}; font-weight: bold; font-size: 1.1em;">${signoGanancia}$${fNum(ganancia)} MXN</span><br>
+                                                                <span style="color: ${colorGanancia}; font-weight: bold; font-size: 1.1em;">${signoGanancia}${fMoneda(ganancia)} MXN</span><br>
                                                                 <span style="color: ${colorGanancia}; font-size: 0.9em;">${signoGanancia}${porcentajeGanancia.toFixed(2)}%</span>
                                                             </div>
                                                         </div>`;
@@ -4399,7 +4418,7 @@
 
                                                                                                                                                     const textoMostrarVenta = window.mostrarInversionEnPorcentaje
                                                                                                                                                                                                                                                                                                             ? `${signoGanancia}${porcentajeGanancia.toFixed(2)}%`
-                                                                                                                                                                                                                                                                                                            : `${signoGanancia}$${fNum(ganancia)}`;
+                                                                                                                                                                                                                                                                                                            : `${signoGanancia}${fMoneda(ganancia)}`;
 
                                                                                                                                                                                                                                                                                                             infoRendimientoDerecha = `
                                                                                                                                                                                                                                                                                                             <div style="margin-top: 4px; font-size: 0.75em; text-align: right; line-height: 1.3;">
@@ -4688,7 +4707,7 @@
 
                                 const VERDE = '#3ecf8e', ROJO = '#ff5c5c', AMBAR = '#f39c12', CLARO = '#ffffff';
                                 const destacar = (texto, color) => `<strong style="color: ${color};">${texto}</strong>`;
-                                const dinero = (monto) => `$${fNum(Math.abs(monto))}`;
+                                const dinero = (monto) => `${fMoneda(Math.abs(monto))}`;
                                 const sumar = (lista, obtener) => lista.reduce((acc, m) => acc + obtener(m), 0);
                                 const nombreMes = (m) => {
                                     const [a, mm] = m.ym.split('-');
@@ -5227,7 +5246,7 @@
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
                                     const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
                                     // El signo va antes del símbolo de moneda, nunca "$-1,234.00"
-                                    const flujoTexto = `${flujo > 0 ? '+' : (flujo < 0 ? '-' : '')}$${fNum(Math.abs(flujo))}`;
+                                    const flujoTexto = `${flujo > 0 ? '+' : (flujo < 0 ? '-' : '')}${fMoneda(Math.abs(flujo))}`;
 
                                     if (balanceEl) {
                                         // Rendimiento del mes señalado: lo que entró menos lo que salió
@@ -5246,7 +5265,7 @@
                                                 <span style="color: #777; padding-left: 10px; display: flex; align-items: center; gap: 7px;">
                                                     <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0; opacity: ${opacidad};"></span>${etiqueta}
                                                 </span>
-                                                <strong style="color: ${color}; opacity: ${opacidad};">${signo}$${fNum(monto)}</strong>
+                                                <strong style="color: ${color}; opacity: ${opacidad};">${signo}${fMoneda(monto)}</strong>
                                             </li>` : '';
 
                                     const filaDestacada = (etiqueta, monto, signo, tipo) =>
@@ -5278,12 +5297,12 @@
                                             ${avisoFiltro}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
-                                                <strong style="color: #3ecf8e; opacity: ${opacidad};">+$${fNum(m.ingresosVisibles)}</strong>
+                                                <strong style="color: #3ecf8e; opacity: ${opacidad};">+${fMoneda(m.ingresosVisibles)}</strong>
                                             </li>
                                             ${filasEntradas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Gastos</span>
-                                                <strong style="color: #ff5c5c; opacity: ${opacidad};">-$${fNum(m.gastosVisibles)}</strong>
+                                                <strong style="color: #ff5c5c; opacity: ${opacidad};">-${fMoneda(m.gastosVisibles)}</strong>
                                             </li>
                                             ${filasSalidas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0;">
@@ -5808,10 +5827,10 @@
                                     const redondo = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
                                     // De más completo a más compacto
                                     const formasCifra = conObjetivo
-                                        ? [`$${fNum(d.real)} / $${fNum(d.esperado)}`,
+                                        ? [`${fMoneda(d.real)} / ${fMoneda(d.esperado)}`,
                                            `${redondo(d.real)} / ${redondo(d.esperado)}`,
                                            `${montoCompactoTreemap(d.real)}/${montoCompactoTreemap(d.esperado)}`]
-                                        : [`$${fNum(d.monto)}`, redondo(d.monto), montoCompactoTreemap(d.monto)];
+                                        : [`${fMoneda(d.monto)}`, redondo(d.monto), montoCompactoTreemap(d.monto)];
 
                                     const porc = conObjetivo
                                         ? (d.real / d.esperado) * 100
@@ -5861,8 +5880,8 @@
                                     if (conObjetivo && h >= ALTO_MIN_CIFRAS_PARTIDAS_TREEMAP) {
                                         const cuatro = armar(4);
                                         for (let tam = cuatro.tamCifra; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
-                                            const llevas = [`$${fNum(d.real)}`, redondo(d.real), montoCompactoTreemap(d.real)].find(f => cabe(f, tam));
-                                            const meta = [`de $${fNum(d.esperado)}`, `de ${redondo(d.esperado)}`, `de ${montoCompactoTreemap(d.esperado)}`].find(f => cabe(f, tam));
+                                            const llevas = [`${fMoneda(d.real)}`, redondo(d.real), montoCompactoTreemap(d.real)].find(f => cabe(f, tam));
+                                            const meta = [`de ${fMoneda(d.esperado)}`, `de ${redondo(d.esperado)}`, `de ${montoCompactoTreemap(d.esperado)}`].find(f => cabe(f, tam));
                                             if (llevas && meta) {
                                                 return {
                                                     lineas: [cuatro.nombre, cuatro.textoPorc, llevas, meta],
@@ -6015,12 +6034,12 @@
                                         const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% del mes</span>
-                                            <strong style="color: ${color}; white-space: nowrap;">$${fNum(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de $${fNum(metaObjetivo)}</span></strong>
+                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}</span></strong>
                                         `;
                                     } else {
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats}</span>
-                                            <strong style="color: ${color};">${entradas ? '+' : '-'}$${fNum(total)}</strong>
+                                            <strong style="color: ${color};">${entradas ? '+' : '-'}${fMoneda(total)}</strong>
                                         `;
                                     }
                                 }
@@ -6131,7 +6150,7 @@
 
                 try {
                     const fin = usarLinea ? datosLinea[index] : datosFlotantes[index][1];
-                                    el.textContent = `$${fNum(fin)}`;
+                                    el.textContent = `${fMoneda(fin)}`;
                                     el.style.color = fin >= 0 ? '#3ecf8e' : '#ff5c5c';
 
                                     const diaData = datosGraf[index];
@@ -6166,7 +6185,7 @@
                     // invisibles los días con menos apuntes— y el detalle ya está en el historial.
                     detallesEl.innerHTML = `
                                         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.95em;">
-                                        <span>Movimientos del día: <strong style="color: ${colorFlujo}; opacity: ${diaData.esFuturo ? '0.5' : '1'};">${signo}$${fNum(flujo)}</strong></span>
+                                        <span>Movimientos del día: <strong style="color: ${colorFlujo}; opacity: ${diaData.esFuturo ? '0.5' : '1'};">${signo}${fMoneda(flujo)}</strong></span>
                                         ${tagTipo}
                                         </div>
                                         `;
@@ -6337,8 +6356,8 @@
                                                     const empresasConPosicion = r.empresas.filter(e => e.acciones > 0.00001).length;
 
                                                     let filasResumen =
-                                                        filaDetalleCuenta('Saldo base', `$${fNum(c.saldo_inicial || 0)}`) +
-                                                        filaDetalleCuenta('Balance en pesos', `$${fNum(c.balanceReal)}`,
+                                                        filaDetalleCuenta('Saldo base', `${fMoneda(c.saldo_inicial || 0)}`) +
+                                                        filaDetalleCuenta('Balance en pesos', `${fMoneda(c.balanceReal)}`,
                                                             c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c',
                                                             c.balanceReal < 0 && r.tieneInversion ? 'Capital que has aportado' : '');
 
@@ -6347,18 +6366,18 @@
                                                         // se vea de dónde sale el neto en lugar de aparecer como un solo número.
                                                         filasResumen +=
                                                             filaDetalleCuenta(`Acciones${empresasConPosicion ? ` (${empresasConPosicion})` : ''}`,
-                                                                `$${fNum(r.valorAccionesMxn)}`, null, 'A precio de mercado de hoy', true) +
+                                                                `${fMoneda(r.valorAccionesMxn)}`, null, 'A precio de mercado de hoy', true) +
                                                             filaDetalleCuenta('Caja GBM',
-                                                                `$${fNum(cajaEnPesos)}`, null,
-                                                                r.cajaUsd > 0.005 ? `$${fNum(r.cajaUsd)} USD sin invertir` : 'Sin dólares esperando', true) +
-                                                            filaDetalleCuenta('Valor de inversiones', `$${fNum(r.valorInversiones)}`);
+                                                                `${fMoneda(cajaEnPesos)}`, null,
+                                                                r.cajaUsd > 0.005 ? `${fMoneda(r.cajaUsd)} USD sin invertir` : 'Sin dólares esperando', true) +
+                                                            filaDetalleCuenta('Valor de inversiones', `${fMoneda(r.valorInversiones)}`);
 
                                                         if (r.empresasSinPrecio > 0) {
                                                             filasResumen += `<div style="color:#f39c12; font-size:0.78em; margin: 4px 0 6px 14px; line-height:1.35;">⚠️ ${r.empresasSinPrecio} empresa(s) sin precio de mercado no entran aquí, pero su costo sí está restado arriba: el neto queda subestimado.</div>`;
                                                         }
 
                                                         filasResumen += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
-                                                        filasResumen += filaDetalleCuenta('Neto total', `$${fNum(netoTotal)}`,
+                                                        filasResumen += filaDetalleCuenta('Neto total', `${fMoneda(netoTotal)}`,
                                                             netoTotal >= 0 ? '#2ac555' : '#ff5c5c',
                                                             c.balanceReal < 0 ? (netoTotal >= 0 ? 'Ganancia sobre lo aportado' : 'Aún por debajo de lo aportado') : '');
                                                     }
@@ -6368,13 +6387,13 @@
                                                         // --- Caja GBM ---
                                                         const hayCaja = r.cajaUsd > 0.005;
                                                         let filasCaja = filaDetalleCuenta('Dólares disponibles',
-                                                            `<span style="color:#4da6ff; font-size:1.15em;">$${fNum(r.cajaUsd)} USD</span>`);
+                                                            `<span style="color:#4da6ff; font-size:1.15em;">${fMoneda(r.cajaUsd)} USD</span>`);
                                                         if (hayCaja) {
-                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `$${fNum(r.cajaUsd * globalUsdToMxn)} MXN`, '#fff', `TC $${fNum(globalUsdToMxn)}`);
-                                                            filasCaja += filaDetalleCuenta('Te costaron', `$${fNum(r.cajaMxnBase)} MXN`, '#fff', `TC promedio $${fNum(r.cajaTcPromedio)}`);
+                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `${fMoneda(r.cajaUsd * globalUsdToMxn)} MXN`, '#fff', `TC ${fMoneda(globalUsdToMxn)}`);
+                                                            filasCaja += filaDetalleCuenta('Te costaron', `${fMoneda(r.cajaMxnBase)} MXN`, '#fff', `TC promedio ${fMoneda(r.cajaTcPromedio)}`);
                                                             const gananciaCaja = (r.cajaUsd * globalUsdToMxn) - r.cajaMxnBase;
                                                             filasCaja += filaDetalleCuenta('Ganancia si retiras hoy',
-                                                                `${signo(gananciaCaja)}$${fNum(gananciaCaja)} MXN`, colorGan(gananciaCaja));
+                                                                `${signo(gananciaCaja)}${fMoneda(gananciaCaja)} MXN`, colorGan(gananciaCaja));
                                                         } else {
                                                             filasCaja += `<div style="color:#666; font-size:0.85em; margin-top:6px;">Sin dólares esperando: todo tu dinero está invertido en acciones.</div>`;
                                                         }
@@ -6386,24 +6405,24 @@
                                                         // El aviso de empresas sin precio ya se da en el resumen, donde afecta al neto
                                                         const filasPort =
                                                             filaDetalleCuenta('Empresas con posición', `${empresasConPosicion}`) +
-                                                            filaDetalleCuenta('Valor de mercado', `$${fNum(r.valorAccionesMxn)} MXN`, '#fff', `$${fNum(r.valorAccionesUsd)} USD`) +
-                                                            filaDetalleCuenta('Costo invertido', `$${fNum(r.costoAccionesMxn)} MXN`, '#fff', `$${fNum(r.costoAccionesUsd)} USD`) +
+                                                            filaDetalleCuenta('Valor de mercado', `${fMoneda(r.valorAccionesMxn)} MXN`, '#fff', `${fMoneda(r.valorAccionesUsd)} USD`) +
+                                                            filaDetalleCuenta('Costo invertido', `${fMoneda(r.costoAccionesMxn)} MXN`, '#fff', `${fMoneda(r.costoAccionesUsd)} USD`) +
                                                             filaDetalleCuenta('Plusvalía en papel',
-                                                                `${signo(plusvaliaAcciones)}$${fNum(plusvaliaAcciones)} (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
+                                                                `${signo(plusvaliaAcciones)}${fMoneda(plusvaliaAcciones)} (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
                                                                 colorGan(plusvaliaAcciones), 'Aún no vendida');
                                                         html += bloqueDetalleCuenta('📈 Portafolio de acciones', filasPort);
 
                                                         // --- Rendimiento global ---
                                                         let filasRend =
                                                             filaDetalleCuenta('Rendimiento total',
-                                                                `${signo(r.rendimientoInversionMxn)}$${fNum(r.rendimientoInversionMxn)} (${signo(r.pctRendimiento)}${r.pctRendimiento.toFixed(2)}%)`,
+                                                                `${signo(r.rendimientoInversionMxn)}${fMoneda(r.rendimientoInversionMxn)} (${signo(r.pctRendimiento)}${r.pctRendimiento.toFixed(2)}%)`,
                                                                 colorGan(r.rendimientoInversionMxn), 'Acciones + caja + lo ya vendido') +
                                                             filaDetalleCuenta('Rendimiento mensual',
                                                                 `${signo(r.pctMensual)}${r.pctMensual.toFixed(2)}% / mes`,
                                                                 colorGan(r.pctMensual), `Antigüedad promedio ${r.avgMeses.toFixed(1)} meses`);
                                                         if (Math.abs(r.totalRealizadaCuenta) > 0.005) {
                                                             filasRend += filaDetalleCuenta('✓ Ganancia ya materializada',
-                                                                `${signo(r.totalRealizadaCuenta)}$${fNum(r.totalRealizadaCuenta)}`,
+                                                                `${signo(r.totalRealizadaCuenta)}${fMoneda(r.totalRealizadaCuenta)}`,
                                                                 colorGan(r.totalRealizadaCuenta), 'Retiros y ventas cobradas en pesos');
                                                         }
                                                         html += bloqueDetalleCuenta('🎯 Rendimiento', filasRend);
@@ -6414,7 +6433,7 @@
                                                         pctBarra = Math.max(0, Math.min(100, pctBarra));
                                                         const filasAcc =
                                                             filaDetalleCuenta('Monto accesible',
-                                                                `${signo(r.plusvaliaAccesibleTotal)}$${fNum(r.plusvaliaAccesibleTotal)} MXN`,
+                                                                `${signo(r.plusvaliaAccesibleTotal)}${fMoneda(r.plusvaliaAccesibleTotal)} MXN`,
                                                                 colorGan(r.plusvaliaAccesibleTotal), 'Ganancia que podrías tomar sin vender en pérdida') +
                                                             filaDetalleCuenta('Rendimiento accesible',
                                                                 `${signo(r.pctMensualAccesible)}${r.pctMensualAccesible.toFixed(2)}% / ${r.avgMesesAccesible.toFixed(1)}m`,
@@ -6438,12 +6457,12 @@
                                                                     <div style="text-align: left; line-height: 1.35; min-width: 0;">
                                                                         <span style="color: #fff; font-size: 0.95em;">${e.nombre}</span>
                                                                         <span style="font-size:0.7em; background:#333; color:#bbb; padding:1px 5px; border-radius:3px; margin-left:4px;">${e.ticker}</span><br>
-                                                                        <span style="color: #888; font-size: 0.78em;">${e.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs · $${fNum(e.precioUsd)} USD · ${peso.toFixed(1)}% del portafolio</span>
-                                                                        ${Math.abs(e.realizadaMxn) > 0.005 ? `<br><span style="color:#4da6ff; font-size:0.78em;">✓ Realizado: ${signo(e.realizadaMxn)}$${fNum(e.realizadaMxn)}</span>` : ''}
+                                                                        <span style="color: #888; font-size: 0.78em;">${e.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs · ${fMoneda(e.precioUsd)} USD · ${peso.toFixed(1)}% del portafolio</span>
+                                                                        ${Math.abs(e.realizadaMxn) > 0.005 ? `<br><span style="color:#4da6ff; font-size:0.78em;">✓ Realizado: ${signo(e.realizadaMxn)}${fMoneda(e.realizadaMxn)}</span>` : ''}
                                                                     </div>
                                                                     <div style="text-align: right; line-height: 1.35; white-space: nowrap;">
-                                                                        <strong style="color: #fff;">$${fNum(e.valorMxn)}</strong><br>
-                                                                        <span style="color: ${colorGan(e.plusvaliaMxn)}; font-size: 0.8em;">${signo(e.plusvaliaMxn)}$${fNum(e.plusvaliaMxn)} (${signo(pct)}${pct.toFixed(1)}%)</span>
+                                                                        <strong style="color: #fff;">${fMoneda(e.valorMxn)}</strong><br>
+                                                                        <span style="color: ${colorGan(e.plusvaliaMxn)}; font-size: 0.8em;">${signo(e.plusvaliaMxn)}${fMoneda(e.plusvaliaMxn)} (${signo(pct)}${pct.toFixed(1)}%)</span>
                                                                     </div>
                                                                 </div>`;
                                                             });
@@ -6542,20 +6561,20 @@
                             <br><br>
                             <strong style="color:#fff; display: block; margin-bottom: 8px;">📈 DETALLES DE INVERSIÓN (${cat.ticker})</strong>
                             <span style="color: #aaa;">Acciones:</span> <strong style="color: #fff;">${totalAcciones.toLocaleString('en-US', { maximumFractionDigits: 4 })}</strong><br>
-                            <span style="color: #aaa;">Precio Mercado:</span> <strong style="color: #fff;">$${fNum(precioUsd)} USD</strong><br>
-                            <span style="color: #aaa;">Invertido:</span> <strong style="color: #fff;">$${fNum(invertidoUsdMostrar)} USD</strong><br>
-                            <span style="color: #aaa;">Promedio:</span> <strong style="color: #fff;">$${fNum(costoPromedioUsd)} USD</strong><br>
-                            <span style="color: #aaa;">TC Compra:</span> <strong style="color: #fff;">$${fNum(tcPromedioCompra)}</strong> | <span style="color: #aaa;">Hoy:</span> <strong style="color: #fff;">$${fNum(globalUsdToMxn)}</strong> <span style="color: ${rendimientoTc >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesEfectivosCat).toFixed(2)}%/m)</span><br>
-                            <span style="color: #aaa;">Total Hoy:</span> <strong style="color: #fff;">$${fNum(valorActualUsd)} USD</strong> <span style="color: ${rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoUsd}${porcentajeUsd.toFixed(2)}% | ${signoUsd}${(porcentajeUsd / mesesEfectivosCat).toFixed(2)}%/m)</span>
+                            <span style="color: #aaa;">Precio Mercado:</span> <strong style="color: #fff;">${fMoneda(precioUsd)} USD</strong><br>
+                            <span style="color: #aaa;">Invertido:</span> <strong style="color: #fff;">${fMoneda(invertidoUsdMostrar)} USD</strong><br>
+                            <span style="color: #aaa;">Promedio:</span> <strong style="color: #fff;">${fMoneda(costoPromedioUsd)} USD</strong><br>
+                            <span style="color: #aaa;">TC Compra:</span> <strong style="color: #fff;">${fMoneda(tcPromedioCompra)}</strong> | <span style="color: #aaa;">Hoy:</span> <strong style="color: #fff;">${fMoneda(globalUsdToMxn)}</strong> <span style="color: ${rendimientoTc >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoTc}${porcentajeTc.toFixed(2)}% | ${signoTc}${(porcentajeTc / mesesEfectivosCat).toFixed(2)}%/m)</span><br>
+                            <span style="color: #aaa;">Total Hoy:</span> <strong style="color: #fff;">${fMoneda(valorActualUsd)} USD</strong> <span style="color: ${rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoUsd}${porcentajeUsd.toFixed(2)}% | ${signoUsd}${(porcentajeUsd / mesesEfectivosCat).toFixed(2)}%/m)</span>
 
                             <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border: 1px solid #3ecf8e; border-radius: 8px;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                             <span style="color: #aaa; font-size: 0.9em;">Total Accesible:</span> 
-                            <strong style="color: #3ecf8e;">$${fNum(totalAccesible)} MXN</strong>
+                            <strong style="color: #3ecf8e;">${fMoneda(totalAccesible)} MXN</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                             <span style="color: #aaa; font-size: 0.9em;">Plusvalía Accesible:</span> 
-                            <strong style="color: #3ecf8e;">+$${fNum(plusvaliaAccesible)} MXN</strong>
+                            <strong style="color: #3ecf8e;">+${fMoneda(plusvaliaAccesible)} MXN</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                             <span style="color: #aaa; font-size: 0.9em;">Plusvalía Mensual:</span> 
@@ -6595,8 +6614,8 @@
                                 // Barra principal
                                 metaHtml = `
                                 <br><br><strong style="color:#fff; display: block; margin-bottom: 8px;">🎯 OBJETIVO DE GASTO</strong>
-                                <span style="color: #aaa;">Límite:</span> <strong style="color: #fff;">$${fNum(cat.meta_monto)} / ${etiqueta}</strong> <span style="color: #888; font-size: 0.85em; margin-left: 5px;">(${rangoFechas})</span><br>
-                                <span style="color: #aaa;">Gastado:</span> <strong style="color: ${colorMeta};">$${fNum(gastadoEnPeriodo)}</strong> <span style="font-size:0.8em; color:${colorMeta};">(${warning})</span>
+                                <span style="color: #aaa;">Límite:</span> <strong style="color: #fff;">${fMoneda(cat.meta_monto)} / ${etiqueta}</strong> <span style="color: #888; font-size: 0.85em; margin-left: 5px;">(${rangoFechas})</span><br>
+                                <span style="color: #aaa;">Gastado:</span> <strong style="color: ${colorMeta};">${fMoneda(gastadoEnPeriodo)}</strong> <span style="font-size:0.8em; color:${colorMeta};">(${warning})</span>
                                 <div style="width: 100%; background: #333; border-radius: 6px; height: 12px; margin-top: 8px; overflow: hidden;">
                                     <div style="width: ${porcentaje}%; background: ${colorMeta}; height: 100%; transition: width 0.3s;"></div>
                                 </div>
@@ -6749,7 +6768,7 @@
                             <span style="color: #aaa;">Nombre:</span> <strong style="color: #fff;">${cat.nombre}</strong><br>
                             <span style="color: #aaa;">Tipo:</span> <strong style="color: #fff;">${cat.tipo.toUpperCase()}</strong><br>
                             <span style="color: #aaa;">Uso Histórico:</span> <strong style="color: #fff;">${cat.vecesUsada || 0} veces</strong><br>
-                            <span style="color: #aaa;">Balance:</span> <strong style="color: #fff;">$${fNum(Math.abs(cat.balanceReal))}</strong>
+                            <span style="color: #aaa;">Balance:</span> <strong style="color: #fff;">${fMoneda(Math.abs(cat.balanceReal))}</strong>
                             ${detallesInversion}
                             ${metaHtml}
                             `;
@@ -6940,7 +6959,7 @@
             const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
             const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
             if (tipoMovR === 'aportacion') {
-                detallesInversion = `<br><br><strong style="color:#fff;">💵 APORTACIÓN A TRADING USA</strong><br>Pesos convertidos: $${fNum(montoAbsoluto)} MXN<br>Dólares recibidos: $${fNum(usdMovCaja)} USD<br>TC de conversión: $${fNum(tcMovCaja)}<br><span style="color:#4da6ff;">El dinero quedó disponible en la caja GBM para comprar acciones.</span>`;
+                detallesInversion = `<br><br><strong style="color:#fff;">💵 APORTACIÓN A TRADING USA</strong><br>Pesos convertidos: ${fMoneda(montoAbsoluto)} MXN<br>Dólares recibidos: ${fMoneda(usdMovCaja)} USD<br>TC de conversión: ${fMoneda(tcMovCaja)}<br><span style="color:#4da6ff;">El dinero quedó disponible en la caja GBM para comprar acciones.</span>`;
             } else {
                 let gananciaRetiro = 0;
                 if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
@@ -6949,7 +6968,7 @@
                 const signoGananciaRetiro = gananciaRetiro >= 0 ? '+' : '';
                 const costoRetiro = montoAbsoluto - gananciaRetiro;
                 const pctGananciaRetiro = costoRetiro > 0 ? (gananciaRetiro / costoRetiro) * 100 : 0;
-                detallesInversion = `<br><br><strong style="color:#fff;">🏦 RETIRO DE TRADING USA</strong><br>Dólares retirados: $${fNum(usdMovCaja)} USD<br>Pesos recibidos: $${fNum(montoAbsoluto)} MXN<br>TC de conversión: $${fNum(tcMovCaja)}<br>Ganancia Real: ${signoGananciaRetiro}$${fNum(gananciaRetiro)} MXN (${signoGananciaRetiro}${pctGananciaRetiro.toFixed(2)}%)`;
+                detallesInversion = `<br><br><strong style="color:#fff;">🏦 RETIRO DE TRADING USA</strong><br>Dólares retirados: ${fMoneda(usdMovCaja)} USD<br>Pesos recibidos: ${fMoneda(montoAbsoluto)} MXN<br>TC de conversión: ${fMoneda(tcMovCaja)}<br>Ganancia Real: ${signoGananciaRetiro}${fMoneda(gananciaRetiro)} MXN (${signoGananciaRetiro}${pctGananciaRetiro.toFixed(2)}%)`;
             }
         } else if (tipoCat === 'inversion' && r.costo_accion > 0) {
             const tipoCambioHist = parseFloat(r.tipo_cambio) || 1;
@@ -6976,7 +6995,7 @@
                 const comisionBrokerUsd = invertidoUsd * 0.0025;
 
                 // Inyectamos el Costo Título, Total Invertido Puro Y la Comisión del Broker en la parte superior
-                infoTopInversion = `<br><span style="color: #aaa;">Costo título (Puro):</span> <strong style="color: #fff;">$${fNum(r.costo_accion)} USD</strong><br><span style="color: #aaa;">Total invertido (Puro):</span> <strong style="color: #fff;">$${fNum(invertidoUsd)} USD</strong><br><span style="color: #aaa;">Comisión Broker (0.25%):</span> <strong style="color: #fff;">$${fNum(comisionBrokerUsd)} USD</strong>`;
+                infoTopInversion = `<br><span style="color: #aaa;">Costo título (Puro):</span> <strong style="color: #fff;">${fMoneda(r.costo_accion)} USD</strong><br><span style="color: #aaa;">Total invertido (Puro):</span> <strong style="color: #fff;">${fMoneda(invertidoUsd)} USD</strong><br><span style="color: #aaa;">Comisión Broker (0.25%):</span> <strong style="color: #fff;">${fMoneda(comisionBrokerUsd)} USD</strong>`;
 
                 if (cat && cat.ticker && cachePreciosMercado[cat.ticker] && accionesVivas > 0.00001) {
                     const precioMercadoUsd = cachePreciosMercado[cat.ticker];
@@ -7003,12 +7022,12 @@
                     
                     const signoMxn = rendimientoMxn >= 0 ? '+' : '';
                     
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: $${fNum(costoInvertidoVivoMxn)} MXN<br>Monto Actual: $${fNum(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: $${fNum(tipoCambioHist)}<br>TC Hoy: $${fNum(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><strong style="font-size: 1.1em;">$${fNum(precioMercadoUsd)}</strong></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">$${fNum(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}$${fNum(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">$${fNum(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">$${fNum(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
                 } else if (window.cacheErroresMercado && window.cacheErroresMercado[cat.ticker] && accionesVivas > 0.00001) {
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: $${fNum(r.costo_accion)} USD<br>Invertido (Vivo): $${fNum(invertidoUsd)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: $${fNum(tipoCambioHist)}<br>TC Hoy: $${fNum(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Invertido (Vivo): ${fMoneda(invertidoUsd)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
                 } else {
                     const totalUsdOriginal = numAccionesOriginal * r.costo_accion;
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: $${fNum(r.costo_accion)} USD<br>Total Compra: $${fNum(totalUsdOriginal)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: $${fNum(tipoCambioHist)}<br>TC Hoy: $${fNum(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Total Compra: ${fMoneda(totalUsdOriginal)} USD<br><br><strong style="color:#3ecf8e;">💱 TIPO DE CAMBIO</strong><br>TC Compra: ${fMoneda(tipoCambioHist)}<br>TC Hoy: ${fMoneda(globalUsdToMxn)}<br>Rendimiento: ${signoTcHist}${porcentajeTcHist.toFixed(2)}%<br>Rendimiento Mensual: ${signoTcHist}${(porcentajeTcHist / divMeses).toFixed(2)}%/m`;
                 }
             } else if (tipoMovR === 'venta') {
                 const ventaUsd = parseFloat(r.monto_usd) || (numAccionesOriginal * r.costo_accion);
@@ -7019,7 +7038,7 @@
                 const signoGananciaUsd = gananciaUsd >= 0 ? '+' : '';
                 const costoUsdOriginal = ventaUsd - gananciaUsd;
                 const pctGananciaUsd = costoUsdOriginal > 0 ? (gananciaUsd / costoUsdOriginal) * 100 : 0;
-                detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA (queda en caja USD)</strong><br>Acciones Vendidas: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Precio Venta: $${fNum(r.costo_accion)} USD<br>Total Venta: $${fNum(ventaUsd)} USD<br>Ganancia USD: ${signoGananciaUsd}$${fNum(gananciaUsd)} USD (${signoGananciaUsd}${pctGananciaUsd.toFixed(2)}%)<br><span style="color:#4da6ff;">El dinero quedó en la caja GBM; la ganancia en pesos se realiza al retirar.</span>`;
+                detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA (queda en caja USD)</strong><br>Acciones Vendidas: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Precio Venta: ${fMoneda(r.costo_accion)} USD<br>Total Venta: ${fMoneda(ventaUsd)} USD<br>Ganancia USD: ${signoGananciaUsd}${fMoneda(gananciaUsd)} USD (${signoGananciaUsd}${pctGananciaUsd.toFixed(2)}%)<br><span style="color:#4da6ff;">El dinero quedó en la caja GBM; la ganancia en pesos se realiza al retirar.</span>`;
             } else {
                 let ganancia = 0;
                 if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
@@ -7029,20 +7048,20 @@
                 const costoOriginal = montoAbsoluto - ganancia;
                 const porcentajeGanancia = costoOriginal > 0 ? (ganancia / costoOriginal) * 100 : 0;
                 const ventaUsd = numAccionesOriginal * r.costo_accion;
-                detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA</strong><br>Acciones Vendidas: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Precio Venta: $${fNum(r.costo_accion)} USD<br>Total Venta: $${fNum(ventaUsd)} USD<br>Ganancia Real: ${signoGanancia}$${fNum(ganancia)} MXN (${signoGanancia}${porcentajeGanancia.toFixed(2)}%)`;
+                detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA</strong><br>Acciones Vendidas: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Precio Venta: ${fMoneda(r.costo_accion)} USD<br>Total Venta: ${fMoneda(ventaUsd)} USD<br>Ganancia Real: ${signoGanancia}${fMoneda(ganancia)} MXN (${signoGanancia}${porcentajeGanancia.toFixed(2)}%)`;
             }
         } else if (esEntrada && window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
             const ganancia = window.gananciaRealizadaMap[r.id];
             const signoGanancia = ganancia >= 0 ? '+' : '';
             const costoOriginal = montoAbsoluto - ganancia;
             const porcentajeGanancia = costoOriginal > 0 ? (ganancia / costoOriginal) * 100 : 0;
-            detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA</strong><br>Ganancia Real: ${signoGanancia}$${fNum(ganancia)} MXN (${signoGanancia}${porcentajeGanancia.toFixed(2)}%)`;
+            detallesInversion = `<br><br><strong style="color:#fff;">📉 DETALLES DE VENTA</strong><br>Ganancia Real: ${signoGanancia}${fMoneda(ganancia)} MXN (${signoGanancia}${porcentajeGanancia.toFixed(2)}%)`;
         }
         
         const htmlContenido = `
         <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${nombreCat}</strong><br>
         <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${r.descripcion || 'Ninguna'}</strong><br>
-        <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">$${fNum(montoAbsoluto)}</strong><br>
+        <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong><br>
         <span style="color: #aaa;">Fecha:</span> <strong style="color: #fff;">${fechaLocal}</strong>
         ${infoTopInversion}
         ${detallesInversion}
@@ -7118,7 +7137,7 @@
                                 montoUsd = montoInput / tipoCambio;
                                 cantidadAcciones = 0;
                                 if (tipoMovimiento === 'retiro' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
-                                    if (!confirm(`⚠️ Este retiro usa $${fNum(montoUsd)} USD pero la caja GBM registrada tiene $${fNum(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
+                                    if (!confirm(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
                                 }
                             } else if (tipoMovimiento === 'compra' || tipoMovimiento === 'venta') {
                                 if (!cantidadAcciones || cantidadAcciones <= 0 || costoAccion <= 0) {
@@ -7128,7 +7147,7 @@
                                 montoUsd = cantidadAcciones * costoAccion;
                                 montoFinal = 0; // No se mueven pesos: todo ocurre dentro de la caja USD
                                 if (tipoMovimiento === 'compra' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
-                                    if (!confirm(`⚠️ Esta compra usa $${fNum(montoUsd)} USD pero la caja GBM registrada tiene $${fNum(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
+                                    if (!confirm(`⚠️ Esta compra usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
                                 }
                                 if (tipoMovimiento === 'venta' && !editIdMov && cantidadAcciones > (catSeleccionada.totalAcciones || 0) + 0.00001) {
                                     if (!confirm(`⚠️ Estás vendiendo ${cantidadAcciones} acciones pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
@@ -7343,7 +7362,7 @@
                                         <div class="swipe-content" style="cursor:pointer; padding: 10px 12px;" onclick="cargarSugerenciaEnFormulario('${cat.id}')">
                                             <div style="flex:1; text-align: left;">
                                                 <strong style="color:${colorTipo}; font-size: 0.95em;">${cat.nombre}</strong><br>
-                                                <small style="color:#aaa; font-size: 0.8em;">Monto: $${fNum(cat.montoSugerido || 0)}</small>
+                                                <small style="color:#aaa; font-size: 0.8em;">Monto: ${fMoneda(cat.montoSugerido || 0)}</small>
                                             </div>
                                             <div style="text-align: right;">
                                                 <span style="font-size: 0.75em; font-weight: bold; color: #fff; background: ${badgeColor}; padding: 3px 6px; border-radius: 4px;">
@@ -7587,12 +7606,12 @@
                                     datosAgrupadosParaGrafico.sort((a, b) => a.fecha.localeCompare(b.fecha));
 
                                     // 3. Renderizamos las métricas
-                                    document.getElementById('resumenIngresos').textContent = `$${fNum(tIP)}`;
-                                    document.getElementById('resumenGastos').textContent = `$${fNum(tGP)}`;
+                                    document.getElementById('resumenIngresos').textContent = `${fMoneda(tIP)}`;
+                                    document.getElementById('resumenGastos').textContent = `${fMoneda(tGP)}`;
                                     
                                     const flujo = tIP - tGP;
                                     const balanceEl = document.getElementById('resumenBalance');
-                                    balanceEl.textContent = `$${fNum(flujo)}`;
+                                    balanceEl.textContent = `${fMoneda(flujo)}`;
                                     balanceEl.className = flujo >= 0 ? 'exito' : 'error';
 
                                     let optimizacionTexto = "0.0%";
@@ -7979,7 +7998,7 @@
                             let sombraDin = 'none';
 
                             if (window.estadoBotonCuenta === 0) {
-                            textoBadge = `Neto: $${fNum(totalCombinado)}`;
+                            textoBadge = `Neto: ${fMoneda(totalCombinado)}`;
                             colorFondoDin = totalCombinado >= 0 ? '#22c55e' : '#ff5c5c';
                             colorTextoDin = totalCombinado >= 0 ? '#000000' : '#ffffff';
                             } else if (window.estadoBotonCuenta === 1) {
@@ -7987,7 +8006,7 @@
                             colorFondoDin = rendimientoInversionMxn >= 0 ? '#22c55e' : '#ff5c5c';
                             colorTextoDin = rendimientoInversionMxn >= 0 ? '#000000' : '#ffffff';
                             } else {
-                            textoBadge = `${pctMensualAccesible.toFixed(2)}% / ${avgMesesAccesible.toFixed(1)}m | Acc: ${signoAccMonto}$${fNum(totalPlusvaliaAccesibleCuenta)}`;
+                            textoBadge = `${pctMensualAccesible.toFixed(2)}% / ${avgMesesAccesible.toFixed(1)}m | Acc: ${signoAccMonto}${fMoneda(totalPlusvaliaAccesibleCuenta)}`;
                             if (pctMensualAccesible <= 0) {
                             colorFondoDin = '#9ca3af'; colorTextoDin = '#000000';
                             } else if (pctMensualAccesible <= 0.5) {
@@ -8004,11 +8023,11 @@
                             const colorReal = totalCombinado >= 0 ? '#3ecf8e' : '#ff5c5c';
 
                             const lineaCajaGbm = cajaUsdCuenta > 0.005
-                            ? `<small style="color:#4da6ff; font-weight:bold; display:block; margin-top:2px;">Caja GBM: $${fNum(cajaUsdCuenta)} USD (~$${fNum(cajaUsdCuenta * globalUsdToMxn)})</small>`
+                            ? `<small style="color:#4da6ff; font-weight:bold; display:block; margin-top:2px;">Caja GBM: ${fMoneda(cajaUsdCuenta)} USD (~${fMoneda(cajaUsdCuenta * globalUsdToMxn)})</small>`
                             : '';
 
                             elInversionCuenta.innerHTML = `
-                            <small style="color:${colorReal}; font-weight:bold; display:block; margin-top:2px;">Real: $${fNum(valorInversiones)}</small>
+                            <small style="color:${colorReal}; font-weight:bold; display:block; margin-top:2px;">Real: ${fMoneda(valorInversiones)}</small>
                             ${lineaCajaGbm}
                             <div style="margin-top: 6px;">
                             <span style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorFondoDin}; box-shadow: ${sombraDin}; border: none; color: ${colorTextoDin}; font-weight: bold; white-space: nowrap; cursor: pointer; transition: all 0.3s;" onclick="event.stopPropagation(); window.estadoBotonCuenta = ((window.estadoBotonCuenta || 0) + 1) % 3; datosCuentas.forEach(c => actualizarUIValorActualCuenta(c.id));">
@@ -8089,7 +8108,7 @@
                                                                                         const idCat = elementId.replace('precio-mercado-', '');
                                                                                         const elMatrizPrecio = document.getElementById(`matriz-precio-${idCat}`);
                                                                                         if (elMatrizPrecio) {
-                                                                                            elMatrizPrecio.textContent = errorMsg ? '⚠️ Error' : `$${fNum(precioUsd)}`;
+                                                                                            elMatrizPrecio.textContent = errorMsg ? '⚠️ Error' : `${fMoneda(precioUsd)}`;
                                                                                         }
                                                                                         
                                                                                         // Forzamos al Treemap a repintarse para aplicar colores (verde/rojo)
