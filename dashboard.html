@@ -2882,13 +2882,22 @@
                             if (!costoBaseUsdMap[u.categoria_id]) costoBaseUsdMap[u.categoria_id] = 0;
                             if (!lotesPendientes[u.categoria_id]) lotesPendientes[u.categoria_id] = [];
 
-                            const usdCompra = usdRegistro || (acciones * parseFloat(u.costo_accion || 0));
+                            let usdCompra = usdRegistro || (acciones * parseFloat(u.costo_accion || 0));
                             let mxnCompra, tcLote;
 
                             if (tipoMov === 'compra_directa') {
                             // Pesos → acciones en un paso (registros históricos): el monto ES el costo MXN
                             mxnCompra = Math.abs(monto);
                             tcLote = parseFloat(u.tipo_cambio || 1);
+
+                            // Compras viejas que sólo guardaron los pesos, sin precio por acción: el costo en
+                            // dólares se reconstruye con el tipo de cambio del propio registro. Sin esto la
+                            // posición entra con costo cero en dólares y cualquier rendimiento en esa moneda
+                            // sale disparado. Si el registro tampoco trae tipo de cambio no se inventa nada:
+                            // se queda en cero, porque dividir entre 1 sería contar pesos como dólares.
+                            if (!(usdCompra > 0) && mxnCompra > 0 && tcLote > 1) {
+                            usdCompra = mxnCompra / tcLote;
+                            }
                             } else {
                             // Compra pagada con la caja USD: hereda el TC promedio real de las aportaciones
                             tcLote = caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1);
@@ -5495,7 +5504,10 @@
                             const TIPOS_PASTILLA_TREEMAP = [
                                 {
                                     tipo: 'inversion', boton: 'btnTreemapInversion', etiqueta: 'inversiones',
-                                    unidad: ['empresa', 'empresas'], avance: 'de lo invertido'
+                                    unidad: ['empresa', 'empresas'], avance: 'de lo invertido',
+                                    // Único mapa que no va en pesos, así que lo dice en el pie: las cifras de
+                                    // los recuadros son dólares y sin esto no habría cómo saberlo.
+                                    moneda: 'USD'
                                 },
                                 {
                                     tipo: 'prestamo', boton: 'btnTreemapPrestamo', etiqueta: 'préstamos',
@@ -5689,23 +5701,28 @@
                             // ganancia, llena y con la raya de lo que costó por dentro.
                             function datosInversionesTreemap() {
                                 return datosCategorias
-                                    .filter(cat => cat.tipo === 'inversion' && (cat.costoBaseInvertido || 0) > 0)
+                                    .filter(cat => cat.tipo === 'inversion')
                                     .map(cat => {
-                                        const costo = cat.costoBaseInvertido || 0;
+                                        // Todo en dólares, que es la moneda en la que se compran las acciones.
+                                        // Medir el valor de hoy contra un costo en pesos mezclaba dos cosas
+                                        // distintas: lo que hizo la empresa y lo que hizo el tipo de cambio. Una
+                                        // acción plana en dólares aparecía en verde si el peso se había
+                                        // depreciado, y el mapa no sabía decir cuánto era de cada quién.
+                                        const costo = cat.costoBaseInvertidoUsd || 0;
                                         const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
+                                        const valor = precio ? (cat.totalAcciones || 0) * precio : 0;
 
-                                        // Sin precio de mercado —o sin ticker, como el efectivo de la casa de
-                                        // bolsa— lo único que se sabe es lo que costó. Se pinta como recuadro
-                                        // lleno y de una sola cifra, sin inventar una ganancia que no se conoce.
-                                        if (!precio) {
-                                            return { id: String(cat.id), cat, nombre: cat.ticker || cat.nombre, monto: costo, real: costo, esperado: 0 };
-                                        }
+                                        const base = { id: String(cat.id), cat: cat, nombre: cat.ticker || cat.nombre };
 
-                                        const valor = (cat.totalAcciones || 0) * precio * globalUsdToMxn;
+                                        // Sin precio de mercado lo único que se sabe es lo que costó, y de una
+                                        // compra vieja sin costo por acción, sólo lo que vale hoy. En los dos
+                                        // casos el recuadro sale lleno y con una sola cifra: no hay con qué
+                                        // comparar, y no se inventa una ganancia que no se conoce.
+                                        if (!(costo > 0)) return { ...base, monto: valor, real: valor, esperado: 0 };
+                                        if (!precio) return { ...base, monto: costo, real: costo, esperado: 0 };
+
                                         return {
-                                            id: String(cat.id),
-                                            cat: cat,
-                                            nombre: cat.ticker || cat.nombre,
+                                            ...base,
                                             monto: Math.max(costo, valor),
                                             real: valor,
                                             esperado: costo
@@ -6209,7 +6226,7 @@
                                         const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}</span>
-                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}</span></strong>
+                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${modoActivo && modoActivo.moneda ? ' ' + modoActivo.moneda : ''}</span></strong>
                                         `;
                                     } else {
                                         totalEl.innerHTML = `
