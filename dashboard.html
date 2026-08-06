@@ -272,10 +272,14 @@
             border-radius: 3px;
             background: #5a5a5e;
         }
+        /* Barra de navegación de la hoja: título centrado y la acción a la derecha.
+           Las columnas laterales son iguales para que el título no se descentre. */
         .hoja-ios-encabezado {
             flex: 0 0 auto;
-            padding: 2px 20px 12px;
-            text-align: center;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            padding: 2px 12px 12px;
             /* La línea aparece solo cuando el contenido se mete debajo, como en iOS. */
             border-bottom: 1px solid transparent;
             transition: border-color 0.2s ease;
@@ -283,41 +287,36 @@
         }
         .hoja-ios-encabezado.con-separador { border-bottom-color: rgba(255, 255, 255, 0.14); }
         .hoja-ios-encabezado h3 {
+            grid-column: 2;
             margin: 0;
             font-size: 17px;
             font-weight: 600;
             letter-spacing: -0.02em;
             color: #ffffff;
         }
-        .hoja-ios-encabezado p {
-            margin: 2px 0 0;
-            font-size: 13px;
-            color: #8e8e93;
+        .hoja-ios-accion {
+            grid-column: 3;
+            justify-self: end;
+            width: auto;
+            margin: 0;
+            padding: 4px 6px;
+            background: none;
+            background-color: transparent;
+            color: #3ecf8e;
+            font-size: 17px;
+            font-weight: 600;
             letter-spacing: -0.01em;
+            border-radius: 8px;
         }
+        .hoja-ios-accion:hover { background-color: rgba(62, 207, 142, 0.12); }
+        .hoja-ios-accion:active { opacity: 0.4; }
         .hoja-ios-cuerpo {
             flex: 1 1 auto;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             overscroll-behavior: contain;
-            padding: 16px 20px;
-        }
-        .hoja-ios-pie {
-            flex: 0 0 auto;
-            display: flex;
-            gap: 10px;
-            padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-            background: #1f1f1f;
-        }
-        .hoja-ios-pie button {
-            margin: 0;
-            flex: 1;
-            padding: 14px;
-            border-radius: 12px;
-            font-size: 17px;
-            font-weight: 600;
-            letter-spacing: -0.01em;
+            /* Sin pie fijo, el respiro de abajo (y el indicador del iPhone) lo pone el cuerpo. */
+            padding: 16px 20px calc(20px + env(safe-area-inset-bottom));
         }
 
         .grid-atajos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
@@ -796,7 +795,7 @@
     <div class="hoja-ios-tirador" id="tiradorHojaFiltros"></div>
     <div class="hoja-ios-encabezado" id="encabezadoHojaFiltros">
         <h3>Filtro</h3>
-        <p>Desliza hacia abajo para cerrar</p>
+        <button type="button" class="hoja-ios-accion" onclick="confirmarHojaFiltros()">Listo</button>
     </div>
     <div class="hoja-ios-cuerpo">
 
@@ -846,10 +845,6 @@
             </div>
         </div>
 
-        </div>
-
-        <div class="hoja-ios-pie">
-        <button onclick="aplicarRangoManual()">Aplicar Rango</button>
         </div>
             </div>
         </div>
@@ -1786,6 +1781,15 @@
                                 hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
                             }
 
+                            // El "Listo" del encabezado: cierra la hoja y, si hay fechas escritas,
+                            // aplica antes ese rango. Sin fechas no toca el tipo de filtro vigente.
+                            function confirmarHojaFiltros() {
+                                const inicio = document.getElementById('filtroInicio').value;
+                                const fin = document.getElementById('filtroFin').value;
+                                if (inicio || fin) aplicarRangoManual();
+                                cerrarModalFiltros();
+                            }
+
                             // Arrastre de la hoja de filtros: se agarra por el tirador, el encabezado o,
                             // con el dedo, por el cuerpo cuando ya está arriba del todo. Como no hay
                             // botón de cerrar, este gesto es la única salida junto al fondo y Escape.
@@ -1802,6 +1806,7 @@
                                 let yPrevia = 0;
                                 let instantePrevio = 0;
                                 let velocidad = 0;
+                                let seMovio = false;
 
                                 function iniciar(y) {
                                     yInicial = y;
@@ -1809,6 +1814,7 @@
                                     instantePrevio = Date.now();
                                     desplazamiento = 0;
                                     velocidad = 0;
+                                    seMovio = false;
                                     arrastrando = true;
                                     hoja.classList.add('hoja-arrastrando');
                                 }
@@ -1817,6 +1823,7 @@
                                     if (!arrastrando) return;
                                     // Hacia arriba no se estira: la hoja solo baja.
                                     desplazamiento = Math.max(0, y - yInicial);
+                                    if (desplazamiento > 6) seMovio = true;
                                     const ahora = Date.now();
                                     const lapso = ahora - instantePrevio;
                                     if (lapso > 0) velocidad = (y - yPrevia) / lapso;
@@ -1851,6 +1858,17 @@
                                     zona.addEventListener('touchcancel', soltar);
                                     zona.addEventListener('mousedown', e => { iniciar(e.clientY); e.preventDefault(); });
                                 });
+
+                                // El encabezado arrastra entero, botón incluido: si el dedo se movió,
+                                // el gesto manda y el clic de "Listo" no llega a dispararse.
+                                if (encabezado) {
+                                    encabezado.addEventListener('click', e => {
+                                        if (!seMovio) return;
+                                        seMovio = false;
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                    }, true);
+                                }
 
                                 // En el cuerpo el gesto compite con el desplazamiento del contenido:
                                 // solo se convierte en arrastre si ya estaba arriba del todo y el dedo baja.
