@@ -164,18 +164,32 @@ COMMIT;
 -- =============================================================================
 -- PASO 2 · VERIFICACIÓN POSTERIOR  (los totales deben coincidir con el PASO 0)
 -- =============================================================================
--- 2.1 El dinero total que salió de cada cuenta no cambió:
+-- 2.1 El dinero total que salió de cada cuenta no cambió.
+--     Cada total se calcula en su propia subconsulta: cruzar registros y
+--     respaldo con JOINs paralelos multiplicaría las filas entre sí y daría
+--     sumas infladas en las categorías con más de un movimiento.
 SELECT
-    cu.nombre                          AS cuenta,
-    ROUND(SUM(b.monto)::numeric, 2)    AS pesos_antes,
-    ROUND(SUM(r.monto)::numeric, 2)    AS pesos_despues,
-    CASE WHEN ROUND(SUM(b.monto)::numeric, 2) = ROUND(SUM(r.monto)::numeric, 2)
+    cu.nombre AS cuenta,
+    ROUND(COALESCE((
+        SELECT SUM(b.monto) FROM registros_backup_pre_caja_gbm b
+        JOIN categorias c ON c.id = b.categoria_id
+        WHERE c.cuenta_id = cu.id
+    ), 0)::numeric, 2) AS pesos_antes,
+    ROUND(COALESCE((
+        SELECT SUM(r.monto) FROM registros r
+        JOIN categorias c ON c.id = r.categoria_id
+        WHERE c.cuenta_id = cu.id
+    ), 0)::numeric, 2) AS pesos_despues,
+    CASE WHEN ROUND(COALESCE((
+             SELECT SUM(b.monto) FROM registros_backup_pre_caja_gbm b
+             JOIN categorias c ON c.id = b.categoria_id
+             WHERE c.cuenta_id = cu.id), 0)::numeric, 2)
+            = ROUND(COALESCE((
+             SELECT SUM(r.monto) FROM registros r
+             JOIN categorias c ON c.id = r.categoria_id
+             WHERE c.cuenta_id = cu.id), 0)::numeric, 2)
          THEN '✅ CUADRA' ELSE '❌ REVISAR' END AS resultado
 FROM cuentas cu
-LEFT JOIN categorias c ON c.cuenta_id = cu.id
-LEFT JOIN registros  r ON r.categoria_id = c.id
-LEFT JOIN registros_backup_pre_caja_gbm b ON b.categoria_id = c.id
-GROUP BY cu.nombre
 ORDER BY cu.nombre;
 
 -- 2.2 Cada compra migrada reconstruye su costo original al centavo:
@@ -188,10 +202,19 @@ SELECT
 FROM registros r
 JOIN registros_backup_pre_caja_gbm b ON b.id = r.id
 JOIN categorias emp ON emp.id = r.categoria_id
-JOIN registros a    ON a.tipo_movimiento = 'aportacion'
-                   AND a.fecha = r.fecha - interval '1 second'
-                   AND a.user_id = r.user_id
+JOIN LATERAL (
+    -- La aportación que precede a esta compra, en la Caja GBM de su misma cuenta
+    SELECT a.tipo_cambio
+    FROM registros a
+    JOIN categorias caja ON caja.id = a.categoria_id
+    WHERE a.tipo_movimiento = 'aportacion'
+      AND a.fecha    = r.fecha - interval '1 second'
+      AND a.user_id  = r.user_id
+      AND caja.cuenta_id = emp.cuenta_id
+    LIMIT 1
+) a ON true
 WHERE r.tipo_movimiento = 'compra'
+  AND r.descripcion LIKE '%[migrado]'
 ORDER BY emp.nombre;
 
 
