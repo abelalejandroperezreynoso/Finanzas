@@ -1195,6 +1195,20 @@
                                                                                 return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                                                                 }
 
+                    // El saldo de arriba va en letra grande y se lee de un vistazo: unos centavos en cero sólo
+                    // le roban sitio a las cifras que importan, así que ahí se omiten. El resto de importes de
+                    // la app siguen con sus dos decimales, que en una lista alinean la columna.
+                    // El redondeo se hace antes de decidir para no acabar con un "$12,541" que por dentro era
+                    // 12540.999 y un "$12,541.00" en otra parte de la pantalla.
+                    function fNumSaldo(num) {
+                        const valor = Number(num) || 0;
+                        const sinCentavos = Math.round(valor * 100) % 100 === 0;
+                        return valor.toLocaleString('en-US', {
+                            minimumFractionDigits: sinCentavos ? 0 : 2,
+                            maximumFractionDigits: 2
+                        });
+                    }
+
                     function calcularMedianaEstadistica(valores) {
                         if (!valores || valores.length === 0) return 0;
                         const ordenados = [...valores].sort((a, b) => a - b);
@@ -4048,7 +4062,7 @@
                                         saldoTotal -= ahorroSimulado;
                                     }
                                     
-                                    document.getElementById('saldoTotalDisponible').textContent = `$${fNum(saldoTotal)}`;
+                                    document.getElementById('saldoTotalDisponible').textContent = `$${fNumSaldo(saldoTotal)}`;
                                     ajustarSaldoAlAncho();
 
                                     // 4. Renderizamos UI (Pasamos el nuevo parámetro a la gráfica)
