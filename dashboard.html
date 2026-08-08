@@ -6244,43 +6244,6 @@
                                 return datos;
                             }
 
-                            // Los dólares de una cuenta que aún no están en ninguna empresa. Antes se quedaban
-                            // fuera del mapa —"unos dólares esperando no son una posición"— y por eso el recuadro
-                            // de la cuenta salía más chico que la cuenta: la ficha que abre ese mismo recuadro sí
-                            // los cuenta, y las dos cosas no podían decir cantidades distintas del mismo dinero.
-                            // Es además el razonamiento que ya hace la ficha: comprar una acción no cambia tu
-                            // exposición al peso, sólo cambia de forma los mismos dólares.
-                            //
-                            // Entra con la forma que el mapa ya tiene para el dinero sin ganancia que reportar
-                            // —la de una empresa sin precio de mercado—: el recuadro sale lleno, con una sola
-                            // cifra y sin porcentaje. Aquí es literal, no un apaño: medido en dólares, que es la
-                            // vara del mapa, un dólar en la caja vale un dólar. Lo que sí ha rendido es el tipo
-                            // de cambio, y eso el mapa lo deja fuera a propósito para que no se confunda con lo
-                            // que hicieron las empresas; tiene su renglón —"Ganancia cambiaria"— en la ficha de
-                            // la cuenta, que es justo lo que abre sostener el dedo encima.
-                            function cajasTreemap(factor) {
-                                const cajas = window.cajaUsdPorCuenta || {};
-
-                                return Object.keys(cajas).map(idCuenta => {
-                                    const usd = (cajas[idCuenta] || {}).usd || 0;
-                                    if (!(usd > 0.005)) return null;
-
-                                    const monto = usd * factor;
-                                    return {
-                                        id: `caja:${idCuenta}`,
-                                        // No es de ninguna categoría, pero es de la misma materia que las
-                                        // empresas: hereda su color y el resto del dibujo no nota nada.
-                                        cat: { tipo: 'inversion', cuenta_id: idCuenta },
-                                        cuentaId: String(idCuenta),
-                                        esCaja: true,
-                                        nombre: 'Caja USD',
-                                        monto: monto,
-                                        real: monto,
-                                        esperado: 0
-                                    };
-                                }).filter(d => d && d.monto > 0);
-                            }
-
                             // El mapa de inversiones no mira el periodo: una posición es una foto de hoy, no algo
                             // que ocurra dentro de un mes. Cada recuadro es una empresa; vale lo que costó y se
                             // llena con lo que vale hoy, así una posición a la baja sale a medio llenar y una en
@@ -6332,8 +6295,7 @@
 
                                         return empresa;
                                     })
-                                    .filter(d => d.monto > 0)
-                                    .concat(cajasTreemap(factor));
+                                    .filter(d => d.monto > 0);
                             }
 
                             // ---- Lo accesible: lo que se puede vender hoy sin realizar una pérdida ----
@@ -6425,12 +6387,7 @@
 
                                         return empresa;
                                     })
-                                    .filter(d => d && d.monto > 0)
-                                    // Si en algún sitio la caja tiene que estar es aquí: es el dinero más
-                                    // accesible de la cuenta. No hay que vender nada para tomarlo, así que entra
-                                    // entero y sin pérdida que evitar. Lo accesible se cuenta en pesos, de ahí
-                                    // que los dólares se valúen al cambio de hoy antes de aplicar el factor.
-                                    .concat(cajasTreemap((globalUsdToMxn || 1) * factor));
+                                    .filter(d => d && d.monto > 0);
                             }
 
                             // Y la capa de compras: las mismas que la de arriba acaba de sumar, una por recuadro
@@ -6468,46 +6425,36 @@
                             // de abajo en vez de calcularlo por su cuenta: así una capa no puede contradecir a otra
                             // y lo que se ve al entrar reparte exactamente lo que había en el recuadro tocado.
                             //
-                            // La caja de la cuenta entra como un recuadro más de la capa de abajo, así que llega
-                            // aquí sumada sin que este reparto tenga que saber nada de ella: un recuadro sin
-                            // ganancia que reportar ya se contaba por su monto, y la caja es exactamente eso.
-                            // Antes se quedaba fuera del mapa y el recuadro de la cuenta salía más chico que la
-                            // cuenta que abría al sostener el dedo.
+                            // Aquí no entra la caja GBM: unos dólares esperando no son una posición, y el mapa
+                            // pinta lo que está puesto en empresas. El total de la cuenta con su caja está en la
+                            // ficha que abre la pulsación larga.
                             function agruparPorCuentaTreemap(empresas) {
                                 const porCuenta = {};
 
                                 empresas.forEach(d => {
                                     const idCuenta = String(d.cat.cuenta_id);
-                                    if (!porCuenta[idCuenta]) porCuenta[idCuenta] = { valor: 0, costo: 0, mesesPonderados: 0, valorRitmo: 0, costoRitmo: 0 };
+                                    if (!porCuenta[idCuenta]) porCuenta[idCuenta] = { valor: 0, costo: 0, mesesPonderados: 0, pesoMeses: 0, conPrecio: false };
                                     porCuenta[idCuenta].valor += d.real;
                                     // Una empresa sin precio de mercado vale lo que costó y entra en tablas, que
                                     // es como el pie del mapa suma el portafolio entero: sin precio no hay
-                                    // ganancia que reclamar, pero su dinero sigue estando ahí. La caja entra por
-                                    // esta misma puerta.
+                                    // ganancia que reclamar, pero su dinero sigue estando ahí.
                                     const peso = d.esperado > 0 ? d.esperado : d.monto;
                                     porCuenta[idCuenta].costo += peso;
+                                    if (d.esperado > 0) porCuenta[idCuenta].conPrecio = true;
 
-                                    // El ritmo se saca aparte, y sólo con lo que tiene ritmo. Un recuadro sin
-                                    // ganancia que reportar —la caja, una empresa sin precio— suma su dinero al
-                                    // tamaño de la cuenta, que es lo que la cuenta tiene, pero no puede entrar en
-                                    // el reparto: no trae meses con los que ponderar, y contarlo en el costo sin
-                                    // contarlo en la antigüedad daría un ritmo de una base repartido entre los
-                                    // meses de otra.
-                                    //
-                                    // La antigüedad va ponderada por lo que costó cada empresa, igual que la de
-                                    // una empresa es la de sus compras: una posición chica y vieja no puede
-                                    // arrastrar el ritmo de toda la cuenta.
-                                    if (d.meses !== undefined && d.esperado > 0) {
-                                        porCuenta[idCuenta].mesesPonderados += d.meses * d.esperado;
-                                        porCuenta[idCuenta].valorRitmo += d.real;
-                                        porCuenta[idCuenta].costoRitmo += d.esperado;
+                                    // La antigüedad de la cuenta es la de sus empresas ponderada por lo que
+                                    // costó cada una, igual que la de una empresa es la de sus compras: una
+                                    // posición chica y vieja no puede arrastrar el ritmo de toda la cuenta.
+                                    if (d.meses !== undefined) {
+                                        porCuenta[idCuenta].mesesPonderados += d.meses * peso;
+                                        porCuenta[idCuenta].pesoMeses += peso;
                                     }
                                 });
 
                                 const vistos = {};
                                 return Object.keys(porCuenta).map(idCuenta => {
                                     const cuenta = (datosCuentas || []).find(c => String(c.id) === idCuenta);
-                                    const { valor, costo, mesesPonderados, valorRitmo, costoRitmo } = porCuenta[idCuenta];
+                                    const { valor, costo, mesesPonderados, pesoMeses, conPrecio } = porCuenta[idCuenta];
 
                                     // Dos cuentas pueden llamarse igual y el recuadro se busca por su etiqueta
                                     let nombre = cuenta ? cuenta.nombre : 'Sin cuenta';
@@ -6525,14 +6472,13 @@
                                         esperado: costo
                                     };
 
-                                    // Sin una sola empresa que cotice no hay ritmo que dar: el valor de hoy sería
-                                    // el costo copiado, y decir "+0.00%/m" sonaría a que no ha rendido nada
-                                    // cuando lo que pasa es que no se sabe. Una cuenta que hoy sólo tiene caja
-                                    // cae justo aquí: se dibuja con su dinero y sin ritmo.
-                                    const meses = costoRitmo > 0 ? mesesPonderados / costoRitmo : 0;
-                                    if (costoRitmo > 0 && meses > 0) {
+                                    // Sin una sola empresa que cotice no hay ritmo que dar: el valor de hoy es el
+                                    // costo copiado, y decir "+0.00%/m" sonaría a que no ha rendido nada cuando
+                                    // lo que pasa es que no se sabe.
+                                    const meses = pesoMeses > 0 ? mesesPonderados / pesoMeses : 0;
+                                    if (conPrecio && meses > 0 && costo > 0) {
                                         tile.meses = meses;
-                                        tile.mensual = ((valorRitmo - costoRitmo) / costoRitmo) * 100 / divisorMeses(meses);
+                                        tile.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
                                     }
 
                                     return tile;
@@ -7314,19 +7260,12 @@
                                     conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
-                                        // La caja no se abre: no hay compras dentro de unos dólares esperando.
-                                        // Se queda quieta en vez de fingir una capa vacía.
-                                        if (d.esCaja) return;
                                         if (empresaAbierta) subirNivelTreemap();
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
-                                        // Sostener el dedo sobre la caja lleva a la ficha de su cuenta, que es
-                                        // donde vive su desglose: los dólares de hoy, lo que costaron y la
-                                        // ganancia cambiaria que el mapa deja fuera a propósito.
-                                        if (d.esCaja) { verDetallesCuenta(d.cuentaId); return; }
                                         if (empresaAbierta) verDetallesMovimiento(d.id);
                                         else if (cuentaAbierta || !hayCapaCuentas) verDetallesCategoria(d.id);
                                         else verDetallesCuenta(d.id);
@@ -7342,14 +7281,9 @@
                                     const unidadNivel = empresaAbierta ? ['compra', 'compras']
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
                                         : (modoActivo ? modoActivo.unidad : null);
-                                    // La caja no es una empresa y contarla como tal haría que el pie dijera una
-                                    // de más. Va aparte, nombrada, que además avisa de que ese recuadro está ahí.
-                                    const cajasVisibles = datos.filter(d => d.esCaja).length;
-                                    const contadas = totalCategorias - cajasVisibles;
-                                    const etiquetaUnidad = unidadNivel
-                                        ? `${contadas} ${contadas === 1 ? unidadNivel[0] : unidadNivel[1]}`
-                                        : `${contadas} ${contadas === 1 ? 'categoría' : 'categorías'}`;
-                                    const etiquetaCats = cajasVisibles > 0 ? `${etiquetaUnidad} · caja` : etiquetaUnidad;
+                                    const etiquetaCats = unidadNivel
+                                        ? `${totalCategorias} ${totalCategorias === 1 ? unidadNivel[0] : unidadNivel[1]}`
+                                        : `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
 
                                     // En modo avance el pie deja de ser un total y pasa a ser el marcador del mes:
                                     // lo que llevas frente a lo que se espera. Sólo cuentan las que tienen objetivo,
