@@ -1398,6 +1398,33 @@
                         return `${signo}$${formatear(Math.abs(valor))}`;
                     }
 
+                    // La antigüedad de una posición se usa para dos cosas que no piden lo mismo, y durante mucho
+                    // tiempo se resolvieron con un solo número redondeado hacia arriba. Por eso una compra de hace
+                    // cinco días se anunciaba como "1.0m": no es que se calculara mal el tiempo, es que se estaba
+                    // enseñando el divisor.
+                    //
+                    // Para escribirla va tal cual —esa compra lleva 0.2 meses—, porque es un dato sobre cuándo
+                    // compraste y no admite retoques.
+                    //
+                    // Para repartir la ganancia entre los meses, en cambio, un mes es el suelo: dividir un +3%
+                    // entre 0.16 meses daría "+18%/m", un ritmo que no ha ocurrido —sería proyectar a un año lo
+                    // que el mercado hizo en una semana— y que además dejaría a las compras recién hechas
+                    // encabezando siempre cualquier comparación. Con el suelo, esa misma compra se lee
+                    // "+3.00% /0.2m": un ritmo prudente, y unos meses que avisan de que aún es pronto para
+                    // juzgarlo.
+                    const DIAS_POR_MES = 30.416;
+
+                    function mesesTranscurridos(fecha) {
+                        const cuando = (fecha instanceof Date) ? fecha.getTime() : new Date(fecha).getTime();
+                        if (isNaN(cuando)) return 0;
+                        return Math.max(0, (Date.now() - cuando) / (1000 * 60 * 60 * 24 * DIAS_POR_MES));
+                    }
+
+                    // El único sitio donde el suelo es legítimo: al dividir entre meses, nunca al mostrarlos.
+                    function divisorMeses(meses) {
+                        return Math.max(1, Number(meses) || 0);
+                    }
+
                     function calcularMedianaEstadistica(valores) {
                         if (!valores || valores.length === 0) return 0;
                         const ordenados = [...valores].sort((a, b) => a - b);
@@ -3656,7 +3683,7 @@
                                                                                                                                         const totalInvertido = cat.costoBaseInvertido || 0;
                                                                                                                                         const totalInvertidoUsd = cat.costoBaseInvertidoUsd || 0;
                                                                                                                                         const tcPromedioExacto = cat.tcPromedioExacto || 0;
-                                                                                                                                        const mesesPromedioExacto = Math.max(1, cat.mesesPromedioExacto || 1);
+                                                                                                                                        const mesesPromedioExacto = cat.mesesPromedioExacto || 0;
 
                                                                                                                                         const costoPromedioMxn = totalAcciones > 0 ? totalInvertido / totalAcciones : 0;
                                                                                                                                         const invertidoUsdMostrar = totalInvertidoUsd > 0 ? totalInvertidoUsd : (totalInvertido / globalUsdToMxn);
@@ -3714,8 +3741,7 @@
                                                                                                                                         plusvaliaAccesibleCat += plusvaliaLoteMxn;
                                                                                                                                         costoInvertidoAccesibleCat += costoInvertidoVivoMxn;
 
-                                                                                                                                        let mesesLote = (fechaHoyCat - new Date(lote.fecha)) / (1000 * 60 * 60 * 24 * 30.4167);
-                                                                                                                                        if (mesesLote < 1) mesesLote = 1;
+                                                                                                                                        let mesesLote = mesesTranscurridos(lote.fecha);
                                                                                                                                         mesesPonderadosAccesibleCat += (mesesLote * costoInvertidoVivoMxn);
                                                                                                                                         } else {
                                                                                                                                         break;
@@ -3727,10 +3753,9 @@
                                                                                                                                         plusvaliaAccesibleCat += realizadaCatMxn;
                                                                                                                                         costoInvertidoAccesibleCat += costoVendidoCatMxn;
 
-                                                                                                                                        let avgMesesAccesibleCat = costoInvertidoAccesibleCat > 0 ? (mesesPonderadosAccesibleCat / costoInvertidoAccesibleCat) : 1;
-                                                                                                                                        if (avgMesesAccesibleCat < 1) avgMesesAccesibleCat = 1;
-                                                                                                                                        const pctTotalAccesibleCat = costoInvertidoAccesibleCat > 0 ? (plusvaliaAccesibleCat / costoInvertidoAccesibleCat) * 100 : 0;
-                                                                                                                                        const pctMensualAccesibleCat = pctTotalAccesibleCat / avgMesesAccesibleCat;
+                                                                                                                                        let avgMesesAccesibleCat = costoInvertidoAccesibleCat > 0 ? (mesesPonderadosAccesibleCat / costoInvertidoAccesibleCat) : 0;
+                                                                                                                                                                                                                                                                                const pctTotalAccesibleCat = costoInvertidoAccesibleCat > 0 ? (plusvaliaAccesibleCat / costoInvertidoAccesibleCat) * 100 : 0;
+                                                                                                                                        const pctMensualAccesibleCat = pctTotalAccesibleCat / divisorMeses(avgMesesAccesibleCat);
                                                                                                                                         const signoPctAccesibleCat = pctMensualAccesibleCat >= 0 ? '+' : '';
 
                                                                                                                                         window.estadoBotonCategoria = window.estadoBotonCategoria || 0;
@@ -3751,7 +3776,7 @@
                                                                                                                                             colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
                                                                                                                                             colorTextoDin = rendimientoUsd >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else if (window.estadoBotonCategoria === 1) {
-                                                                                                                                        textoMostrar = `${signoUsd}${(porcentajeUsd / mesesPromedioExacto).toFixed(2)}% /${mesesPromedioExacto.toFixed(1)}m${marcaRealizadaCat}`;
+                                                                                                                                        textoMostrar = `${signoUsd}${(porcentajeUsd / divisorMeses(mesesPromedioExacto)).toFixed(2)}% /${mesesPromedioExacto.toFixed(1)}m${marcaRealizadaCat}`;
                                                                                                                                         colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
                                                                                                                                         colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else {
@@ -3789,7 +3814,7 @@
                                                                                                                                                 <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                                                                                                     <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
                                                                                                                                                     <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">${fMoneda(valorActualUsd)} USD</span><br>
-                                                                                                                                                    <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${porcentajeUsd.toFixed(2)}% <span style="opacity: 0.7; font-size: 0.85em;">(${signoUsd}${(porcentajeUsd / mesesPromedioExacto).toFixed(2)}%/m)</span></span>
+                                                                                                                                                    <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${porcentajeUsd.toFixed(2)}% <span style="opacity: 0.7; font-size: 0.85em;">(${signoUsd}${(porcentajeUsd / divisorMeses(mesesPromedioExacto)).toFixed(2)}%/m)</span></span>
                                                                                                                                                     ${hayRealizadaCat ? `<br><span style="color: #4da6ff; font-size: 0.8em;">✓ Realizado: ${realizadaCatMxn >= 0 ? '+' : ''}${fMoneda(realizadaCatMxn)}</span>` : ''}
                                                                                                                                                 </div>
                                                                                                                                             </div>
@@ -4568,11 +4593,9 @@
                                                 year: 'numeric', month: '2-digit', day: '2-digit'
                                                 });
 
-                                                let mesesEfectivosHistorial = 1;
+                                                let mesesEfectivosHistorial = 0;
                                                 if (tipoCat === 'inversion' && !isNaN(fechaObjeto)) {
-                                                const diasTranscurridos = Math.max(0, (new Date() - fechaObjeto) / (1000 * 60 * 60 * 24));
-                                                const mesesTranscurridos = diasTranscurridos / 30.416;
-                                                mesesEfectivosHistorial = Math.max(1, mesesTranscurridos);
+                                                mesesEfectivosHistorial = mesesTranscurridos(fechaObjeto);
                                                 }
 
                                                 let infoAcciones = "";
@@ -4686,7 +4709,7 @@
                                                                                                                                                                                                             montoArribaHtml = `<strong style="color: #ffffff; white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(valorActualMxn)}</strong>`;
                                                                                                                                                                                                             
                                                                                                                                                                                                             const textoMostrarHistorial = window.mostrarInversionEnPorcentaje
-                                                                                                                                                                                                                ? `${signoUsd}${(porcentajeUsd / mesesEfectivosHistorial).toFixed(2)}% /${mesesEfectivosHistorial.toFixed(1)}m`
+                                                                                                                                                                                                                ? `${signoUsd}${(porcentajeUsd / divisorMeses(mesesEfectivosHistorial)).toFixed(2)}% /${mesesEfectivosHistorial.toFixed(1)}m`
                                                                                                                                                                                                                 : `${signoUsd}${fMoneda(rendimientoUsd)} (${signoUsd}${porcentajeUsd.toFixed(2)}%) USD`;
 
                                                                                                                                                                                                                 montoAbajoHtml = `<span onclick="event.stopPropagation(); toggleModoInversion(event); aplicarFiltrosYRenderizar();" style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: ${colorUsd}; border: none; color: ${rendimientoUsd >= 0 ? '#000000' : '#ffffff'}; font-weight: bold; white-space: nowrap; cursor: pointer; margin-top: 2px;">${textoMostrarHistorial}</span>`;
@@ -4701,7 +4724,7 @@
                                                                         <div style="text-align: right; line-height: 1.3; min-width: max-content; padding-left: 10px;">
                                                                             <span style="color: #888; font-size: 0.75em; text-transform: uppercase;">Total Hoy</span><br>
                                                                             <span style="color: ${colorUsd}; font-weight: bold; font-size: 1.1em;">${fMoneda(valorActualUsd)} USD</span><br>
-                                                                            <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${(porcentajeUsd / mesesEfectivosHistorial).toFixed(2)}%/m</span>
+                                                                            <span style="color: ${colorUsd}; font-size: 0.9em;">${signoUsd}${(porcentajeUsd / divisorMeses(mesesEfectivosHistorial)).toFixed(2)}%/m</span>
                                                                         </div>
                                                                     </div>`;
                                                         } else if (window.cacheErroresMercado && window.cacheErroresMercado[cat.ticker] && accionesVivas > 0.00001) {
@@ -6268,7 +6291,7 @@
                                         // número, así que sale igual en pesos que en dólares. Un mes es el suelo:
                                         // repartir la ganancia de una compra de ayer entre unos días daría un
                                         // ritmo enorme que no significa nada.
-                                        if (meses > 0) empresa.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                        if (meses > 0) empresa.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
 
                                         return empresa;
                                     })
@@ -6342,11 +6365,10 @@
                                         // La antigüedad de lo accesible no es la de la empresa entera: aquí sólo
                                         // entran las compras que salen sin pérdida, así que se pondera con las
                                         // suyas. Es el mismo promedio con el que la ficha calcula su plusvalía
-                                        // mensual accesible.
-                                        const mesesPonderados = lotes.reduce((acc, l) => {
-                                            const m = mesesDesdeTreemap(l.registro.fecha);
-                                            return acc + Math.max(1, m === null ? 1 : m) * l.costo;
-                                        }, 0);
+                                        // mensual accesible. Cada lote entra con los meses que de verdad lleva:
+                                        // el suelo de un mes es cosa del divisor, y aplicarlo aquí envejecería el
+                                        // promedio de una empresa comprada hace días.
+                                        const mesesPonderados = lotes.reduce((acc, l) => acc + mesesTranscurridos(l.registro.fecha) * l.costo, 0);
                                         const meses = costoBase > 0 ? mesesPonderados / costoBase : 0;
 
                                         const empresa = {
@@ -6360,7 +6382,7 @@
 
                                         if (meses > 0 && costo > 0) {
                                             empresa.meses = meses;
-                                            empresa.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                            empresa.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
                                         }
 
                                         return empresa;
@@ -6391,7 +6413,7 @@
                                     const meses = mesesDesdeTreemap(registro.fecha);
                                     if (meses !== null && costo > 0) {
                                         lote.meses = meses;
-                                        lote.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                        lote.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
                                     }
 
                                     return lote;
@@ -6456,7 +6478,7 @@
                                     const meses = pesoMeses > 0 ? mesesPonderados / pesoMeses : 0;
                                     if (conPrecio && meses > 0 && costo > 0) {
                                         tile.meses = meses;
-                                        tile.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                        tile.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
                                     }
 
                                     return tile;
@@ -6478,13 +6500,14 @@
                                 return tc > 1 ? Math.abs(parseFloat(u.monto) || 0) / tc : 0;
                             }
 
-                            // Meses transcurridos desde una fecha, con el mismo mes de 30.416 días con el que la
-                            // ficha del lote cuenta los suyos: el recuadro y la ficha que abre no pueden decir
-                            // dos antigüedades distintas de la misma compra.
+                            // Los meses de una compra, con la misma cuenta que lleva el resto de la app: el
+                            // recuadro y la ficha que abre no pueden decir dos antigüedades distintas de la
+                            // misma compra. Lo único que agrega es distinguir una fecha ilegible, que aquí vale
+                            // null para que el recuadro se quede sin renglón de ritmo en vez de anunciar "0.0m"
+                            // como si la compra fuera de hoy.
                             function mesesDesdeTreemap(fechaISO) {
-                                const cuando = new Date(fechaISO).getTime();
-                                if (isNaN(cuando)) return null;
-                                return Math.max(0, (Date.now() - cuando) / (1000 * 60 * 60 * 24 * 30.416));
+                                if (isNaN(new Date(fechaISO).getTime())) return null;
+                                return mesesTranscurridos(fechaISO);
                             }
 
                             // A un lote lo identifica el día en que se compró, y en un recuadro estrecho cabe:
@@ -6547,7 +6570,7 @@
                                         const meses = mesesDesdeTreemap(u.fecha);
                                         if (meses !== null) {
                                             lote.meses = meses;
-                                            lote.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                            lote.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
                                         }
 
                                         return lote;
@@ -7291,7 +7314,7 @@
                                             ? conRitmoPie.reduce((acc, d) => acc + d.meses * d.esperado, 0) / costoPie
                                             : 0;
                                         const mensualPie = costoPie > 0
-                                            ? ((valorPie - costoPie) / costoPie) * 100 / Math.max(1, mesesPie)
+                                            ? ((valorPie - costoPie) / costoPie) * 100 / divisorMeses(mesesPie)
                                             : 0;
                                         const resumenPie = (vistaMensual && costoPie > 0)
                                             ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}% /${mesesPie.toFixed(1)}m`
@@ -7799,7 +7822,7 @@
                             const costoPromedioMxn = cat.costoBaseInvertido / totalAcciones;
                             const invertidoUsdMostrar = cat.costoBaseInvertidoUsd > 0 ? cat.costoBaseInvertidoUsd : (cat.costoBaseInvertido / globalUsdToMxn);
                             const costoPromedioUsd = cat.costoBaseInvertidoUsd > 0 ? (cat.costoBaseInvertidoUsd / totalAcciones) : (costoPromedioMxn / globalUsdToMxn);
-                            const mesesEfectivosCat = Math.max(1, cat.mesesPromedioExacto);
+                            const mesesEfectivosCat = cat.mesesPromedioExacto || 0;
                             const valorActualUsd = totalAcciones * precioUsd;
                             const rendimientoUsd = valorActualUsd - invertidoUsdMostrar;
                             const porcentajeUsd = invertidoUsdMostrar > 0 ? (rendimientoUsd / invertidoUsdMostrar) * 100 : 0;
@@ -7834,8 +7857,7 @@
                             plusvaliaAccesible += plusvaliaLoteMxn;
                             costoInvertidoAccesible += costoInvertidoVivoMxn;
 
-                            let mesesLote = (fechaHoy - new Date(lote.fecha)) / (1000 * 60 * 60 * 24 * 30.4167);
-                            if (mesesLote < 1) mesesLote = 1;
+                            let mesesLote = mesesTranscurridos(lote.fecha);
                             mesesPonderadosAccesible += (mesesLote * costoInvertidoVivoMxn);
                             } else {
                             break;
@@ -7843,10 +7865,9 @@
                             }
                             }
 
-                            let avgMesesAccesible = costoInvertidoAccesible > 0 ? (mesesPonderadosAccesible / costoInvertidoAccesible) : 1;
-                            if (avgMesesAccesible < 1) avgMesesAccesible = 1;
-                            const pctTotalAccesible = costoInvertidoAccesible > 0 ? (plusvaliaAccesible / costoInvertidoAccesible) * 100 : 0;
-                            const pctMensualAccesible = pctTotalAccesible / avgMesesAccesible;
+                            let avgMesesAccesible = costoInvertidoAccesible > 0 ? (mesesPonderadosAccesible / costoInvertidoAccesible) : 0;
+                                                        const pctTotalAccesible = costoInvertidoAccesible > 0 ? (plusvaliaAccesible / costoInvertidoAccesible) * 100 : 0;
+                            const pctMensualAccesible = pctTotalAccesible / divisorMeses(avgMesesAccesible);
                             const signoAccesible = pctMensualAccesible >= 0 ? '+' : '';
 
                             const totalActualMxn = valorActualUsd * globalUsdToMxn;
@@ -7861,7 +7882,7 @@
                             <span style="color: #aaa;">Precio Mercado:</span> <strong style="color: #fff;">${fMoneda(precioUsd)} USD</strong><br>
                             <span style="color: #aaa;">Invertido:</span> <strong style="color: #fff;">${fMoneda(invertidoUsdMostrar)} USD</strong><br>
                             <span style="color: #aaa;">Promedio:</span> <strong style="color: #fff;">${fMoneda(costoPromedioUsd)} USD</strong><br>
-                            <span style="color: #aaa;">Total Hoy:</span> <strong style="color: #fff;">${fMoneda(valorActualUsd)} USD</strong> <span style="color: ${rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoUsd}${porcentajeUsd.toFixed(2)}% | ${signoUsd}${(porcentajeUsd / mesesEfectivosCat).toFixed(2)}%/m)</span>
+                            <span style="color: #aaa;">Total Hoy:</span> <strong style="color: #fff;">${fMoneda(valorActualUsd)} USD</strong> <span style="color: ${rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">(${signoUsd}${porcentajeUsd.toFixed(2)}% | ${signoUsd}${(porcentajeUsd / divisorMeses(mesesEfectivosCat)).toFixed(2)}%/m)</span>
 
                             <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border: 1px solid #3ecf8e; border-radius: 8px;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
@@ -8369,7 +8390,7 @@
             if (!isNaN(fecha)) {
                 const diasTranscurridos = Math.max(0, (new Date() - fecha) / (1000 * 60 * 60 * 24));
                 mesesEfectivosHistorial = diasTranscurridos / 30.416;
-                divMeses = Math.max(1, mesesEfectivosHistorial);
+                divMeses = divisorMeses(mesesEfectivosHistorial);
             }
             
             if (esCompraInversion(r)) {
@@ -9299,7 +9320,7 @@
                             plusvaliaUsd: (cat.totalAcciones * precioUsd) - (cat.costoBaseInvertidoUsd || 0),
                             plusvaliaMxn: valorCatMxn - (cat.costoBaseInvertido || 0),
                             realizadaMxn: realizadaCat,
-                            meses: Math.max(1, cat.mesesPromedioExacto || 1)
+                            meses: cat.mesesPromedioExacto || 0
                             });
                             }
 
@@ -9323,8 +9344,7 @@
                             if (plusvaliaLoteMxn >= 0) {
                             totalPlusvaliaAccesibleCuenta += plusvaliaLoteMxn;
                             costoInvertidoAccesibleCuenta += costoInvertidoVivoMxn;
-                            let mesesLote = (fechaHoyCuenta - new Date(lote.fecha)) / (1000 * 60 * 60 * 24 * 30.4167);
-                            if (mesesLote < 1) mesesLote = 1;
+                            let mesesLote = mesesTranscurridos(lote.fecha);
                             mesesPonderadosAccesibleCuenta += (mesesLote * costoInvertidoVivoMxn);
                             } else {
                             break;
@@ -9357,19 +9377,17 @@
 
                             const rendimientoInversionMxn = (valorInversiones - totalCostoBase) + totalRealizadaCuenta;
                             const baseRendimientoCuenta = totalCostoBase + totalCostoVendidoCuenta;
-                            let avgMeses = totalCostoBase > 0 ? (totalMesesPonderados / totalCostoBase) : 1;
-                            if (avgMeses < 1) avgMeses = 1;
-                            const pctRendimiento = baseRendimientoCuenta > 0 ? (rendimientoInversionMxn / baseRendimientoCuenta) * 100 : 0;
-                            const pctMensual = pctRendimiento / avgMeses;
+                            let avgMeses = totalCostoBase > 0 ? (totalMesesPonderados / totalCostoBase) : 0;
+                                                        const pctRendimiento = baseRendimientoCuenta > 0 ? (rendimientoInversionMxn / baseRendimientoCuenta) * 100 : 0;
+                            const pctMensual = pctRendimiento / divisorMeses(avgMeses);
 
                             // Lo ya realizado es dinero en mano: entra completo a la plusvalía accesible
                             const plusvaliaAccesibleTotal = totalPlusvaliaAccesibleCuenta + totalRealizadaCuenta;
                             const costoAccesibleTotal = costoInvertidoAccesibleCuenta + totalCostoVendidoCuenta;
 
-                            let avgMesesAccesible = costoAccesibleTotal > 0 ? (mesesPonderadosAccesibleCuenta / costoAccesibleTotal) : 1;
-                            if (avgMesesAccesible < 1) avgMesesAccesible = 1;
-                            const pctTotalAccesible = costoAccesibleTotal > 0 ? (plusvaliaAccesibleTotal / costoAccesibleTotal) * 100 : 0;
-                            const pctMensualAccesible = pctTotalAccesible / avgMesesAccesible;
+                            let avgMesesAccesible = costoAccesibleTotal > 0 ? (mesesPonderadosAccesibleCuenta / costoAccesibleTotal) : 0;
+                                                        const pctTotalAccesible = costoAccesibleTotal > 0 ? (plusvaliaAccesibleTotal / costoAccesibleTotal) * 100 : 0;
+                            const pctMensualAccesible = pctTotalAccesible / divisorMeses(avgMesesAccesible);
 
                             empresas.sort((a, b) => b.valorMxn - a.valorMxn);
 
