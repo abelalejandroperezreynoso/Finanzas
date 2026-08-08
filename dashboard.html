@@ -6935,16 +6935,24 @@
                                         ? (d.real / d.esperado) * 100
                                         : (total > 0 ? (d.monto / total) * 100 : 0);
 
-                                    // A qué ritmo rinde lo que hay en el recuadro y cuánto lleva puesto. De más
-                                    // completo a más compacto, y los meses son lo último que se suelta: sin ellos
-                                    // el ritmo no se puede juzgar.
+                                    // A qué ritmo rinde lo que hay en el recuadro y sobre cuántos meses se sacó
+                                    // ese ritmo. Se escribe como en gestión de datos —"+2.00% /3.4m"— para que
+                                    // sea la misma cifra leída igual en las dos pantallas.
+                                    //
+                                    // De más completo a más compacto, apretando decimales y espacio, pero los
+                                    // meses no se sueltan en ninguna forma: un ritmo sin el plazo del que sale no
+                                    // se puede juzgar —el 2% de una compra de hace tres meses vale mucho menos que
+                                    // el de una de hace tres años— y quedarse sólo con el porcentaje sería
+                                    // justamente perder lo que distingue esta vista de la otra. Si ni la forma más
+                                    // corta cabe, el treemap encoge el renglón, que sigue siendo mejor que mentir
+                                    // por omisión.
                                     const hayRitmo = d.mensual !== undefined && d.meses !== undefined;
                                     const signoRitmo = hayRitmo && d.mensual >= 0 ? '+' : '';
                                     const formasRitmo = !hayRitmo ? [] : [
-                                        `${signoRitmo}${d.mensual.toFixed(2)}%/m · ${d.meses.toFixed(1)}m`,
-                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m · ${Math.round(d.meses)}m`,
-                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m·${Math.round(d.meses)}m`,
-                                        `${signoRitmo}${d.mensual.toFixed(1)}%/m`
+                                        `${signoRitmo}${d.mensual.toFixed(2)}% /${d.meses.toFixed(1)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(2)}%/${d.meses.toFixed(1)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(1)}%/${d.meses.toFixed(1)}m`,
+                                        `${signoRitmo}${d.mensual.toFixed(1)}%/${Math.round(d.meses)}m`
                                     ];
 
                                     // Con el ritmo puesto, la cifra que encabeza el recuadro deja de ser cuánto
@@ -7286,7 +7294,7 @@
                                             ? ((valorPie - costoPie) / costoPie) * 100 / Math.max(1, mesesPie)
                                             : 0;
                                         const resumenPie = (vistaMensual && costoPie > 0)
-                                            ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}%/m · ${mesesPie.toFixed(1)}m`
+                                            ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}% /${mesesPie.toFixed(1)}m`
                                             : `${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}`;
 
                                         totalEl.innerHTML = `
