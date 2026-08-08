@@ -6091,10 +6091,15 @@
                             // mancha, así que ahí el tile se pinta sin etiqueta y sigue respondiendo al toque.
                             const MIN_LADO_ETIQUETA_TREEMAP = 15;
 
-                            // Alto a partir del cual merece la pena un cuarto renglón —el ritmo de una compra, o
-                            // las dos cifras partidas—: por debajo, el renglón de más deja las letras tan chicas
-                            // que se pierde más de lo que se gana.
+                            // Alto a partir del cual merece la pena un cuarto renglón —el ritmo de una compra, la
+                            // ganancia, o las dos cifras partidas—: por debajo, el renglón de más deja las letras
+                            // tan chicas que se pierde más de lo que se gana.
                             const ALTO_MIN_CUARTO_RENGLON_TREEMAP = 46;
+
+                            // Y el quinto, que sólo pide una compra con ritmo y ganancia a la vez. Sale de escalar
+                            // el anterior por el renglón de más: a esta altura las letras salen del mismo cuerpo
+                            // que las de un recuadro de cuatro en su mínimo, así que no se pierde legibilidad.
+                            const ALTO_MIN_QUINTO_RENGLON_TREEMAP = 58;
 
                             // Cuántos meses de historia miran los objetivos, y cuántos hacen falta como mínimo
                             const MESES_HISTORIA_OBJETIVO_TREEMAP = 6;
@@ -6991,6 +6996,28 @@
                                     // sólo cuando no encabeza ya el recuadro: repetido dos veces no dice nada.
                                     const conRitmo = hayRitmo && !encabezaRitmo && d.esLote;
 
+                                    // Cuánto dinero llevas ganado o perdido en el recuadro. Sale de restar las dos
+                                    // cifras que ya se enseñan, pero restar "$3.7k" de "$4.0k" de cabeza, en un
+                                    // mapa de veinte recuadros, no lo hace nadie: el porcentaje dice cuánto se
+                                    // movió y esto dice cuánto dinero es, que es la pregunta que sigue.
+                                    //
+                                    // Sólo en el portafolio. En los otros mapas la diferencia entre las dos caras
+                                    // existe pero no es una ganancia —es presupuesto sin gastar, o lo que falta
+                                    // por cobrar de un préstamo—, y ponerle un signo de más la haría leerse como
+                                    // algo que se ganó.
+                                    //
+                                    // El signo se escribe aparte y la cifra va en valor absoluto: fMoneda saca su
+                                    // propio menos, pero las formas cortas no, y "$-2.0k" no se lee.
+                                    const ganancia = d.real - d.esperado;
+                                    const conGanancia = esPortafolio && conObjetivo && Math.abs(ganancia) >= 0.005;
+                                    const signoGanancia = ganancia >= 0 ? '+' : '-';
+                                    const absGanancia = Math.abs(ganancia);
+                                    const formasGanancia = !conGanancia ? [] : [
+                                        `${signoGanancia}${fMoneda(absGanancia)}`,
+                                        `${signoGanancia}${redondo(absGanancia)}`,
+                                        `${signoGanancia}${montoCompactoTreemap(absGanancia)}`
+                                    ];
+
                                     // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre
                                     const enUnRenglon = (tope, formas = formasCifra) => {
                                         for (let tam = tope; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
@@ -7016,26 +7043,50 @@
                                         return { tam, tamCifra, tamNombre, nombre, textoPorc, fuente };
                                     };
 
-                                    // Intento 1: cuatro renglones, con el ritmo de la compra al final. Va el
-                                    // primero porque es lo que más dice de un lote, pero cede en cuanto el
-                                    // recuadro no da para el renglón de más: antes que un ritmo ilegible, el
-                                    // recuadro de siempre.
-                                    if (conRitmo && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
-                                        const conMes = armar(4);
-                                        const cifras = enUnRenglon(conMes.tamCifra);
-                                        const ritmo = enUnRenglon(conMes.tamCifra, formasRitmo);
-                                        if (cifras && ritmo) {
+                                    // Intento 1: cinco renglones. Sólo lo pide una compra que tenga las dos cosas
+                                    // que decir —a qué ritmo rinde y cuánto dinero llevas— y sólo si el recuadro
+                                    // da de sobra para el quinto renglón. La ganancia va pegada a las cifras de
+                                    // las que sale, y el ritmo cierra, como en el recuadro de cuatro.
+                                    if (conRitmo && conGanancia && h >= ALTO_MIN_QUINTO_RENGLON_TREEMAP) {
+                                        const cinco = armar(5);
+                                        const cifras = enUnRenglon(cinco.tamCifra);
+                                        const gana = enUnRenglon(cinco.tamCifra, formasGanancia);
+                                        const ritmo = enUnRenglon(cinco.tamCifra, formasRitmo);
+                                        if (cifras && gana && ritmo) {
                                             return {
-                                                lineas: [conMes.nombre, conMes.textoPorc, cifras.forma, ritmo.forma],
-                                                fuentes: [conMes.fuente(conMes.tamNombre, 'bold'),
-                                                          conMes.fuente(conMes.tamCifra, 'bold'),
-                                                          conMes.fuente(cifras.tam, 'normal'),
-                                                          conMes.fuente(ritmo.tam, 'normal')]
+                                                lineas: [cinco.nombre, cinco.textoPorc, cifras.forma, gana.forma, ritmo.forma],
+                                                fuentes: [cinco.fuente(cinco.tamNombre, 'bold'),
+                                                          cinco.fuente(cinco.tamCifra, 'bold'),
+                                                          cinco.fuente(cifras.tam, 'normal'),
+                                                          cinco.fuente(gana.tam, 'normal'),
+                                                          cinco.fuente(ritmo.tam, 'normal')]
                                             };
                                         }
                                     }
 
-                                    // Intento 2: tres renglones, cifras juntas en el último
+                                    // Intento 2: cuatro renglones, con un renglón de más al final. Cuál es depende
+                                    // de lo que tenga delante: en la capa de compras manda el ritmo, que es lo que
+                                    // más dice de un lote y lo que ese recuadro ha enseñado siempre; en el resto
+                                    // del portafolio, la ganancia. Va antes que el recuadro de tres porque es la
+                                    // cifra que se vino a ver, pero cede en cuanto no cabe: antes que un renglón
+                                    // ilegible, el recuadro de siempre.
+                                    const formasExtra = conRitmo ? formasRitmo : formasGanancia;
+                                    if (formasExtra.length > 0 && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
+                                        const cuatro = armar(4);
+                                        const cifras = enUnRenglon(cuatro.tamCifra);
+                                        const suelto = enUnRenglon(cuatro.tamCifra, formasExtra);
+                                        if (cifras && suelto) {
+                                            return {
+                                                lineas: [cuatro.nombre, cuatro.textoPorc, cifras.forma, suelto.forma],
+                                                fuentes: [cuatro.fuente(cuatro.tamNombre, 'bold'),
+                                                          cuatro.fuente(cuatro.tamCifra, 'bold'),
+                                                          cuatro.fuente(cifras.tam, 'normal'),
+                                                          cuatro.fuente(suelto.tam, 'normal')]
+                                            };
+                                        }
+                                    }
+
+                                    // Intento 3: tres renglones, cifras juntas en el último
                                     const tres = armar(3);
                                     const juntas = enUnRenglon(tres.tamCifra);
                                     if (juntas) {
@@ -7047,7 +7098,7 @@
                                         };
                                     }
 
-                                    // Intento 3: cuatro renglones, cada cifra en el suyo. Sólo con objetivo: sin él
+                                    // Intento 4: cuatro renglones, cada cifra en el suyo. Sólo con objetivo: sin él
                                     // no hay nada que partir, y el alto tiene que dar para el renglón de más.
                                     if (conObjetivo && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
                                         const cuatro = armar(4);
@@ -7320,9 +7371,18 @@
                                             ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}% /${mesesPie.toFixed(1)}m`
                                             : `${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}`;
 
+                                        // La misma cifra que llevan los recuadros, pero de la capa entera: cuánto
+                                        // dinero llevas ganado o perdido en todo lo que se está viendo. Va con su
+                                        // color —verde o rojo— porque aquí sí hay sitio para uno propio, al
+                                        // contrario que dentro de un recuadro, donde el texto es de una pieza.
+                                        const gananciaPie = llevaObjetivo - metaObjetivo;
+                                        const gananciaPieHtml = (esPortafolio && Math.abs(gananciaPie) >= 0.005)
+                                            ? ` <span style="color: ${gananciaPie >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">${gananciaPie >= 0 ? '+' : '-'}${fMoneda(Math.abs(gananciaPie))}</span>`
+                                            : '';
+
                                         totalEl.innerHTML = `
                                             <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${resumenPie}</span>
-                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${esPortafolio ? ' ' + monedaTreemapInversiones.toUpperCase() : ''}</span></strong>
+                                            <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${esPortafolio ? ' ' + monedaTreemapInversiones.toUpperCase() : ''}</span>${gananciaPieHtml}</strong>
                                         `;
                                     } else {
                                         totalEl.innerHTML = `
