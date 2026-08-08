@@ -568,6 +568,13 @@
                     <button id="btnTreemapAccesible" onclick="cambiarVistaTreemapInversiones('accesible')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Accesible</button>
                 </div>
             </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Rendimiento</span>
+                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
+                    <button id="btnTreemapRendTotal" onclick="cambiarRendimientoTreemapInversiones('total')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Total</button>
+                    <button id="btnTreemapRendMensual" onclick="cambiarRendimientoTreemapInversiones('mensual')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Mensual</button>
+                </div>
+            </div>
         </div>
 
         <!-- Sin padding lateral: el mapa llega a las orillas igual que el listado de registros -->
@@ -5886,6 +5893,15 @@
                             // sacar— y por eso se mide con otra vara; queda explicado donde se calcula.
                             let vistaTreemapInversiones = localStorage.getItem('vistaTreemapInversiones') === 'accesible' ? 'accesible' : 'todo';
 
+                            // Con qué vara se lee el rendimiento de cada recuadro. "Total" es cuánto vale hoy de
+                            // lo que costó —el 94% de un recuadro a la baja, el 131% de uno que subió—; "Mensual"
+                            // es a qué ritmo lo consiguió, repartiendo esa ganancia entre los meses que lleva
+                            // puesta. Son la misma cifra contada de dos maneras, y hacen falta las dos: un +40%
+                            // no dice lo mismo si tardó tres años que si tardó tres meses. Es el mismo ritmo que
+                            // ya trae cada movimiento en gestión de datos, así que las dos pantallas coinciden.
+                            // Abre en "Total", que es la lectura que el mapa ha tenido siempre.
+                            let rendimientoTreemapInversiones = localStorage.getItem('rendimientoTreemapInversiones') === 'mensual' ? 'mensual' : 'total';
+
                             // Dónde está parado el portafolio: cuentas arriba, empresas de una cuenta en medio y
                             // compras de una empresa abajo. Cada capa reparte lo que la de encima tenía en un
                             // solo recuadro. Nada de esto se recuerda entre sesiones a propósito: son sitios a
@@ -6226,7 +6242,13 @@
                                         const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
                                         const valor = precio ? (cat.totalAcciones || 0) * precio * factor : 0;
 
+                                        // Cuánto lleva puesto el dinero de la empresa: la antigüedad de sus compras
+                                        // vivas ponderada por lo que costó cada una, que es la misma que la ficha
+                                        // de la categoría usa para su ritmo mensual. Va en el recuadro aunque no
+                                        // haya precio, porque la capa de cuentas la necesita para promediar.
+                                        const meses = cat.mesesPromedioExacto || 0;
                                         const base = { id: String(cat.id), cat: cat, nombre: cat.ticker || cat.nombre };
+                                        if (meses > 0) base.meses = meses;
 
                                         // Sin precio de mercado lo único que se sabe es lo que costó, y de una
                                         // compra vieja sin costo por acción, sólo lo que vale hoy. En los dos
@@ -6235,12 +6257,20 @@
                                         if (!(costo > 0)) return { ...base, monto: valor, real: valor, esperado: 0 };
                                         if (!precio) return { ...base, monto: costo, real: costo, esperado: 0 };
 
-                                        return {
+                                        const empresa = {
                                             ...base,
                                             monto: Math.max(costo, valor),
                                             real: valor,
                                             esperado: costo
                                         };
+
+                                        // El ritmo al que ha rendido. Las dos caras se convirtieron con el mismo
+                                        // número, así que sale igual en pesos que en dólares. Un mes es el suelo:
+                                        // repartir la ganancia de una compra de ayer entre unos días daría un
+                                        // ritmo enorme que no significa nada.
+                                        if (meses > 0) empresa.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+
+                                        return empresa;
                                     })
                                     .filter(d => d.monto > 0);
                             }
@@ -6305,10 +6335,21 @@
                                         const lotes = lotesAccesiblesTreemap(cat);
                                         if (lotes.length === 0) return null;
 
-                                        const costo = lotes.reduce((acc, l) => acc + l.costo, 0) * factor;
+                                        const costoBase = lotes.reduce((acc, l) => acc + l.costo, 0);
+                                        const costo = costoBase * factor;
                                         const valor = lotes.reduce((acc, l) => acc + l.valor, 0) * factor;
 
-                                        return {
+                                        // La antigüedad de lo accesible no es la de la empresa entera: aquí sólo
+                                        // entran las compras que salen sin pérdida, así que se pondera con las
+                                        // suyas. Es el mismo promedio con el que la ficha calcula su plusvalía
+                                        // mensual accesible.
+                                        const mesesPonderados = lotes.reduce((acc, l) => {
+                                            const m = mesesDesdeTreemap(l.registro.fecha);
+                                            return acc + Math.max(1, m === null ? 1 : m) * l.costo;
+                                        }, 0);
+                                        const meses = costoBase > 0 ? mesesPonderados / costoBase : 0;
+
+                                        const empresa = {
                                             id: String(cat.id),
                                             cat: cat,
                                             nombre: cat.ticker || cat.nombre,
@@ -6316,6 +6357,13 @@
                                             real: valor,
                                             esperado: costo
                                         };
+
+                                        if (meses > 0 && costo > 0) {
+                                            empresa.meses = meses;
+                                            empresa.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                        }
+
+                                        return empresa;
                                     })
                                     .filter(d => d && d.monto > 0);
                             }
@@ -6334,6 +6382,7 @@
                                         id: String(registro.id),
                                         cat: cat,
                                         nombre: nombre,
+                                        esLote: true,
                                         monto: Math.max(costo, valor) * factor,
                                         real: valor * factor,
                                         esperado: costo * factor
@@ -6362,25 +6411,35 @@
 
                                 empresas.forEach(d => {
                                     const idCuenta = String(d.cat.cuenta_id);
-                                    if (!porCuenta[idCuenta]) porCuenta[idCuenta] = { valor: 0, costo: 0 };
+                                    if (!porCuenta[idCuenta]) porCuenta[idCuenta] = { valor: 0, costo: 0, mesesPonderados: 0, pesoMeses: 0, conPrecio: false };
                                     porCuenta[idCuenta].valor += d.real;
                                     // Una empresa sin precio de mercado vale lo que costó y entra en tablas, que
                                     // es como el pie del mapa suma el portafolio entero: sin precio no hay
                                     // ganancia que reclamar, pero su dinero sigue estando ahí.
-                                    porCuenta[idCuenta].costo += d.esperado > 0 ? d.esperado : d.monto;
+                                    const peso = d.esperado > 0 ? d.esperado : d.monto;
+                                    porCuenta[idCuenta].costo += peso;
+                                    if (d.esperado > 0) porCuenta[idCuenta].conPrecio = true;
+
+                                    // La antigüedad de la cuenta es la de sus empresas ponderada por lo que
+                                    // costó cada una, igual que la de una empresa es la de sus compras: una
+                                    // posición chica y vieja no puede arrastrar el ritmo de toda la cuenta.
+                                    if (d.meses !== undefined) {
+                                        porCuenta[idCuenta].mesesPonderados += d.meses * peso;
+                                        porCuenta[idCuenta].pesoMeses += peso;
+                                    }
                                 });
 
                                 const vistos = {};
                                 return Object.keys(porCuenta).map(idCuenta => {
                                     const cuenta = (datosCuentas || []).find(c => String(c.id) === idCuenta);
-                                    const { valor, costo } = porCuenta[idCuenta];
+                                    const { valor, costo, mesesPonderados, pesoMeses, conPrecio } = porCuenta[idCuenta];
 
                                     // Dos cuentas pueden llamarse igual y el recuadro se busca por su etiqueta
                                     let nombre = cuenta ? cuenta.nombre : 'Sin cuenta';
                                     vistos[nombre] = (vistos[nombre] || 0) + 1;
                                     if (vistos[nombre] > 1) nombre = `${nombre} ·${vistos[nombre]}`;
 
-                                    return {
+                                    const tile = {
                                         id: idCuenta,
                                         // El recuadro no es de ninguna categoría, pero es de la misma materia:
                                         // hereda el color de las inversiones y el resto del dibujo no nota nada.
@@ -6390,6 +6449,17 @@
                                         real: valor,
                                         esperado: costo
                                     };
+
+                                    // Sin una sola empresa que cotice no hay ritmo que dar: el valor de hoy es el
+                                    // costo copiado, y decir "+0.00%/m" sonaría a que no ha rendido nada cuando
+                                    // lo que pasa es que no se sabe.
+                                    const meses = pesoMeses > 0 ? mesesPonderados / pesoMeses : 0;
+                                    if (conPrecio && meses > 0 && costo > 0) {
+                                        tile.meses = meses;
+                                        tile.mensual = ((valor - costo) / costo) * 100 / Math.max(1, meses);
+                                    }
+
+                                    return tile;
                                 }).filter(d => d.monto > 0);
                             }
 
@@ -6459,7 +6529,7 @@
                                         vistos[nombre] = (vistos[nombre] || 0) + 1;
                                         if (vistos[nombre] > 1) nombre = `${nombre} ·${vistos[nombre]}`;
 
-                                        const base = { id: String(u.id), cat: cat, nombre: nombre };
+                                        const base = { id: String(u.id), cat: cat, nombre: nombre, esLote: true };
 
                                         // Mismo criterio que en el mapa de empresas: sin costo o sin precio de
                                         // mercado no hay dos cifras que comparar, y el recuadro sale lleno.
@@ -6488,6 +6558,12 @@
                             function cambiarVistaTreemapInversiones(vista) {
                                 vistaTreemapInversiones = vista === 'accesible' ? 'accesible' : 'todo';
                                 localStorage.setItem('vistaTreemapInversiones', vistaTreemapInversiones);
+                                repintarTreemapCategorias();
+                            }
+
+                            function cambiarRendimientoTreemapInversiones(modo) {
+                                rendimientoTreemapInversiones = modo === 'mensual' ? 'mensual' : 'total';
+                                localStorage.setItem('rendimientoTreemapInversiones', rendimientoTreemapInversiones);
                                 repintarTreemapCategorias();
                             }
 
@@ -6619,6 +6695,7 @@
 
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
                                 const vistaAccesible = esPortafolio && vistaTreemapInversiones === 'accesible';
+                                const vistaMensual = esPortafolio && rendimientoTreemapInversiones === 'mensual';
 
                                 // Las tres capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de empresas las muestra y la de compras abre una.
@@ -6663,6 +6740,7 @@
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
                                 encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
+                                encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
 
                                 // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, su fila
                                 // desaparece en vez de quedarse ahí sin nada que hacer.
@@ -6831,6 +6909,8 @@
                                 //
                                 // Las compras de una empresa llevan además un renglón con su ritmo mensual, que se
                                 // intenta antes que nada y se cae solo si el recuadro no da para cuatro renglones.
+                                // Con el portafolio leído en ritmo mensual ese renglón desaparece: el ritmo pasa a
+                                // encabezar el recuadro, en todas las capas, y no hace falta repetirlo abajo.
                                 const medidasEtiqueta = (raw) => {
                                     const w = raw.w;
                                     const h = raw.h;
@@ -6855,17 +6935,30 @@
                                         ? (d.real / d.esperado) * 100
                                         : (total > 0 ? (d.monto / total) * 100 : 0);
 
-                                    // Renglón de más que sólo llevan las compras de una empresa: a qué ritmo rinde
-                                    // esa posición y cuánto lleva puesta. De más completo a más compacto, y los
-                                    // meses son lo último que se suelta: sin ellos el ritmo no se puede juzgar.
-                                    const conRitmo = d.mensual !== undefined && d.meses !== undefined;
-                                    const signoRitmo = conRitmo && d.mensual >= 0 ? '+' : '';
-                                    const formasRitmo = !conRitmo ? [] : [
+                                    // A qué ritmo rinde lo que hay en el recuadro y cuánto lleva puesto. De más
+                                    // completo a más compacto, y los meses son lo último que se suelta: sin ellos
+                                    // el ritmo no se puede juzgar.
+                                    const hayRitmo = d.mensual !== undefined && d.meses !== undefined;
+                                    const signoRitmo = hayRitmo && d.mensual >= 0 ? '+' : '';
+                                    const formasRitmo = !hayRitmo ? [] : [
                                         `${signoRitmo}${d.mensual.toFixed(2)}%/m · ${d.meses.toFixed(1)}m`,
                                         `${signoRitmo}${d.mensual.toFixed(1)}%/m · ${Math.round(d.meses)}m`,
                                         `${signoRitmo}${d.mensual.toFixed(1)}%/m·${Math.round(d.meses)}m`,
                                         `${signoRitmo}${d.mensual.toFixed(1)}%/m`
                                     ];
+
+                                    // Con el ritmo puesto, la cifra que encabeza el recuadro deja de ser cuánto
+                                    // vale de lo que costó y pasa a ser a qué ritmo lo consiguió: es lo que se
+                                    // vino a ver, y ponerlo arriba lo hace comparable de un vistazo entre
+                                    // recuadros de tamaños muy distintos.
+                                    const encabezaRitmo = vistaMensual && hayRitmo;
+                                    const formasPorc = encabezaRitmo
+                                        ? formasRitmo
+                                        : [`${porc.toFixed(1)}%`, `${Math.round(porc)}%`];
+
+                                    // El renglón de más con el ritmo sólo lo llevan las compras de una empresa, y
+                                    // sólo cuando no encabeza ya el recuadro: repetido dos veces no dice nada.
+                                    const conRitmo = hayRitmo && !encabezaRitmo && d.esLote;
 
                                     // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre
                                     const enUnRenglon = (tope, formas = formasCifra) => {
@@ -6886,9 +6979,7 @@
                                         while (tamNombre > MIN_FUENTE_TREEMAP && !cabe(d.nombre, tamNombre)) tamNombre--;
                                         const nombre = recortarEtiqueta(d.nombre, w, tamNombre);
 
-                                        const textoPorc = cabe(`${porc.toFixed(1)}%`, tamCifra)
-                                            ? `${porc.toFixed(1)}%`
-                                            : `${Math.round(porc)}%`;
+                                        const textoPorc = formasPorc.find(f => cabe(f, tamCifra)) || formasPorc[formasPorc.length - 1];
 
                                         const fuente = (size, weight) => ({ size, weight });
                                         return { tam, tamCifra, tamNombre, nombre, textoPorc, fuente };
@@ -7180,8 +7271,26 @@
                                         const llevaObjetivo = conObjetivo.reduce((acc, d) => acc + d.real, 0);
                                         const metaObjetivo = conObjetivo.reduce((acc, d) => acc + metaDe(d), 0);
                                         const avance = metaObjetivo > 0 ? Math.round((llevaObjetivo / metaObjetivo) * 100) : 0;
+
+                                        // Con el ritmo puesto, el pie lo dice de la capa entera en lugar del
+                                        // porcentaje de lo invertido. No es el promedio de los recuadros: se
+                                        // suma lo que costó y lo que vale toda la capa y se reparte entre sus
+                                        // meses ponderados, que es como la ficha de la cuenta saca el suyo.
+                                        const conRitmoPie = datos.filter(d => d.mensual !== undefined && d.meses !== undefined);
+                                        const costoPie = conRitmoPie.reduce((acc, d) => acc + d.esperado, 0);
+                                        const valorPie = conRitmoPie.reduce((acc, d) => acc + d.real, 0);
+                                        const mesesPie = costoPie > 0
+                                            ? conRitmoPie.reduce((acc, d) => acc + d.meses * d.esperado, 0) / costoPie
+                                            : 0;
+                                        const mensualPie = costoPie > 0
+                                            ? ((valorPie - costoPie) / costoPie) * 100 / Math.max(1, mesesPie)
+                                            : 0;
+                                        const resumenPie = (vistaMensual && costoPie > 0)
+                                            ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}%/m · ${mesesPie.toFixed(1)}m`
+                                            : `${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}`;
+
                                         totalEl.innerHTML = `
-                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}</span>
+                                            <span style="color: #888; white-space: nowrap;">${etiquetaCats} · ${resumenPie}</span>
                                             <strong style="color: ${color}; white-space: nowrap;">${fMoneda(llevaObjetivo)} <span style="color: #888; font-weight: normal;">de ${fMoneda(metaObjetivo)}${esPortafolio ? ' ' + monedaTreemapInversiones.toUpperCase() : ''}</span></strong>
                                         `;
                                     } else {
