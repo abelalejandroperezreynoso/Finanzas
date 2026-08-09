@@ -979,6 +979,14 @@
             <option value="" disabled selected>Elige cuenta y dirección</option>
             </select>
         </div>
+
+        <!-- Cuándo se usó por última vez la categoría elegida. No se captura: se lee. Sirve
+             para caer en la cuenta de que ese gasto ya se registró hoy, o de que llevas dos
+             meses sin apuntar algo que era mensual. -->
+        <div class="ios-fila" id="filaUltimoRegistro">
+            <label>Última vez</label>
+            <span class="ios-espejo-fecha marcador" id="textoUltimoRegistro">—</span>
+        </div>
     </div>
     <input type="hidden" id="regTipoSelect">
 
@@ -3170,6 +3178,10 @@
                                 const esMarcador = !elegida || elegida.disabled || !sel.value;
                                 espejo.classList.toggle('marcador', esMarcador);
                                 fila.classList.toggle('bloqueado', sel.disabled);
+
+                                // "Última vez" habla de la categoría elegida, así que va colgado de su
+                                // espejo: hereda de una todos los caminos por los que ese select cambia.
+                                if (sel.id === 'regCategoriaSelect') sincronizarUltimoRegistro();
                             }
 
                             // Un select cambia de dos maneras y sólo una avisa. La persona lo toca y salta
@@ -3226,6 +3238,49 @@
                                 form.addEventListener('reset', () => {
                                     setTimeout(() => refrescos.forEach(r => r()), 0);
                                 });
+                            }
+
+                            // ---- Cuándo fue la última vez ----
+                            // En días para lo reciente, que es lo que se compara de memoria —"¿ya apunté
+                            // el súper?"—, y en unidades más gruesas conforme se aleja: a los ocho meses
+                            // "hace 243 días" no dice nada que "hace 8 meses" no diga mejor.
+                            function haceCuanto(fecha) {
+                                const cuando = new Date(fecha);
+                                if (isNaN(cuando)) return null;
+
+                                const aMedianoche = (f) => { const d = new Date(f.getTime()); d.setHours(0, 0, 0, 0); return d; };
+                                const dias = Math.round((aMedianoche(new Date()) - aMedianoche(cuando)) / 86400000);
+
+                                // Un movimiento con fecha futura es raro pero se registra: se dice tal cual
+                                // en vez de soltar un "hace -3 días".
+                                if (dias < 0) {
+                                    const falta = Math.abs(dias);
+                                    return falta === 1 ? 'mañana' : `en ${falta} días`;
+                                }
+
+                                if (dias === 0) return 'hoy';
+                                if (dias === 1) return 'ayer';
+                                if (dias < 31) return `hace ${dias} días`;
+
+                                const meses = Math.round(dias / 30.416);
+                                if (meses < 12) return `hace ${meses} ${meses === 1 ? 'mes' : 'meses'}`;
+
+                                const anios = Math.round(dias / 365.25);
+                                return `hace ${anios} ${anios === 1 ? 'año' : 'años'}`;
+                            }
+
+                            function sincronizarUltimoRegistro() {
+                                const texto = document.getElementById('textoUltimoRegistro');
+                                if (!texto) return;
+
+                                const idCat = (document.getElementById('regCategoriaSelect') || {}).value;
+                                const cat = (datosCategorias || []).find(c => String(c.id) === String(idCat));
+                                const cuanto = cat && cat.ultimaFecha ? haceCuanto(cat.ultimaFecha) : null;
+
+                                // Sin categoría elegida y con una categoría estrenada se dicen cosas
+                                // distintas: en la segunda el dato existe y es "ninguna vez".
+                                texto.textContent = cuanto || (cat ? 'sin registros' : '—');
+                                texto.classList.toggle('marcador', !cuanto);
                             }
 
                             // ---- La fecha del movimiento ----
@@ -3656,6 +3711,7 @@
                             const usoMap = {};
                             const montosRecientesMap = {};
                             const registrosPorCat = {};
+                            const ultimaFechaMap = {};
                             const accionesMap = {};
                             const costoBaseMap = {}; // Declaración inicializada
                             const costoBaseUsdMap = {}; // NUEVO: Historial en dólares
@@ -3707,7 +3763,15 @@
                             }
 
                             if (!registrosPorCat[u.categoria_id]) registrosPorCat[u.categoria_id] = [];
-                            registrosPorCat[u.categoria_id].push(new Date(u.fecha));
+                            const fechaRegistro = new Date(u.fecha);
+                            registrosPorCat[u.categoria_id].push(fechaRegistro);
+
+                            // La última vez que se usó cada categoría. La detección de recurrencias ya
+                            // saca algo parecido, pero sólo para las que tienen patrón y no están
+                            // excluidas de las predicciones; aquí hace falta de todas.
+                            if (!isNaN(fechaRegistro) && (!ultimaFechaMap[u.categoria_id] || fechaRegistro > ultimaFechaMap[u.categoria_id])) {
+                                ultimaFechaMap[u.categoria_id] = fechaRegistro;
+                            }
 
                             const monto = parseFloat(u.monto);
                             const acciones = parseFloat(u.cantidad_acciones) || 0;
@@ -4023,6 +4087,7 @@
                             accionesVendidas: accionesVendidasCatMap[cat.id] || 0,
                             tcPromedioExacto: tcPromedioExacto,
                             mesesPromedioExacto: mesesPromedioExacto,
+                            ultimaFecha: ultimaFechaMap[cat.id] || null,
                             montoSugerido,
                             esMontoPromedio,
                             diasRecurrencia: recurrenciasMap[cat.id] || null,
@@ -4064,6 +4129,10 @@
                             // esté editando un movimiento —ahí manda lo que el movimiento diga—.
                                                         activarEspejosRegistro();
                                                         preseleccionarFrecuentes();
+                                                        // Los datos acaban de rehacerse y "Última vez" sale de ellos. Sin esto,
+                                                        // tras guardar un gasto de hoy el renglón seguiría diciendo la fecha de
+                                                        // antes: la preselección no vuelve a tocar el select y nadie lo despierta.
+                                                        sincronizarUltimoRegistro();
                                                         
                                                         if (idCuentaFiltrada) {
                                                                     const filtradas = datosCategorias.filter(cat => String(cat.cuenta_id) === String(idCuentaFiltrada));
