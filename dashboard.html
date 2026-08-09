@@ -5076,14 +5076,35 @@
         return isNaN(fecha.getTime()) ? 0 : fecha.getTime();
     }
 
+    // Borrar es la única forma de que un movimiento colado deje de existir sin que la
+    // recarga pueda notarlo: si cae fuera de la ventana de la consulta, no viene en ella ni
+    // estando ni faltando, y volvería a colarse una y otra vez. Así que se descuelga a mano.
+    //
+    // Se llama antes de recargar a propósito: borrar una categoría o una cuenta se lleva por
+    // delante sus movimientos, y para saber cuáles eran hace falta el mapa de categorías de
+    // ahora, no el que quede después.
+    function olvidarRegistrosRecienGuardados(tabla, id) {
+        if (registrosRecienGuardados.length === 0) return;
+
+        if (tabla === 'registros') {
+            registrosRecienGuardados = registrosRecienGuardados.filter(r => String(r.id) !== String(id));
+        } else if (tabla === 'categorias') {
+            registrosRecienGuardados = registrosRecienGuardados.filter(r => String(r.categoria_id) !== String(id));
+        } else if (tabla === 'cuentas') {
+            const catsDeLaCuenta = new Set(
+                (datosCategorias || []).filter(c => String(c.cuenta_id) === String(id)).map(c => String(c.id))
+            );
+            registrosRecienGuardados = registrosRecienGuardados.filter(r => !catsDeLaCuenta.has(String(r.categoria_id)));
+        }
+    }
+
     // Mezcla lo recién guardado con lo que trajo la consulta, ordenado por fecha, que es
     // como el historial forma sus grupos.
     //
-    // De paso suelta lo que ya no hace falta sostener, y esa parte importa: borrar un
-    // movimiento también pasa por aquí, y una lista que se limitara a re-añadir lo suyo
-    // resucitaría lo borrado. Sólo se conserva lo que la consulta no podía traer —lo más
-    // viejo que su registro más antiguo, y sólo si llenó la ventana—. Lo que cae dentro de
-    // su alcance y aun así no vino es que ya no existe.
+    // De paso suelta lo que ya no hace falta sostener: lo que vino en la consulta, y todo lo
+    // demás cuando la consulta no llenó la ventana, porque entonces trajo cuanto había. Lo
+    // que se borra estando fuera de esa ventana no se puede deducir aquí; de eso se encarga
+    // olvidarRegistrosRecienGuardados.
     function fusionarRegistrosRecienGuardados(regs) {
         if (registrosRecienGuardados.length === 0) return regs;
 
@@ -8747,6 +8768,9 @@
                                         if (error) {
                                                     alert("Error al eliminar: " + error.message);
                                                 } else {
+                                                    // Lo que se acaba de borrar no debe volver a colarse en el historial
+                                                    olvidarRegistrosRecienGuardados(tabla, id);
+
                                                     // Eliminamos toda la lógica manual de filtrado y usamos nuestra función maestra
                                                     await refrescarTodo();
                                                     
