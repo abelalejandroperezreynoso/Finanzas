@@ -569,16 +569,7 @@
 
                         /* El calendario es el tercer botón del grupo, pero no compite en ancho con
                            "Ayer" y "Hoy": sólo lleva un icono. */
-                        #registroForm .btn-calendario {
-                            position: relative;
-                            flex: 0 0 58px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            color: var(--ios-valor);
-                        }
-
-                        #registroForm .btn-calendario > input {
+                        #registroForm .dia-calendario > input {
                             position: absolute;
                             top: 0;
                             left: 0;
@@ -623,7 +614,8 @@
 
                         #registroForm .ios-tira-dias::-webkit-scrollbar { display: none; }
 
-                        #registroForm .dia-chip {
+                        #registroForm .dia-chip,
+                        #registroForm .dia-calendario {
                             flex: 0 0 auto;
                             width: 46px;
                             margin: 0;
@@ -635,6 +627,7 @@
                             display: flex;
                             flex-direction: column;
                             align-items: center;
+                            justify-content: center;
                             gap: 1px;
                             font-weight: 600;
                             scroll-snap-align: center;
@@ -647,6 +640,34 @@
                         }
 
                         #registroForm .dia-chip .dia-numero { font-size: 1.05em; }
+
+                        /* El punto de "aquí hubo un registro de esta categoría". Lo llevan todos los
+                           días, transparente salvo cuando toca: si sólo existiera en los días marcados,
+                           esos botones serían más altos que sus vecinos y la tira quedaría dentada. */
+                        #registroForm .dia-chip::after {
+                            content: '';
+                            width: 4px;
+                            height: 4px;
+                            margin-top: 2px;
+                            border-radius: 50%;
+                            background: transparent;
+                        }
+
+                        #registroForm .dia-chip.con-registro::after { background: var(--ios-valor); }
+                        #registroForm .dia-chip.con-registro.activo::after { background: #ffffff; }
+
+                        /* Hoy va con el número en verde mientras no esté elegido. Al elegirlo se le
+                           quita: ahí ya lo marca el relleno, y dos señales sobre el mismo botón compiten
+                           en vez de sumar. Es lo que hace el calendario del teléfono. */
+                        #registroForm .dia-chip.hoy:not(.activo) .dia-numero { color: #3ecf8e; }
+
+                        /* El botón del calendario cierra la tira, y se distingue de los días: sin
+                           relleno y sólo con su contorno, para que no parezca uno más. */
+                        #registroForm .dia-calendario {
+                            position: relative;
+                            background-color: transparent;
+                            border: 1px solid #3a3a3c;
+                        }
 
                         #registroForm .btn-toggle {
                             padding: 9px;
@@ -1055,19 +1076,23 @@
              dentro de un contenedor que sí se desliza, el parche que la sangra viajaría
              con el contenido. Los botones los pone construirTiraDias(). -->
         <div class="ios-fila-tira">
-            <div class="ios-tira-dias" id="tiraDiasRegistro"></div>
+            <div class="ios-tira-dias" id="tiraDiasRegistro">
+                <!-- Los días los pone construirTiraDias() delante de este botón, que cierra la
+                     tira. El campo de fecha vive aquí dentro, invisible y estirado encima:
+                     tocarlo abre la rueda nativa sin que haya que pedírsela por código, igual
+                     que los desplegables y por el mismo motivo. Y por eso la tira se rehace
+                     quitando sólo los días: llevarse este botón por delante destruiría el
+                     campo, con sus escuchas y su propiedad envuelta. -->
+                <div class="dia-calendario" id="btnFechaCalendario" aria-label="Elegir otra fecha">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <input type="datetime-local" id="regFecha">
+                </div>
+            </div>
         </div>
 
         <div class="toggle-container">
             <button type="button" id="btnFechaAyer" class="btn-toggle" onclick="fijarFechaRegistro(-1)">Ayer</button>
             <button type="button" id="btnFechaHoy" class="btn-toggle" onclick="fijarFechaRegistro(0)">Hoy</button>
-            <!-- El campo de fecha vive aquí, invisible y estirado sobre el botón: tocarlo abre
-                 la rueda nativa sin que haya que pedírsela por código. Mismo trato que los
-                 desplegables, y por el mismo motivo. -->
-            <div class="btn-toggle btn-calendario" id="btnFechaCalendario" aria-label="Elegir fecha">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                <input type="datetime-local" id="regFecha">
-            </div>
         </div>
         <div class="ios-fila">
             <label for="regDesc">Descripción</label>
@@ -1427,6 +1452,10 @@
                                                     const VALOR_NUEVA_CATEGORIA = '__nueva_categoria__';
                                                                         let datosCuentas = [], datosCategorias = [], datosRegistros = [], datosGrafica = [];
                         let datosUsoCompleto = [];
+
+                        // Los días en que se registró cada categoría, para señalarlos en la tira de
+                        // fechas. Se rehace con cada recarga de datos.
+                        let diasConRegistroPorCat = {};
                                             const cachePreciosMercado = {};
                                     let timeoutBusqueda = null;
                                     let globalUsdToMxn = 17.50; // Valor por defecto de seguridad
@@ -3243,7 +3272,10 @@
 
                                 // "Última vez" habla de la categoría elegida, así que va colgado de su
                                 // espejo: hereda de una todos los caminos por los que ese select cambia.
-                                if (sel.id === 'regCategoriaSelect') sincronizarUltimoRegistro();
+                                if (sel.id === 'regCategoriaSelect') {
+                                    sincronizarUltimoRegistro();
+                                    marcarDiasConRegistro();
+                                }
                             }
 
                             // Un select cambia de dos maneras y sólo una avisa. La persona lo toca y salta
@@ -3400,17 +3432,41 @@
                                 if (anclaTiraDias === hoy.getTime()) return;
                                 anclaTiraDias = hoy.getTime();
 
+                                // Se quitan sólo los días. El botón del calendario cierra la tira y
+                                // lleva dentro el campo de fecha: rehacer la tira entera con innerHTML
+                                // lo destruiría, y con él sus escuchas y su propiedad envuelta.
+                                tira.querySelectorAll('.dia-chip').forEach(c => c.remove());
+                                const calendario = document.getElementById('btnFechaCalendario');
+
                                 let html = '';
                                 for (let i = DIAS_TIRA_ATRAS; i >= -DIAS_TIRA_ADELANTE; i--) {
                                     const d = new Date(hoy);
                                     d.setDate(d.getDate() - i);
                                     // El mes no va en cada botón: lo dice entero el renglón de arriba, y
                                     // repetirlo cuarenta y seis veces sólo ensuciaba la tira.
-                                    html += `<button type="button" class="dia-chip" data-dia="${d.getTime()}" onclick="aplicarDiaRegistro(${d.getTime()})">`
+                                    html += `<button type="button" class="dia-chip${i === 0 ? ' hoy' : ''}" data-dia="${d.getTime()}" onclick="aplicarDiaRegistro(${d.getTime()})">`
                                           + `<span class="dia-semana">${NOMBRES_DIAS_CORTOS[d.getDay()]}</span>`
                                           + `<span class="dia-numero">${d.getDate()}</span></button>`;
                                 }
-                                tira.innerHTML = html;
+                                if (calendario) calendario.insertAdjacentHTML('beforebegin', html);
+                                else tira.innerHTML = html;
+
+                                marcarDiasConRegistro();
+                            }
+
+                            // Qué días de la tira ya tienen un movimiento de la categoría elegida. Ver
+                            // que el súper del jueves ya está apuntado ahorra el duplicado, y ver el
+                            // hueco de la semana pasada recuerda el que falta.
+                            function marcarDiasConRegistro() {
+                                const tira = document.getElementById('tiraDiasRegistro');
+                                if (!tira) return;
+
+                                const idCat = (document.getElementById('regCategoriaSelect') || {}).value;
+                                const dias = diasConRegistroPorCat[idCat] || null;
+
+                                tira.querySelectorAll('.dia-chip').forEach(chip => {
+                                    chip.classList.toggle('con-registro', !!dias && dias.has(Number(chip.dataset.dia)));
+                                });
                             }
 
                             // Deja a la vista el día elegido. Se mueve scrollLeft a mano en vez de usar
@@ -3838,6 +3894,7 @@
                             const montosRecientesMap = {};
                             const registrosPorCat = {};
                             const ultimaFechaMap = {};
+                            diasConRegistroPorCat = {};
                             const accionesMap = {};
                             const costoBaseMap = {}; // Declaración inicializada
                             const costoBaseUsdMap = {}; // NUEVO: Historial en dólares
@@ -3895,8 +3952,18 @@
                             // La última vez que se usó cada categoría. La detección de recurrencias ya
                             // saca algo parecido, pero sólo para las que tienen patrón y no están
                             // excluidas de las predicciones; aquí hace falta de todas.
-                            if (!isNaN(fechaRegistro) && (!ultimaFechaMap[u.categoria_id] || fechaRegistro > ultimaFechaMap[u.categoria_id])) {
-                                ultimaFechaMap[u.categoria_id] = fechaRegistro;
+                            if (!isNaN(fechaRegistro)) {
+                                if (!ultimaFechaMap[u.categoria_id] || fechaRegistro > ultimaFechaMap[u.categoria_id]) {
+                                    ultimaFechaMap[u.categoria_id] = fechaRegistro;
+                                }
+
+                                // Y en qué días cayó, para poder señalarlos en la tira. Se arma aquí, en
+                                // el recorrido que ya visita todos los movimientos, en vez de rebuscar
+                                // entre cien mil registros cada vez que se cambia de categoría.
+                                const soloDia = new Date(fechaRegistro);
+                                soloDia.setHours(0, 0, 0, 0);
+                                if (!diasConRegistroPorCat[u.categoria_id]) diasConRegistroPorCat[u.categoria_id] = new Set();
+                                diasConRegistroPorCat[u.categoria_id].add(soloDia.getTime());
                             }
 
                             const monto = parseFloat(u.monto);
@@ -4259,6 +4326,7 @@
                                                         // tras guardar un gasto de hoy el renglón seguiría diciendo la fecha de
                                                         // antes: la preselección no vuelve a tocar el select y nadie lo despierta.
                                                         sincronizarUltimoRegistro();
+                                                        marcarDiasConRegistro();
                                                         
                                                         if (idCuentaFiltrada) {
                                                                     const filtradas = datosCategorias.filter(cat => String(cat.cuenta_id) === String(idCuentaFiltrada));
