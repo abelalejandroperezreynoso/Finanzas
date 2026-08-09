@@ -656,6 +656,32 @@
                         #registroForm .dia-chip.con-registro::after { background: var(--ios-valor); }
                         #registroForm .dia-chip.con-registro.activo::after { background: #ffffff; }
 
+                        /* Un día añadido al lote. Lleva el relleno del elegido pero con un aro
+                           alrededor: dice "esta también" sin llegar a competir con el que manda,
+                           que es el que se lee en el renglón de la fecha. */
+                        #registroForm .dia-chip.en-lote {
+                            background-color: #48484a;
+                            color: #ffffff;
+                            box-shadow: inset 0 0 0 2px #3ecf8e;
+                        }
+
+                        #registroForm .dia-chip.en-lote::after { background: #ffffff; }
+                        #registroForm .dia-chip.en-lote:not(.con-registro)::after { background: transparent; }
+
+                        /* Sostener un día no debe sacar la lupa ni el menú de iOS */
+                        #registroForm .dia-chip { -webkit-touch-callout: none; }
+
+                        /* El resumen del lote ocupa el renglón entero: es una frase, no un par
+                           nombre-valor como los demás. */
+                        #registroForm .ios-fila-lote {
+                            min-height: 0;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            font-size: 0.82em;
+                            color: #3ecf8e;
+                            line-height: 1.35;
+                        }
+
                         /* Hoy va con el número en verde mientras no esté elegido. Al elegirlo se le
                            quita: ahí ya lo marca el relleno, y dos señales sobre el mismo botón compiten
                            en vez de sumar. Es lo que hace el calendario del teléfono. */
@@ -1088,6 +1114,12 @@
                     <input type="datetime-local" id="regFecha">
                 </div>
             </div>
+        </div>
+
+        <!-- Sólo sale cuando hay más de una fecha. Dice cuáles, porque la tira enseña siete
+             días de golpe y un día marcado puede haberse quedado fuera de la vista. -->
+        <div class="ios-fila ios-fila-lote" id="filaLoteFechas" style="display: none;">
+            <span id="textoLoteFechas"></span>
         </div>
 
         <div class="toggle-container">
@@ -3321,6 +3353,7 @@
                                 const fecha = document.getElementById('regFecha');
                                 if (fecha) {
                                     construirTiraDias();
+                                    conectarGestosTira();
                                     refrescos.push(sincronizarFechaRegistro);
                                     fecha.addEventListener('change', sincronizarFechaRegistro);
                                     fecha.addEventListener('input', sincronizarFechaRegistro);
@@ -3444,7 +3477,7 @@
                                     d.setDate(d.getDate() - i);
                                     // El mes no va en cada botón: lo dice entero el renglón de arriba, y
                                     // repetirlo cuarenta y seis veces sólo ensuciaba la tira.
-                                    html += `<button type="button" class="dia-chip${i === 0 ? ' hoy' : ''}" data-dia="${d.getTime()}" onclick="aplicarDiaRegistro(${d.getTime()})">`
+                                    html += `<button type="button" class="dia-chip${i === 0 ? ' hoy' : ''}" data-dia="${d.getTime()}">`
                                           + `<span class="dia-semana">${NOMBRES_DIAS_CORTOS[d.getDay()]}</span>`
                                           + `<span class="dia-numero">${d.getDate()}</span></button>`;
                                 }
@@ -3467,6 +3500,51 @@
                                 tira.querySelectorAll('.dia-chip').forEach(chip => {
                                     chip.classList.toggle('con-registro', !!dias && dias.has(Number(chip.dataset.dia)));
                                 });
+                            }
+
+                            // ---- Varios registros de una vez ----
+                            // El mismo gasto en varios días —tres súper de la semana que no apuntaste— se
+                            // captura una vez y se guarda en todas sus fechas. Aquí viven los días de más;
+                            // el del campo va siempre incluido y no está en este conjunto, para que la
+                            // fecha que se lee arriba nunca deje de ser una de las que se guardan.
+                            //
+                            // Las dos formas de tocar un día quedan repartidas así: el toque elige uno
+                            // solo —y deshace el lote—, y sostener suma o quita. Es la misma regla que ya
+                            // usa el mapa del portafolio, donde tocar entra y sostener abre la ficha.
+                            let fechasLoteRegistro = new Set();
+                            const MS_PULSACION_LARGA_TIRA = 450;
+
+                            function limpiarLoteFechas() {
+                                if (fechasLoteRegistro.size === 0) return;
+                                fechasLoteRegistro.clear();
+                                sincronizarFechaRegistro();
+                            }
+
+                            function alternarDiaLote(dia) {
+                                // Editando no hay lote: se corrige el movimiento que se abrió, y
+                                // multiplicarlo no tendría sentido. Se ignora el gesto en vez de dejar
+                                // marcar días que luego el guardado no miraría.
+                                if (editIdMov) return;
+
+                                if (fechasLoteRegistro.has(dia)) fechasLoteRegistro.delete(dia);
+                                else fechasLoteRegistro.add(dia);
+                                sincronizarFechaRegistro();
+                            }
+
+                            // Las fechas que se guardarán: la del campo más las del lote, cada una con la
+                            // hora del campo, porque son el mismo movimiento repetido en otros días.
+                            function fechasParaGuardar() {
+                                const input = document.getElementById('regFecha');
+                                const base = input ? new Date(input.value) : null;
+                                if (!base || isNaN(base)) return [];
+
+                                const dias = [...fechasLoteRegistro].sort((a, b) => a - b).map(ts => {
+                                    const d = new Date(ts);
+                                    d.setHours(base.getHours(), base.getMinutes(), 0, 0);
+                                    return d;
+                                });
+
+                                return [base, ...dias].sort((a, b) => a - b);
                             }
 
                             // Deja a la vista el día elegido. Se mueve scrollLeft a mano en vez de usar
@@ -3513,13 +3591,96 @@
                                 const tira = document.getElementById('tiraDiasRegistro');
                                 if (!tira) return;
 
+                                // El día del campo nunca está además en el lote: se guardaría dos veces,
+                                // y el recuadro no sabría si pintarse de elegido o de añadido.
+                                if (dia !== null) fechasLoteRegistro.delete(dia);
+
                                 let elegido = null;
                                 tira.querySelectorAll('.dia-chip').forEach(chip => {
-                                    const esEste = Number(chip.dataset.dia) === dia;
+                                    const suyo = Number(chip.dataset.dia);
+                                    const esEste = suyo === dia;
                                     chip.classList.toggle('activo', esEste);
+                                    chip.classList.toggle('en-lote', fechasLoteRegistro.has(suyo));
                                     if (esEste) elegido = chip;
                                 });
                                 centrarTiraDias(elegido);
+
+                                actualizarResumenLote();
+                            }
+
+                            // Cuántos registros saldrán de este formulario y en qué días. Se dice en dos
+                            // sitios porque son dos preguntas distintas: el renglón responde "¿cuáles?" y
+                            // el botón responde "¿qué va a pasar si le doy?".
+                            function actualizarResumenLote() {
+                                const fila = document.getElementById('filaLoteFechas');
+                                const texto = document.getElementById('textoLoteFechas');
+                                const boton = document.getElementById('btnCrearRegistro');
+
+                                const fechas = fechasParaGuardar();
+                                const varios = fechas.length > 1;
+
+                                if (fila) fila.style.display = varios ? '' : 'none';
+                                if (texto && varios) {
+                                    const dias = fechas.map(f => `${f.getDate()} ${NOMBRES_MESES[f.getMonth()].slice(0, 3).toLowerCase()}`);
+                                    texto.textContent = `${fechas.length} registros: ${dias.join(' · ')}`;
+                                }
+
+                                // Editando manda el texto de la edición: ahí no hay lote que valga.
+                                if (boton && !editIdMov) {
+                                    boton.textContent = varios ? `Guardar ${fechas.length} registros` : 'Guardar';
+                                }
+                            }
+
+                            // Tocar y sostener sobre la tira. Se resuelve delegando en el contenedor: los
+                            // días se rehacen cada vez que cambia el ancla, y colgarle escuchas a cada uno
+                            // significaría volver a colgarlas en cada reconstrucción.
+                            function conectarGestosTira() {
+                                const tira = document.getElementById('tiraDiasRegistro');
+                                if (!tira || tira.dataset.gestosListos) return;
+                                tira.dataset.gestosListos = '1';
+
+                                let pulsacion = null;
+                                const soltarTemporizador = () => { if (pulsacion) clearTimeout(pulsacion.temporizador); };
+
+                                tira.addEventListener('pointerdown', (e) => {
+                                    const chip = e.target.closest('.dia-chip');
+                                    if (!chip) return;
+
+                                    const estado = { chip, x: e.clientX, y: e.clientY, largo: false };
+                                    estado.temporizador = setTimeout(() => {
+                                        estado.largo = true;
+                                        alternarDiaLote(Number(chip.dataset.dia));
+                                        // Un aviso al tacto: el gesto no tiene nada que lo anuncie y sin
+                                        // esto no se sabe cuándo ha prendido.
+                                        if (navigator.vibrate) navigator.vibrate(12);
+                                    }, MS_PULSACION_LARGA_TIRA);
+                                    pulsacion = estado;
+                                });
+
+                                // A partir de unos píxeles el dedo está deslizando la tira, no señalando un
+                                // día: sin esto, arrastrar despacio acabaría añadiendo fechas sin querer.
+                                tira.addEventListener('pointermove', (e) => {
+                                    if (!pulsacion || pulsacion.largo) return;
+                                    if (Math.abs(e.clientX - pulsacion.x) > 8 || Math.abs(e.clientY - pulsacion.y) > 8) soltarTemporizador();
+                                });
+
+                                tira.addEventListener('pointerup', soltarTemporizador);
+                                tira.addEventListener('pointercancel', () => { soltarTemporizador(); pulsacion = null; });
+                                tira.addEventListener('scroll', soltarTemporizador);
+
+                                tira.addEventListener('click', (e) => {
+                                    const chip = e.target.closest('.dia-chip');
+                                    if (!chip) return;
+
+                                    // El clic llega igual después de sostener: si ya se atendió como
+                                    // pulsación larga, aquí no hay nada que hacer.
+                                    const fueLargo = pulsacion && pulsacion.largo && pulsacion.chip === chip;
+                                    pulsacion = null;
+                                    if (fueLargo) return;
+
+                                    limpiarLoteFechas();
+                                    aplicarDiaRegistro(Number(chip.dataset.dia));
+                                });
                             }
 
                             // ---- Con qué abre el formulario ----
@@ -9327,6 +9488,11 @@
                 return;
             }
 
+            // Los días marcados en la tira. Editando no hay lote: se corrige el movimiento
+            // que se abrió, y multiplicarlo no tendría sentido.
+            const fechasDelLote = editIdMov ? [new Date(valorFechaReg)] : fechasParaGuardar();
+            const cuantosRegistros = fechasDelLote.length;
+
             // El marcador "Caja GBM (se creará al guardar)" apunta a la categoría desde la
             // que se abrió la aportación/retiro; la caja real se resuelve más abajo
             if (catId === VALOR_CAJA_AUTO) {
@@ -9386,11 +9552,17 @@
                                 }
                                 montoUsd = cantidadAcciones * costoAccion;
                                 montoFinal = 0; // No se mueven pesos: todo ocurre dentro de la caja USD
-                                if (tipoMovimiento === 'compra' && !editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
-                                    if (!confirm(`⚠️ Esta compra usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
+                                // Con varias fechas el aviso tiene que hablar del total: cinco compras
+                                // iguales gastan cinco veces, y comprobar sólo una lo dejaría pasar.
+                                const usdDelLote = montoUsd * cuantosRegistros;
+                                const accionesDelLote = cantidadAcciones * cuantosRegistros;
+                                const porRegistro = cuantosRegistros > 1 ? ` (${cuantosRegistros} registros)` : '';
+
+                                if (tipoMovimiento === 'compra' && !editIdMov && usdDelLote > cajaDisponibleUsd + 0.01) {
+                                    if (!confirm(`⚠️ Esta compra usa ${fMoneda(usdDelLote)} USD${porRegistro} pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
                                 }
-                                if (tipoMovimiento === 'venta' && !editIdMov && cantidadAcciones > (catSeleccionada.totalAcciones || 0) + 0.00001) {
-                                    if (!confirm(`⚠️ Estás vendiendo ${cantidadAcciones} acciones pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
+                                if (tipoMovimiento === 'venta' && !editIdMov && accionesDelLote > (catSeleccionada.totalAcciones || 0) + 0.00001) {
+                                    if (!confirm(`⚠️ Estás vendiendo ${accionesDelLote} acciones${porRegistro} pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
                                 }
                             } else {
                                 // Movimiento directo (histórico): pesos + acciones en un solo paso
@@ -9410,7 +9582,7 @@
                         const body = {
                             categoria_id: categoriaFinalId,
                             monto: montoFinal,
-                            fecha: new Date(document.getElementById('regFecha').value).toISOString(),
+                            fecha: fechasDelLote[0].toISOString(),
                             descripcion: document.getElementById('regDesc').value,
                             costo_accion: costoAccion,
                             tipo_cambio: tipoCambio,
@@ -9426,9 +9598,14 @@
             btnCrear.textContent = 'Guardando...';
             btnCrear.disabled = true;
 
+            // Un registro por fecha, iguales salvo el día. Van en un solo insert para que o
+            // entran todos o no entra ninguno: a medias quedaría un lote partido sin forma de
+            // saber cuáles faltaron.
+            const cuerpos = fechasDelLote.map(f => ({ ...body, fecha: f.toISOString() }));
+
             const res = editIdMov
                 ? await clienteSupabase.from('registros').update(body).eq('id', editIdMov).select('*, categorias(nombre, tipo)')
-                : await clienteSupabase.from('registros').insert([body]).select('*, categorias(nombre, tipo)');
+                : await clienteSupabase.from('registros').insert(cuerpos).select('*, categorias(nombre, tipo)');
                 
             // Restaurar botón
             btnCrear.textContent = textoOriginal;
@@ -9526,6 +9703,7 @@
 
                             function cancelarEdicionMov() {
                                             editIdMov = null;
+                                            fechasLoteRegistro.clear();
                                             document.getElementById('registroForm').reset();
                                             document.getElementById('regMonto').dataset.autofill = 'false'; // Reseteamos la marca por seguridad
                                             
