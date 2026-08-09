@@ -467,19 +467,50 @@
                             color: var(--ios-valor);
                         }
 
-                        /* La flecha del desplegable. Va como fondo del propio select para que quede
-                           pegada al valor y no al borde de la tarjeta. */
-                        #registroForm .ios-fila select {
+                        /* Safari no respeta text-align dentro de un <select>: por muy alineado a la
+                           derecha que se pida, en el iPhone la elección sale pegada al nombre del
+                           campo. Y no hay CSS que lo arregle de verdad.
+
+                           Así que el select se vuelve invisible y se estira sobre el renglón entero
+                           —sigue siendo él quien abre la rueda nativa, y ahora se abre tocando donde
+                           sea—, mientras el texto que se lee es un <span> nuestro, que sí obedece.
+                           El precio es tener que mantener ese espejo al día; de eso se encarga
+                           activarEspejosSelect(). */
+                        #registroForm .ios-fila-select > select {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            opacity: 0;
+                            margin: 0;
+                            padding: 0;
+                            border: none;
+                            background: none;
+                        }
+
+                        #registroForm .ios-espejo {
+                            flex: 1;
+                            min-width: 0;
+                            font-size: 1.02em;
+                            color: #ffffff;
+                            text-align: right;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
                             padding-right: 18px;
+                            /* La flecha del desplegable, pegada al valor y no al borde de la tarjeta */
                             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2398989d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
                             background-repeat: no-repeat;
                             background-position: right center;
                             background-size: 13px;
                         }
 
-                        #registroForm .ios-fila select:disabled {
+                        /* Sin elección hecha, o con el campo bloqueado, el texto se apaga: es un
+                           marcador de lo que falta, no un valor. */
+                        #registroForm .ios-espejo.marcador,
+                        #registroForm .ios-fila-select.bloqueado .ios-espejo {
                             color: var(--ios-valor);
-                            opacity: 1;
                         }
 
                         /* El monto de una aportación lo calcula la app, no se captura. Se apaga el
@@ -889,8 +920,9 @@
          categoría cae. Las tres cosas se eligen en ese orden porque cada una acota
          la siguiente, y por eso viven en la misma tarjeta. -->
     <div class="ios-grupo">
-        <div class="ios-fila">
+        <div class="ios-fila ios-fila-select">
             <label for="regCuentaSelect">Cuenta</label>
+            <span class="ios-espejo marcador">Selecciona...</span>
             <select id="regCuentaSelect" required onchange="actualizarCategoriasRegistro()">
             <option value="" disabled selected>Selecciona...</option>
             </select>
@@ -901,8 +933,9 @@
         <button type="button" id="btnSalida" class="btn-toggle" onclick="seleccionarTipoRegistro('salida')">Salida (-)</button>
         </div>
 
-        <div class="ios-fila">
+        <div class="ios-fila ios-fila-select">
             <label for="regCategoriaSelect">Categoría</label>
+            <span class="ios-espejo marcador">Elige cuenta y dirección</span>
             <select id="regCategoriaSelect" required onchange="onCambioCategoriaRegistro()">
             <option value="" disabled selected>Elige cuenta y dirección</option>
             </select>
@@ -932,8 +965,9 @@
     <div id="contenedorInversion" style="display: none; flex-direction: column;">
         <div class="ios-encabezado">Movimiento GBM</div>
         <div class="ios-grupo">
-            <div class="ios-fila">
+            <div class="ios-fila ios-fila-select">
                 <label for="regTipoInversion">Tipo</label>
+                <span class="ios-espejo marcador">—</span>
                 <select id="regTipoInversion" onchange="actualizarCamposInversion()"></select>
             </div>
             <div class="ios-fila" style="display: none;" id="divRegMontoUsd">
@@ -3068,6 +3102,110 @@
 
                             // El select trae un marcador al final; si lo eligen abrimos el modal
                             // y devolvemos la selección anterior para que nunca se quede ahí.
+                            // ---- El espejo de los desplegables ----
+                            // Copia al <span> visible lo que el <select> invisible tiene elegido. Existe
+                            // porque Safari no alinea a la derecha el texto de un select; queda explicado
+                            // donde se le quita la opacidad.
+                            function sincronizarEspejoSelect(sel) {
+                                const fila = sel.parentElement;
+                                const espejo = fila && fila.querySelector('.ios-espejo');
+                                if (!espejo) return;
+
+                                const elegida = sel.selectedOptions && sel.selectedOptions[0];
+                                const texto = elegida ? elegida.textContent.trim() : '';
+                                espejo.textContent = texto || '—';
+
+                                // Las opciones tipo "Selecciona una cuenta..." van deshabilitadas: son un
+                                // marcador de lo que falta, no una elección, y se leen apagadas.
+                                const esMarcador = !elegida || elegida.disabled || !sel.value;
+                                espejo.classList.toggle('marcador', esMarcador);
+                                fila.classList.toggle('bloqueado', sel.disabled);
+                            }
+
+                            // Un select cambia de dos maneras y sólo una avisa. La persona lo toca y salta
+                            // 'change'; el formulario le asigna .value, le rehace las opciones o lo bloquea,
+                            // y de eso no salta nada. Por eso además de escuchar el evento se observan las
+                            // opciones y se envuelven las tres propiedades por las que el código lo mueve
+                            // sin tocarlo. Sin esto el espejo se quedaría mostrando lo de antes.
+                            function activarEspejosSelect() {
+                                const form = document.getElementById('registroForm');
+                                if (!form || form.dataset.espejosListos) return;
+                                form.dataset.espejosListos = '1';
+
+                                const propiedades = ['value', 'selectedIndex', 'disabled'].map(nombre =>
+                                    [nombre, Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, nombre)]);
+
+                                const selects = [...form.querySelectorAll('.ios-fila-select > select')];
+                                selects.forEach(sel => {
+                                    const refrescar = () => sincronizarEspejoSelect(sel);
+                                    sel.addEventListener('change', refrescar);
+                                    new MutationObserver(refrescar).observe(sel, { childList: true, subtree: true });
+
+                                    propiedades.forEach(([nombre, desc]) => {
+                                        if (!desc || !desc.set) return;
+                                        Object.defineProperty(sel, nombre, {
+                                            configurable: true,
+                                            enumerable: false,
+                                            get() { return desc.get.call(this); },
+                                            set(v) { desc.set.call(this, v); refrescar(); }
+                                        });
+                                    });
+
+                                    refrescar();
+                                });
+
+                                // reset() devuelve los selects a su opción inicial sin avisar, y el evento
+                                // llega antes de que eso ocurra: hay que mirar después.
+                                form.addEventListener('reset', () => {
+                                    setTimeout(() => selects.forEach(sincronizarEspejoSelect), 0);
+                                });
+                            }
+
+                            // ---- Con qué abre el formulario ----
+                            // Capturar un gasto de todos los días debería ser escribir el monto y guardar.
+                            // La categoría que más usas manda, y de ella salen la cuenta y la dirección: son
+                            // suyas, así que elegirlas por separado sólo daba ocasión de que no cuadraran.
+                            let idCategoriaMasUsada = null;
+
+                            function direccionDeCategoria(cat) {
+                                if (!cat) return '';
+                                if (cat.tipo === 'ingreso') return 'entrada';
+                                // Un gasto es salida, y las de dos caras —inversión, préstamo, deuda— abren
+                                // por ahí también: comprar, prestar y pagar es lo que se captura de ellas
+                                // casi siempre, y la otra cara está a un toque.
+                                return 'salida';
+                            }
+
+                            // 'forzar' es para después de guardar, cuando el formulario se limpia y hay que
+                            // volver a ponerlo. Sin forzar no pisa nada: si ya hay algo elegido —porque se
+                            // recargaron los datos a media captura— se queda como está.
+                            function preseleccionarFrecuentes(forzar = false) {
+                                if (editIdMov) return;
+
+                                const selCuenta = document.getElementById('regCuentaSelect');
+                                const selTipo = document.getElementById('regTipoSelect');
+                                const selCat = document.getElementById('regCategoriaSelect');
+                                if (!selCuenta || !selTipo || !selCat) return;
+                                if (!forzar && (selCuenta.value || selTipo.value || selCat.value)) return;
+
+                                const cat = (datosCategorias || []).find(c => String(c.id) === String(idCategoriaMasUsada));
+                                const idCuenta = cat ? String(cat.cuenta_id) : idCuentaMasUsada;
+                                if (!idCuenta) return;
+
+                                selCuenta.value = idCuenta;
+                                if (!cat) { actualizarCategoriasRegistro(); return; }
+
+                                // El orden no es libre: la lista de categorías se arma con la cuenta y la
+                                // dirección ya puestas, así que la categoría sólo puede elegirse al final.
+                                seleccionarTipoRegistro(direccionDeCategoria(cat));
+                                actualizarCategoriasRegistro();
+
+                                if ([...selCat.options].some(o => o.value === String(cat.id))) {
+                                    selCat.value = String(cat.id);
+                                    onCambioCategoriaRegistro();
+                                }
+                            }
+
                             function onCambioCategoriaRegistro() {
                                 const selCat = document.getElementById('regCategoriaSelect');
                                 if (!selCat) return;
@@ -3786,11 +3924,22 @@
                                 }
                             });
 
-                            // Preseleccionar automáticamente en el formulario si no estamos editando un movimiento existente
-                                                        if (idCuentaMasUsada && !editIdMov) {
-                                                            const selectCuentaReg = document.getElementById('regCuentaSelect');
-                                                            if (selectCuentaReg) selectCuentaReg.value = idCuentaMasUsada;
-                                                        }
+                            // Y la categoría más usada, que es de la que salen las tres preselecciones.
+                            // La cuenta de arriba se queda como respaldo: con categorías todas a cero
+                            // —una cuenta recién hecha— al menos abre con la cuenta puesta.
+                            let maxUsoCat = 0;
+                            idCategoriaMasUsada = null;
+                            datosCategorias.forEach(cat => {
+                                if ((cat.vecesUsada || 0) > maxUsoCat) {
+                                    maxUsoCat = cat.vecesUsada;
+                                    idCategoriaMasUsada = String(cat.id);
+                                }
+                            });
+
+                            // El formulario abre con cuenta, dirección y categoría puestas, salvo que se
+                            // esté editando un movimiento —ahí manda lo que el movimiento diga—.
+                                                        activarEspejosSelect();
+                                                        preseleccionarFrecuentes();
                                                         
                                                         if (idCuentaFiltrada) {
                                                                     const filtradas = datosCategorias.filter(cat => String(cat.cuenta_id) === String(idCuentaFiltrada));
@@ -8992,12 +9141,8 @@
                                             document.getElementById('btnCancelEdit').style.display = 'none';
                                             seleccionarTipoRegistro('');
                                             
-                                            // Re-aplicar la preselección de la cuenta frecuente tras limpiar el formulario
-                                                            if (idCuentaMasUsada) {
-                                                                const selectCuentaReg = document.getElementById('regCuentaSelect');
-                                                                if (selectCuentaReg) selectCuentaReg.value = idCuentaMasUsada;
-                                                                actualizarCategoriasRegistro();
-                                                            }
+                                            // Volver a dejar el formulario listo para la siguiente captura
+                                                            preseleccionarFrecuentes(true);
 
                                             // --- INICIO DE LA CORRECCIÓN ---
                                             // Redirige automáticamente al usuario de vuelta al listado de gestión de datos
