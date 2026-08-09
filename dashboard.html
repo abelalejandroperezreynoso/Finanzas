@@ -5052,15 +5052,62 @@
                                         abrirModalCategoria();
                                     }
 
+    // --- MOVIMIENTOS RECIÉN GUARDADOS QUE LA CONSULTA NO ALCANZA ---
+    // El historial no carga todos los movimientos, sólo los más recientes. Uno recién
+    // guardado con fecha vieja cae fuera de esa ventana, y guardarlo para no verlo en
+    // ninguna parte se parece demasiado a que no se guardó. Las filas que devuelven el
+    // insert y el update se conservan aquí para colarlas en la lista mientras la consulta
+    // no llegue hasta ellas.
+    const LIMITE_REGISTROS_HISTORIAL = 50;
+    let registrosRecienGuardados = [];
+
+    function recordarRegistrosRecienGuardados(regs) {
+        (regs || []).forEach(guardado => {
+            const i = registrosRecienGuardados.findIndex(r => String(r.id) === String(guardado.id));
+            // Al corregir uno que ya estaba colado se sustituye por su versión nueva; si se
+            // borrara de la lista, editarlo lo haría desaparecer de la pantalla.
+            if (i >= 0) registrosRecienGuardados[i] = guardado;
+            else registrosRecienGuardados.push(guardado);
+        });
+    }
+
+    function msDeFechaRegistro(reg) {
+        const fecha = new Date(String(reg.fecha || '').replace(' ', 'T'));
+        return isNaN(fecha.getTime()) ? 0 : fecha.getTime();
+    }
+
+    // Mezcla lo recién guardado con lo que trajo la consulta, ordenado por fecha, que es
+    // como el historial forma sus grupos.
+    //
+    // De paso suelta lo que ya no hace falta sostener, y esa parte importa: borrar un
+    // movimiento también pasa por aquí, y una lista que se limitara a re-añadir lo suyo
+    // resucitaría lo borrado. Sólo se conserva lo que la consulta no podía traer —lo más
+    // viejo que su registro más antiguo, y sólo si llenó la ventana—. Lo que cae dentro de
+    // su alcance y aun así no vino es que ya no existe.
+    function fusionarRegistrosRecienGuardados(regs) {
+        if (registrosRecienGuardados.length === 0) return regs;
+
+        const presentes = new Set(regs.map(r => String(r.id)));
+        const ventanaLlena = regs.length >= LIMITE_REGISTROS_HISTORIAL;
+        const masAntiguoCargado = ventanaLlena ? Math.min(...regs.map(msDeFechaRegistro)) : -Infinity;
+
+        registrosRecienGuardados = registrosRecienGuardados.filter(r =>
+            !presentes.has(String(r.id)) && msDeFechaRegistro(r) < masAntiguoCargado
+        );
+        if (registrosRecienGuardados.length === 0) return regs;
+
+        return [...regs, ...registrosRecienGuardados].sort((a, b) => msDeFechaRegistro(b) - msDeFechaRegistro(a));
+    }
+
     // --- ANÁLISIS Y DATOS BASE ---
     async function cargarDatosBase() {
         const { data: regs, error: errRegs } = await clienteSupabase
                 .from('registros')
                 .select('*, cantidad_acciones, categorias(nombre, tipo)')
                 .order('fecha', { ascending: false })
-                .limit(50);
-                
-            datosRegistros = regs || [];
+                .limit(LIMITE_REGISTROS_HISTORIAL);
+
+            datosRegistros = fusionarRegistrosRecienGuardados(regs || []);
 
             // Detecta la zona horaria real del dispositivo (ej. "America/Mexico_City" o "Europe/Madrid")
             const zonaHorariaUsuario = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -9762,6 +9809,10 @@
                             // para que la lista ya esté a la vista cuando se repinte y la animación corra.
                             verSubLista('sub-movs', document.getElementById('btnTabMovimientos'));
                             destacarMovimientosNuevos(idsRecienCreados);
+
+                            // La recarga trae sólo los movimientos más recientes: si lo guardado lleva
+                            // fecha vieja no vendría en ella, así que se conserva para colarlo en la lista.
+                            recordarRegistrosRecienGuardados(res.data);
 
                             // Guardar y no ver nada aparecer se parece demasiado a que no se guardó, así que
                             // si los filtros puestos esconden lo recién capturado se quitan enteros, igual que
