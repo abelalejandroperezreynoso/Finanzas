@@ -5484,6 +5484,39 @@
                                 faltaScrollAMovimientoNuevo = idsMovimientosNuevos.size > 0;
                             }
 
+                            // ¿Los filtros puestos dejarían fuera del historial este movimiento?
+                            // Se mira lo mismo que sabe quitar la ✕ de arriba: el rango de tiempo y el filtro de
+                            // movimientos. Lo que esconde una cuenta fuera del total o una categoría apagada en el
+                            // simulador no es un filtro de esta lista y no cuenta aquí.
+                            function filtrosOcultanMovimiento(reg) {
+                                if (!reg) return false;
+
+                                const inicio = document.getElementById('filtroInicio')?.value || '';
+                                const fin = document.getElementById('filtroFin')?.value || '';
+                                const fecha = obtenerFechaLocalCortada(reg.fecha);
+                                // Una fecha ilegible sale vacía de ahí; con ella no se puede decidir nada
+                                if (fecha && ((inicio && fecha < inicio) || (fin && fecha > fin))) return true;
+
+                                const filtro = window.filtroMovimientosActivo;
+                                if (!filtro) return false;
+
+                                if (filtro.tipo === 'categoria') {
+                                    return String(reg.categoria_id) !== String(filtro.valor);
+                                }
+                                if (filtro.tipo === 'cuenta') {
+                                    const cat = (datosCategorias || []).find(c => String(c.id) === String(reg.categoria_id));
+                                    return !cat || String(cat.cuenta_id) !== String(filtro.valor);
+                                }
+                                if (filtro.tipo === 'busqueda') {
+                                    const texto = String(filtro.valor || '').toLowerCase();
+                                    const cat = (datosCategorias || []).find(c => String(c.id) === String(reg.categoria_id));
+                                    const nombre = cat ? cat.nombre.toLowerCase() : '';
+                                    const desc = (reg.descripcion || '').toLowerCase();
+                                    return !desc.includes(texto) && !nombre.includes(texto);
+                                }
+                                return false;
+                            }
+
                             function esMovimientoNuevo(id) {
                                 if (idsMovimientosNuevos.size === 0) return false;
                                 if (Date.now() - momentoMarcaMovsNuevos > VIGENCIA_MARCA_MOVS_NUEVOS) {
@@ -9729,6 +9762,14 @@
                             // para que la lista ya esté a la vista cuando se repinte y la animación corra.
                             verSubLista('sub-movs', document.getElementById('btnTabMovimientos'));
                             destacarMovimientosNuevos(idsRecienCreados);
+
+                            // Guardar y no ver nada aparecer se parece demasiado a que no se guardó, así que
+                            // si los filtros puestos esconden lo recién capturado se quitan enteros, igual que
+                            // hace la ✕ de arriba. Pasa a menudo: la app abre recortada al mes en curso y basta
+                            // con fechar el movimiento en otro mes. Con un lote, uno solo escondido ya basta.
+                            if (!eraEdicion && (res.data || []).some(filtrosOcultanMovimiento)) {
+                                quitarFiltroDeLista();
+                            }
 
                             // 3. LA MAGIA: Forzamos una recarga fresca de cuentas, categorías y gráficas
                             await refrescarTodo();
