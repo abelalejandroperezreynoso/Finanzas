@@ -421,6 +421,7 @@
                            segmentado también lo lleva: es un renglón más de la tarjeta y sin esto
                            su raya de arriba iba de borde a borde y la de abajo sangrada. */
                         #registroForm .ios-fila::before,
+                        #registroForm .ios-fila-tira::before,
                         #registroForm .toggle-container::before {
                             content: '';
                             position: absolute;
@@ -592,10 +593,60 @@
 
                         /* El día elegido queda marcado. Gris claro y no verde o rojo: elegir el día no
                            es elegir dirección, y con los colores de arriba se leería como si lo fuera. */
-                        #registroForm .btn-toggle.activo {
+                        #registroForm .btn-toggle.activo,
+                        #registroForm .dia-chip.activo {
                             background-color: #48484a;
                             color: #ffffff;
                         }
+
+                        /* La tira de días. El renglón de fuera es el que se ve como parte de la
+                           tarjeta —fondo y raya—; el de dentro es el que se desliza. */
+                        #registroForm .ios-fila-tira {
+                            position: relative;
+                            background: var(--ios-tarjeta);
+                        }
+
+                        #registroForm .ios-tira-dias {
+                            display: flex;
+                            gap: 6px;
+                            overflow-x: auto;
+                            overflow-y: hidden;
+                            padding: 8px var(--ios-sangria);
+                            -webkit-overflow-scrolling: touch;
+                            scroll-snap-type: x proximity;
+                            scrollbar-width: none;
+                            /* Sin touch-action propio a propósito. Acotarla a pan-x parece lo suyo, pero
+                               deja muerto el desplazamiento vertical de la página en cuanto el dedo
+                               empieza sobre la tira. Con el valor de siempre decide el navegador según
+                               hacia dónde arrastres: de lado mueve la tira, hacia abajo mueve la página. */
+                        }
+
+                        #registroForm .ios-tira-dias::-webkit-scrollbar { display: none; }
+
+                        #registroForm .dia-chip {
+                            flex: 0 0 auto;
+                            width: 46px;
+                            margin: 0;
+                            padding: 6px 0;
+                            border: none;
+                            border-radius: 14px;
+                            background-color: #2c2c2e;
+                            color: var(--ios-valor);
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            gap: 1px;
+                            font-weight: 600;
+                            scroll-snap-align: center;
+                        }
+
+                        #registroForm .dia-chip .dia-semana {
+                            font-size: 0.62em;
+                            text-transform: uppercase;
+                            letter-spacing: 0.4px;
+                        }
+
+                        #registroForm .dia-chip .dia-numero { font-size: 1.05em; }
 
                         #registroForm .btn-toggle {
                             padding: 9px;
@@ -1000,6 +1051,13 @@
             <label for="regFecha">Fecha</label>
             <span class="ios-espejo-fecha" id="textoRegFecha">—</span>
         </div>
+        <!-- La tira de días. El renglón de fuera no se desliza y es el que lleva la raya:
+             dentro de un contenedor que sí se desliza, el parche que la sangra viajaría
+             con el contenido. Los botones los pone construirTiraDias(). -->
+        <div class="ios-fila-tira">
+            <div class="ios-tira-dias" id="tiraDiasRegistro"></div>
+        </div>
+
         <div class="toggle-container">
             <button type="button" id="btnFechaAyer" class="btn-toggle" onclick="fijarFechaRegistro(-1)">Ayer</button>
             <button type="button" id="btnFechaHoy" class="btn-toggle" onclick="fijarFechaRegistro(0)">Hoy</button>
@@ -1935,6 +1993,10 @@
                             }
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
+                            // Con el formulario escondido la tira no tiene ancho y no hay dónde
+                            // centrar nada; ahora sí. De paso se rehace si cambió el día.
+                            construirTiraDias();
+                            sincronizarFechaRegistro();
                             }
                             if (id === 'sec-ajustes') {
                             renderizarMatrizInversiones();
@@ -3226,6 +3288,7 @@
                                 // de Ayer y Hoy, que no avisan de nada.
                                 const fecha = document.getElementById('regFecha');
                                 if (fecha) {
+                                    construirTiraDias();
                                     refrescos.push(sincronizarFechaRegistro);
                                     fecha.addEventListener('change', sincronizarFechaRegistro);
                                     fecha.addEventListener('input', sincronizarFechaRegistro);
@@ -3292,21 +3355,70 @@
                                 return d.toISOString().slice(0, 16);
                             }
 
-                            // Ayer y hoy son casi todo lo que se captura, así que están a un toque. Se
-                            // cambia el día y se respeta la hora que hubiera puesta: quien ajustó la hora
+                            // Poner un día concreto respetando la hora que hubiera puesta: quien la ajustó
                             // a mano y luego se dio cuenta de que era de ayer no tiene por qué perderla.
-                            function fijarFechaRegistro(diasAtras) {
+                            function aplicarDiaRegistro(dia) {
                                 const input = document.getElementById('regFecha');
                                 if (!input) return;
 
                                 const previa = new Date(input.value);
                                 const hora = isNaN(previa) ? new Date() : previa;
 
+                                const d = new Date(dia);
+                                d.setHours(hora.getHours(), hora.getMinutes(), 0, 0);
+                                input.value = valorFechaLocal(d);
+                            }
+
+                            // Ayer y hoy son casi todo lo que se captura, así que están a un toque
+                            function fijarFechaRegistro(diasAtras) {
                                 const dia = new Date();
                                 dia.setDate(dia.getDate() + diasAtras);
-                                dia.setHours(hora.getHours(), hora.getMinutes(), 0, 0);
+                                aplicarDiaRegistro(dia);
+                            }
 
-                                input.value = valorFechaLocal(dia);
+                            // ---- La tira de días ----
+                            // Entre "fue ayer" y "fue el 3" hay un hueco que ni los dos botones ni la rueda
+                            // nativa llenan bien: un jueves que te acuerdas del súper del sábado. La tira lo
+                            // cubre —se desliza y se toca— sin quitarle el sitio a ninguno de los dos.
+                            const NOMBRES_DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
+                            // Mes y medio hacia atrás cubre de sobra lo que se captura tarde, y lo de más
+                            // allá es trabajo de la rueda. Un día hacia adelante porque a veces se apunta
+                            // algo con fecha de mañana, y sin él ese día no tendría botón.
+                            const DIAS_TIRA_ATRAS = 45;
+                            const DIAS_TIRA_ADELANTE = 1;
+                            let anclaTiraDias = null;
+
+                            function construirTiraDias() {
+                                const tira = document.getElementById('tiraDiasRegistro');
+                                if (!tira) return;
+
+                                // La tira se ancla en el día de hoy. Se rehace sólo si ese día cambió, que
+                                // con la app abierta a medianoche pasa: sin esto, "hoy" señalaría a ayer.
+                                const hoy = new Date();
+                                hoy.setHours(0, 0, 0, 0);
+                                if (anclaTiraDias === hoy.getTime()) return;
+                                anclaTiraDias = hoy.getTime();
+
+                                let html = '';
+                                for (let i = DIAS_TIRA_ATRAS; i >= -DIAS_TIRA_ADELANTE; i--) {
+                                    const d = new Date(hoy);
+                                    d.setDate(d.getDate() - i);
+                                    // El mes no va en cada botón: lo dice entero el renglón de arriba, y
+                                    // repetirlo cuarenta y seis veces sólo ensuciaba la tira.
+                                    html += `<button type="button" class="dia-chip" data-dia="${d.getTime()}" onclick="aplicarDiaRegistro(${d.getTime()})">`
+                                          + `<span class="dia-semana">${NOMBRES_DIAS_CORTOS[d.getDay()]}</span>`
+                                          + `<span class="dia-numero">${d.getDate()}</span></button>`;
+                                }
+                                tira.innerHTML = html;
+                            }
+
+                            // Deja a la vista el día elegido. Se mueve scrollLeft a mano en vez de usar
+                            // scrollIntoView, que además de la tira arrastraría la página entera.
+                            function centrarTiraDias(chip) {
+                                const tira = document.getElementById('tiraDiasRegistro');
+                                if (!tira || !chip || !tira.clientWidth) return;
+                                tira.scrollLeft = chip.offsetLeft - (tira.clientWidth - chip.offsetWidth) / 2;
                             }
 
                             // El texto que se lee y el botón que queda marcado, los dos sacados del campo:
@@ -3338,6 +3450,20 @@
                                 };
                                 marcar('btnFechaHoy', dia === hoy);
                                 marcar('btnFechaAyer', dia === ayer);
+
+                                // Y el botón de la tira, si el día elegido cae dentro de ella. Fuera del
+                                // rango no queda ninguno marcado, que es honesto: la fecha está puesta y
+                                // el renglón de arriba la dice, pero no es ninguno de estos días.
+                                const tira = document.getElementById('tiraDiasRegistro');
+                                if (!tira) return;
+
+                                let elegido = null;
+                                tira.querySelectorAll('.dia-chip').forEach(chip => {
+                                    const esEste = Number(chip.dataset.dia) === dia;
+                                    chip.classList.toggle('activo', esEste);
+                                    if (esEste) elegido = chip;
+                                });
+                                centrarTiraDias(elegido);
                             }
 
                             // ---- Con qué abre el formulario ----
