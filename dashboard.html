@@ -475,7 +475,7 @@
                            —sigue siendo él quien abre la rueda nativa, y ahora se abre tocando donde
                            sea—, mientras el texto que se lee es un <span> nuestro, que sí obedece.
                            El precio es tener que mantener ese espejo al día; de eso se encarga
-                           activarEspejosSelect(). */
+                           activarEspejosRegistro(). */
                         #registroForm .ios-fila-select > select {
                             position: absolute;
                             top: 0;
@@ -550,12 +550,51 @@
                             gap: 8px;
                         }
 
-                        /* El botón del calendario que dibuja el navegador viene en negro y sobre la
-                           tarjeta oscura desaparece. En iOS este control no existe —la fecha abre su
-                           propia rueda—, así que esto sólo se nota en el escritorio. */
-                        #registroForm .ios-fila input::-webkit-calendar-picker-indicator {
-                            filter: invert(1);
-                            opacity: 0.45;
+                        /* La fecha elegida, en texto y sin hora: el día es lo que se comprueba de un
+                           vistazo, y la hora ocupaba media línea para algo que casi nunca se toca.
+                           Se sigue guardando —sólo deja de enseñarse—. */
+                        #registroForm .ios-espejo-fecha {
+                            flex: 1;
+                            min-width: 0;
+                            font-size: 1.02em;
+                            color: #ffffff;
+                            text-align: right;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+
+                        #registroForm .ios-espejo-fecha.marcador { color: var(--ios-valor); }
+
+                        /* El calendario es el tercer botón del grupo, pero no compite en ancho con
+                           "Ayer" y "Hoy": sólo lleva un icono. */
+                        #registroForm .btn-calendario {
+                            position: relative;
+                            flex: 0 0 58px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: var(--ios-valor);
+                        }
+
+                        #registroForm .btn-calendario > input {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            opacity: 0;
+                            margin: 0;
+                            padding: 0;
+                            border: none;
+                            background: none;
+                        }
+
+                        /* El día elegido queda marcado. Gris claro y no verde o rojo: elegir el día no
+                           es elegir dirección, y con los colores de arriba se leería como si lo fuera. */
+                        #registroForm .btn-toggle.activo {
+                            background-color: #48484a;
+                            color: #ffffff;
                         }
 
                         #registroForm .btn-toggle {
@@ -951,7 +990,18 @@
         </div>
         <div class="ios-fila">
             <label for="regFecha">Fecha</label>
-            <input type="datetime-local" id="regFecha" required>
+            <span class="ios-espejo-fecha" id="textoRegFecha">—</span>
+        </div>
+        <div class="toggle-container">
+            <button type="button" id="btnFechaAyer" class="btn-toggle" onclick="fijarFechaRegistro(-1)">Ayer</button>
+            <button type="button" id="btnFechaHoy" class="btn-toggle" onclick="fijarFechaRegistro(0)">Hoy</button>
+            <!-- El campo de fecha vive aquí, invisible y estirado sobre el botón: tocarlo abre
+                 la rueda nativa sin que haya que pedírsela por código. Mismo trato que los
+                 desplegables, y por el mismo motivo. -->
+            <div class="btn-toggle btn-calendario" id="btnFechaCalendario" aria-label="Elegir fecha">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <input type="datetime-local" id="regFecha">
+            </div>
         </div>
         <div class="ios-fila">
             <label for="regDesc">Descripción</label>
@@ -3127,38 +3177,112 @@
                             // y de eso no salta nada. Por eso además de escuchar el evento se observan las
                             // opciones y se envuelven las tres propiedades por las que el código lo mueve
                             // sin tocarlo. Sin esto el espejo se quedaría mostrando lo de antes.
-                            function activarEspejosSelect() {
+                            function activarEspejosRegistro() {
                                 const form = document.getElementById('registroForm');
                                 if (!form || form.dataset.espejosListos) return;
                                 form.dataset.espejosListos = '1';
 
-                                const propiedades = ['value', 'selectedIndex', 'disabled'].map(nombre =>
-                                    [nombre, Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, nombre)]);
-
-                                const selects = [...form.querySelectorAll('.ios-fila-select > select')];
-                                selects.forEach(sel => {
-                                    const refrescar = () => sincronizarEspejoSelect(sel);
-                                    sel.addEventListener('change', refrescar);
-                                    new MutationObserver(refrescar).observe(sel, { childList: true, subtree: true });
-
-                                    propiedades.forEach(([nombre, desc]) => {
+                                // Envuelve las propiedades por las que el código mueve un campo sin que
+                                // salte ningún evento, para que el espejo se entere igual.
+                                const vigilar = (el, prototipo, nombres, refrescar) => {
+                                    nombres.forEach(nombre => {
+                                        const desc = Object.getOwnPropertyDescriptor(prototipo, nombre);
                                         if (!desc || !desc.set) return;
-                                        Object.defineProperty(sel, nombre, {
+                                        Object.defineProperty(el, nombre, {
                                             configurable: true,
                                             enumerable: false,
                                             get() { return desc.get.call(this); },
                                             set(v) { desc.set.call(this, v); refrescar(); }
                                         });
                                     });
+                                };
 
+                                const refrescos = [];
+
+                                const selects = [...form.querySelectorAll('.ios-fila-select > select')];
+                                selects.forEach(sel => {
+                                    const refrescar = () => sincronizarEspejoSelect(sel);
+                                    refrescos.push(refrescar);
+                                    sel.addEventListener('change', refrescar);
+                                    new MutationObserver(refrescar).observe(sel, { childList: true, subtree: true });
+                                    vigilar(sel, HTMLSelectElement.prototype, ['value', 'selectedIndex', 'disabled'], refrescar);
                                     refrescar();
                                 });
 
-                                // reset() devuelve los selects a su opción inicial sin avisar, y el evento
+                                // La fecha juega igual: la rueda nativa avisa con 'change', y el formulario
+                                // le asigna .value al abrirse, al limpiarse, al editar y desde los botones
+                                // de Ayer y Hoy, que no avisan de nada.
+                                const fecha = document.getElementById('regFecha');
+                                if (fecha) {
+                                    refrescos.push(sincronizarFechaRegistro);
+                                    fecha.addEventListener('change', sincronizarFechaRegistro);
+                                    fecha.addEventListener('input', sincronizarFechaRegistro);
+                                    vigilar(fecha, HTMLInputElement.prototype, ['value'], sincronizarFechaRegistro);
+                                    sincronizarFechaRegistro();
+                                }
+
+                                // reset() devuelve los campos a su estado inicial sin avisar, y el evento
                                 // llega antes de que eso ocurra: hay que mirar después.
                                 form.addEventListener('reset', () => {
-                                    setTimeout(() => selects.forEach(sincronizarEspejoSelect), 0);
+                                    setTimeout(() => refrescos.forEach(r => r()), 0);
                                 });
+                            }
+
+                            // ---- La fecha del movimiento ----
+                            // Un <input datetime-local> quiere su valor en hora local pero escrito como
+                            // si fuera UTC, así que hay que correrlo por el huso antes de recortarlo.
+                            function valorFechaLocal(fecha) {
+                                const d = new Date(fecha.getTime());
+                                d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                                return d.toISOString().slice(0, 16);
+                            }
+
+                            // Ayer y hoy son casi todo lo que se captura, así que están a un toque. Se
+                            // cambia el día y se respeta la hora que hubiera puesta: quien ajustó la hora
+                            // a mano y luego se dio cuenta de que era de ayer no tiene por qué perderla.
+                            function fijarFechaRegistro(diasAtras) {
+                                const input = document.getElementById('regFecha');
+                                if (!input) return;
+
+                                const previa = new Date(input.value);
+                                const hora = isNaN(previa) ? new Date() : previa;
+
+                                const dia = new Date();
+                                dia.setDate(dia.getDate() + diasAtras);
+                                dia.setHours(hora.getHours(), hora.getMinutes(), 0, 0);
+
+                                input.value = valorFechaLocal(dia);
+                            }
+
+                            // El texto que se lee y el botón que queda marcado, los dos sacados del campo:
+                            // así da igual quién haya cambiado la fecha —los botones, la rueda nativa o el
+                            // formulario al abrirse— porque todos acaban aquí.
+                            function sincronizarFechaRegistro() {
+                                const input = document.getElementById('regFecha');
+                                const texto = document.getElementById('textoRegFecha');
+                                if (!input || !texto) return;
+
+                                const elegida = new Date(input.value);
+                                const valida = !isNaN(elegida);
+
+                                texto.classList.toggle('marcador', !valida);
+                                texto.textContent = valida
+                                    ? `${elegida.getDate()} ${NOMBRES_MESES[elegida.getMonth()].slice(0, 3).toLowerCase()} ${elegida.getFullYear()}`
+                                    : '—';
+
+                                // Se comparan días pelados: dos momentos del mismo día son el mismo día,
+                                // por distinta que sea la hora.
+                                const aMedianoche = (f) => { const d = new Date(f.getTime()); d.setHours(0, 0, 0, 0); return d.getTime(); };
+                                const hoy = aMedianoche(new Date());
+                                const ayer = hoy - 86400000;
+                                const dia = valida ? aMedianoche(elegida) : null;
+
+                                const marcar = (id, condicion) => {
+                                    const btn = document.getElementById(id);
+                                    if (btn) btn.classList.toggle('activo', !!condicion);
+                                };
+                                marcar('btnFechaHoy', dia === hoy);
+                                marcar('btnFechaAyer', dia === ayer);
                             }
 
                             // ---- Con qué abre el formulario ----
@@ -3938,7 +4062,7 @@
 
                             // El formulario abre con cuenta, dirección y categoría puestas, salvo que se
                             // esté editando un movimiento —ahí manda lo que el movimiento diga—.
-                                                        activarEspejosSelect();
+                                                        activarEspejosRegistro();
                                                         preseleccionarFrecuentes();
                                                         
                                                         if (idCuentaFiltrada) {
@@ -8928,6 +9052,15 @@
             // El marcador "Crear categoría nueva" nunca debe llegar a la base de datos
             if (!catId || catId === VALOR_NUEVA_CATEGORIA) {
                 alert("⚠️ Por favor, selecciona una categoría.");
+                return;
+            }
+
+            // La fecha se valida aquí y no con 'required' porque su campo va escondido bajo
+            // el botón del calendario: el navegador no puede enseñar su globo sobre algo que
+            // no se ve, y el formulario se quedaría sin guardar y sin decir por qué.
+            const valorFechaReg = document.getElementById('regFecha').value;
+            if (!valorFechaReg || isNaN(new Date(valorFechaReg))) {
+                alert("⚠️ Por favor, elige la fecha del movimiento.");
                 return;
             }
 
