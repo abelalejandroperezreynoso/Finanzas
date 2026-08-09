@@ -172,6 +172,36 @@
         .seccion.activa { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* --- Movimiento recién guardado ---
+           Al volver a Gestión de Datos el registro nuevo no aparece de golpe: baja hasta su
+           sitio y se queda un momento encendido, para que se vea dónde quedó dentro del
+           historial. El resalte va en .swipe-content porque su fondo negro tapa cualquier
+           color puesto en el <li>. */
+        @keyframes entradaMovimientoNuevo {
+            0%   { opacity: 0; transform: translateY(-20px) scale(0.97); }
+            60%  { opacity: 1; transform: translateY(2px) scale(1); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes resaltarMovimientoNuevo {
+            0%   { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0.30); }
+            55%  { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0.16); }
+            100% { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0); }
+        }
+        /* 'backwards' y no 'both': mientras corre el retraso el renglón ya está en su estado
+           inicial (no parpadea a la vista), y al terminar no deja pegado ningún transform. */
+        .lista-items li.mov-nuevo {
+            animation: entradaMovimientoNuevo 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) backwards;
+        }
+        .lista-items li.mov-nuevo .swipe-content {
+            /* Hereda el retraso del <li> para que un lote de fechas se encienda en cascada */
+            animation: resaltarMovimientoNuevo 1.4s ease-out backwards;
+            animation-delay: inherit;
+        }
+        /* Con el movimiento reducido se conserva sólo el resalte de color, que no desplaza nada */
+        @media (prefers-reduced-motion: reduce) {
+            .lista-items li.mov-nuevo { animation: none; }
+        }
+
         /* Animaciones de la tarjeta de análisis */
         @keyframes aparecerAnalisis { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes puntosPensando { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
@@ -990,7 +1020,7 @@
         </div>
 
     <div class="selector-lista">
-    <button class="tab-btn active" onclick="verSubLista('sub-movs', this)">Movimientos</button>
+    <button id="btnTabMovimientos" class="tab-btn active" onclick="verSubLista('sub-movs', this)">Movimientos</button>
     <button id="btnTabCategorias" class="tab-btn" onclick="verSubLista('sub-cats', this)">Categorías</button>
     <button id="btnTabCuentas" class="tab-btn" onclick="verSubLista('sub-cuentas', this)">Cuentas</button>
     </div>
@@ -5429,10 +5459,78 @@
                                                                                 cerrarModalFiltros();
                                                                             }
 
+                            // --- Movimientos recién guardados ---
+                            // Guardar no repinta el historial una sola vez: refrescarTodo, el filtro que estuviera
+                            // puesto y los precios de mercado que llegan después pueden volver a construir la lista.
+                            // Por eso la marca vive fuera del render, caduca sola y se borra en cuanto la animación
+                            // ya se vio, para que no se repita en el siguiente repintado.
+                            let idsMovimientosNuevos = new Set();
+                            let momentoMarcaMovsNuevos = 0;
+                            let temporizadorMovsNuevos = null;
+                            let faltaScrollAMovimientoNuevo = false;
+                            // Si el registro nuevo queda fuera de los filtros activos nunca llega a pintarse; la
+                            // marca caduca para no encender por sorpresa un movimiento viejo mucho después.
+                            const VIGENCIA_MARCA_MOVS_NUEVOS = 8000;
+                            const DURACION_ANIMACION_MOV_NUEVO = 1600;
+                            const RETRASO_ENTRE_MOVS_NUEVOS = 90;
+
+                            function destacarMovimientosNuevos(ids) {
+                                if (temporizadorMovsNuevos) {
+                                    clearTimeout(temporizadorMovsNuevos);
+                                    temporizadorMovsNuevos = null;
+                                }
+                                idsMovimientosNuevos = new Set((ids || []).map(String));
+                                momentoMarcaMovsNuevos = Date.now();
+                                faltaScrollAMovimientoNuevo = idsMovimientosNuevos.size > 0;
+                            }
+
+                            function esMovimientoNuevo(id) {
+                                if (idsMovimientosNuevos.size === 0) return false;
+                                if (Date.now() - momentoMarcaMovsNuevos > VIGENCIA_MARCA_MOVS_NUEVOS) {
+                                    idsMovimientosNuevos.clear();
+                                    faltaScrollAMovimientoNuevo = false;
+                                    return false;
+                                }
+                                return idsMovimientosNuevos.has(String(id));
+                            }
+
+                            // Se llama justo después de volcar el HTML: lleva la vista al primero de los
+                            // registros nuevos y programa el olvido de la marca cuando termine la animación.
+                            function atenderMovimientosNuevosPintados(lista) {
+                                if (idsMovimientosNuevos.size === 0) return;
+                                const nuevosEnPantalla = lista.querySelectorAll('li.mov-nuevo');
+                                if (nuevosEnPantalla.length === 0) return;
+
+                                if (faltaScrollAMovimientoNuevo) {
+                                    faltaScrollAMovimientoNuevo = false;
+                                    // Un cuadro de espera: la sección acaba de hacerse visible y hasta que no se
+                                    // pinta no hay posición a la que desplazarse.
+                                    requestAnimationFrame(() => {
+                                        const primero = nuevosEnPantalla[0];
+                                        const caja = primero.getBoundingClientRect();
+                                        const alto = window.innerHeight || document.documentElement.clientHeight;
+                                        // Lo normal es que el movimiento nuevo encabece la lista y ya se vea; sólo
+                                        // se mueve la pantalla cuando de verdad queda fuera.
+                                        if (caja.top < 0 || caja.bottom > alto) {
+                                            primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        }
+                                    });
+                                }
+
+                                if (temporizadorMovsNuevos) clearTimeout(temporizadorMovsNuevos);
+                                temporizadorMovsNuevos = setTimeout(() => {
+                                    idsMovimientosNuevos.clear();
+                                    temporizadorMovsNuevos = null;
+                                }, DURACION_ANIMACION_MOV_NUEVO + nuevosEnPantalla.length * RETRASO_ENTRE_MOVS_NUEVOS);
+                            }
+
                                                     function actualizarResumenEHistorial(regsFiltro) {
                                                         const lista = document.getElementById('listaHistorial');
                                                         if (!lista) return;
-                                                        
+
+                                                        // Los recién guardados entran en cascada, en el orden en que salen en la lista
+                                                        let cuantosNuevosPintados = 0;
+
                                                         document.getElementById('tituloHistorial').textContent = `Últimos Movimientos (${regsFiltro.length})`;
                                                         
                                                         let htmlAcumulado = '';
@@ -5736,8 +5834,11 @@
                                                                                                                                                     montoAbajoHtml = infoRendimientoDerecha;
                                                                                                                                                 }
 
+                                                                                                                                                const esNuevo = esMovimientoNuevo(r.id);
+                                                                                                                                                const retrasoNuevo = esNuevo ? cuantosNuevosPintados++ * RETRASO_ENTRE_MOVS_NUEVOS : 0;
+
                                                                                                                                                 htmlAcumulado += `
-                                                                                                                                                <li style="border-color:${esEntrada ? '#3ecf8e' : '#ff5c5c'}">
+                                                                                                                                                <li data-id="${r.id}"${esNuevo ? ' class="mov-nuevo"' : ''} style="border-color:${esEntrada ? '#3ecf8e' : '#ff5c5c'}${esNuevo ? `; animation-delay:${retrasoNuevo}ms` : ''}">
                                                                                                                                                             <div class="swipe-actions">
                                                                                                                                                             <button class="btn-swipe-act" onclick="verDetallesMovimiento('${r.id}')" style="display:flex; align-items:center; justify-content:center; background:#007aff; border-radius:50px;">
                                                                                                                                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -5770,6 +5871,8 @@
                                             
                                             // NUEVO: Asignamos todo al DOM en un solo movimiento
                                             lista.innerHTML = htmlAcumulado;
+
+                                            atenderMovimientosNuevosPintados(lista);
                                         }
 
                             // Reglas de visibilidad que aplica la gráfica a los movimientos históricos: respeta las
@@ -9614,18 +9717,21 @@
             if (!res.error) {
                             // Capturamos el estado antes de que cancelarEdicionMov lo borre
                             const eraEdicion = editIdMov !== null;
-                            
+
+                            // Los ids que acaba de devolver el insert son los que el historial estrenará
+                            // con animación. Al editar no hay nada que estrenar: el movimiento ya estaba.
+                            const idsRecienCreados = eraEdicion ? [] : (res.data || []).map(r => r.id);
+
                             cancelarEdicionMov();
-                            
+
+                            // Guardar termina en Gestión de Datos, en la pestaña del historial: es donde
+                            // se ve entrar el movimiento nuevo. La sección se cambia antes de recargar
+                            // para que la lista ya esté a la vista cuando se repinte y la animación corra.
+                            verSubLista('sub-movs', document.getElementById('btnTabMovimientos'));
+                            destacarMovimientosNuevos(idsRecienCreados);
+
                             // 3. LA MAGIA: Forzamos una recarga fresca de cuentas, categorías y gráficas
                             await refrescarTodo();
-                            
-                            // Decidimos la ruta: si editó regresa a la lista, si es nuevo va al dashboard
-                            if (eraEdicion) {
-                                cambiarSeccion('sec-lista');
-                            } else {
-                                cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0]);
-                            }
                         } else {
                 alert("Error al guardar: " + res.error.message);
             }
