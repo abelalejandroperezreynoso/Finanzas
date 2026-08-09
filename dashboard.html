@@ -3136,6 +3136,13 @@
                             const sel = document.getElementById('catCuentaSelect');
                             const selCuentasReg = document.getElementById('regCuentaSelect');
 
+                            // La cuenta que estuviera elegida en el formulario se recuerda para reponerla al
+                            // final: esta lista se rehace en cada recarga de datos, y con ella se perdía la
+                            // cuenta. Quien viniera detrás a repasar el formulario lo veía con dirección y
+                            // categoría puestas, lo daba por lleno y no reponía nada, así que se quedaba a
+                            // medias hasta que se tocaba a mano.
+                            const cuentaElegidaReg = selCuentasReg ? selCuentasReg.value : '';
+
                             if (lista) lista.innerHTML = '';
                             if (sel) sel.innerHTML = '<option value="" disabled selected>Cuenta...</option>';
                             if (selCuentasReg) selCuentasReg.innerHTML = '<option value="" disabled selected>Selecciona una cuenta...</option>';
@@ -3171,6 +3178,13 @@
                             if (sel) sel.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
                             if (selCuentasReg) selCuentasReg.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
                             });
+
+                            // Se repone sólo si la cuenta sigue existiendo; si la acaban de borrar, el
+                            // formulario se queda sin cuenta, que es la verdad.
+                            if (selCuentasReg && cuentaElegidaReg && [...selCuentasReg.options].some(o => o.value === cuentaElegidaReg)) {
+                                selCuentasReg.value = cuentaElegidaReg;
+                            }
+
                             cuentasOrdenadas.forEach(c => {
                             actualizarUIValorActualCuenta(c.id);
                             });
@@ -9848,6 +9862,12 @@
 
                             // 3. LA MAGIA: Forzamos una recarga fresca de cuentas, categorías y gráficas
                             await refrescarTodo();
+
+                            // El formulario se dejó listo antes de recargar, con las cuentas de uso de
+                            // entonces. Se rehace ahora que ya cuentan lo recién guardado: si era el primer
+                            // movimiento, su categoría acaba de convertirse en la más usada y hasta este
+                            // momento no había nada frecuente que precargar.
+                            preseleccionarFrecuentes(true);
                         } else {
                 alert("Error al guardar: " + res.error.message);
             }
