@@ -991,7 +991,7 @@
 
     <div class="card" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem;">
-    <h3 id="tituloTendencia" style="font-size: 0.9em; color: #888; margin: 0; text-align: left; transition: color 0.2s;">Tendencia de Balance</h3>
+    <h3 id="tituloTendencia" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left;">Tendencia de Balance</h3>
     <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; flex: 1;"></span>
     </div>
 
@@ -1007,7 +1007,7 @@
     <!-- INICIO TARJETA DE MAPA DE CATEGORÍAS -->
     <div class="card" id="cardTreemapCategorias" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0; gap: 10px;">
-            <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #888; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
+            <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
             <div id="pastillaDireccionTreemap" style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0; transition: opacity 0.2s;">
                 <button id="btnTreemapSalidas" onclick="cambiarDireccionTreemapCategorias('salidas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Salidas</button>
                 <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Entradas</button>
@@ -1067,7 +1067,7 @@
     <!-- INICIO NUEVA TARJETA DE OBJETIVOS -->
     <div class="card" id="cardObjetivosInicio" style="display: none; padding: 1rem 0; margin-bottom: 15px; background: #000000;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-            <h3 style="font-size: 0.9em; color: #888; margin: 0; text-align: left; text-transform: uppercase; letter-spacing: 1px;">Tus Objetivos</h3>
+            <h3 style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; text-transform: uppercase; letter-spacing: 1px;">Objetivos</h3>
         </div>
         <div id="contenedorObjetivosInicio" class="objetivos-tira">
             <!-- Las barras se inyectarán aquí por JS -->
@@ -6794,7 +6794,6 @@
                                 if (detallesEl) detallesEl.innerHTML = '';
                                 if (tituloTendenciaEl) {
                                     tituloTendenciaEl.textContent = 'Ingresos vs Gastos por Mes';
-                                    tituloTendenciaEl.style.color = '#888';
                                 }
 
                                 const ctx = canvas.getContext('2d');
@@ -6886,7 +6885,6 @@
 
                                     if (tituloTendenciaEl) {
                                         tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
-                                        tituloTendenciaEl.style.color = '#ffffff';
                                     }
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
                                     const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
@@ -8725,7 +8723,6 @@
             if (detallesEl) detallesEl.innerHTML = '';
             if (tituloTendenciaEl) {
                 tituloTendenciaEl.textContent = 'Tendencia de Balance';
-                tituloTendenciaEl.style.color = '#888';
             }
 
             const hoy = new Date();
@@ -8763,7 +8760,6 @@
                             }
                         }
                         tituloTendenciaEl.textContent = fechaFormateada;
-                        tituloTendenciaEl.style.color = '#ffffff';
                     }
 
                     const flujo = parseFloat(diaData.ingresos) - parseFloat(diaData.gastos);
