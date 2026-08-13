@@ -5338,9 +5338,52 @@
                                 }
                             }
 
+                            // El pie del mapa de categorías tiene el mismo problema que el saldo, y se resuelve
+                            // igual: son dos piezas que no parten —la cuenta de categorías a la izquierda y el
+                            // dinero a la derecha— y con pantalla angosta o cifras largas la suma no cabe de una
+                            // línea, con lo que la de la derecha se salía de la tarjeta y quedaba cortada.
+                            const TAMANO_MINIMO_PIE = 9;
+                            function ajustarPieAlAncho(el) {
+                                if (!el) return;
+
+                                // Se suelta el tamaño anterior para medir desde el que decide el CSS: si no, cada
+                                // ajuste partiría del anterior y el error se iría acumulando —y al ensanchar la
+                                // ventana la letra nunca volvería a crecer.
+                                el.style.fontSize = '';
+                                if (!el.clientWidth) return;
+
+                                // Aquí basta con bajar de medio en medio: se arranca del tamaño del CSS, que ya es
+                                // chico, así que hasta el piso van pocas vueltas. Los dos trozos llevan nowrap, de
+                                // modo que no se encogen por su cuenta y lo que sobra desborda a lo ancho.
+                                // El Math.max es para no pasarse del piso: el tamaño de partida sale de un em y no
+                                // suele caer en la rejilla de los medios puntos, así que restando a secas se le
+                                // pasaría por abajo.
+                                let tamano = parseFloat(getComputedStyle(el).fontSize);
+                                while (tamano > TAMANO_MINIMO_PIE && el.scrollWidth > el.clientWidth) {
+                                    tamano = Math.max(TAMANO_MINIMO_PIE, tamano - 0.5);
+                                    el.style.fontSize = tamano + 'px';
+                                }
+
+                                // Si ni en el piso cabe —una cifra de millones en una pantalla angosta—, lo que
+                                // cede es la izquierda: la cuenta de categorías se recorta con puntos suspensivos
+                                // y el dinero, que es a lo que se viene, queda entero. Se pone sólo cuando hace
+                                // falta, porque en cuanto la izquierda puede encogerse el flex la aprieta antes de
+                                // que el desbordamiento llegue a notarse, y entonces la letra ya no se ajustaría.
+                                const izquierda = el.firstElementChild;
+                                if (izquierda) {
+                                    const apretado = el.scrollWidth > el.clientWidth;
+                                    izquierda.style.minWidth = apretado ? '0' : '';
+                                    izquierda.style.overflow = apretado ? 'hidden' : '';
+                                    izquierda.style.textOverflow = apretado ? 'ellipsis' : '';
+                                }
+                            }
+
                             // Girar el teléfono cambia el ancho y el tamaño de partida del clamp, así que hay que
                             // volver a medir aunque el saldo no haya cambiado.
-                            window.addEventListener('resize', ajustarSaldoAlAncho);
+                            window.addEventListener('resize', () => {
+                                ajustarSaldoAlAncho();
+                                ajustarPieAlAncho(document.getElementById('totalTreemapCategorias'));
+                            });
 
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
@@ -8634,6 +8677,8 @@
                                             <strong style="color: ${color};">${modoActivo ? '' : (entradas ? '+' : '-')}${fMoneda(total)}</strong>
                                         `;
                                     }
+
+                                    ajustarPieAlAncho(totalEl);
                                 }
                             }
 
