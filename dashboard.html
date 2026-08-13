@@ -847,9 +847,11 @@
                     /* Angostas: caben dos en pantalla y la tercera asoma, que es lo que delata
                        que la tira se desliza sin tener que dibujar flechas ni puntos. */
                     flex: 0 0 auto;
-                    width: 44%;
-                    min-width: 142px;
-                    max-width: 180px;
+                    width: 42%;
+                    /* El mínimo lo manda la cifra, que es lo que no debe recortarse nunca:
+                       un "$123,456.00" mide 93px y aquí le quedan 95 de ancho útil. */
+                    min-width: 140px;
+                    max-width: 168px;
                     box-sizing: border-box;
                     scroll-snap-align: start;
                     background: #131313;
@@ -885,9 +887,24 @@
                     text-overflow: ellipsis;
                 }
 
-                /* Empuja la cifra al fondo: todas las tarjetas miden lo que la más alta, así
-                   que sin esto la de nombre corto dejaría su cifra flotando a media altura. */
-                .objetivo-tarjeta .objetivo-etiqueta { margin-top: auto; }
+                .objetivo-tarjeta .objetivo-nombre { font-size: 0.85em; }
+
+                /* El rótulo, en versalitas como los títulos de sección, para que la cifra de
+                   abajo sea lo único que pesa dentro de la tarjeta.
+                   El margin-top: auto la empuja al fondo: todas las tarjetas miden lo que la
+                   más alta, y sin esto la de nombre corto dejaría su cifra a media altura. */
+                .objetivo-tarjeta .objetivo-etiqueta {
+                    margin-top: auto;
+                    padding-top: 12px;
+                    font-size: 0.62em;
+                    color: #888;
+                    text-transform: uppercase;
+                    letter-spacing: 0.8px;
+                }
+
+                /* Sin la meta ni las fechas encima, la cifra es lo que se lee de un vistazo
+                   al pasar por la tira: se le da el tamaño que sobró. */
+                .objetivo-tarjeta .objetivo-cifra { font-size: 1.05em; }
 
                 /* La barra de pie. El relleno va en absoluto y no como caja de flujo porque un
                    alto en porcentaje necesita un padre con alto definido, y el de la barra sale
@@ -895,7 +912,7 @@
                 .objetivo-tarjeta .objetivo-barra {
                     position: relative;
                     flex: 0 0 auto;
-                    width: 10px;
+                    width: 12px;
                     background: #000000;
                     border: 1px solid #444;
                     border-radius: 50px;
@@ -2122,9 +2139,10 @@
                                                                                     let html = '';
 
                                                                                     categoriasConMeta.forEach(cat => {
-                                                                                        // Sin la etiqueta del periodo ("Este Mes"): en la tarjeta angosta no cabe en el
-                                                                                        // mismo renglón que el monto, y el rango de fechas ya dice de qué periodo se trata.
-                                                                                        const { inicio: limiteDias, rangoFechas } = obtenerDatosMeta(cat);
+                                                                                        // Sólo el arranque del periodo, para saber qué gastos contar. El monto de la meta
+                                                                                        // y el rango de fechas no se pintan en la tira: lo que se quiere de un vistazo es
+                                                                                        // cuánto queda, y el detalle está a un toque en la categoría.
+                                                                                        const { inicio: limiteDias } = obtenerDatosMeta(cat);
                                                                                         
                                                                                         const gastadoEnPeriodo = datosUsoCompleto
                                                                                             .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && new Date(u.fecha) >= limiteDias)
@@ -2143,18 +2161,16 @@
                                                                                         // En una tarjeta angosta "Quedan $1,240.00" no cabe de un renglón, así que
                                                                                         // el rótulo va arriba en chico y la cifra debajo, que es lo que se busca al
                                                                                         // pasar la vista por la tira.
-                                                                                        const etiquetaRestante = restante >= 0 ? 'Quedan' : 'Excedido por';
+                                                                                        const etiquetaRestante = restante >= 0 ? 'Quedan' : 'Excedido';
                                                                                         const cifraRestante = fMoneda(Math.abs(restante));
                                                                                         const colorTexto = restante >= 0 ? '#ffffff' : '#ff5c5c';
 
                                                                                         html += `
                                                                                                     <div onclick="registrarDesdeCategoria('${cat.id}')" class="objetivo-tarjeta">
                                                                                                         <div class="objetivo-datos">
-                                                                                                            <strong class="objetivo-nombre" style="color: ${obtenerColorCategoria(cat.tipo)}; font-size: 0.85em;">${cat.nombre}</strong>
-                                                                                                            <span class="objetivo-meta" style="color: #aaa; font-size: 0.68em; margin-top: 2px;">Meta: ${fMoneda(cat.meta_monto)}</span>
-                                                                                                            <span class="objetivo-meta" style="color: #888; font-size: 0.66em;">${rangoFechas}</span>
-                                                                                                            <span class="objetivo-etiqueta objetivo-meta" style="color: #888; font-size: 0.66em; padding-top: 10px;">${etiquetaRestante}</span>
-                                                                                                            <strong class="objetivo-cifra" style="color: ${colorTexto}; font-size: 0.9em;">${cifraRestante}</strong>
+                                                                                                            <strong class="objetivo-nombre" style="color: ${obtenerColorCategoria(cat.tipo)};">${cat.nombre}</strong>
+                                                                                                            <span class="objetivo-etiqueta objetivo-meta">${etiquetaRestante}</span>
+                                                                                                            <strong class="objetivo-cifra" style="color: ${colorTexto};">${cifraRestante}</strong>
                                                                                                         </div>
                                                                                                         <div class="objetivo-barra">
                                                                                                             <div class="objetivo-relleno" style="height: ${porcentajeRestante}%; background: ${colorBarra};"></div>
