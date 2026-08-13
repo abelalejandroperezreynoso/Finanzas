@@ -844,67 +844,54 @@
                 .objetivos-tira::-webkit-scrollbar { display: none; }
 
                 .objetivo-tarjeta {
-                    /* Angostas: caben dos en pantalla y la tercera asoma, que es lo que delata
-                       que la tira se desliza sin tener que dibujar flechas ni puntos. */
+                    /* Tres columnas de pie —nombre, barra, cifra— así que el ancho lo marca el
+                       contenido y sale angostísima: caben cuatro en pantalla y la quinta asoma,
+                       que es lo que delata que la tira se desliza sin dibujar flechas ni puntos.
+                       El alto sí es fijo: es la medida contra la que se ajusta la letra. */
                     flex: 0 0 auto;
-                    width: 42%;
-                    /* El mínimo lo manda la cifra, que es lo que no debe recortarse nunca:
-                       un "$123,456.00" mide 93px y aquí le quedan 95 de ancho útil. */
-                    min-width: 140px;
-                    max-width: 168px;
+                    /* Ancho fijo y no al contenido: de otro modo la tarjeta cuyo nombre tuvo que
+                       encogerse saldría más angosta que sus vecinas y la tira quedaría dentada.
+                       Con space-between el sobrante se reparte a los lados de la barra, que así
+                       queda al centro en todas. */
+                    width: 80px;
+                    height: 104px;
                     box-sizing: border-box;
                     scroll-snap-align: start;
                     background: #131313;
                     border: 1px solid #2a2a2a;
                     border-radius: 12px;
-                    padding: 10px;
+                    padding: 10px 9px;
                     cursor: pointer;
                     transition: transform 0.15s ease-out;
-                    /* El texto a la izquierda y la barra de pie a la derecha */
                     display: flex;
                     flex-direction: row;
-                    gap: 9px;
+                    align-items: stretch;
+                    justify-content: space-between;
+                    gap: 4px;
                 }
 
                 .objetivo-tarjeta:active { transform: scale(0.97); }
 
-                /* min-width: 0 para que el texto largo se recorte en lugar de ensanchar
-                   la columna y empujar la barra fuera de la tarjeta. */
-                .objetivo-tarjeta .objetivo-datos {
-                    flex: 1;
-                    min-width: 0;
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                /* Los nombres largos de categoría no deben ensanchar la tarjeta ni partirse en dos */
+                /* El nombre y la cifra van de pie, leyéndose de abajo hacia arriba. El giro de
+                   180° es lo que da ese sentido: vertical-rl a secas los deja de cabeza para
+                   quien ladea la vista a la izquierda.
+                   En vertical-rl el renglón corre a lo largo del alto, así que con nowrap el
+                   texto que no cabe desborda por abajo —de ahí que el recorte se mida contra
+                   el alto y no contra el ancho. */
                 .objetivo-tarjeta .objetivo-nombre,
-                .objetivo-tarjeta .objetivo-meta,
                 .objetivo-tarjeta .objetivo-cifra {
-                    display: block;
+                    writing-mode: vertical-rl;
+                    transform: rotate(180deg);
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
+                    line-height: 1;
+                    /* El tamaño de letra lo pone ajustarTextoDePie() al pintar; éste es el techo
+                       y el valor de respaldo si por lo que sea no llegara a correr. */
+                    font-size: 14px;
                 }
 
-                .objetivo-tarjeta .objetivo-nombre { font-size: 0.85em; }
-
-                /* El rótulo, en versalitas como los títulos de sección, para que la cifra de
-                   abajo sea lo único que pesa dentro de la tarjeta.
-                   El margin-top: auto la empuja al fondo: todas las tarjetas miden lo que la
-                   más alta, y sin esto la de nombre corto dejaría su cifra a media altura. */
-                .objetivo-tarjeta .objetivo-etiqueta {
-                    margin-top: auto;
-                    padding-top: 12px;
-                    font-size: 0.62em;
-                    color: #888;
-                    text-transform: uppercase;
-                    letter-spacing: 0.8px;
-                }
-
-                /* Sin la meta ni las fechas encima, la cifra es lo que se lee de un vistazo
-                   al pasar por la tira: se le da el tamaño que sobró. */
-                .objetivo-tarjeta .objetivo-cifra { font-size: 1.05em; }
+                .objetivo-tarjeta .objetivo-cifra { font-size: 15px; }
 
                 /* La barra de pie. El relleno va en absoluto y no como caja de flujo porque un
                    alto en porcentaje necesita un padre con alto definido, y el de la barra sale
@@ -2158,28 +2145,46 @@
                                                                                         if (porcentajeRestante <= 25) colorBarra = '#ff5c5c'; // Rojo (Cuidado)
                                                                                         else if (porcentajeRestante <= 50) colorBarra = '#f39c12'; // Naranja (Mitad)
                                                                                         
-                                                                                        // En una tarjeta angosta "Quedan $1,240.00" no cabe de un renglón, así que
-                                                                                        // el rótulo va arriba en chico y la cifra debajo, que es lo que se busca al
-                                                                                        // pasar la vista por la tira.
-                                                                                        const etiquetaRestante = restante >= 0 ? 'Quedan' : 'Excedido';
-                                                                                        const cifraRestante = fMoneda(Math.abs(restante));
+                                                                                        // De pie no cabe el rótulo "Quedan"/"Excedido" al lado de la cifra, así que
+                                                                                        // lo excedido se dice con el signo y el rojo, como un saldo en contra.
+                                                                                        const cifraRestante = (restante < 0 ? '-' : '') + fMoneda(Math.abs(restante));
                                                                                         const colorTexto = restante >= 0 ? '#ffffff' : '#ff5c5c';
 
                                                                                         html += `
                                                                                                     <div onclick="registrarDesdeCategoria('${cat.id}')" class="objetivo-tarjeta">
-                                                                                                        <div class="objetivo-datos">
-                                                                                                            <strong class="objetivo-nombre" style="color: ${obtenerColorCategoria(cat.tipo)};">${cat.nombre}</strong>
-                                                                                                            <span class="objetivo-etiqueta objetivo-meta">${etiquetaRestante}</span>
-                                                                                                            <strong class="objetivo-cifra" style="color: ${colorTexto};">${cifraRestante}</strong>
-                                                                                                        </div>
+                                                                                                        <strong class="objetivo-nombre" style="color: ${obtenerColorCategoria(cat.tipo)};">${cat.nombre}</strong>
                                                                                                         <div class="objetivo-barra">
                                                                                                             <div class="objetivo-relleno" style="height: ${porcentajeRestante}%; background: ${colorBarra};"></div>
                                                                                                         </div>
+                                                                                                        <strong class="objetivo-cifra" style="color: ${colorTexto};">${cifraRestante}</strong>
                                                                                                     </div>
                                                                                                     `;
                                                                                     });
 
                                                                                     contenedor.innerHTML = html;
+                                                                                    ajustarTextoDePie(contenedor);
+                                                                                }
+
+                                                                                // Encoge el nombre y la cifra de pie hasta que quepan en el alto de la tarjeta,
+                                                                                // que es el mismo de la barra. Se mide en lugar de calcularse por número de
+                                                                                // letras porque una "Ñ" y una "i" no ocupan igual, y un nombre de ocho letras
+                                                                                // anchas desborda donde uno de diez angostas entra.
+                                                                                function ajustarTextoDePie(contenedor) {
+                                                                                    // Piso de legibilidad: por debajo de esto el nombre no se lee, y encogerlo más
+                                                                                    // tampoco alcanzaría para los nombres largos de verdad. Al llegar aquí se deja
+                                                                                    // que corte con puntos suspensivos, que se entiende mejor que la letra diminuta.
+                                                                                    const TAMANO_MINIMO = 10;
+                                                                                    contenedor.querySelectorAll('.objetivo-nombre, .objetivo-cifra').forEach(el => {
+                                                                                        // El tope es el de la hoja de estilos: la letra sólo baja de ahí, nunca sube,
+                                                                                        // para que dos tarjetas vecinas no salgan con tamaños dispares.
+                                                                                        let tamano = parseFloat(getComputedStyle(el).fontSize);
+                                                                                        // scrollHeight contra clientHeight y no anchos: de pie el renglón corre a lo
+                                                                                        // largo del alto, así que lo que sobra desborda por abajo.
+                                                                                        while (tamano > TAMANO_MINIMO && el.scrollHeight > el.clientHeight) {
+                                                                                            tamano -= 0.5;
+                                                                                            el.style.fontSize = tamano + 'px';
+                                                                                        }
+                                                                                    });
                                                                                 }
 
                                                                                 function cambiarSeccion(id, btn) {
@@ -2193,6 +2198,11 @@
                             if (id === 'sec-inicio') {
                             // La tarjeta ya tiene medidas: si quedó un mapa por dibujar, es el momento
                             reintentarTreemapPendiente();
+                            // Y por lo mismo: escondida, la tira mide cero y el texto de pie no se
+                            // pudo ajustar al pintarse. Volver a llamar no encoge de más, sólo
+                            // recorta lo que siga desbordando.
+                            const tiraObjetivos = document.getElementById('contenedorObjetivosInicio');
+                            if (tiraObjetivos) ajustarTextoDePie(tiraObjetivos);
                             }
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
