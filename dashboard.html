@@ -9813,6 +9813,13 @@
                                 return String((r && r.fecha) || '').slice(0, 10);
                             }
 
+                            // Quita todos los espacios y sube a mayúsculas. El estado de cuenta de Smart
+                            // Cash mete espacios dentro de las palabras —"D O L A R E S"—, así que buscar
+                            // texto tal cual no encuentra nada; sin espacios, sí.
+                            function sinEspacios(valor) {
+                                return String(valor || '').replace(/\s+/g, '').toUpperCase();
+                            }
+
                             // Devuelve el PDF convertido en renglones. Se agrupa por la coordenada Y porque
                             // lo que el documento pinta a la misma altura es una fila de la tabla, aunque
                             // venga partido en muchos fragmentos sueltos y en cualquier orden. Leerlo por el
@@ -9826,36 +9833,80 @@
 
                                 for (let n = 1; n <= doc.numPages; n++) {
                                     const pagina = await doc.getPage(n);
+                                    // Hay documentos con la página girada 90 grados —el estado de cuenta de
+                                    // Smart Cash lo está— y ahí las coordenadas del texto vienen giradas
+                                    // también. Sin pasarlas por la transformación de la vista, agrupar por Y
+                                    // junta columnas en vez de renglones y no se entiende nada.
+                                    const vista = pagina.getViewport({ scale: 1 });
                                     const contenido = await pagina.getTextContent();
-                                    const filas = [];
+                                    const utiles = (contenido.items || []).filter(it => it && it.str);
 
-                                    contenido.items.forEach(item => {
-                                        const texto = (item.str || '').trim();
-                                        if (!texto) return;
-                                        const y = item.transform[5];
-                                        const x = item.transform[4];
-                                        let fila = filas.find(f => Math.abs(f.y - y) <= 2.5);
-                                        if (!fila) { fila = { y, celdas: [] }; filas.push(fila); }
-                                        fila.celdas.push({ x, texto });
+                                    // Unos PDF escriben cada celda entera y otros sueltan un carácter por
+                                    // fragmento. Pegar trozos cercanos arregla los segundos y destroza los
+                                    // primeros —fundiría las columnas de una tabla en un solo texto—, así
+                                    // que se mira cómo viene el documento en lugar de suponerlo.
+                                    const sueltos = utiles.filter(it => it.str.trim().length <= 2).length;
+                                    const fragmentado = utiles.length > 20 && (sueltos / utiles.length) > 0.6;
+
+                                    const filas = [];
+                                    utiles.forEach(item => {
+                                        const t = item.transform;
+                                        const escala = Math.hypot(t[0], t[1]) || 1;
+                                        const ancho = item.width || 0;
+                                        // El texto avanza en la dirección (t0,t1), que con la página girada
+                                        // no es la horizontal. Se transforman principio y fin para saber
+                                        // dónde empieza y acaba cada trozo ya en pantalla.
+                                        const [x1, y1] = pdfjs.Util.applyTransform([t[4], t[5]], vista.transform);
+                                        const [x2] = pdfjs.Util.applyTransform(
+                                            [t[4] + (t[0] / escala) * ancho, t[5] + (t[1] / escala) * ancho],
+                                            vista.transform);
+                                        let fila = filas.find(f => Math.abs(f.y - y1) <= 2.5);
+                                        if (!fila) { fila = { y: y1, trozos: [] }; filas.push(fila); }
+                                        fila.trozos.push({
+                                            x: Math.min(x1, x2), fin: Math.max(x1, x2),
+                                            texto: item.str, escala
+                                        });
                                     });
 
-                                    filas.sort((a, b) => b.y - a.y);
-                                    filas.forEach(f => {
-                                        renglones.push({
-                                            pagina: n,
-                                            celdas: f.celdas.sort((a, b) => a.x - b.x).map(c => c.texto)
-                                        });
+                                    // Ya en coordenadas de pantalla la Y crece hacia abajo, así que de
+                                    // menor a mayor es de arriba abajo.
+                                    filas.sort((a, b) => a.y - b.y);
+                                    filas.forEach(fila => {
+                                        fila.trozos.sort((a, b) => a.x - b.x);
+                                        let celdas;
+                                        if (!fragmentado) {
+                                            celdas = fila.trozos.map(p => p.texto.trim()).filter(Boolean);
+                                        } else {
+                                            celdas = [];
+                                            let actual = null, fin = null;
+                                            fila.trozos.forEach(p => {
+                                                const limite = Math.max(2, p.escala * 0.35);
+                                                if (actual !== null && fin !== null && (p.x - fin) <= limite) {
+                                                    actual += p.texto;
+                                                } else {
+                                                    if (actual && actual.trim()) celdas.push(actual.trim());
+                                                    actual = p.texto;
+                                                }
+                                                fin = p.fin;
+                                            });
+                                            if (actual && actual.trim()) celdas.push(actual.trim());
+                                        }
+                                        if (celdas.length) renglones.push({ pagina: n, celdas, fragmentado });
                                     });
                                 }
 
                                 const tokens = [];
                                 renglones.forEach(r => r.celdas.forEach(c => tokens.push(c)));
+                                const texto = renglones.map(r => r.celdas.join(' ')).join('\n');
 
                                 return {
                                     archivo: archivo.name || 'documento.pdf',
                                     renglones,
                                     tokens,
-                                    texto: renglones.map(r => r.celdas.join(' ')).join('\n')
+                                    texto,
+                                    // Versión sin espacios para los documentos que los meten dentro de las
+                                    // palabras. Buscar marcas ahí es lo único fiable.
+                                    compacto: sinEspacios(texto)
                                 };
                             }
 
@@ -9867,11 +9918,21 @@
                             // tablas, que es lo último que cambiaría.
                             function tipoDocumentoGbm(doc) {
                                 const t = doc.texto;
-                                if (/Form\s*1042-?S|Form\s*1099|1042S/i.test(t)) return 'fiscal';
+                                const c = doc.compacto || sinEspacios(t);
+
+                                // El estado de cuenta de Smart Cash viene de GBM México: otro contrato,
+                                // otro idioma y los pesos que aquí no se pueden ver de otra forma.
+                                if (/RESUMENDELPORTAFOLIO/.test(c) || /DESGLOSEDEMOVIMIENTOS/.test(c)) return 'estado_mx';
+
                                 if (/Account\s*Statement/i.test(t)) return 'estado_cuenta';
                                 if (/Confirmation\s*Date/i.test(t)) return 'confirmacion';
                                 if (/\bACTIVITY\b/.test(t) && /Activity\s*Type/i.test(t)) return 'estado_cuenta';
                                 if (/Principal\s*Amount/i.test(t) && /Net\s*Amount/i.test(t)) return 'confirmacion';
+
+                                // Lo fiscal va al final a propósito. El estado de cuenta menciona de pasada
+                                // que "recibirás un Form 1099 o 1042-S", y esa frase suelta bastaba para que
+                                // se descartara como documento fiscal un documento lleno de movimientos.
+                                if (/Form\s*1042-?S|Form\s*1099|1042S/i.test(t)) return 'fiscal';
                                 return 'desconocido';
                             }
 
@@ -10111,6 +10172,143 @@
                                 };
                             }
 
+                            // --- Estado de cuenta de Smart Cash (GBM México) -------------------------
+                            //
+                            // Este documento es el único que ve los pesos. El de DriveWealth está entero en
+                            // dólares, así que sin éste no hay forma de auditar ni lo que saliste de tu
+                            // bolsillo ni el tipo de cambio al que te lo convirtieron.
+                            //
+                            // De todo lo que trae sólo interesan dos movimientos. "Compra DOLARES" es la
+                            // conversión de pesos a dólares, o sea tu aportación vista desde México. Y
+                            // "DEPOSITO DE EFECTIVO" es el dinero entrando a Smart Cash. Lo demás —compras
+                            // y vencimientos de reporto— es la gestión automática del efectivo mientras
+                            // espera, y no corresponde a ningún movimiento tuyo.
+
+                            const MESES_ESPANOL = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+                                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+                            function parsearEstadoMx(doc) {
+                                const em = {
+                                    tipo: 'estado_mx',
+                                    archivo: doc.archivo,
+                                    contrato: null,
+                                    periodo: null,
+                                    conversiones: [],
+                                    depositos: [],
+                                    totales: {}
+                                };
+
+                                const c = doc.compacto || sinEspacios(doc.texto);
+
+                                // Sin espacios, el contrato queda pegado a lo que sigue ("...RFC:"), así
+                                // que hay que decirle dónde parar.
+                                const mContrato = c.match(/CONTRATO:([A-Z0-9]+?)(?=RFC|R[EÉ]GIMEN|PERIODO|$)/);
+                                if (mContrato) em.contrato = mContrato[1];
+
+                                // "DEL 1 AL 30 DE JUNIO DE 2026", pero con espacios sembrados por todas
+                                // partes; sin ellos la expresión encuentra lo que busca.
+                                const mPeriodo = c.match(/DEL(\d{1,2})AL(\d{1,2})DE([A-ZÁÉÍÓÚ]+)DE(\d{4})/);
+                                if (mPeriodo) {
+                                    const mes = MESES_ESPANOL.indexOf(mPeriodo[3]);
+                                    if (mes >= 0) {
+                                        const mm = String(mes + 1).padStart(2, '0');
+                                        em.periodo = {
+                                            desde: `${mPeriodo[4]}-${mm}-${String(mPeriodo[1]).padStart(2, '0')}`,
+                                            hasta: `${mPeriodo[4]}-${mm}-${String(mPeriodo[2]).padStart(2, '0')}`,
+                                            anio: Number(mPeriodo[4]),
+                                            mes: mes + 1
+                                        };
+                                    }
+                                }
+
+                                const totalTras = etiqueta => {
+                                    const m = c.match(new RegExp(etiqueta + '\\(?(-?[\\d,]+\\.\\d{2})\\)?'));
+                                    return m ? numeroGbm(m[1]) : null;
+                                };
+                                em.totales = {
+                                    entradas: totalTras('ENTRADASDEEFECTIVO'),
+                                    salidas: totalTras('SALIDASDEEFECTIVO')
+                                };
+
+                                doc.renglones.forEach(ren => {
+                                    const compacta = sinEspacios(ren.celdas.join(''));
+                                    const esConversion = /COMPRAD[OÓ]LARES/.test(compacta);
+                                    const esDeposito = /DEPOSITODEEFECTIVO/.test(compacta);
+                                    if (!esConversion && !esDeposito) return;
+
+                                    // La fecha viene como "02 / 03": día de operación y día de liquidación,
+                                    // sin mes. El mes lo pone el periodo del documento; si el día de
+                                    // liquidación es menor, es que cayó ya en el mes siguiente.
+                                    const mFecha = sinEspacios(ren.celdas[0] || '').match(/^(\d{1,2})\/(\d{1,2})$/);
+                                    if (!mFecha || !em.periodo) return;
+                                    const dOper = Number(mFecha[1]), dLiq = Number(mFecha[2]);
+                                    const fechaDe = (dia, mesExtra) => {
+                                        const f = new Date(Date.UTC(em.periodo.anio, em.periodo.mes - 1 + mesExtra, dia));
+                                        return f.toISOString().slice(0, 10);
+                                    };
+                                    const fecha = fechaDe(dOper, 0);
+                                    const fechaLiquidacion = fechaDe(dLiq, dLiq < dOper ? 1 : 0);
+
+                                    const numeros = ren.celdas.map(x => numeroGbm(sinEspacios(x))).filter(n => n !== null);
+                                    if (numeros.length < 7) return;
+                                    // Se cuentan desde el final, que es donde las columnas no se mueven:
+                                    // títulos, precio, comisión, interés, impuesto, neto y saldo.
+                                    const n = numeros.slice(-7);
+                                    const titulos = n[0], precio = n[1], neto = n[5];
+
+                                    if (esDeposito) {
+                                        em.depositos.push({ fecha, fechaLiquidacion, mxn: neto });
+                                        return;
+                                    }
+
+                                    // La columna de títulos viene redondeada a dólares enteros, así que no
+                                    // sirve: los dólares exactos salen de dividir los pesos entre el tipo de
+                                    // cambio, que es como GBM hizo la cuenta en primer lugar.
+                                    if (!(precio > 0) || !(neto > 0)) return;
+                                    const usd = Math.round((neto / precio) * 10000) / 10000;
+
+                                    em.conversiones.push({
+                                        fecha, fechaLiquidacion,
+                                        mxn: neto,
+                                        tipoCambio: precio,
+                                        usd,
+                                        // Sirve de comprobación: los dólares calculados no pueden alejarse
+                                        // más de uno de los que el propio documento redondeó.
+                                        titulosDeclarados: titulos
+                                    });
+                                });
+
+                                return em;
+                            }
+
+                            function comprobarEstadoMx(em) {
+                                const pruebas = [];
+                                const suma = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+
+                                pruebas.push(comprobacion('Depósitos leídos vs declarados',
+                                    suma(em.depositos, d => d.mxn), em.totales.entradas, 0.02,
+                                    'La suma de los depósitos debe dar "ENTRADAS DE EFECTIVO"'));
+
+                                pruebas.push(comprobacion('Conversiones leídas vs declaradas',
+                                    suma(em.conversiones, c => c.mxn), em.totales.salidas, 0.02,
+                                    'Los pesos convertidos a dólares deben dar "SALIDAS DE EFECTIVO"'));
+
+                                // Los dólares calculados a partir de pesos y tipo de cambio tienen que
+                                // parecerse a los que el documento imprime redondeados. Si no, es que se
+                                // están leyendo columnas equivocadas.
+                                const malRedondeo = em.conversiones.filter(c =>
+                                    Math.abs(c.usd - c.titulosDeclarados) > 1).length;
+                                pruebas.push({
+                                    etiqueta: 'Dólares calculados vs impresos',
+                                    calculado: em.conversiones.length - malRedondeo,
+                                    declarado: em.conversiones.length,
+                                    nota: 'Pesos ÷ tipo de cambio debe dar los dólares que imprime el documento',
+                                    estado: em.conversiones.length === 0 ? 'sin_dato' : (malRedondeo === 0 ? 'ok' : 'falla')
+                                });
+
+                                return pruebas;
+                            }
+
                             // --- Confirmación de operación -------------------------------------------
 
                             function parsearConfirmacion(doc) {
@@ -10293,16 +10491,24 @@
 
                             // Un mismo movimiento puede llegar dos veces: en el estado de cuenta y en su
                             // confirmación. Se queda la confirmación, que trae la comisión desglosada.
-                            function claveMovimiento(m) {
-                                return `${m.clase}|${m.ticker || '-'}|${m.fecha}|${(m.acciones || 0).toFixed(8)}`;
+                            //
+                            // Sólo las compras y las ventas salen en los dos documentos. Un depósito o un
+                            // dividendo vive únicamente en el estado de cuenta, y dos del mismo día por el
+                            // mismo importe son dos movimientos reales, no uno repetido —el 3 de junio
+                            // hubo dos depósitos—, así que ésos se guardan todos.
+                            function claveMovimiento(m, indice) {
+                                if (m.clase === 'compra' || m.clase === 'venta') {
+                                    return `${m.clase}|${m.ticker || '-'}|${m.fecha}|${(m.acciones || 0).toFixed(8)}`;
+                                }
+                                return `${m.clase}|${m.fecha}|${indice}`;
                             }
 
                             function movimientosGbmNormalizados(documentos) {
                                 const porClave = new Map();
 
                                 documentos.filter(d => d.tipo === 'estado_cuenta').forEach(ec => {
-                                    ec.actividad.forEach(m => {
-                                        porClave.set(claveMovimiento(m), {
+                                    ec.actividad.forEach((m, i) => {
+                                        porClave.set(claveMovimiento(m, `${ec.archivo}#${i}`), {
                                             origen: 'estado de cuenta', archivo: ec.archivo,
                                             clase: m.clase, codigo: m.codigo, ticker: m.ticker,
                                             fecha: m.fecha, acciones: m.acciones, precio: m.precio,
@@ -10359,7 +10565,8 @@
                                             acciones: parseFloat(r.cantidad_acciones) || 0,
                                             precio: parseFloat(r.costo_accion) || 0,
                                             usd: parseFloat(r.monto_usd) || 0,
-                                            mxn: parseFloat(r.monto) || 0
+                                            mxn: parseFloat(r.monto) || 0,
+                                            tipoCambio: parseFloat(r.tipo_cambio) || 0
                                         };
                                     });
                             }
@@ -10387,6 +10594,8 @@
                                     formatoSospechoso: false,
                                     codigosDesconocidos: [],
                                     operaciones: { iguales: [], distintas: [], faltanEnApp: [], sobranEnApp: [] },
+                                    aportaciones: { iguales: [], distintas: [], faltanEnApp: [] },
+                                    traslado: null,
                                     posiciones: [],
                                     dividendos: [],
                                     comisiones: { total: 0, movimientos: 0 },
@@ -10394,6 +10603,7 @@
                                 };
 
                                 const estados = documentos.filter(d => d.tipo === 'estado_cuenta');
+                                const estadosMx = documentos.filter(d => d.tipo === 'estado_mx');
 
                                 estados.forEach(ec => {
                                     rep.pruebas.push({ archivo: ec.archivo, pruebas: comprobarEstadoCuenta(ec) });
@@ -10403,6 +10613,9 @@
                                 });
                                 documentos.filter(d => d.tipo === 'confirmacion').forEach(cf => {
                                     rep.pruebas.push({ archivo: cf.archivo, pruebas: comprobarConfirmacion(cf) });
+                                });
+                                estadosMx.forEach(em => {
+                                    rep.pruebas.push({ archivo: em.archivo, pruebas: comprobarEstadoMx(em) });
                                 });
 
                                 rep.formatoSospechoso = rep.pruebas.some(g => g.pruebas.some(p => p.estado === 'falla'));
@@ -10415,6 +10628,7 @@
                                 // de las confirmaciones sueltas.
                                 const dias = [];
                                 estados.forEach(ec => { if (ec.periodo) { dias.push(ec.periodo.desde, ec.periodo.hasta); } });
+                                estadosMx.forEach(em => { if (em.periodo) { dias.push(em.periodo.desde, em.periodo.hasta); } });
                                 documentos.filter(d => d.tipo === 'confirmacion').forEach(cf => cf.operaciones.forEach(o => dias.push(o.fecha)));
                                 const validos = dias.filter(Boolean).sort();
                                 if (validos.length) rep.periodo = { desde: validos[0], hasta: validos[validos.length - 1] };
@@ -10488,6 +10702,74 @@
                                 candidatosApp
                                     .filter(a => !usados.has(a.id) && dentroDeEstado(a.dia))
                                     .forEach(a => rep.operaciones.sobranEnApp.push(a));
+
+                                // --- Aportaciones: los pesos que se volvieron dólares ---
+                                // Sólo se pueden auditar con el estado de cuenta de Smart Cash. Sin él, la
+                                // app no tiene contra qué comparar ni los pesos ni el tipo de cambio.
+                                if (estadosMx.length) {
+                                    const conversiones = [];
+                                    estadosMx.forEach(em => em.conversiones.forEach(c => conversiones.push(c)));
+                                    conversiones.sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+
+                                    const aportApp = movsApp.filter(m => !m.directo && m.clase === 'aportacion');
+                                    const usadas = new Set();
+
+                                    conversiones.forEach(cv => {
+                                        const cerca = aportApp.filter(a => !usadas.has(a.id) &&
+                                            Math.abs(diasEntre(a.dia, cv.fecha)) <= AUD_DIAS_CERCANIA);
+                                        if (!cerca.length) { rep.aportaciones.faltanEnApp.push(cv); return; }
+
+                                        cerca.sort((x, y) => {
+                                            const dx = Math.abs(x.usd - cv.usd), dy = Math.abs(y.usd - cv.usd);
+                                            if (Math.abs(dx - dy) > 0.005) return dx - dy;
+                                            return Math.abs(diasEntre(x.dia, cv.fecha)) - Math.abs(diasEntre(y.dia, cv.fecha));
+                                        });
+                                        const a = cerca[0];
+                                        usadas.add(a.id);
+
+                                        const diferencias = [];
+                                        if (Math.abs(a.usd - cv.usd) > AUD_TOL_USD) {
+                                            diferencias.push({ campo: 'Dólares', app: a.usd, gbm: cv.usd, detalle: `${fMoneda(a.usd - cv.usd)} USD` });
+                                        }
+                                        if (Math.abs(Math.abs(a.mxn) - cv.mxn) > 0.02) {
+                                            diferencias.push({ campo: 'Pesos', app: Math.abs(a.mxn), gbm: cv.mxn, detalle: `${fMoneda(Math.abs(a.mxn) - cv.mxn)} MXN` });
+                                        }
+                                        if (Math.abs(a.tipoCambio - cv.tipoCambio) > 0.01) {
+                                            diferencias.push({ campo: 'Tipo de cambio', app: a.tipoCambio, gbm: cv.tipoCambio, detalle: `${(a.tipoCambio - cv.tipoCambio).toFixed(4)}` });
+                                        }
+                                        const dd = diasEntre(a.dia, cv.fecha);
+                                        if (dd !== 0) {
+                                            diferencias.push({ campo: 'Fecha', app: a.dia, gbm: cv.fecha, detalle: `${dd > 0 ? '+' : ''}${dd} día(s)` });
+                                        }
+
+                                        if (diferencias.length) rep.aportaciones.distintas.push({ gbm: cv, app: a, diferencias });
+                                        else rep.aportaciones.iguales.push({ gbm: cv, app: a });
+                                    });
+
+                                    // --- El traslado: lo que salió de México contra lo que llegó a EE.UU. ---
+                                    // Son dos documentos independientes, de dos entidades distintas. Que
+                                    // cuadren entre sí es la comprobación más fuerte que hay aquí, porque
+                                    // ninguno de los dos sabe lo que dice el otro.
+                                    const depositosUsa = movsGbm.filter(m => m.clase === 'aportacion');
+                                    if (depositosUsa.length) {
+                                        const librs = depositosUsa.slice();
+                                        let emparejados = 0;
+                                        const sinLlegar = [];
+                                        conversiones.forEach(cv => {
+                                            const i = librs.findIndex(d => Math.abs(d.usd - cv.usd) <= 0.02 &&
+                                                Math.abs(diasEntre(d.fecha, cv.fecha)) <= AUD_DIAS_CERCANIA);
+                                            if (i >= 0) { librs.splice(i, 1); emparejados++; }
+                                            else sinLlegar.push(cv);
+                                        });
+                                        rep.traslado = {
+                                            emparejados,
+                                            conversiones: conversiones.length,
+                                            depositos: depositosUsa.length,
+                                            sinLlegar,
+                                            sinSalir: librs
+                                        };
+                                    }
+                                }
 
                                 // --- Posición al corte ---
                                 const estadoConPosiciones = estados.filter(ec => ec.posiciones.length);
@@ -10696,7 +10978,7 @@
                                                 · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
                                             </div>`).join('')}
                                             <div style="display:flex; gap:8px; margin-top:7px;">
-                                                <button onclick="corregirDiferenciaAuditoria(${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                <button onclick="corregirDiferenciaAuditoria('operaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
                                                 <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
                                             </div>
                                         </div>`;
@@ -10731,6 +11013,66 @@
                                         </div>`;
                                     });
                                     html += bloqueAuditoria('➖ Sobran en la app', filas, AUD_ROJO);
+                                }
+
+                                // 3b. Aportaciones: el único sitio donde se ven los pesos
+                                const ap = rep.aportaciones;
+                                if (ap.iguales.length || ap.distintas.length || ap.faltanEnApp.length) {
+                                    let filasAp = filaAuditoria('Coinciden exactamente', String(ap.iguales.length), AUD_VERDE);
+                                    if (ap.distintas.length) filasAp += filaAuditoria('Coinciden con diferencias', String(ap.distintas.length), AUD_AMBAR);
+                                    if (ap.faltanEnApp.length) filasAp += filaAuditoria('Están en GBM y no en la app', String(ap.faltanEnApp.length), AUD_ROJO);
+                                    html += bloqueAuditoria('💱 Aportaciones (pesos → dólares)', filasAp);
+
+                                    if (ap.distintas.length) {
+                                        let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                            Los pesos y el tipo de cambio sólo se pueden comprobar con el estado de cuenta
+                                            de Smart Cash. Ojo con las aportaciones migradas del historial antiguo: se
+                                            reconstruyeron a partir de las compras, así que es normal que no cuadren.
+                                        </div>`;
+                                        ap.distintas.forEach((d, i) => {
+                                            filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                                <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">Aportación del ${d.gbm.fecha}</div>
+                                                ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
+                                                    ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
+                                                    · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
+                                                </div>`).join('')}
+                                                <div style="display:flex; gap:8px; margin-top:7px;">
+                                                    <button onclick="corregirDiferenciaAuditoria('aportaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                    <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                                </div>
+                                            </div>`;
+                                        });
+                                        html += bloqueAuditoria('⚠️ Aportaciones con diferencias', filas, AUD_AMBAR);
+                                    }
+
+                                    if (ap.faltanEnApp.length) {
+                                        let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                            Convertiste pesos a dólares en GBM y no encuentro la aportación en la app.
+                                        </div>`;
+                                        ap.faltanEnApp.forEach(cv => {
+                                            filas += filaAuditoria(cv.fecha,
+                                                `${fMoneda(cv.usd)} USD`, AUD_ROJO,
+                                                `${fMoneda(cv.mxn)} MXN a ${cv.tipoCambio.toFixed(4)}`);
+                                        });
+                                        html += bloqueAuditoria('➕ Aportaciones que faltan', filas, AUD_ROJO);
+                                    }
+                                }
+
+                                // 3c. El traslado entre los dos documentos
+                                if (rep.traslado) {
+                                    const t = rep.traslado;
+                                    const completo = t.sinLlegar.length === 0 && t.sinSalir.length === 0;
+                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        Los dólares que salieron de Smart Cash contra los que llegaron a Trading USA.
+                                        Son dos documentos independientes: que cuadren entre sí no depende de tus registros.
+                                    </div>` +
+                                        filaAuditoria('Conversiones que llegaron a su destino',
+                                            `${t.emparejados} de ${t.conversiones}`, completo ? AUD_VERDE : AUD_AMBAR);
+                                    t.sinLlegar.forEach(cv => filas += filaAuditoria(`Salió de México el ${cv.fecha}`,
+                                        `${fMoneda(cv.usd)} USD`, AUD_AMBAR, 'Sin depósito equivalente en Trading USA'));
+                                    t.sinSalir.forEach(d => filas += filaAuditoria(`Llegó a Trading USA el ${d.fecha}`,
+                                        `${fMoneda(d.usd)} USD`, AUD_AMBAR, 'Sin conversión equivalente en Smart Cash'));
+                                    html += bloqueAuditoria('🔗 Traslado México → Estados Unidos', filas, completo ? AUD_VERDE : AUD_AMBAR);
                                 }
 
                                 // 4. Dividendos
@@ -10818,10 +11160,11 @@
                             // ya existían, así que se hace de uno en uno, sólo sobre los campos que la
                             // auditoría marcó distintos, y el diálogo dice exactamente qué va a cambiar y a
                             // qué valor. Lo demás del registro —tu descripción, tu tipo de cambio— no se toca.
-                            async function corregirDiferenciaAuditoria(indice) {
+                            async function corregirDiferenciaAuditoria(grupo, indice) {
                                 const rep = auditoriaActual;
                                 if (!rep) return;
-                                const d = rep.operaciones.distintas[indice];
+                                const lista = rep[grupo] && rep[grupo].distintas;
+                                const d = lista && lista[indice];
                                 if (!d) return;
 
                                 // Si el documento no pasó sus propias comprobaciones, las diferencias podrían
@@ -10841,9 +11184,17 @@
                                     } else if (x.campo === 'Precio') {
                                         cambios.costo_accion = d.gbm.precio;
                                         lineas.push(`Precio:    ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
-                                    } else if (x.campo === 'Importe USD') {
+                                    } else if (x.campo === 'Importe USD' || x.campo === 'Dólares') {
                                         cambios.monto_usd = d.gbm.usd;
-                                        lineas.push(`Importe:   ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                        lineas.push(`Dólares:   ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                    } else if (x.campo === 'Pesos') {
+                                        // La aportación saca pesos de la cuenta: el monto va en negativo,
+                                        // igual que lo guarda la pantalla de registro.
+                                        cambios.monto = -Math.abs(d.gbm.mxn);
+                                        lineas.push(`Pesos:     ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} MXN`);
+                                    } else if (x.campo === 'Tipo de cambio') {
+                                        cambios.tipo_cambio = d.gbm.tipoCambio;
+                                        lineas.push(`T. cambio: ${Number(x.app).toFixed(4)}  →  ${Number(x.gbm).toFixed(4)}`);
                                     } else if (x.campo === 'Fecha') {
                                         // Sólo se mueve el día. La hora que capturaste se respeta: el estado
                                         // de cuenta no la trae y no hay con qué sustituirla.
@@ -11038,6 +11389,7 @@
                                         const tipo = tipoDocumentoGbm(doc);
                                         if (tipo === 'estado_cuenta') documentos.push(parsearEstadoCuenta(doc));
                                         else if (tipo === 'confirmacion') documentos.push(parsearConfirmacion(doc));
+                                        else if (tipo === 'estado_mx') documentos.push(parsearEstadoMx(doc));
                                         else ignorados.push({ archivo: doc.archivo, tipo });
                                     }
                                 } catch (e) {
