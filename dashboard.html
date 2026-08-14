@@ -10345,6 +10345,9 @@
                                         return {
                                             id: r.id,
                                             dia: diaDeRegistro(r),
+                                            // La fecha completa se conserva para poder corregir el día sin
+                                            // perder la hora, que el estado de cuenta no trae.
+                                            fecha: r.fecha,
                                             categoria: cat,
                                             ticker: cat.ticker || null,
                                             tipo,
@@ -10679,8 +10682,11 @@
                                 html += bloqueAuditoria('🔁 Operaciones del periodo', filasOp);
 
                                 if (op.distintas.length) {
-                                    let filas = '';
-                                    op.distintas.forEach(d => {
+                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        Cada operación se corrige por separado, y sólo se tocan los campos que ves
+                                        listados. El documento de GBM manda, pero la decisión es tuya en cada caso.
+                                    </div>`;
+                                    op.distintas.forEach((d, i) => {
                                         filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
                                             <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">
                                                 ${d.gbm.ticker} · ${d.gbm.clase} · ${d.gbm.fecha}
@@ -10689,7 +10695,10 @@
                                                 ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
                                                 · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
                                             </div>`).join('')}
-                                            <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                            <div style="display:flex; gap:8px; margin-top:7px;">
+                                                <button onclick="corregirDiferenciaAuditoria(${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                            </div>
                                         </div>`;
                                     });
                                     html += bloqueAuditoria('⚠️ Operaciones con diferencias', filas, AUD_AMBAR);
@@ -10790,6 +10799,90 @@
                                 return true;
                             }
 
+                            // Rehace la conciliación con los mismos documentos ya leídos y vuelve a pintar.
+                            // Así, al corregir un registro, la diferencia desaparece de la lista y puedes
+                            // seguir con la siguiente sin volver a importar los PDF.
+                            function repintarAuditoria() {
+                                const anterior = auditoriaActual;
+                                if (!anterior) return;
+                                const rep = conciliarGbm(anterior.cuentaId, anterior.documentos);
+                                rep.cuentaId = anterior.cuentaId;
+                                rep.ignorados = anterior.ignorados;
+                                rep.aviso = anterior.aviso;
+                                auditoriaActual = rep;
+                                const cont = document.getElementById('contenidoAuditoriaGbm');
+                                if (cont) cont.innerHTML = (rep.aviso || '') + renderAuditoriaGbm(rep);
+                            }
+
+                            // Aplica a un registro los valores de GBM. Es la única escritura sobre datos que
+                            // ya existían, así que se hace de uno en uno, sólo sobre los campos que la
+                            // auditoría marcó distintos, y el diálogo dice exactamente qué va a cambiar y a
+                            // qué valor. Lo demás del registro —tu descripción, tu tipo de cambio— no se toca.
+                            async function corregirDiferenciaAuditoria(indice) {
+                                const rep = auditoriaActual;
+                                if (!rep) return;
+                                const d = rep.operaciones.distintas[indice];
+                                if (!d) return;
+
+                                // Si el documento no pasó sus propias comprobaciones, las diferencias podrían
+                                // ser del lector y no de tus registros. Corregir con datos mal leídos sería
+                                // exactamente lo contrario de auditar.
+                                if (rep.formatoSospechoso) {
+                                    alert('⚠️ Las comprobaciones internas del documento no cuadran, así que estas diferencias podrían venir de una mala lectura del PDF y no de tus registros.\n\nNo se corrige nada mientras el formato esté en duda.');
+                                    return;
+                                }
+
+                                const cambios = {};
+                                const lineas = [];
+                                d.diferencias.forEach(x => {
+                                    if (x.campo === 'Acciones') {
+                                        cambios.cantidad_acciones = d.gbm.acciones;
+                                        lineas.push(`Acciones:  ${accionesConFormato(x.app)}  →  ${accionesConFormato(x.gbm)}`);
+                                    } else if (x.campo === 'Precio') {
+                                        cambios.costo_accion = d.gbm.precio;
+                                        lineas.push(`Precio:    ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                    } else if (x.campo === 'Importe USD') {
+                                        cambios.monto_usd = d.gbm.usd;
+                                        lineas.push(`Importe:   ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                    } else if (x.campo === 'Fecha') {
+                                        // Sólo se mueve el día. La hora que capturaste se respeta: el estado
+                                        // de cuenta no la trae y no hay con qué sustituirla.
+                                        const resto = String(d.app.fecha || '').slice(10);
+                                        cambios.fecha = `${d.gbm.fecha}${resto || 'T12:00:00+00:00'}`;
+                                        lineas.push(`Fecha:     ${x.app}  →  ${x.gbm}`);
+                                    }
+                                });
+
+                                if (!lineas.length) return;
+
+                                if (!confirm(`Se corregirá el registro de "${d.app.categoria.nombre}" del ${d.app.dia}:\n\n` +
+                                    `${lineas.join('\n')}\n\n` +
+                                    `No se toca ningún otro campo del registro.\n\n¿Continuar?`)) return;
+
+                                const { error } = await clienteSupabase.from('registros').update(cambios).eq('id', d.app.id);
+                                if (error) { alert('No se pudo corregir: ' + error.message); return; }
+
+                                await refrescarTodo();
+                                repintarAuditoria();
+                            }
+
+                            // Los dividendos y las comisiones entran como un solo apunte por periodo. Si ya
+                            // se registró antes, repetirlo duplicaría dinero en la caja sin que nada lo
+                            // delate, así que se busca la marca que la propia auditoría deja en la
+                            // descripción antes de volver a guardar.
+                            async function yaRegistradoPorAuditoria(idCaja, descripcion) {
+                                const { data, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select('id')
+                                    .eq('categoria_id', idCaja)
+                                    .eq('descripcion', descripcion)
+                                    .limit(1);
+                                if (error) return false;
+                                if (!data || !data.length) return false;
+                                return !confirm('⚠️ Ya existe un apunte de la auditoría con esta misma descripción para este periodo.\n\n' +
+                                    'Registrarlo otra vez duplicaría el dinero en tu Caja GBM.\n\n¿Aun así quieres continuar?');
+                            }
+
                             // Un dividendo son dólares que llegaron sin que salieran pesos de tu bolsillo.
                             // Se guarda como aportación a la Caja GBM con monto 0 en pesos: la caja sube en
                             // dólares y su costo en pesos no, que es exactamente lo que significa "ganancia".
@@ -10806,11 +10899,14 @@
                                 const idCaja = await obtenerCategoriaCajaGbm(rep.cuentaId);
                                 if (!idCaja) return;
 
+                                const descripcion = `Dividendos netos GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`;
+                                if (await yaRegistradoPorAuditoria(idCaja, descripcion)) return;
+
                                 await insertarRegistroAuditoria({
                                     categoria_id: idCaja,
                                     monto: 0,
                                     fecha: new Date(`${rep.periodo ? rep.periodo.hasta : rep.corte}T12:00:00Z`).toISOString(),
-                                    descripcion: `Dividendos netos GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`,
+                                    descripcion,
                                     costo_accion: 0,
                                     tipo_cambio: globalUsdToMxn || 0,
                                     cantidad_acciones: 0,
@@ -10836,11 +10932,14 @@
                                 const idCaja = await obtenerCategoriaCajaGbm(rep.cuentaId);
                                 if (!idCaja) return;
 
+                                const descripcion = `Comisiones GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`;
+                                if (await yaRegistradoPorAuditoria(idCaja, descripcion)) return;
+
                                 await insertarRegistroAuditoria({
                                     categoria_id: idCaja,
                                     monto: 0,
                                     fecha: new Date(`${rep.periodo ? rep.periodo.hasta : rep.corte}T12:00:00Z`).toISOString(),
-                                    descripcion: `Comisiones GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`,
+                                    descripcion,
                                     costo_accion: 0,
                                     tipo_cambio: globalUsdToMxn || 0,
                                     cantidad_acciones: 0,
@@ -10891,7 +10990,9 @@
                                     user_id: currentUser.id
                                 }, `Movimiento registrado en ${cat.nombre}.`);
 
-                                cerrarModalAuditoriaGbm();
+                                // El alta sí se puede volver a conciliar: en la nueva pasada el movimiento
+                                // ya empareja y desaparece de la lista de faltantes.
+                                repintarAuditoria();
                             }
 
                             // --- Entrada desde la ficha de la cuenta ---------------------------------
@@ -10978,6 +11079,10 @@
                                             i.tipo === 'fiscal' ? 'documento fiscal' : 'no reconocido', '#888',
                                             i.tipo === 'fiscal' ? 'Los formularios 1042-S y 1099 no traen movimientos' : '')).join(''));
                                 }
+
+                                // El aviso se guarda con el reporte para que sobreviva a los repintados
+                                // que vienen después de cada corrección.
+                                rep.aviso = aviso;
 
                                 document.getElementById('tituloAuditoriaGbm').textContent =
                                     `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
