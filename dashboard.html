@@ -9172,7 +9172,7 @@
                                                     const zonaAud = document.getElementById('zonaAuditoriaGbm');
                                                     if (zonaAud) zonaAud.style.display = r.tieneInversion ? 'block' : 'none';
                                                     const btnAud = document.getElementById('btnAuditarGbm');
-                                                    if (btnAud) btnAud.onclick = () => abrirSelectorPdfGbm(id);
+                                                    if (btnAud) btnAud.onclick = () => abrirGuiaAuditoria(id);
 
                                                     document.getElementById('modalDetallesCuenta').classList.add('activa');
                                                     document.body.classList.add('modal-abierto');
@@ -11348,17 +11348,6 @@
 
                             // --- Entrada desde la ficha de la cuenta ---------------------------------
 
-                            function abrirSelectorPdfGbm(cuentaId) {
-                                const input = document.getElementById('inputPdfGbm');
-                                if (!input) return;
-                                input.value = '';
-                                input.onchange = () => {
-                                    const archivos = [...(input.files || [])];
-                                    if (archivos.length) auditarCuentaGbm(cuentaId, archivos);
-                                };
-                                input.click();
-                            }
-
                             function estadoAuditoria(mensaje) {
                                 const cont = document.getElementById('contenidoAuditoriaGbm');
                                 if (cont) cont.innerHTML = `<div style="color:#aaa; text-align:center; padding:40px 10px; font-size:0.9em; line-height:1.6;">${mensaje}</div>`;
@@ -11374,70 +11363,261 @@
                                 document.body.classList.remove('modal-abierto');
                             }
 
-                            async function auditarCuentaGbm(cuentaId, archivos) {
+                            // --- Guía paso a paso ----------------------------------------------------
+                            //
+                            // Pedir "importa tus documentos" obliga a saber de antemano cuáles hacen falta,
+                            // y eso es justo lo que uno no sabe. La app sí: conoce de qué meses tienes
+                            // movimientos, así que puede decir qué descargar, mes por mes, y qué queda
+                            // cubierto con lo que ya entregaste.
+                            //
+                            // Los documentos se van acumulando en la sesión. Puedes traerlos de una vez o
+                            // de tres en tres, volver atrás y añadir más sin perder lo anterior.
+
+                            let sesionAuditoria = null;
+
+                            const NOMBRES_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                                'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+                            function nombreMesClave(clave) {
+                                const [anio, mes] = String(clave).split('-');
+                                return `${NOMBRES_MES[Number(mes) - 1] || mes} ${anio}`;
+                            }
+
+                            // Los meses en que esta cuenta tuvo movimientos de inversión son exactamente
+                            // los meses de los que hace falta un estado de cuenta. Pedir más sería mandarte
+                            // a descargar papeles en blanco.
+                            function mesesConMovimientosInversion(cuentaId) {
+                                const meses = new Set();
+                                movimientosAppDeCuenta(cuentaId).forEach(m => {
+                                    if (m.clase && m.dia) meses.add(m.dia.slice(0, 7));
+                                });
+                                return [...meses].sort();
+                            }
+
+                            function coberturaAuditoria(sesion) {
+                                const conPeriodo = tipo => sesion.documentos.filter(d => d.tipo === tipo && d.periodo);
+                                const usa = conPeriodo('estado_cuenta');
+                                const mx = conPeriodo('estado_mx');
+                                const cubre = (docs, mes) => docs.some(d =>
+                                    d.periodo.desde.slice(0, 7) <= mes && mes <= d.periodo.hasta.slice(0, 7));
+                                return mesesConMovimientosInversion(sesion.cuentaId).map(mes => ({
+                                    mes, usa: cubre(usa, mes), mx: cubre(mx, mes)
+                                }));
+                            }
+
+                            function tarjetaPaso(numero, titulo, estado, cuerpo, etiqueta) {
+                                const color = estado === 'listo' ? AUD_VERDE : estado === 'parcial' ? AUD_AMBAR : '#444';
+                                const icono = estado === 'listo' ? '✅' : estado === 'parcial' ? '◐' : '○';
+                                return `<div style="background:#161616; border:1px solid ${color}; border-radius:10px; padding:14px; margin-bottom:12px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:8px;">
+                                        <div style="color:#fff; font-weight:bold; font-size:0.95em;">${icono} ${numero}. ${titulo}</div>
+                                        <div style="color:${color}; font-size:0.72em; white-space:nowrap;">${etiqueta}</div>
+                                    </div>
+                                    ${cuerpo}
+                                </div>`;
+                            }
+
+                            function listaMeses(cobertura, campo) {
+                                return cobertura.map(c => {
+                                    const ok = c[campo];
+                                    return `<span style="display:inline-block; margin:2px 4px 2px 0; padding:3px 9px; border-radius:20px; font-size:0.72em;
+                                        background:${ok ? 'rgba(62,207,142,0.15)' : '#242424'}; color:${ok ? AUD_VERDE : '#999'};
+                                        border:1px solid ${ok ? 'rgba(62,207,142,0.4)' : '#333'};">${ok ? '✓' : '·'} ${nombreMesClave(c.mes)}</span>`;
+                                }).join('');
+                            }
+
+                            const BOTON_IMPORTAR = `<button onclick="pedirDocumentosAuditoria()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:#333; color:#fff; border:1px solid #555; border-radius:8px; font-weight:bold;">📎 Añadir documentos</button>`;
+
+                            function renderGuiaAuditoria() {
+                                const s = sesionAuditoria;
+                                if (!s) return;
+                                const cobertura = coberturaAuditoria(s);
+                                const confirmaciones = s.documentos.filter(d => d.tipo === 'confirmacion');
+                                const operacionesConf = confirmaciones.reduce((a, c) => a + c.operaciones.length, 0);
+                                const conUsa = cobertura.filter(c => c.usa).length;
+                                const conMx = cobertura.filter(c => c.mx).length;
+                                const total = cobertura.length;
+
+                                let html = `<div style="color:#bbb; font-size:0.88em; line-height:1.55; margin-bottom:16px;">
+                                    Voy a comparar tus registros contra los documentos que emite GBM. Necesito
+                                    estos tres, y te digo de qué meses según los movimientos que ya tienes capturados.
+                                    <br><br>
+                                    <span style="color:#777; font-size:0.92em;">Los PDF se leen en este dispositivo y no se suben a ningún servidor.</span>
+                                </div>`;
+
+                                if (!total) {
+                                    html += bloqueAuditoria('Esta cuenta no tiene movimientos de inversión',
+                                        `<div style="color:#bbb; font-size:0.85em; line-height:1.5;">No hay nada que auditar todavía.</div>`);
+                                    document.getElementById('contenidoAuditoriaGbm').innerHTML = html;
+                                    return;
+                                }
+
+                                // Paso 1 · Trading USA
+                                html += tarjetaPaso(1, 'Estado de cuenta de Trading USA',
+                                    conUsa === 0 ? 'pendiente' : conUsa === total ? 'listo' : 'parcial',
+                                    `<div style="color:#999; font-size:0.8em; line-height:1.5; margin-bottom:8px;">
+                                        El mensual que emite DriveWealth, en inglés. Es el que trae tus posiciones,
+                                        compras, ventas, dividendos y comisiones. <strong style="color:#ccc;">Sin al menos uno
+                                        no hay auditoría.</strong>
+                                    </div>
+                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Meses que necesito (${conUsa} de ${total}):</div>
+                                    <div>${listaMeses(cobertura, 'usa')}</div>`,
+                                    'obligatorio');
+
+                                // Paso 2 · Smart Cash
+                                html += tarjetaPaso(2, 'Estado de cuenta de Smart Cash',
+                                    conMx === 0 ? 'pendiente' : conMx === total ? 'listo' : 'parcial',
+                                    `<div style="color:#999; font-size:0.8em; line-height:1.5; margin-bottom:8px;">
+                                        El mensual de GBM México, en español. Es el único documento donde existen
+                                        los pesos y el tipo de cambio: sin él no puedo comprobar tus aportaciones,
+                                        porque el de Trading USA está entero en dólares.
+                                    </div>
+                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Meses que necesito (${conMx} de ${total}):</div>
+                                    <div>${listaMeses(cobertura, 'mx')}</div>`,
+                                    'muy recomendable');
+
+                                // Paso 3 · Confirmaciones
+                                html += tarjetaPaso(3, 'Confirmaciones de operación',
+                                    operacionesConf ? 'listo' : 'pendiente',
+                                    `<div style="color:#999; font-size:0.8em; line-height:1.5;">
+                                        Una por cada compra o venta. Traen la comisión desglosada y la hora exacta,
+                                        que sirven para desempatar dos operaciones del mismo día en la misma empresa.
+                                        Sin ellas la comisión se calcula desde el estado de cuenta, que también vale.
+                                        ${operacionesConf ? `<br><br><span style="color:${AUD_VERDE};">${operacionesConf} operación(es) en ${confirmaciones.length} documento(s).</span>` : ''}
+                                    </div>`,
+                                    'opcional');
+
+                                html += BOTON_IMPORTAR;
+
+                                // Lo que ya se entregó
+                                if (s.documentos.length || s.ignorados.length) {
+                                    let filas = '';
+                                    s.documentos.forEach(d => {
+                                        const que = d.tipo === 'estado_cuenta' ? 'Trading USA'
+                                            : d.tipo === 'estado_mx' ? 'Smart Cash' : 'Confirmación';
+                                        const cuando = d.periodo ? `${nombreMesClave(d.periodo.desde.slice(0, 7))}`
+                                            : (d.operaciones && d.operaciones[0] ? d.operaciones[0].fecha : '');
+                                        filas += filaAuditoria(d.archivo, que, AUD_VERDE, cuando);
+                                    });
+                                    s.ignorados.forEach(i => filas += filaAuditoria(i.archivo,
+                                        i.tipo === 'fiscal' ? 'documento fiscal' : 'no reconocido', '#888',
+                                        i.tipo === 'fiscal' ? 'Los formularios 1042-S y 1099 no traen movimientos'
+                                            : 'No parece un documento de GBM'));
+                                    html += bloqueAuditoria(`📄 Documentos cargados (${s.documentos.length})`, filas);
+                                }
+
+                                // Qué se podrá auditar con lo que hay
+                                const puede = conUsa > 0;
+                                let cobertura2 = '';
+                                const linea = (ok, texto) => `<div style="color:${ok ? '#ccc' : '#777'}; font-size:0.83em; line-height:1.6;">${ok ? '✅' : '⬜'} ${texto}</div>`;
+                                cobertura2 += linea(conUsa > 0, 'Posiciones, compras y ventas, dividendos y comisiones');
+                                cobertura2 += linea(conMx > 0, 'Pesos y tipo de cambio de cada aportación');
+                                cobertura2 += linea(conUsa > 0 && conMx > 0, 'Cruce entre lo que salió de México y lo que llegó a EE.UU.');
+                                cobertura2 += linea(operacionesConf > 0, 'Comisión desglosada operación por operación');
+                                html += bloqueAuditoria('Con lo que llevas se puede auditar', cobertura2,
+                                    puede ? AUD_VERDE : null);
+
+                                html += `<button onclick="ejecutarAuditoriaGbm()" ${puede ? '' : 'disabled'}
+                                    style="width:100%; margin-top:4px; padding:14px; font-size:1em; border-radius:10px; font-weight:bold; border:none;
+                                    background:${puede ? AUD_VERDE : '#2a2a2a'}; color:${puede ? '#000' : '#666'};">
+                                    ${puede ? 'Auditar con estos documentos' : 'Falta el estado de cuenta de Trading USA'}
+                                </button>`;
+
+                                document.getElementById('contenidoAuditoriaGbm').innerHTML = html;
+                            }
+
+                            function abrirGuiaAuditoria(cuentaId) {
                                 cerrarModalDetallesCuenta();
+                                sesionAuditoria = { cuentaId, documentos: [], ignorados: [] };
+                                auditoriaActual = null;
+                                const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
+                                document.getElementById('tituloAuditoriaGbm').textContent =
+                                    `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
                                 abrirModalAuditoriaGbm();
+                                renderGuiaAuditoria();
+                            }
+
+                            function pedirDocumentosAuditoria() {
+                                const input = document.getElementById('inputPdfGbm');
+                                if (!input) return;
+                                input.value = '';
+                                input.onchange = () => {
+                                    const archivos = [...(input.files || [])];
+                                    if (archivos.length) agregarDocumentosAuditoria(archivos);
+                                };
+                                input.click();
+                            }
+
+                            async function agregarDocumentosAuditoria(archivos) {
+                                const s = sesionAuditoria;
+                                if (!s) return;
                                 estadoAuditoria(`Leyendo ${archivos.length} documento(s)…<br><br>
                                     <span style="color:#666; font-size:0.85em;">Todo ocurre en este dispositivo: los PDF no se suben a ningún servidor.</span>`);
-
-                                let documentos = [];
-                                const ignorados = [];
 
                                 try {
                                     for (const archivo of archivos) {
                                         const doc = await renglonesDePdf(archivo);
                                         const tipo = tipoDocumentoGbm(doc);
-                                        if (tipo === 'estado_cuenta') documentos.push(parsearEstadoCuenta(doc));
-                                        else if (tipo === 'confirmacion') documentos.push(parsearConfirmacion(doc));
-                                        else if (tipo === 'estado_mx') documentos.push(parsearEstadoMx(doc));
-                                        else ignorados.push({ archivo: doc.archivo, tipo });
+                                        // Un mismo archivo dos veces duplicaría sus movimientos y con ellos
+                                        // los totales; se reconoce por nombre y periodo.
+                                        const yaEsta = s.documentos.some(d => d.archivo === doc.archivo);
+                                        if (yaEsta) continue;
+
+                                        if (tipo === 'estado_cuenta') s.documentos.push(parsearEstadoCuenta(doc));
+                                        else if (tipo === 'confirmacion') s.documentos.push(parsearConfirmacion(doc));
+                                        else if (tipo === 'estado_mx') s.documentos.push(parsearEstadoMx(doc));
+                                        else if (!s.ignorados.some(i => i.archivo === doc.archivo)) {
+                                            s.ignorados.push({ archivo: doc.archivo, tipo });
+                                        }
                                     }
                                 } catch (e) {
                                     estadoAuditoria(`❌ No se pudo leer el PDF.<br><br>
                                         <span style="color:#888; font-size:0.85em;">${(e && e.message) || e}</span><br><br>
-                                        <span style="color:#888; font-size:0.85em;">Si estás sin conexión, la primera auditoría necesita internet para traer el lector de PDF.</span>`);
+                                        <span style="color:#888; font-size:0.85em;">Si estás sin conexión, la primera auditoría necesita internet para traer el lector de PDF.</span>
+                                        <br><br><button onclick="renderGuiaAuditoria()" style="width:auto; padding:8px 16px; font-size:0.8em; background:#333; color:#fff; border:1px solid #555; border-radius:8px;">Volver</button>`);
                                     return;
                                 }
 
-                                if (!documentos.length) {
-                                    const detalle = ignorados.map(i => `<div style="color:#888; font-size:0.8em;">${i.archivo} — ${
-                                        i.tipo === 'fiscal' ? 'documento fiscal, no contiene movimientos' : 'no parece un documento de GBM'}</div>`).join('');
-                                    estadoAuditoria(`No encontré ningún estado de cuenta ni confirmación de operación.<br><br>${detalle}`);
-                                    return;
-                                }
+                                renderGuiaAuditoria();
+                            }
 
-                                const rep = conciliarGbm(cuentaId, documentos);
-                                rep.cuentaId = cuentaId;
-                                rep.ignorados = ignorados;
+                            function ejecutarAuditoriaGbm() {
+                                const s = sesionAuditoria;
+                                if (!s || !s.documentos.length) return;
+
+                                const rep = conciliarGbm(s.cuentaId, s.documentos);
+                                rep.cuentaId = s.cuentaId;
+                                rep.ignorados = s.ignorados;
                                 auditoriaActual = rep;
 
-                                // Un PDF de otra cuenta se detecta por el contrato, comparándolo sin guiones:
-                                // el estado de cuenta lo escribe con ellos y los documentos fiscales sin ellos.
-                                const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
-                                let aviso = '';
-                                if (rep.contratos.length > 1) {
-                                    const normalizados = new Set(rep.contratos.map(normalizarContrato));
-                                    if (normalizados.size > 1) {
-                                        aviso = bloqueAuditoria('⚠️ Documentos de contratos distintos',
-                                            `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5;">
-                                                Los documentos que importaste no pertenecen todos al mismo contrato de GBM:
-                                                ${rep.contratos.join(', ')}. Revisa que sean de la cuenta que estás auditando.
-                                            </div>`, AUD_AMBAR);
-                                    }
-                                }
-                                if (ignorados.length) {
-                                    aviso += bloqueAuditoria('📄 Documentos ignorados',
-                                        ignorados.map(i => filaAuditoria(i.archivo,
-                                            i.tipo === 'fiscal' ? 'documento fiscal' : 'no reconocido', '#888',
-                                            i.tipo === 'fiscal' ? 'Los formularios 1042-S y 1099 no traen movimientos' : '')).join(''));
+                                // Un PDF de otra cuenta se detecta por el contrato. Los de GBM México y los
+                                // de DriveWealth llevan contratos distintos por naturaleza, así que sólo se
+                                // comparan entre documentos de la misma procedencia.
+                                let aviso = `<button onclick="renderGuiaAuditoria()" style="width:auto; margin:0 0 14px 0; padding:7px 14px; font-size:0.8em; background:#222; color:#bbb; border:1px solid #444; border-radius:8px;">← Volver a los documentos</button>`;
+
+                                const contratosUsa = new Set(s.documentos
+                                    .filter(d => d.tipo !== 'estado_mx' && d.contrato)
+                                    .map(d => normalizarContrato(d.contrato)));
+                                if (contratosUsa.size > 1) {
+                                    aviso += bloqueAuditoria('⚠️ Documentos de contratos distintos',
+                                        `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5;">
+                                            Los documentos de Trading USA que importaste no son todos del mismo contrato:
+                                            ${[...contratosUsa].join(', ')}. Revisa que sean de la cuenta que estás auditando.
+                                        </div>`, AUD_AMBAR);
                                 }
 
-                                // El aviso se guarda con el reporte para que sobreviva a los repintados
-                                // que vienen después de cada corrección.
+                                const cobertura = coberturaAuditoria(s);
+                                const sinCubrir = cobertura.filter(c => !c.usa);
+                                if (sinCubrir.length) {
+                                    aviso += bloqueAuditoria('◐ Auditoría parcial',
+                                        `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5;">
+                                            Tienes movimientos en meses de los que no importaste el estado de cuenta de
+                                            Trading USA: ${sinCubrir.map(c => nombreMesClave(c.mes)).join(', ')}.
+                                            Esos meses no se revisaron, así que un error ahí no aparecería aquí.
+                                        </div>`, AUD_AMBAR);
+                                }
+
                                 rep.aviso = aviso;
-
-                                document.getElementById('tituloAuditoriaGbm').textContent =
-                                    `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
                                 document.getElementById('contenidoAuditoriaGbm').innerHTML = aviso + renderAuditoriaGbm(rep);
                             }
 
