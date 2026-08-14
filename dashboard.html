@@ -11372,8 +11372,74 @@
                             //
                             // Los documentos se van acumulando en la sesión. Puedes traerlos de una vez o
                             // de tres en tres, volver atrás y añadir más sin perder lo anterior.
+                            //
+                            // Y se quedan. Lo ya leído se guarda en este dispositivo, así que la próxima
+                            // auditoría empieza donde acabó la anterior y sólo hay que añadir el mes nuevo:
+                            // volver a buscar y arrastrar diez PDF cada vez sería motivo suficiente para no
+                            // auditar nunca. Lo que se guarda es el resultado de leerlos, no los PDF.
 
                             let sesionAuditoria = null;
+
+                            // La versión va en la clave: si cambia cómo se leen los documentos, lo guardado
+                            // con la versión anterior ya no es de fiar y se descarta en vez de arrastrar la
+                            // lectura vieja —con sus errores— sin que se note.
+                            const AUD_ALMACEN = 'auditoriaGbm:v1:';
+
+                            function cargarDocumentosGuardados(cuentaId) {
+                                const vacio = { documentos: [], ignorados: [], guardadoEn: null };
+                                try {
+                                    // Restos de versiones anteriores: ocupan sitio y no sirven.
+                                    Object.keys(localStorage)
+                                        .filter(k => /^auditoriaGbm:v\d+:/.test(k) && !k.startsWith(AUD_ALMACEN))
+                                        .forEach(k => localStorage.removeItem(k));
+
+                                    const crudo = localStorage.getItem(AUD_ALMACEN + cuentaId);
+                                    if (!crudo) return vacio;
+                                    const g = JSON.parse(crudo);
+                                    return {
+                                        documentos: Array.isArray(g.documentos) ? g.documentos : [],
+                                        ignorados: Array.isArray(g.ignorados) ? g.ignorados : [],
+                                        guardadoEn: g.guardadoEn || null
+                                    };
+                                } catch (e) {
+                                    return vacio;
+                                }
+                            }
+
+                            function guardarDocumentosAuditoria(s) {
+                                try {
+                                    localStorage.setItem(AUD_ALMACEN + s.cuentaId, JSON.stringify({
+                                        guardadoEn: new Date().toISOString(),
+                                        documentos: s.documentos,
+                                        ignorados: s.ignorados
+                                    }));
+                                    s.persistido = true;
+                                } catch (e) {
+                                    // Sin espacio, o navegando en privado. La sesión sigue viva en memoria:
+                                    // se pierde al cerrar, y eso se avisa en pantalla en vez de callarlo.
+                                    s.persistido = false;
+                                }
+                            }
+
+                            function olvidarDocumentoAuditoria(indice) {
+                                const s = sesionAuditoria;
+                                if (!s || !s.documentos[indice]) return;
+                                const d = s.documentos[indice];
+                                if (!confirm(`¿Quitar "${d.archivo}" de la auditoría?\n\nPuedes volver a importarlo cuando quieras.`)) return;
+                                s.documentos.splice(indice, 1);
+                                guardarDocumentosAuditoria(s);
+                                renderGuiaAuditoria();
+                            }
+
+                            function olvidarTodoAuditoria() {
+                                const s = sesionAuditoria;
+                                if (!s) return;
+                                if (!confirm(`¿Quitar los ${s.documentos.length} documento(s) guardados de esta cuenta?\n\nTus registros no se tocan: sólo se borra lo que la app había leído de los PDF.`)) return;
+                                s.documentos = [];
+                                s.ignorados = [];
+                                guardarDocumentosAuditoria(s);
+                                renderGuiaAuditoria();
+                            }
 
                             const NOMBRES_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
                                 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -11489,20 +11555,36 @@
 
                                 html += BOTON_IMPORTAR;
 
-                                // Lo que ya se entregó
+                                // Lo que ya se entregó, con la forma de quitarlo
                                 if (s.documentos.length || s.ignorados.length) {
                                     let filas = '';
-                                    s.documentos.forEach(d => {
+                                    s.documentos.forEach((d, i) => {
                                         const que = d.tipo === 'estado_cuenta' ? 'Trading USA'
                                             : d.tipo === 'estado_mx' ? 'Smart Cash' : 'Confirmación';
-                                        const cuando = d.periodo ? `${nombreMesClave(d.periodo.desde.slice(0, 7))}`
+                                        const cuando = d.periodo ? nombreMesClave(d.periodo.desde.slice(0, 7))
                                             : (d.operaciones && d.operaciones[0] ? d.operaciones[0].fecha : '');
-                                        filas += filaAuditoria(d.archivo, que, AUD_VERDE, cuando);
+                                        filas += `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #242424;">
+                                            <div style="min-width:0; line-height:1.35;">
+                                                <span style="color:#ddd; font-size:0.85em; word-break:break-all;">${d.archivo}</span><br>
+                                                <span style="color:#777; font-size:0.75em;">${que}${cuando ? ' · ' + cuando : ''}</span>
+                                            </div>
+                                            <button onclick="olvidarDocumentoAuditoria(${i})" style="width:auto; margin:0; padding:4px 10px; font-size:0.9em; background:none; color:#777; border:1px solid #383838; border-radius:6px; line-height:1;">✕</button>
+                                        </div>`;
                                     });
                                     s.ignorados.forEach(i => filas += filaAuditoria(i.archivo,
                                         i.tipo === 'fiscal' ? 'documento fiscal' : 'no reconocido', '#888',
                                         i.tipo === 'fiscal' ? 'Los formularios 1042-S y 1099 no traen movimientos'
                                             : 'No parece un documento de GBM'));
+
+                                    filas += `<div style="color:#777; font-size:0.75em; line-height:1.5; margin-top:10px;">
+                                        ${s.persistido === false
+                                            ? '⚠️ No se pudieron guardar en este dispositivo (sin espacio o navegación privada). Al cerrar la app tendrás que volver a importarlos.'
+                                            : `Guardados en este dispositivo${s.guardadoEn ? ', última vez el ' + new Date(s.guardadoEn).toLocaleDateString('es-MX') : ''}. La próxima vez sólo tendrás que añadir el mes nuevo. No se guardan los PDF, sólo lo que la app leyó de ellos.`}
+                                    </div>`;
+                                    if (s.documentos.length) {
+                                        filas += `<button onclick="olvidarTodoAuditoria()" style="width:auto; margin-top:8px; padding:6px 12px; font-size:0.75em; background:none; color:#888; border:1px solid #383838; border-radius:6px;">Quitar todos</button>`;
+                                    }
+
                                     html += bloqueAuditoria(`📄 Documentos cargados (${s.documentos.length})`, filas);
                                 }
 
@@ -11528,7 +11610,14 @@
 
                             function abrirGuiaAuditoria(cuentaId) {
                                 cerrarModalDetallesCuenta();
-                                sesionAuditoria = { cuentaId, documentos: [], ignorados: [] };
+                                const guardado = cargarDocumentosGuardados(cuentaId);
+                                sesionAuditoria = {
+                                    cuentaId,
+                                    documentos: guardado.documentos,
+                                    ignorados: guardado.ignorados,
+                                    guardadoEn: guardado.guardadoEn,
+                                    persistido: true
+                                };
                                 auditoriaActual = null;
                                 const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
                                 document.getElementById('tituloAuditoriaGbm').textContent =
@@ -11578,6 +11667,7 @@
                                     return;
                                 }
 
+                                guardarDocumentosAuditoria(s);
                                 renderGuiaAuditoria();
                             }
 
