@@ -1577,6 +1577,21 @@
                                                         <div style="margin-bottom: 20px;">
                                                             <button id="btnCopiarJsonCuenta" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">📋 Copiar registros (JSON)</button>
                                                         </div>
+                                                        <div style="margin-bottom: 20px;" id="zonaAuditoriaGbm">
+                                                            <button id="btnAuditarGbm" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">🔍 Auditar con documentos de GBM</button>
+                                                            <div style="color:#777; font-size:0.72em; margin-top:6px; line-height:1.4;">Importa tus estados de cuenta y confirmaciones en PDF. Se leen en este dispositivo; no se suben a ningún servidor.</div>
+                                                            <input type="file" id="inputPdfGbm" accept="application/pdf,.pdf" multiple style="display:none;">
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="modal-overlay" id="modalAuditoriaGbm" style="background: #000000; overflow-y: auto; -webkit-overflow-scrolling: touch; align-items: flex-start;">
+                                                    <div class="modal-content" style="width: 100%; max-width: 100%; min-height: 100%; height: auto; border-radius: 0; transform: none; box-shadow: none; background: #000000; padding: calc(20px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom)) 20px; box-sizing: border-box; margin: 0;">
+                                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+                                                            <h2 class="titulo-seccion" style="margin: 0;" id="tituloAuditoriaGbm">Auditoría GBM</h2>
+                                                            <button onclick="cerrarModalAuditoriaGbm()" style="width: auto; margin: 0; padding: 5px 0 5px 15px; background: none; border: none; color: #ffffff; font-size: 1.6em; cursor: pointer; line-height: 1;">✕</button>
+                                                        </div>
+                                                        <div id="contenidoAuditoriaGbm" style="text-align: left; font-size: 0.95em; line-height: 1.5; color: #ccc; margin-bottom: 20px;"></div>
                                                     </div>
                                                 </div>
 
@@ -9152,6 +9167,13 @@
                                                     prepararBotonCopiarJson(document.getElementById('btnCopiarJsonCuenta'),
                                                         () => copiarRegistrosCuentaJSON(id));
 
+                                                    // La auditoría contra los PDF de GBM sólo tiene sentido donde hay
+                                                    // inversiones: en una cuenta de gastos no habría nada que cruzar.
+                                                    const zonaAud = document.getElementById('zonaAuditoriaGbm');
+                                                    if (zonaAud) zonaAud.style.display = r.tieneInversion ? 'block' : 'none';
+                                                    const btnAud = document.getElementById('btnAuditarGbm');
+                                                    if (btnAud) btnAud.onclick = () => abrirSelectorPdfGbm(id);
+
                                                     document.getElementById('modalDetallesCuenta').classList.add('activa');
                                                     document.body.classList.add('modal-abierto');
                                                     }
@@ -9692,6 +9714,1379 @@
                                 };
 
                                 await entregarJsonExportado(exportacion, registrosLimpios.length, restaurarBoton);
+                            }
+
+                            // ============================================================================
+                            // AUDITORÍA GBM
+                            // Compara los registros de una cuenta contra los documentos que emite GBM —en
+                            // realidad DriveWealth, su custodio en Estados Unidos—: el estado de cuenta
+                            // mensual y las confirmaciones de operación.
+                            //
+                            // Todo ocurre dentro del navegador. El PDF no se sube a ningún servidor: trae
+                            // tu nombre y tu número de contrato, y no tiene por qué salir del teléfono.
+                            //
+                            // La auditoría no toca la base de datos por su cuenta. Lo que encuentra lo
+                            // enseña, y registrar cualquier cosa es siempre una decisión tuya, movimiento
+                            // por movimiento.
+                            // ============================================================================
+
+                            // pdf.js se trae sólo cuando vas a auditar. Es la única dependencia nueva y no
+                            // es ligera: cargarla al abrir la app la haría más lenta todos los días en que
+                            // nadie audita nada.
+                            const URL_PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.min.mjs';
+                            const URL_PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.worker.min.mjs';
+                            let promesaPdfJs = null;
+
+                            function cargarPdfJs() {
+                                if (!promesaPdfJs) {
+                                    promesaPdfJs = import(URL_PDFJS).then(lib => {
+                                        lib.GlobalWorkerOptions.workerSrc = URL_PDFJS_WORKER;
+                                        return lib;
+                                    }).catch(err => {
+                                        // Si falla se limpia la promesa: si no, el primer intento sin red
+                                        // dejaría la función rota para toda la sesión.
+                                        promesaPdfJs = null;
+                                        throw err;
+                                    });
+                                }
+                                return promesaPdfJs;
+                            }
+
+                            // Márgenes de comparación. Las acciones se guardan con ocho decimales y ahí sí
+                            // se exige igualdad; el dinero admite el centavo de los redondeos de GBM.
+                            const AUD_TOL_ACCIONES = 0.0000001;
+                            const AUD_TOL_USD = 0.02;
+                            // GBM fondea la compra al día siguiente y liquida al segundo, así que un mismo
+                            // movimiento aparece con fechas distintas en cada lado.
+                            const AUD_DIAS_CERCANIA = 4;
+                            // Comisión de GBM: 0.25% truncado al centavo. Lo de truncado no es un detalle:
+                            // una compra de $58.06 paga $0.14 y no $0.15, que es lo que daría redondear.
+                            const AUD_TASA_COMISION = 0.0025;
+
+                            function comisionGbmEsperada(principalUsd) {
+                                return Math.floor(Math.abs(principalUsd) * AUD_TASA_COMISION * 100) / 100;
+                            }
+
+                            // --- Lectura del PDF -----------------------------------------------------
+
+                            function numeroGbm(texto) {
+                                if (texto === null || texto === undefined) return null;
+                                let t = String(texto).trim();
+                                if (!t) return null;
+                                let negativo = false;
+                                // La contabilidad estadounidense escribe los negativos entre paréntesis
+                                if (/^\(.*\)$/.test(t)) { negativo = true; t = t.slice(1, -1).trim(); }
+                                t = t.replace(/[$,\s]/g, '');
+                                if (t.startsWith('-')) { negativo = true; t = t.slice(1); }
+                                if (!/^\d+(\.\d+)?$/.test(t)) return null;
+                                const n = parseFloat(t);
+                                if (!isFinite(n)) return null;
+                                return negativo ? -n : n;
+                            }
+
+                            function fechaGbm(texto) {
+                                const m = String(texto || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                                if (!m) return null;
+                                return `${m[3]}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+                            }
+
+                            const MESES_INGLES = ['january', 'february', 'march', 'april', 'may', 'june',
+                                'july', 'august', 'september', 'october', 'november', 'december'];
+
+                            function fechaDeMesIngles(mes, dia, anio) {
+                                const i = MESES_INGLES.indexOf(String(mes).toLowerCase());
+                                if (i < 0) return null;
+                                return `${anio}-${String(i + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+                            }
+
+                            // Días entre dos fechas escritas como AAAA-MM-DD. Se comparan como día del
+                            // calendario y no como instantes: la hora local sólo estorbaría.
+                            function diasEntre(diaA, diaB) {
+                                if (!diaA || !diaB) return Infinity;
+                                const a = Date.parse(`${diaA}T00:00:00Z`);
+                                const b = Date.parse(`${diaB}T00:00:00Z`);
+                                if (isNaN(a) || isNaN(b)) return Infinity;
+                                return Math.round((a - b) / 86400000);
+                            }
+
+                            function diaDeRegistro(r) {
+                                return String((r && r.fecha) || '').slice(0, 10);
+                            }
+
+                            // Devuelve el PDF convertido en renglones. Se agrupa por la coordenada Y porque
+                            // lo que el documento pinta a la misma altura es una fila de la tabla, aunque
+                            // venga partido en muchos fragmentos sueltos y en cualquier orden. Leerlo por el
+                            // orden en que está escrito dentro del archivo funciona casi siempre, y "casi"
+                            // es justo lo que no sirve para auditar.
+                            async function renglonesDePdf(archivo) {
+                                const pdfjs = await cargarPdfJs();
+                                const datos = new Uint8Array(await archivo.arrayBuffer());
+                                const doc = await pdfjs.getDocument({ data: datos }).promise;
+                                const renglones = [];
+
+                                for (let n = 1; n <= doc.numPages; n++) {
+                                    const pagina = await doc.getPage(n);
+                                    const contenido = await pagina.getTextContent();
+                                    const filas = [];
+
+                                    contenido.items.forEach(item => {
+                                        const texto = (item.str || '').trim();
+                                        if (!texto) return;
+                                        const y = item.transform[5];
+                                        const x = item.transform[4];
+                                        let fila = filas.find(f => Math.abs(f.y - y) <= 2.5);
+                                        if (!fila) { fila = { y, celdas: [] }; filas.push(fila); }
+                                        fila.celdas.push({ x, texto });
+                                    });
+
+                                    filas.sort((a, b) => b.y - a.y);
+                                    filas.forEach(f => {
+                                        renglones.push({
+                                            pagina: n,
+                                            celdas: f.celdas.sort((a, b) => a.x - b.x).map(c => c.texto)
+                                        });
+                                    });
+                                }
+
+                                const tokens = [];
+                                renglones.forEach(r => r.celdas.forEach(c => tokens.push(c)));
+
+                                return {
+                                    archivo: archivo.name || 'documento.pdf',
+                                    renglones,
+                                    tokens,
+                                    texto: renglones.map(r => r.celdas.join(' ')).join('\n')
+                                };
+                            }
+
+                            // --- Qué documento es ----------------------------------------------------
+
+                            // El título "Transaction Confirmation" viene partido en dos renglones muy
+                            // separados, con otras cosas en medio, así que no sirve de marca. Se busca en
+                            // orden de confianza: primero las marcas inequívocas y después la forma de las
+                            // tablas, que es lo último que cambiaría.
+                            function tipoDocumentoGbm(doc) {
+                                const t = doc.texto;
+                                if (/Form\s*1042-?S|Form\s*1099|1042S/i.test(t)) return 'fiscal';
+                                if (/Account\s*Statement/i.test(t)) return 'estado_cuenta';
+                                if (/Confirmation\s*Date/i.test(t)) return 'confirmacion';
+                                if (/\bACTIVITY\b/.test(t) && /Activity\s*Type/i.test(t)) return 'estado_cuenta';
+                                if (/Principal\s*Amount/i.test(t) && /Net\s*Amount/i.test(t)) return 'confirmacion';
+                                return 'desconocido';
+                            }
+
+                            // El contrato aparece con guiones en el estado de cuenta (GBMP-001-GMJP000174) y
+                            // sin ellos en los documentos fiscales. Comparar los textos tal cual rechazaría
+                            // documentos legítimos.
+                            function normalizarContrato(valor) {
+                                return String(valor || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                            }
+
+                            const ETIQUETAS_RUIDO = /DriveWealth|Clearing and execution|Page \d+ of|Account Number|Account Name|Insurgentes|plus@gbm|trademarks/i;
+
+                            // Busca una etiqueta exacta entre los tokens y devuelve los números que vienen
+                            // justo después. La ventana evita que, si la etiqueta cambió de sitio, se acabe
+                            // leyendo un número de otra sección como si fuera el bueno.
+                            function numerosTrasEtiqueta(tokens, etiqueta, cuantos, ventana = 10) {
+                                const objetivo = etiqueta.trim().toLowerCase();
+                                const i = tokens.findIndex(t => String(t).trim().toLowerCase() === objetivo);
+                                if (i < 0) return [];
+                                const salida = [];
+                                for (let j = i + 1; j < tokens.length && j <= i + ventana && salida.length < cuantos; j++) {
+                                    const n = numeroGbm(tokens[j]);
+                                    if (n === null) {
+                                        if (salida.length) break;
+                                        continue;
+                                    }
+                                    salida.push(n);
+                                }
+                                return salida;
+                            }
+
+                            // --- Estado de cuenta ----------------------------------------------------
+
+                            const SECCIONES_ESTADO = ['ACTIVITY', 'SWEEP ACTIVITY', 'HOLDINGS', 'BALANCES',
+                                'BANK BALANCE ALLOCATION', 'DISCLOSURES', 'IMPORTANT INFORMATION'];
+
+                            function parsearEstadoCuenta(doc) {
+                                const ec = {
+                                    tipo: 'estado_cuenta',
+                                    archivo: doc.archivo,
+                                    contrato: null,
+                                    periodo: null,
+                                    actividad: [],
+                                    barrido: [],
+                                    posiciones: [],
+                                    saldoBarrido: 0,
+                                    valuacion: {},
+                                    asignacion: {},
+                                    codigosDesconocidos: []
+                                };
+
+                                const mContrato = doc.texto.match(/Account\s*Number:?\s*([A-Z0-9][A-Z0-9-]{6,})/i);
+                                if (mContrato) ec.contrato = mContrato[1];
+
+                                const mPeriodo = doc.texto.match(/([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})\s*[-–—]\s*([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})/);
+                                if (mPeriodo) {
+                                    ec.periodo = {
+                                        desde: fechaDeMesIngles(mPeriodo[1], mPeriodo[2], mPeriodo[3]),
+                                        hasta: fechaDeMesIngles(mPeriodo[4], mPeriodo[5], mPeriodo[6])
+                                    };
+                                }
+
+                                // Resumen de valuación y asignación de activos: los totales que después
+                                // sirven para comprobar que lo que leímos línea por línea cuadra.
+                                const t = doc.tokens;
+                                const primero = arr => (arr.length ? arr[0] : null);
+                                ec.valuacion = {
+                                    inicial: primero(numerosTrasEtiqueta(t, 'Beginning Account Value', 1)),
+                                    depositos: primero(numerosTrasEtiqueta(t, 'Deposits', 1)),
+                                    dividendos: primero(numerosTrasEtiqueta(t, 'Dividend & Interest', 1)),
+                                    retiros: primero(numerosTrasEtiqueta(t, 'Withdrawals', 1)),
+                                    otraActividad: primero(numerosTrasEtiqueta(t, 'Other Activity', 1)),
+                                    cambioNeto: primero(numerosTrasEtiqueta(t, 'Net Change in Portfolio Value', 1)),
+                                    final: primero(numerosTrasEtiqueta(t, 'Ending Account Value', 1))
+                                };
+                                // La asignación de activos trae dos columnas: periodo anterior y actual.
+                                const efectivo = numerosTrasEtiqueta(t, 'Cash & Cash Equivalents', 2);
+                                const acciones = numerosTrasEtiqueta(t, 'Equities', 2);
+                                ec.asignacion = {
+                                    efectivoAnterior: efectivo.length ? efectivo[0] : null,
+                                    efectivo: efectivo.length > 1 ? efectivo[1] : null,
+                                    acciones: acciones.length > 1 ? acciones[1] : null
+                                };
+
+                                // Recorrido por secciones. Un renglón cuyo texto completo es el nombre de
+                                // una sección marca dónde empieza cada tabla.
+                                let seccion = null;
+                                let movimientoActual = null;
+
+                                doc.renglones.forEach(ren => {
+                                    const unido = ren.celdas.join(' ').trim();
+                                    const nombreSeccion = SECCIONES_ESTADO.find(s => unido.toUpperCase() === s);
+                                    if (nombreSeccion) { seccion = nombreSeccion; movimientoActual = null; return; }
+
+                                    if (seccion === 'ACTIVITY' || seccion === 'SWEEP ACTIVITY') {
+                                        const mov = movimientoDeRenglon(ren);
+                                        if (mov) {
+                                            movimientoActual = mov;
+                                            (seccion === 'ACTIVITY' ? ec.actividad : ec.barrido).push(mov);
+                                            return;
+                                        }
+                                        // Renglón de continuación: la descripción larga se parte en dos
+                                        if (movimientoActual && !ETIQUETAS_RUIDO.test(unido)) {
+                                            movimientoActual.descripcion = `${movimientoActual.descripcion} ${unido}`.trim();
+                                        }
+                                        return;
+                                    }
+
+                                    if (seccion === 'HOLDINGS') {
+                                        const pos = posicionDeRenglon(ren);
+                                        if (pos) {
+                                            if (pos.ticker === 'DWBDS') ec.saldoBarrido += pos.valorMercado;
+                                            else ec.posiciones.push(pos);
+                                        }
+                                    }
+                                });
+
+                                ec.actividad.forEach(m => {
+                                    if (m.clase === 'desconocido' && !ec.codigosDesconocidos.includes(m.codigo)) {
+                                        ec.codigosDesconocidos.push(m.codigo);
+                                    }
+                                });
+
+                                return ec;
+                            }
+
+                            // Cada código de la columna "Activity Type" se traduce a la taxonomía de la app.
+                            // Los que no conocemos NO se adivinan: se marcan y se enseñan tal cual, porque
+                            // inventarles un significado es la forma más silenciosa de auditar mal.
+                            function claseDeCodigoGbm(codigo) {
+                                switch (String(codigo || '').toUpperCase()) {
+                                    case 'BUY': return 'compra';
+                                    case 'SELL': return 'venta';
+                                    case 'CDEP': return 'aportacion';
+                                    case 'DIV': return 'dividendo';
+                                    case 'DIVNRA': return 'retencion';
+                                    case 'INT': return 'interes';
+                                    default: return 'desconocido';
+                                }
+                            }
+
+                            function movimientoDeRenglon(ren) {
+                                const celdas = ren.celdas;
+                                if (celdas.length < 5) return null;
+                                const fechaOperacion = fechaGbm(celdas[0]);
+                                const fechaLiquidacion = fechaGbm(celdas[1]);
+                                if (!fechaOperacion || !fechaLiquidacion) return null;
+
+                                const moneda = String(celdas[2] || '').trim();
+                                const codigo = String(celdas[3] || '').trim();
+
+                                // Las columnas numéricas van al final; lo de en medio es la descripción.
+                                const resto = celdas.slice(4);
+                                const numeros = [];
+                                while (resto.length && numeroGbm(resto[resto.length - 1]) !== null) {
+                                    numeros.unshift(numeroGbm(resto.pop()));
+                                }
+                                const descripcion = resto.join(' ').trim();
+
+                                let acciones = 0, precio = 0, importe = 0;
+                                if (numeros.length >= 3) {
+                                    acciones = numeros[0]; precio = numeros[1]; importe = numeros[numeros.length - 1];
+                                } else if (numeros.length === 1) {
+                                    importe = numeros[0];
+                                } else if (numeros.length === 2) {
+                                    precio = numeros[0]; importe = numeros[1];
+                                }
+
+                                const mTicker = descripcion.match(/^([A-Z][A-Z0-9.]{0,5})\s*-\s/);
+                                const clase = claseDeCodigoGbm(codigo);
+                                const accionesAbs = Math.abs(acciones);
+                                const precioAbs = Math.abs(precio);
+
+                                // En una compra o una venta, la columna "Amount" ya lleva dentro la
+                                // comisión. Lo que la app guarda es el precio puro por las acciones, así
+                                // que hay que separarlos: comparar su monto contra el importe con comisión
+                                // marcaría todas las compras como equivocadas por catorce centavos.
+                                // La diferencia entre ambos no se estima: es lo que GBM cobró.
+                                const esOperacion = clase === 'compra' || clase === 'venta';
+                                const neto = Math.abs(importe);
+                                const principal = esOperacion
+                                    ? Math.round(accionesAbs * precioAbs * 100) / 100
+                                    : neto;
+                                const comision = esOperacion
+                                    ? Math.round(Math.abs(neto - principal) * 100) / 100
+                                    : 0;
+
+                                return {
+                                    fecha: fechaOperacion,
+                                    fechaLiquidacion,
+                                    moneda,
+                                    codigo,
+                                    clase,
+                                    ticker: mTicker ? mTicker[1] : null,
+                                    descripcion,
+                                    acciones: accionesAbs,
+                                    precio: precioAbs,
+                                    importe,
+                                    usd: principal,
+                                    neto,
+                                    comision
+                                };
+                            }
+
+                            function posicionDeRenglon(ren) {
+                                const celdas = ren.celdas;
+                                if (celdas.length < 7) return null;
+
+                                // La estructura es: descripción, símbolo y seis números. El símbolo no se
+                                // puede buscar por su forma: la descripción de casi todas las empresas
+                                // termina en "COM", que se parece tanto a un ticker como el ticker mismo.
+                                // Lo que no engaña es la tanda de seis números; el símbolo es la celda que
+                                // viene justo antes.
+                                let iNumeros = -1;
+                                for (let k = 1; k + 5 < celdas.length; k++) {
+                                    let seguidos = true;
+                                    for (let m = k; m < k + 6; m++) {
+                                        if (numeroGbm(celdas[m]) === null) { seguidos = false; break; }
+                                    }
+                                    if (seguidos) { iNumeros = k; break; }
+                                }
+                                if (iNumeros < 1) return null;
+
+                                const iTicker = iNumeros - 1;
+                                if (!/^[A-Z][A-Z0-9.]{0,5}$/.test(String(celdas[iTicker]).trim())) return null;
+                                const numeros = celdas.slice(iNumeros).map(numeroGbm).filter(n => n !== null);
+                                if (numeros.length < 6) return null;
+                                return {
+                                    nombre: celdas.slice(0, iTicker).join(' ').trim(),
+                                    ticker: String(celdas[iTicker]).trim(),
+                                    acciones: numeros[0],
+                                    costoUnitario: numeros[1],
+                                    costoTotal: numeros[2],
+                                    precioMercado: numeros[3],
+                                    valorMercado: numeros[4],
+                                    plusvalia: numeros[5]
+                                };
+                            }
+
+                            // --- Confirmación de operación -------------------------------------------
+
+                            function parsearConfirmacion(doc) {
+                                const cf = { tipo: 'confirmacion', archivo: doc.archivo, contrato: null, operaciones: [] };
+
+                                const mContrato = doc.texto.match(/Account\s*Number:?\s*([A-Z0-9][A-Z0-9-]{6,})/i);
+                                if (mContrato) cf.contrato = mContrato[1];
+
+                                // Un mismo PDF puede traer varias operaciones: la del 15 de junio llevaba
+                                // dos. Cada una empieza en el renglón que lleva la acción (Buy/Sell) y sus
+                                // importes viven en los renglones siguientes, hasta la operación que sigue.
+                                //
+                                // El nombre de la empresa se parte en un número variable de celdas
+                                // —"APPLE INC" + "COM" son dos, y "SPACE EXPLORATION TECHN CORP CLASS A
+                                // COM STK" es una sola—, así que contar posiciones hacia atrás desde la
+                                // acción no sirve. El ticker se toma del principio del renglón, que es
+                                // donde la tabla lo pone siempre, y todo lo demás se cuenta hacia adelante.
+                                const bloques = [];
+                                doc.renglones.forEach(ren => {
+                                    const iAccion = ren.celdas.findIndex(c => {
+                                        const v = String(c).trim();
+                                        return v === 'Buy' || v === 'Sell';
+                                    });
+                                    if (iAccion > 0 && ren.celdas.length >= iAccion + 6) {
+                                        bloques.push({ cabecera: ren.celdas, iAccion, cuerpo: [] });
+                                    } else if (bloques.length) {
+                                        bloques[bloques.length - 1].cuerpo.push(ren.celdas);
+                                    }
+                                });
+
+                                bloques.forEach(b => {
+                                    const c = b.cabecera, i = b.iAccion;
+                                    const ticker = String(c[0] || '').trim();
+                                    if (!/^[A-Z][A-Z0-9.]{0,5}$/.test(ticker)) return;
+
+                                    const accion = String(c[i]).trim();
+                                    const acciones = numeroGbm(c[i + 2]);
+                                    const precio = numeroGbm(c[i + 3]);
+                                    const fecha = fechaGbm(c[i + 4]);
+                                    const fechaLiquidacion = fechaGbm(c[i + 5]);
+                                    if (acciones === null || precio === null || !fecha) return;
+
+                                    // Los importes están etiquetados, así que se buscan por su nombre y no
+                                    // por su posición: que aparezca "Interest" sin valor no descoloca nada.
+                                    const importe = etiqueta => {
+                                        for (const fila of b.cuerpo) {
+                                            const k = fila.findIndex(x => String(x).trim().toLowerCase() === etiqueta.toLowerCase());
+                                            if (k < 0) continue;
+                                            for (let m = k + 1; m < fila.length; m++) {
+                                                const n = numeroGbm(fila[m]);
+                                                if (n !== null) return n;
+                                            }
+                                            return null;
+                                        }
+                                        return null;
+                                    };
+
+                                    cf.operaciones.push({
+                                        fecha,
+                                        fechaLiquidacion,
+                                        clase: accion === 'Buy' ? 'compra' : 'venta',
+                                        codigo: accion.toUpperCase(),
+                                        ticker,
+                                        nombre: c.slice(1, i - 1).join(' ').trim(),
+                                        hora: String(c[i + 1] || '').trim(),
+                                        acciones,
+                                        precio,
+                                        principal: importe('Principal Amount'),
+                                        comision: importe('Commission'),
+                                        cuotaOperacion: importe('Transaction Fee'),
+                                        otrasCuotas: importe('Other Fees / Credits'),
+                                        neto: importe('Net Amount')
+                                    });
+                                });
+
+                                return cf;
+                            }
+
+                            // --- La alarma de cambio de formato --------------------------------------
+                            //
+                            // El parser no puede saber si GBM movió una columna, pero el documento sí: sus
+                            // propias sumas tienen que cuadrar con lo que leímos renglón por renglón. Si
+                            // dejan de cuadrar es que estamos leyendo mal, y entonces la auditoría se
+                            // detiene en vez de reportar diferencias inventadas.
+
+                            function comprobacion(etiqueta, calculado, declarado, tolerancia, nota) {
+                                const hayDato = calculado !== null && declarado !== null &&
+                                    calculado !== undefined && declarado !== undefined;
+                                return {
+                                    etiqueta,
+                                    calculado,
+                                    declarado,
+                                    nota: nota || '',
+                                    estado: !hayDato ? 'sin_dato' : (Math.abs(calculado - declarado) <= tolerancia ? 'ok' : 'falla')
+                                };
+                            }
+
+                            function comprobarEstadoCuenta(ec) {
+                                const pruebas = [];
+                                const suma = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+
+                                const depositos = suma(ec.actividad.filter(m => m.clase === 'aportacion'), m => m.usd);
+                                pruebas.push(comprobacion('Depósitos leídos vs declarados', depositos, ec.valuacion.depositos, 0.02,
+                                    'La suma de los movimientos CDEP debe dar el renglón "Deposits"'));
+
+                                const dividendos = suma(ec.actividad.filter(m => m.clase === 'dividendo' || m.clase === 'retencion' || m.clase === 'interes'), m => m.importe);
+                                pruebas.push(comprobacion('Dividendos leídos vs declarados', dividendos, ec.valuacion.dividendos, 0.02,
+                                    'Dividendos menos retenciones debe dar "Dividend & Interest"'));
+
+                                const valorAcciones = suma(ec.posiciones, p => p.valorMercado);
+                                pruebas.push(comprobacion('Posiciones leídas vs declaradas', valorAcciones, ec.asignacion.acciones, 0.05,
+                                    'El valor de mercado de las empresas debe dar el renglón "Equities"'));
+
+                                const v = ec.valuacion;
+                                if ([v.inicial, v.depositos, v.dividendos, v.retiros, v.otraActividad, v.cambioNeto, v.final].every(x => x !== null && x !== undefined)) {
+                                    const cuadre = v.inicial + v.depositos + v.dividendos - Math.abs(v.retiros) + v.otraActividad + v.cambioNeto;
+                                    pruebas.push(comprobacion('Ecuación de valuación', cuadre, v.final, 0.05,
+                                        'Saldo inicial + entradas − salidas + cambio de valor debe dar el saldo final'));
+                                } else {
+                                    pruebas.push(comprobacion('Ecuación de valuación', null, null, 0.05, 'Faltan renglones del resumen de valuación'));
+                                }
+
+                                // Las compras traen la cantidad y el precio dos veces: en las columnas y
+                                // dentro del texto de la descripción. Que ambas coincidan es la prueba de
+                                // que las columnas se leyeron en el orden correcto.
+                                let discrepantes = 0, comparadas = 0;
+                                ec.actividad.filter(m => m.clase === 'compra' || m.clase === 'venta').forEach(m => {
+                                    const mDesc = m.descripcion.match(/TRD\s+[A-Z0-9.]+\s+[BS]\s+([\d.]+)\s+at\s+([\d.]+)/i);
+                                    if (!mDesc) return;
+                                    comparadas++;
+                                    if (Math.abs(parseFloat(mDesc[1]) - m.acciones) > AUD_TOL_ACCIONES ||
+                                        Math.abs(parseFloat(mDesc[2]) - m.precio) > 0.005) discrepantes++;
+                                });
+                                pruebas.push({
+                                    etiqueta: 'Columnas vs descripción de cada operación',
+                                    calculado: comparadas - discrepantes,
+                                    declarado: comparadas,
+                                    nota: 'Cada compra escribe su cantidad y precio en dos lugares del documento',
+                                    estado: comparadas === 0 ? 'sin_dato' : (discrepantes === 0 ? 'ok' : 'falla')
+                                });
+
+                                return pruebas;
+                            }
+
+                            function comprobarConfirmacion(cf) {
+                                const pruebas = [];
+                                let malPrincipal = 0, malNeto = 0, total = 0;
+
+                                cf.operaciones.forEach(op => {
+                                    total++;
+                                    if (op.principal !== null && Math.abs(op.acciones * op.precio - op.principal) > 0.02) malPrincipal++;
+                                    if (op.principal !== null && op.neto !== null) {
+                                        const cuotas = (op.comision || 0) + (op.cuotaOperacion || 0) + (op.otrasCuotas || 0);
+                                        // En una compra las cuotas se suman al principal y en una venta se
+                                        // restan. Aceptamos la que cuadre y anotamos cuál fue.
+                                        const suma = Math.abs(op.principal + cuotas - op.neto);
+                                        const resta = Math.abs(op.principal - cuotas - op.neto);
+                                        if (Math.min(suma, resta) > 0.02) malNeto++;
+                                        else op.convencionCuotas = suma <= resta ? 'suma' : 'resta';
+                                    }
+                                });
+
+                                pruebas.push({
+                                    etiqueta: 'Principal = cantidad × precio',
+                                    calculado: total - malPrincipal, declarado: total,
+                                    nota: 'El importe principal debe salir de multiplicar las dos columnas',
+                                    estado: total === 0 ? 'sin_dato' : (malPrincipal === 0 ? 'ok' : 'falla')
+                                });
+                                pruebas.push({
+                                    etiqueta: 'Neto = principal ± cuotas',
+                                    calculado: total - malNeto, declarado: total,
+                                    nota: 'El importe neto debe salir del principal más o menos comisión y cuotas',
+                                    estado: total === 0 ? 'sin_dato' : (malNeto === 0 ? 'ok' : 'falla')
+                                });
+
+                                return pruebas;
+                            }
+
+                            // --- Normalización y conciliación ----------------------------------------
+
+                            // Un mismo movimiento puede llegar dos veces: en el estado de cuenta y en su
+                            // confirmación. Se queda la confirmación, que trae la comisión desglosada.
+                            function claveMovimiento(m) {
+                                return `${m.clase}|${m.ticker || '-'}|${m.fecha}|${(m.acciones || 0).toFixed(8)}`;
+                            }
+
+                            function movimientosGbmNormalizados(documentos) {
+                                const porClave = new Map();
+
+                                documentos.filter(d => d.tipo === 'estado_cuenta').forEach(ec => {
+                                    ec.actividad.forEach(m => {
+                                        porClave.set(claveMovimiento(m), {
+                                            origen: 'estado de cuenta', archivo: ec.archivo,
+                                            clase: m.clase, codigo: m.codigo, ticker: m.ticker,
+                                            fecha: m.fecha, acciones: m.acciones, precio: m.precio,
+                                            usd: m.usd, neto: m.neto, importe: m.importe,
+                                            comision: m.comision,
+                                            descripcion: m.descripcion
+                                        });
+                                    });
+                                });
+
+                                documentos.filter(d => d.tipo === 'confirmacion').forEach(cf => {
+                                    cf.operaciones.forEach(op => {
+                                        porClave.set(claveMovimiento(op), {
+                                            origen: 'confirmación', archivo: cf.archivo,
+                                            clase: op.clase, codigo: op.codigo, ticker: op.ticker,
+                                            fecha: op.fecha, acciones: op.acciones, precio: op.precio,
+                                            usd: op.principal !== null ? op.principal : op.acciones * op.precio,
+                                            neto: op.neto, importe: op.neto,
+                                            comision: (op.comision || 0) + (op.cuotaOperacion || 0) + (op.otrasCuotas || 0),
+                                            descripcion: op.nombre
+                                        });
+                                    });
+                                });
+
+                                return [...porClave.values()].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+                            }
+
+                            // Movimientos de la app de esa cuenta. Se leen de la copia completa, que trae
+                            // todo el historial y no sólo los últimos que caben en la lista.
+                            function movimientosAppDeCuenta(cuentaId) {
+                                const cats = (datosCategorias || []).filter(c => String(c.cuenta_id) === String(cuentaId));
+                                const porId = {};
+                                cats.forEach(c => { porId[String(c.id)] = c; });
+
+                                return (datosUsoCompleto || [])
+                                    .filter(r => porId[String(r.categoria_id)])
+                                    .map(r => {
+                                        const cat = porId[String(r.categoria_id)];
+                                        const tipo = tipoMovInversion(r);
+                                        return {
+                                            id: r.id,
+                                            dia: diaDeRegistro(r),
+                                            // La fecha completa se conserva para poder corregir el día sin
+                                            // perder la hora, que el estado de cuenta no trae.
+                                            fecha: r.fecha,
+                                            categoria: cat,
+                                            ticker: cat.ticker || null,
+                                            tipo,
+                                            clase: tipo === 'compra' || tipo === 'compra_directa' ? 'compra'
+                                                : tipo === 'venta' || tipo === 'venta_directa' ? 'venta'
+                                                    : tipo === 'aportacion' ? 'aportacion'
+                                                        : tipo === 'retiro' ? 'retiro' : null,
+                                            directo: tipo === 'compra_directa' || tipo === 'venta_directa',
+                                            acciones: parseFloat(r.cantidad_acciones) || 0,
+                                            precio: parseFloat(r.costo_accion) || 0,
+                                            usd: parseFloat(r.monto_usd) || 0,
+                                            mxn: parseFloat(r.monto) || 0
+                                        };
+                                    });
+                            }
+
+                            // La posición que la app tenía en la fecha de corte del documento. Usar el total
+                            // de hoy sería el error clásico: si el estado de cuenta es de junio y ya compraste
+                            // en agosto, todas las compras posteriores saldrían marcadas como sobrantes.
+                            function posicionAppAlCorte(movimientos, diaCorte) {
+                                const pos = {};
+                                movimientos.forEach(m => {
+                                    if (!m.ticker || !m.acciones) return;
+                                    if (diaCorte && m.dia > diaCorte) return;
+                                    if (m.clase !== 'compra' && m.clase !== 'venta') return;
+                                    pos[m.ticker] = (pos[m.ticker] || 0) + (m.clase === 'compra' ? m.acciones : -m.acciones);
+                                });
+                                return pos;
+                            }
+
+                            function conciliarGbm(cuentaId, documentos) {
+                                const rep = {
+                                    documentos,
+                                    periodo: null,
+                                    contratos: [],
+                                    pruebas: [],
+                                    formatoSospechoso: false,
+                                    codigosDesconocidos: [],
+                                    operaciones: { iguales: [], distintas: [], faltanEnApp: [], sobranEnApp: [] },
+                                    posiciones: [],
+                                    dividendos: [],
+                                    comisiones: { total: 0, movimientos: 0 },
+                                    caja: null
+                                };
+
+                                const estados = documentos.filter(d => d.tipo === 'estado_cuenta');
+
+                                estados.forEach(ec => {
+                                    rep.pruebas.push({ archivo: ec.archivo, pruebas: comprobarEstadoCuenta(ec) });
+                                    ec.codigosDesconocidos.forEach(c => {
+                                        if (!rep.codigosDesconocidos.includes(c)) rep.codigosDesconocidos.push(c);
+                                    });
+                                });
+                                documentos.filter(d => d.tipo === 'confirmacion').forEach(cf => {
+                                    rep.pruebas.push({ archivo: cf.archivo, pruebas: comprobarConfirmacion(cf) });
+                                });
+
+                                rep.formatoSospechoso = rep.pruebas.some(g => g.pruebas.some(p => p.estado === 'falla'));
+
+                                documentos.forEach(d => {
+                                    if (d.contrato && !rep.contratos.includes(d.contrato)) rep.contratos.push(d.contrato);
+                                });
+
+                                // Periodo cubierto: el de los estados de cuenta, ensanchado con las fechas
+                                // de las confirmaciones sueltas.
+                                const dias = [];
+                                estados.forEach(ec => { if (ec.periodo) { dias.push(ec.periodo.desde, ec.periodo.hasta); } });
+                                documentos.filter(d => d.tipo === 'confirmacion').forEach(cf => cf.operaciones.forEach(o => dias.push(o.fecha)));
+                                const validos = dias.filter(Boolean).sort();
+                                if (validos.length) rep.periodo = { desde: validos[0], hasta: validos[validos.length - 1] };
+
+                                const movsGbm = movimientosGbmNormalizados(documentos);
+                                const movsApp = movimientosAppDeCuenta(cuentaId);
+
+                                // Sólo un estado de cuenta prueba que en un periodo no pasó nada más: es
+                                // el registro completo del mes. Una confirmación prueba que una operación
+                                // ocurrió, pero no que las demás no existan. Por eso, con confirmaciones
+                                // sueltas nunca se acusa a un registro de sobrar: sería acusarlo de falso
+                                // por no haber importado su documento.
+                                const periodosEstado = estados.filter(e => e.periodo).map(e => e.periodo);
+                                const dentroDeEstado = dia => periodosEstado.some(p => dia >= p.desde && dia <= p.hasta);
+                                rep.hayEstadoDeCuenta = periodosEstado.length > 0;
+
+                                // --- Operaciones: compras y ventas ---
+                                // La ventana de búsqueda se ensancha unos días sobre el periodo para que un
+                                // registro fechado justo en el borde encuentre a su pareja al otro lado.
+                                const correrDia = (dia, n) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+                                const desdeVentana = rep.periodo ? correrDia(rep.periodo.desde, -AUD_DIAS_CERCANIA) : null;
+                                const hastaVentana = rep.periodo ? correrDia(rep.periodo.hasta, AUD_DIAS_CERCANIA) : null;
+
+                                const operacionesGbm = movsGbm.filter(m => m.clase === 'compra' || m.clase === 'venta');
+                                const candidatosApp = movsApp.filter(m =>
+                                    (m.clase === 'compra' || m.clase === 'venta') && m.ticker &&
+                                    (!rep.periodo || (m.dia >= desdeVentana && m.dia <= hastaVentana)));
+                                const usados = new Set();
+
+                                operacionesGbm.forEach(g => {
+                                    const cerca = candidatosApp.filter(a => !usados.has(a.id) &&
+                                        a.ticker === g.ticker && a.clase === g.clase &&
+                                        Math.abs(diasEntre(a.dia, g.fecha)) <= AUD_DIAS_CERCANIA);
+
+                                    if (!cerca.length) { rep.operaciones.faltanEnApp.push(g); return; }
+
+                                    // Se prefiere el que tenga las mismas acciones; entre iguales, el más
+                                    // cercano en fecha.
+                                    cerca.sort((x, y) => {
+                                        const dx = Math.abs(x.acciones - g.acciones), dy = Math.abs(y.acciones - g.acciones);
+                                        if (Math.abs(dx - dy) > AUD_TOL_ACCIONES) return dx - dy;
+                                        return Math.abs(diasEntre(x.dia, g.fecha)) - Math.abs(diasEntre(y.dia, g.fecha));
+                                    });
+                                    const a = cerca[0];
+                                    usados.add(a.id);
+
+                                    const diferencias = [];
+                                    if (Math.abs(a.acciones - g.acciones) > AUD_TOL_ACCIONES) {
+                                        diferencias.push({
+                                            campo: 'Acciones', app: a.acciones, gbm: g.acciones,
+                                            detalle: `${(a.acciones - g.acciones) >= 0 ? '+' : ''}${(a.acciones - g.acciones).toFixed(8)} acciones`
+                                        });
+                                    }
+                                    // El precio se guarda con dos decimales y GBM lo publica con cuatro:
+                                    // esa diferencia es esperada y no se reporta.
+                                    if (Math.abs(a.precio - g.precio) > 0.011) {
+                                        diferencias.push({ campo: 'Precio', app: a.precio, gbm: g.precio, detalle: `${fMoneda(a.precio - g.precio)} USD` });
+                                    }
+                                    if (Math.abs(a.usd - g.usd) > AUD_TOL_USD) {
+                                        diferencias.push({ campo: 'Importe USD', app: a.usd, gbm: g.usd, detalle: `${fMoneda(a.usd - g.usd)} USD` });
+                                    }
+                                    const dd = diasEntre(a.dia, g.fecha);
+                                    if (dd !== 0) {
+                                        diferencias.push({ campo: 'Fecha', app: a.dia, gbm: g.fecha, detalle: `${dd > 0 ? '+' : ''}${dd} día(s)` });
+                                    }
+
+                                    if (diferencias.length) rep.operaciones.distintas.push({ gbm: g, app: a, diferencias });
+                                    else rep.operaciones.iguales.push({ gbm: g, app: a });
+                                });
+
+                                candidatosApp
+                                    .filter(a => !usados.has(a.id) && dentroDeEstado(a.dia))
+                                    .forEach(a => rep.operaciones.sobranEnApp.push(a));
+
+                                // --- Posición al corte ---
+                                const estadoConPosiciones = estados.filter(ec => ec.posiciones.length);
+                                if (estadoConPosiciones.length) {
+                                    // Si se importaron varios meses manda el más reciente: es el único cuyo
+                                    // corte se puede comparar contra un acumulado.
+                                    const ec = estadoConPosiciones.sort((a, b) =>
+                                        ((a.periodo && a.periodo.hasta) || '') < ((b.periodo && b.periodo.hasta) || '') ? 1 : -1)[0];
+                                    const corte = ec.periodo ? ec.periodo.hasta : null;
+                                    const posApp = posicionAppAlCorte(movsApp, corte);
+                                    const tickers = new Set([...Object.keys(posApp), ...ec.posiciones.map(p => p.ticker)]);
+
+                                    rep.corte = corte;
+                                    tickers.forEach(tk => {
+                                        const enApp = posApp[tk] || 0;
+                                        const posGbm = ec.posiciones.find(p => p.ticker === tk);
+                                        const enGbm = posGbm ? posGbm.acciones : 0;
+                                        if (Math.abs(enApp) < AUD_TOL_ACCIONES && Math.abs(enGbm) < AUD_TOL_ACCIONES) return;
+                                        rep.posiciones.push({
+                                            ticker: tk, app: enApp, gbm: enGbm,
+                                            diferencia: enApp - enGbm,
+                                            cuadra: Math.abs(enApp - enGbm) <= AUD_TOL_ACCIONES,
+                                            precioMercado: posGbm ? posGbm.precioMercado : null
+                                        });
+                                    });
+                                    rep.posiciones.sort((a, b) => (a.cuadra === b.cuadra) ? (a.ticker < b.ticker ? -1 : 1) : (a.cuadra ? 1 : -1));
+                                }
+
+                                // --- Dividendos y retenciones ---
+                                rep.dividendos = movsGbm.filter(m => m.clase === 'dividendo' || m.clase === 'retencion' || m.clase === 'interes');
+                                rep.dividendoNeto = rep.dividendos.reduce((a, m) => a + m.importe, 0);
+
+                                // --- Comisiones ---
+                                operacionesGbm.forEach(g => {
+                                    const com = g.comision !== null && g.comision !== undefined
+                                        ? g.comision
+                                        : comisionGbmEsperada(g.usd);
+                                    if (com > 0) { rep.comisiones.total += com; rep.comisiones.movimientos++; }
+                                });
+
+                                // --- Caja: la identidad que explica la diferencia entera ---
+                                if (estadoConPosiciones.length && rep.corte) {
+                                    const ec = estados.find(e => e.periodo && e.periodo.hasta === rep.corte) || estados[0];
+                                    const suma = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+
+                                    // Caja de la app: sólo la mueven los movimientos del flujo GBM. Las
+                                    // compras directas históricas pagan con pesos y no la tocan.
+                                    const hastaCorte = movsApp.filter(m => m.dia <= rep.corte && !m.directo);
+                                    const aportApp = suma(hastaCorte.filter(m => m.clase === 'aportacion'), m => m.usd);
+                                    const comprasApp = suma(hastaCorte.filter(m => m.clase === 'compra'), m => m.usd);
+                                    const ventasApp = suma(hastaCorte.filter(m => m.clase === 'venta'), m => m.usd);
+                                    const retirosApp = suma(hastaCorte.filter(m => m.clase === 'retiro'), m => m.usd);
+                                    const cajaApp = aportApp + ventasApp - comprasApp - retirosApp;
+
+                                    const efectivoGbm = ec.asignacion.efectivo;
+                                    const depGbm = suma(ec.actividad.filter(m => m.clase === 'aportacion'), m => m.usd);
+
+                                    // Salida neta de efectivo por operaciones, en cada lado. GBM cobra el
+                                    // importe con comisión; la app descuenta sólo el precio puro.
+                                    const enPeriodo = m => ec.periodo && m.dia >= ec.periodo.desde && m.dia <= ec.periodo.hasta;
+                                    const salidaGbm = suma(ec.actividad.filter(m => m.clase === 'compra'), m => m.neto) -
+                                        suma(ec.actividad.filter(m => m.clase === 'venta'), m => m.neto);
+                                    const salidaApp = suma(movsApp.filter(m => !m.directo && m.clase === 'compra' && enPeriodo(m)), m => m.usd) -
+                                        suma(movsApp.filter(m => !m.directo && m.clase === 'venta' && enPeriodo(m)), m => m.usd);
+                                    const aportPeriodo = suma(movsApp.filter(m => !m.directo && m.clase === 'aportacion' && enPeriodo(m)), m => m.usd);
+
+                                    const desfaseFondeo = aportPeriodo - depGbm;
+                                    // Esa brecha son dos cosas distintas sumadas: lo que GBM cobró de más
+                                    // por comisión, y lo que la app tenga mal capturado. Se separan porque
+                                    // una es normal y la otra es un error que hay que corregir.
+                                    const brechaOperaciones = salidaGbm - salidaApp;
+                                    const comisionesNoRegistradas = suma(ec.actividad.filter(m =>
+                                        m.clase === 'compra' || m.clase === 'venta'), m => m.comision);
+                                    const erroresDeCaptura = brechaOperaciones - comisionesNoRegistradas;
+                                    const dividendosNoRegistrados = suma(ec.actividad.filter(m =>
+                                        m.clase === 'dividendo' || m.clase === 'retencion' || m.clase === 'interes'), m => m.importe);
+                                    // El efectivo que ya venía del mes anterior no lo generó ningún
+                                    // movimiento de este periodo, así que se descuenta aparte.
+                                    const efectivoInicial = ec.asignacion.efectivoAnterior || 0;
+
+                                    const explicado = desfaseFondeo + brechaOperaciones - dividendosNoRegistrados - efectivoInicial;
+                                    const diferencia = efectivoGbm === null ? null : cajaApp - efectivoGbm;
+
+                                    rep.caja = {
+                                        cajaApp, efectivoGbm, diferencia,
+                                        desfaseFondeo, comisionesNoRegistradas, erroresDeCaptura,
+                                        dividendosNoRegistrados,
+                                        explicado,
+                                        residual: diferencia === null ? null : diferencia - explicado,
+                                        efectivoInicial
+                                    };
+                                }
+
+                                return rep;
+                            }
+
+                            // --- Presentación del reporte --------------------------------------------
+
+                            const AUD_VERDE = '#3ecf8e', AUD_ROJO = '#ff5c5c', AUD_AMBAR = '#f39c12';
+
+                            function bloqueAuditoria(titulo, contenido, color) {
+                                return `<div style="background:#161616; border:1px solid ${color || '#2a2a2a'}; border-radius:10px; padding:14px; margin-bottom:14px;">
+                                    <div style="color:${color || '#ffffff'}; font-weight:bold; font-size:0.95em; margin-bottom:10px;">${titulo}</div>
+                                    ${contenido}
+                                </div>`;
+                            }
+
+                            function filaAuditoria(izquierda, derecha, color, nota) {
+                                return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:7px 0; border-bottom:1px solid #242424;">
+                                    <div style="min-width:0; line-height:1.35;">
+                                        <span style="color:#ddd; font-size:0.9em;">${izquierda}</span>
+                                        ${nota ? `<br><span style="color:#777; font-size:0.75em;">${nota}</span>` : ''}
+                                    </div>
+                                    <div style="text-align:right; white-space:nowrap; color:${color || '#fff'}; font-size:0.9em; font-weight:bold;">${derecha}</div>
+                                </div>`;
+                            }
+
+                            function accionesConFormato(n) {
+                                return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 8 });
+                            }
+
+                            function renderAuditoriaGbm(rep) {
+                                let html = '';
+
+                                // 1. Integridad del documento: si esto falla, nada de lo demás vale
+                                let filasPruebas = '';
+                                rep.pruebas.forEach(grupo => {
+                                    filasPruebas += `<div style="color:#888; font-size:0.78em; margin:8px 0 2px 0;">${grupo.archivo}</div>`;
+                                    grupo.pruebas.forEach(p => {
+                                        const icono = p.estado === 'ok' ? '✅' : p.estado === 'falla' ? '❌' : '➖';
+                                        const color = p.estado === 'ok' ? AUD_VERDE : p.estado === 'falla' ? AUD_ROJO : '#777';
+                                        const valor = p.estado === 'sin_dato' ? 'sin dato'
+                                            : `${Number(p.calculado).toFixed(2)} / ${Number(p.declarado).toFixed(2)}`;
+                                        filasPruebas += filaAuditoria(`${icono} ${p.etiqueta}`, valor, color, p.nota);
+                                    });
+                                });
+
+                                if (rep.formatoSospechoso) {
+                                    html += bloqueAuditoria('⚠️ El formato del documento cambió',
+                                        `<div style="color:#ffb4b4; font-size:0.88em; line-height:1.5; margin-bottom:10px;">
+                                            Las cuentas internas del propio documento no cuadran con lo que se leyó de él.
+                                            Eso significa que GBM movió algo de sitio y la app está leyendo mal las columnas.
+                                            <strong>No confíes en la conciliación de abajo</strong>: las diferencias que aparezcan
+                                            probablemente sean del lector, no de tus registros.
+                                        </div>${filasPruebas}`, AUD_ROJO);
+                                } else {
+                                    html += bloqueAuditoria('✅ Documento íntegro', filasPruebas, AUD_VERDE);
+                                }
+
+                                // Cabecera con lo que se leyó
+                                let filasDoc = '';
+                                if (rep.periodo) filasDoc += filaAuditoria('Periodo cubierto', `${rep.periodo.desde} → ${rep.periodo.hasta}`);
+                                if (rep.contratos.length) filasDoc += filaAuditoria('Contrato', rep.contratos.join(', '));
+                                filasDoc += filaAuditoria('Documentos leídos', String(rep.documentos.length));
+                                html += bloqueAuditoria('📄 Documentos', filasDoc);
+
+                                if (rep.codigosDesconocidos.length) {
+                                    html += bloqueAuditoria('❓ Movimientos que no sé interpretar',
+                                        `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5; margin-bottom:8px;">
+                                            El documento trae tipos de movimiento que esta auditoría todavía no conoce.
+                                            No se adivinó su significado: quedan fuera de la conciliación y conviene revisarlos a mano.
+                                        </div>` +
+                                        rep.codigosDesconocidos.map(c => filaAuditoria(`Código <strong>${c}</strong>`, 'sin interpretar', AUD_AMBAR)).join(''),
+                                        AUD_AMBAR);
+                                }
+
+                                // 2. Posición al corte: el cuadre más valioso
+                                if (rep.posiciones.length) {
+                                    const descuadres = rep.posiciones.filter(p => !p.cuadra);
+                                    let filas = '';
+                                    rep.posiciones.forEach(p => {
+                                        const icono = p.cuadra ? '✅' : '❌';
+                                        const color = p.cuadra ? AUD_VERDE : AUD_ROJO;
+                                        const nota = p.cuadra ? '' :
+                                            `app ${accionesConFormato(p.app)} · GBM ${accionesConFormato(p.gbm)}`;
+                                        const valor = p.cuadra ? accionesConFormato(p.gbm)
+                                            : `${p.diferencia >= 0 ? '+' : ''}${accionesConFormato(p.diferencia)}`;
+                                        filas += filaAuditoria(`${icono} ${p.ticker}`, valor, color, nota);
+                                    });
+                                    const titulo = descuadres.length
+                                        ? `📊 Posición al ${rep.corte} — ${descuadres.length} no cuadra(n)`
+                                        : `📊 Posición al ${rep.corte} — todo cuadra`;
+                                    html += bloqueAuditoria(titulo, filas, descuadres.length ? AUD_ROJO : AUD_VERDE);
+                                }
+
+                                // 3. Operaciones
+                                const op = rep.operaciones;
+                                let filasOp = filaAuditoria('Coinciden exactamente', String(op.iguales.length), AUD_VERDE);
+                                if (op.distintas.length) filasOp += filaAuditoria('Coinciden con diferencias', String(op.distintas.length), AUD_AMBAR);
+                                if (op.faltanEnApp.length) filasOp += filaAuditoria('Están en GBM y no en la app', String(op.faltanEnApp.length), AUD_ROJO);
+                                if (op.sobranEnApp.length) filasOp += filaAuditoria('Están en la app y no en GBM', String(op.sobranEnApp.length), AUD_ROJO);
+                                html += bloqueAuditoria('🔁 Operaciones del periodo', filasOp);
+
+                                if (op.distintas.length) {
+                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        Cada operación se corrige por separado, y sólo se tocan los campos que ves
+                                        listados. El documento de GBM manda, pero la decisión es tuya en cada caso.
+                                    </div>`;
+                                    op.distintas.forEach((d, i) => {
+                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                            <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">
+                                                ${d.gbm.ticker} · ${d.gbm.clase} · ${d.gbm.fecha}
+                                            </div>
+                                            ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
+                                                ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
+                                                · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
+                                            </div>`).join('')}
+                                            <div style="display:flex; gap:8px; margin-top:7px;">
+                                                <button onclick="corregirDiferenciaAuditoria(${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                            </div>
+                                        </div>`;
+                                    });
+                                    html += bloqueAuditoria('⚠️ Operaciones con diferencias', filas, AUD_AMBAR);
+                                }
+
+                                if (op.faltanEnApp.length) {
+                                    let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        GBM ejecutó estas operaciones y no encuentro su registro en la app.
+                                    </div>`;
+                                    op.faltanEnApp.forEach((g, i) => {
+                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                            <div style="color:#fff; font-size:0.9em;">${g.ticker || '—'} · ${g.clase} · ${g.fecha}</div>
+                                            <div style="color:#999; font-size:0.8em;">${accionesConFormato(g.acciones)} acciones · ${fMoneda(g.precio)} USD · ${fMoneda(g.usd)} USD</div>
+                                            <button onclick="registrarMovimientoFaltante(${i})" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Registrar este movimiento</button>
+                                        </div>`;
+                                    });
+                                    html += bloqueAuditoria('➕ Faltan en la app', filas, AUD_ROJO);
+                                }
+
+                                if (op.sobranEnApp.length) {
+                                    let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        Están registradas en la app y no aparecen en el estado de cuenta que las cubre.
+                                        Suele ser un duplicado o una fecha mal capturada que las saca de su mes.
+                                    </div>`;
+                                    op.sobranEnApp.forEach(a => {
+                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                            <div style="color:#fff; font-size:0.9em;">${a.ticker || '—'} · ${a.clase} · ${a.dia}</div>
+                                            <div style="color:#999; font-size:0.8em;">${accionesConFormato(a.acciones)} acciones · ${fMoneda(a.precio)} USD</div>
+                                            <button onclick="verDetallesMovimiento('${a.id}')" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                        </div>`;
+                                    });
+                                    html += bloqueAuditoria('➖ Sobran en la app', filas, AUD_ROJO);
+                                }
+
+                                // 4. Dividendos
+                                if (rep.dividendos.length) {
+                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                        Dólares que entraron a tu cuenta sin que tú los aportaras. La app no los tiene registrados,
+                                        así que hoy tu caja vale menos de lo que realmente vale.
+                                    </div>`;
+                                    rep.dividendos.forEach(d => {
+                                        filas += filaAuditoria(
+                                            `${d.ticker || '—'} · ${d.clase === 'retencion' ? 'retención' : d.clase}`,
+                                            `${fMoneda(d.importe)} USD`,
+                                            d.importe >= 0 ? AUD_VERDE : AUD_ROJO, d.fecha);
+                                    });
+                                    filas += filaAuditoria('<strong>Neto del periodo</strong>', `<strong>${fMoneda(rep.dividendoNeto)} USD</strong>`, AUD_VERDE);
+                                    filas += `<button onclick="registrarDividendosGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:${AUD_VERDE}; color:#000; border:none; border-radius:8px; font-weight:bold;">Registrar ${fMoneda(rep.dividendoNeto)} USD en la Caja GBM</button>`;
+                                    html += bloqueAuditoria('💵 Dividendos e intereses', filas);
+                                }
+
+                                // 5. Comisiones
+                                if (rep.comisiones.total > 0.005) {
+                                    const filas = filaAuditoria('Operaciones con comisión', String(rep.comisiones.movimientos)) +
+                                        filaAuditoria('Comisión total cobrada por GBM', `${fMoneda(rep.comisiones.total)} USD`, AUD_AMBAR,
+                                            'La app descuenta de la caja el precio puro; GBM cobra además su comisión') +
+                                        `<button onclick="registrarComisionesGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:#333; color:#fff; border:1px solid #555; border-radius:8px; font-weight:bold;">Descontar ${fMoneda(rep.comisiones.total)} USD de la Caja GBM</button>`;
+                                    html += bloqueAuditoria('🧾 Comisiones no registradas', filas, AUD_AMBAR);
+                                }
+
+                                // 6. Caja: la diferencia, descompuesta término a término
+                                if (rep.caja && rep.caja.diferencia !== null) {
+                                    const c = rep.caja;
+                                    const residualOk = Math.abs(c.residual) <= 0.05;
+                                    let filas =
+                                        filaAuditoria('Caja según la app', `${fMoneda(c.cajaApp)} USD`) +
+                                        filaAuditoria('Efectivo según GBM', `${fMoneda(c.efectivoGbm)} USD`) +
+                                        filaAuditoria('<strong>Diferencia</strong>', `<strong>${fMoneda(c.diferencia)} USD</strong>`, AUD_AMBAR) +
+                                        `<div style="color:#888; font-size:0.78em; margin:10px 0 4px 0;">De dónde sale esa diferencia:</div>` +
+                                        filaAuditoria('Desfase de fondeo', `${fMoneda(c.desfaseFondeo)} USD`, '#bbb',
+                                            'La app apunta la aportación al comprar; GBM deposita al día siguiente') +
+                                        filaAuditoria('Comisiones no registradas', `${fMoneda(c.comisionesNoRegistradas)} USD`, '#bbb') +
+                                        (Math.abs(c.erroresDeCaptura) > 0.005
+                                            ? filaAuditoria('Diferencias de captura', `${fMoneda(c.erroresDeCaptura)} USD`, AUD_AMBAR,
+                                                'Operaciones cuyo importe en la app no coincide con el de GBM')
+                                            : '') +
+                                        filaAuditoria('Dividendos no registrados', `${fMoneda(-c.dividendosNoRegistrados)} USD`, '#bbb') +
+                                        filaAuditoria('Efectivo inicial del periodo', `${fMoneda(-c.efectivoInicial)} USD`, '#bbb') +
+                                        filaAuditoria('<strong>Sin explicar</strong>', `<strong>${fMoneda(c.residual)} USD</strong>`,
+                                            residualOk ? AUD_VERDE : AUD_ROJO,
+                                            residualOk ? 'Toda la diferencia queda explicada' : 'Queda dinero sin justificar: revisa las secciones de arriba');
+                                    html += bloqueAuditoria('🏦 Caja GBM', filas, residualOk ? null : AUD_ROJO);
+                                }
+
+                                return html;
+                            }
+
+                            // --- Acciones sobre lo encontrado ----------------------------------------
+                            // Nada se guarda sin que lo pidas, y cada alta pide confirmación aparte.
+
+                            let auditoriaActual = null;
+
+                            async function insertarRegistroAuditoria(cuerpo, mensajeExito) {
+                                const { error } = await clienteSupabase.from('registros').insert([cuerpo]);
+                                if (error) { alert('No se pudo guardar: ' + error.message); return false; }
+                                await refrescarTodo();
+                                alert(mensajeExito);
+                                return true;
+                            }
+
+                            // Rehace la conciliación con los mismos documentos ya leídos y vuelve a pintar.
+                            // Así, al corregir un registro, la diferencia desaparece de la lista y puedes
+                            // seguir con la siguiente sin volver a importar los PDF.
+                            function repintarAuditoria() {
+                                const anterior = auditoriaActual;
+                                if (!anterior) return;
+                                const rep = conciliarGbm(anterior.cuentaId, anterior.documentos);
+                                rep.cuentaId = anterior.cuentaId;
+                                rep.ignorados = anterior.ignorados;
+                                rep.aviso = anterior.aviso;
+                                auditoriaActual = rep;
+                                const cont = document.getElementById('contenidoAuditoriaGbm');
+                                if (cont) cont.innerHTML = (rep.aviso || '') + renderAuditoriaGbm(rep);
+                            }
+
+                            // Aplica a un registro los valores de GBM. Es la única escritura sobre datos que
+                            // ya existían, así que se hace de uno en uno, sólo sobre los campos que la
+                            // auditoría marcó distintos, y el diálogo dice exactamente qué va a cambiar y a
+                            // qué valor. Lo demás del registro —tu descripción, tu tipo de cambio— no se toca.
+                            async function corregirDiferenciaAuditoria(indice) {
+                                const rep = auditoriaActual;
+                                if (!rep) return;
+                                const d = rep.operaciones.distintas[indice];
+                                if (!d) return;
+
+                                // Si el documento no pasó sus propias comprobaciones, las diferencias podrían
+                                // ser del lector y no de tus registros. Corregir con datos mal leídos sería
+                                // exactamente lo contrario de auditar.
+                                if (rep.formatoSospechoso) {
+                                    alert('⚠️ Las comprobaciones internas del documento no cuadran, así que estas diferencias podrían venir de una mala lectura del PDF y no de tus registros.\n\nNo se corrige nada mientras el formato esté en duda.');
+                                    return;
+                                }
+
+                                const cambios = {};
+                                const lineas = [];
+                                d.diferencias.forEach(x => {
+                                    if (x.campo === 'Acciones') {
+                                        cambios.cantidad_acciones = d.gbm.acciones;
+                                        lineas.push(`Acciones:  ${accionesConFormato(x.app)}  →  ${accionesConFormato(x.gbm)}`);
+                                    } else if (x.campo === 'Precio') {
+                                        cambios.costo_accion = d.gbm.precio;
+                                        lineas.push(`Precio:    ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                    } else if (x.campo === 'Importe USD') {
+                                        cambios.monto_usd = d.gbm.usd;
+                                        lineas.push(`Importe:   ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} USD`);
+                                    } else if (x.campo === 'Fecha') {
+                                        // Sólo se mueve el día. La hora que capturaste se respeta: el estado
+                                        // de cuenta no la trae y no hay con qué sustituirla.
+                                        const resto = String(d.app.fecha || '').slice(10);
+                                        cambios.fecha = `${d.gbm.fecha}${resto || 'T12:00:00+00:00'}`;
+                                        lineas.push(`Fecha:     ${x.app}  →  ${x.gbm}`);
+                                    }
+                                });
+
+                                if (!lineas.length) return;
+
+                                if (!confirm(`Se corregirá el registro de "${d.app.categoria.nombre}" del ${d.app.dia}:\n\n` +
+                                    `${lineas.join('\n')}\n\n` +
+                                    `No se toca ningún otro campo del registro.\n\n¿Continuar?`)) return;
+
+                                const { error } = await clienteSupabase.from('registros').update(cambios).eq('id', d.app.id);
+                                if (error) { alert('No se pudo corregir: ' + error.message); return; }
+
+                                await refrescarTodo();
+                                repintarAuditoria();
+                            }
+
+                            // Los dividendos y las comisiones entran como un solo apunte por periodo. Si ya
+                            // se registró antes, repetirlo duplicaría dinero en la caja sin que nada lo
+                            // delate, así que se busca la marca que la propia auditoría deja en la
+                            // descripción antes de volver a guardar.
+                            async function yaRegistradoPorAuditoria(idCaja, descripcion) {
+                                const { data, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select('id')
+                                    .eq('categoria_id', idCaja)
+                                    .eq('descripcion', descripcion)
+                                    .limit(1);
+                                if (error) return false;
+                                if (!data || !data.length) return false;
+                                return !confirm('⚠️ Ya existe un apunte de la auditoría con esta misma descripción para este periodo.\n\n' +
+                                    'Registrarlo otra vez duplicaría el dinero en tu Caja GBM.\n\n¿Aun así quieres continuar?');
+                            }
+
+                            // Un dividendo son dólares que llegaron sin que salieran pesos de tu bolsillo.
+                            // Se guarda como aportación a la Caja GBM con monto 0 en pesos: la caja sube en
+                            // dólares y su costo en pesos no, que es exactamente lo que significa "ganancia".
+                            async function registrarDividendosGbm() {
+                                const rep = auditoriaActual;
+                                if (!rep || !rep.dividendoNeto) return;
+                                const usd = Number(rep.dividendoNeto.toFixed(4));
+                                if (Math.abs(usd) < 0.005) { alert('El neto de dividendos es cero: no hay nada que registrar.'); return; }
+
+                                if (!confirm(`Se registrará una entrada de ${fMoneda(usd)} USD en la Caja GBM, sin movimiento de pesos.\n\n` +
+                                    `Corresponde a ${rep.dividendos.length} movimiento(s) de dividendos y retenciones del periodo ` +
+                                    `${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''}.\n\n¿Continuar?`)) return;
+
+                                const idCaja = await obtenerCategoriaCajaGbm(rep.cuentaId);
+                                if (!idCaja) return;
+
+                                const descripcion = `Dividendos netos GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`;
+                                if (await yaRegistradoPorAuditoria(idCaja, descripcion)) return;
+
+                                await insertarRegistroAuditoria({
+                                    categoria_id: idCaja,
+                                    monto: 0,
+                                    fecha: new Date(`${rep.periodo ? rep.periodo.hasta : rep.corte}T12:00:00Z`).toISOString(),
+                                    descripcion,
+                                    costo_accion: 0,
+                                    tipo_cambio: globalUsdToMxn || 0,
+                                    cantidad_acciones: 0,
+                                    tipo_movimiento: 'aportacion',
+                                    monto_usd: usd,
+                                    user_id: currentUser.id
+                                }, `Dividendos registrados: ${fMoneda(usd)} USD entraron a tu Caja GBM.`);
+
+                                cerrarModalAuditoriaGbm();
+                            }
+
+                            // La comisión es lo contrario: dólares que se fueron y cuyo costo en pesos ya
+                            // habías pagado. Se descuenta de la caja sin devolver pesos, y por eso aparece
+                            // donde tiene que aparecer: como menos rendimiento.
+                            async function registrarComisionesGbm() {
+                                const rep = auditoriaActual;
+                                if (!rep || !(rep.comisiones.total > 0.005)) return;
+                                const usd = Number(rep.comisiones.total.toFixed(4));
+
+                                if (!confirm(`Se descontarán ${fMoneda(usd)} USD de la Caja GBM, sin movimiento de pesos.\n\n` +
+                                    `Son las comisiones de ${rep.comisiones.movimientos} operación(es) que GBM te cobró y que la app no había registrado.\n\n¿Continuar?`)) return;
+
+                                const idCaja = await obtenerCategoriaCajaGbm(rep.cuentaId);
+                                if (!idCaja) return;
+
+                                const descripcion = `Comisiones GBM ${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''} [auditoría]`;
+                                if (await yaRegistradoPorAuditoria(idCaja, descripcion)) return;
+
+                                await insertarRegistroAuditoria({
+                                    categoria_id: idCaja,
+                                    monto: 0,
+                                    fecha: new Date(`${rep.periodo ? rep.periodo.hasta : rep.corte}T12:00:00Z`).toISOString(),
+                                    descripcion,
+                                    costo_accion: 0,
+                                    tipo_cambio: globalUsdToMxn || 0,
+                                    cantidad_acciones: 0,
+                                    tipo_movimiento: 'aportacion',
+                                    monto_usd: -usd,
+                                    user_id: currentUser.id
+                                }, `Comisiones registradas: ${fMoneda(usd)} USD salieron de tu Caja GBM.`);
+
+                                cerrarModalAuditoriaGbm();
+                            }
+
+                            // Alta de una compra o venta que GBM ejecutó y que no está en la app. Necesita
+                            // una categoría con ese ticker: crearla al vuelo adivinaría el nombre de la
+                            // empresa, y ese nombre es tuyo, no mío.
+                            async function registrarMovimientoFaltante(indice) {
+                                const rep = auditoriaActual;
+                                if (!rep) return;
+                                const g = rep.operaciones.faltanEnApp[indice];
+                                if (!g) return;
+
+                                const cat = (datosCategorias || []).find(c =>
+                                    String(c.cuenta_id) === String(rep.cuentaId) && c.ticker &&
+                                    c.ticker.toUpperCase() === String(g.ticker || '').toUpperCase());
+
+                                if (!cat) {
+                                    alert(`No hay ninguna categoría con el ticker ${g.ticker} en esta cuenta.\n\n` +
+                                        `Créala primero desde Categorías y vuelve a auditar: así eliges tú el nombre de la empresa.`);
+                                    return;
+                                }
+
+                                if (!confirm(`Se registrará en "${cat.nombre}":\n\n` +
+                                    `${g.clase === 'compra' ? 'Compra' : 'Venta'} de ${accionesConFormato(g.acciones)} acciones\n` +
+                                    `Precio: ${fMoneda(g.precio)} USD\n` +
+                                    `Importe: ${fMoneda(g.usd)} USD\n` +
+                                    `Fecha: ${g.fecha}\n\n` +
+                                    `El movimiento se paga con la Caja GBM, sin mover pesos.\n\n¿Continuar?`)) return;
+
+                                await insertarRegistroAuditoria({
+                                    categoria_id: cat.id,
+                                    monto: 0,
+                                    fecha: new Date(`${g.fecha}T12:00:00Z`).toISOString(),
+                                    descripcion: `${g.clase === 'compra' ? 'Compra' : 'Venta'} ${g.ticker} [auditoría GBM]`,
+                                    costo_accion: g.precio,
+                                    tipo_cambio: globalUsdToMxn || 0,
+                                    cantidad_acciones: g.acciones,
+                                    tipo_movimiento: g.clase,
+                                    monto_usd: g.usd,
+                                    user_id: currentUser.id
+                                }, `Movimiento registrado en ${cat.nombre}.`);
+
+                                // El alta sí se puede volver a conciliar: en la nueva pasada el movimiento
+                                // ya empareja y desaparece de la lista de faltantes.
+                                repintarAuditoria();
+                            }
+
+                            // --- Entrada desde la ficha de la cuenta ---------------------------------
+
+                            function abrirSelectorPdfGbm(cuentaId) {
+                                const input = document.getElementById('inputPdfGbm');
+                                if (!input) return;
+                                input.value = '';
+                                input.onchange = () => {
+                                    const archivos = [...(input.files || [])];
+                                    if (archivos.length) auditarCuentaGbm(cuentaId, archivos);
+                                };
+                                input.click();
+                            }
+
+                            function estadoAuditoria(mensaje) {
+                                const cont = document.getElementById('contenidoAuditoriaGbm');
+                                if (cont) cont.innerHTML = `<div style="color:#aaa; text-align:center; padding:40px 10px; font-size:0.9em; line-height:1.6;">${mensaje}</div>`;
+                            }
+
+                            function abrirModalAuditoriaGbm() {
+                                document.getElementById('modalAuditoriaGbm').classList.add('activa');
+                                document.body.classList.add('modal-abierto');
+                            }
+
+                            function cerrarModalAuditoriaGbm() {
+                                document.getElementById('modalAuditoriaGbm').classList.remove('activa');
+                                document.body.classList.remove('modal-abierto');
+                            }
+
+                            async function auditarCuentaGbm(cuentaId, archivos) {
+                                cerrarModalDetallesCuenta();
+                                abrirModalAuditoriaGbm();
+                                estadoAuditoria(`Leyendo ${archivos.length} documento(s)…<br><br>
+                                    <span style="color:#666; font-size:0.85em;">Todo ocurre en este dispositivo: los PDF no se suben a ningún servidor.</span>`);
+
+                                let documentos = [];
+                                const ignorados = [];
+
+                                try {
+                                    for (const archivo of archivos) {
+                                        const doc = await renglonesDePdf(archivo);
+                                        const tipo = tipoDocumentoGbm(doc);
+                                        if (tipo === 'estado_cuenta') documentos.push(parsearEstadoCuenta(doc));
+                                        else if (tipo === 'confirmacion') documentos.push(parsearConfirmacion(doc));
+                                        else ignorados.push({ archivo: doc.archivo, tipo });
+                                    }
+                                } catch (e) {
+                                    estadoAuditoria(`❌ No se pudo leer el PDF.<br><br>
+                                        <span style="color:#888; font-size:0.85em;">${(e && e.message) || e}</span><br><br>
+                                        <span style="color:#888; font-size:0.85em;">Si estás sin conexión, la primera auditoría necesita internet para traer el lector de PDF.</span>`);
+                                    return;
+                                }
+
+                                if (!documentos.length) {
+                                    const detalle = ignorados.map(i => `<div style="color:#888; font-size:0.8em;">${i.archivo} — ${
+                                        i.tipo === 'fiscal' ? 'documento fiscal, no contiene movimientos' : 'no parece un documento de GBM'}</div>`).join('');
+                                    estadoAuditoria(`No encontré ningún estado de cuenta ni confirmación de operación.<br><br>${detalle}`);
+                                    return;
+                                }
+
+                                const rep = conciliarGbm(cuentaId, documentos);
+                                rep.cuentaId = cuentaId;
+                                rep.ignorados = ignorados;
+                                auditoriaActual = rep;
+
+                                // Un PDF de otra cuenta se detecta por el contrato, comparándolo sin guiones:
+                                // el estado de cuenta lo escribe con ellos y los documentos fiscales sin ellos.
+                                const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
+                                let aviso = '';
+                                if (rep.contratos.length > 1) {
+                                    const normalizados = new Set(rep.contratos.map(normalizarContrato));
+                                    if (normalizados.size > 1) {
+                                        aviso = bloqueAuditoria('⚠️ Documentos de contratos distintos',
+                                            `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5;">
+                                                Los documentos que importaste no pertenecen todos al mismo contrato de GBM:
+                                                ${rep.contratos.join(', ')}. Revisa que sean de la cuenta que estás auditando.
+                                            </div>`, AUD_AMBAR);
+                                    }
+                                }
+                                if (ignorados.length) {
+                                    aviso += bloqueAuditoria('📄 Documentos ignorados',
+                                        ignorados.map(i => filaAuditoria(i.archivo,
+                                            i.tipo === 'fiscal' ? 'documento fiscal' : 'no reconocido', '#888',
+                                            i.tipo === 'fiscal' ? 'Los formularios 1042-S y 1099 no traen movimientos' : '')).join(''));
+                                }
+
+                                // El aviso se guarda con el reporte para que sobreviva a los repintados
+                                // que vienen después de cada corrección.
+                                rep.aviso = aviso;
+
+                                document.getElementById('tituloAuditoriaGbm').textContent =
+                                    `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
+                                document.getElementById('contenidoAuditoriaGbm').innerHTML = aviso + renderAuditoriaGbm(rep);
                             }
 
                             function verDetallesMovimiento(id) {
