@@ -10891,8 +10891,50 @@
                                 return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 8 });
                             }
 
+                            // Cierre de la auditoría: qué queda por dar por bueno. Va arriba del todo porque
+                            // es lo que uno viene a saber —cuánto falta— y no el detalle de cada fila.
+                            function bloqueProgresoAuditoria(rep) {
+                                const cuadraron = movimientosQueCuadraron(rep);
+                                const yaMarcados = cuadraron.filter(id => (marcasAuditoria || {})[id]).length;
+                                const nuevos = cuadraron.length - yaMarcados;
+                                const pendientes = rep.operaciones.distintas.length + rep.aportaciones.distintas.length +
+                                    rep.operaciones.faltanEnApp.length + rep.aportaciones.faltanEnApp.length +
+                                    rep.operaciones.sobranEnApp.length;
+
+                                let filas =
+                                    filaAuditoria('Cuadran con el documento', String(cuadraron.length), AUD_VERDE,
+                                        yaMarcados ? `${yaMarcados} ya estaban marcados` : '') +
+                                    filaAuditoria('Quedan pendientes', String(pendientes),
+                                        pendientes ? AUD_AMBAR : AUD_VERDE,
+                                        pendientes ? 'Con diferencias, o sin pareja en el otro lado' : 'Nada que resolver');
+
+                                if (rep.formatoSospechoso) {
+                                    filas += `<div style="color:${AUD_ROJO}; font-size:0.8em; line-height:1.5; margin-top:10px;">
+                                        El documento no pasó sus comprobaciones, así que no se puede dar nada por auditado con esta lectura.
+                                    </div>`;
+                                } else if (nuevos > 0) {
+                                    filas += `<button onclick="marcarComoAuditados()" style="width:100%; margin-top:10px; padding:12px; font-size:0.9em; background:${AUD_VERDE}; color:#000; border:none; border-radius:8px; font-weight:bold;">
+                                        Marcar ${nuevos} movimiento(s) como auditados
+                                    </button>`;
+                                    if (pendientes) {
+                                        filas += `<div style="color:#777; font-size:0.75em; line-height:1.5; margin-top:7px;">
+                                            Los ${pendientes} pendientes no se marcan. Resuélvelos con los botones de abajo y vuelve a auditar.
+                                        </div>`;
+                                    }
+                                } else if (cuadraron.length) {
+                                    filas += `<div style="color:${AUD_VERDE}; font-size:0.8em; line-height:1.5; margin-top:10px;">
+                                        ✅ Todo lo que cuadra ya está marcado como auditado.
+                                    </div>`;
+                                }
+
+                                const titulo = rep.meses && rep.meses.length
+                                    ? `🎯 ${rep.meses.map(nombreMesClave).join(' y ')}`
+                                    : '🎯 Resultado';
+                                return bloqueAuditoria(titulo, filas, pendientes ? AUD_AMBAR : AUD_VERDE);
+                            }
+
                             function renderAuditoriaGbm(rep) {
-                                let html = '';
+                                let html = bloqueProgresoAuditoria(rep);
 
                                 // 1. Integridad del documento: si esto falla, nada de lo demás vale
                                 let filasPruebas = '';
@@ -11210,10 +11252,19 @@
                                     `${lineas.join('\n')}\n\n` +
                                     `No se toca ningún otro campo del registro.\n\n¿Continuar?`)) return;
 
+                                // Corregir cambia los datos, así que la marca de auditoría anterior ya no
+                                // vale. Se limpia sólo si las columnas existen: sin la migración, incluirlas
+                                // haría fallar la corrección entera.
+                                if (migracionAuditoriaLista === true) {
+                                    cambios.auditado_en = null;
+                                    cambios.auditado_doc = null;
+                                }
+
                                 const { error } = await clienteSupabase.from('registros').update(cambios).eq('id', d.app.id);
                                 if (error) { alert('No se pudo corregir: ' + error.message); return; }
 
                                 await refrescarTodo();
+                                if (migracionAuditoriaLista === true) await cargarMarcasAuditoria(rep.cuentaId);
                                 repintarAuditoria();
                             }
 
@@ -11431,6 +11482,100 @@
                                 renderGuiaAuditoria();
                             }
 
+                            // --- Marcas de auditoría -------------------------------------------------
+                            //
+                            // Auditar deja de ser un reporte que se mira y se cierra: cada movimiento que
+                            // cuadró queda marcado en la base, y de ahí sale el progreso. Los que tienen
+                            // diferencias se quedan sin marcar a propósito, que son los que faltan.
+                            //
+                            // Las columnas viven en una migración aparte (migracion_auditoria_gbm.sql). Si
+                            // todavía no se ha ejecutado, todo esto falla en silencio y la auditoría sigue
+                            // funcionando sin progreso: preferible a que la app deje de cargar por una
+                            // columna que aún no existe.
+
+                            let marcasAuditoria = null;        // { idRegistro: fechaAuditoria }
+                            let migracionAuditoriaLista = null; // null = aún no se sabe
+
+                            async function cargarMarcasAuditoria(cuentaId) {
+                                const cats = (datosCategorias || []).filter(c => String(c.cuenta_id) === String(cuentaId));
+                                if (!cats.length) { marcasAuditoria = {}; return; }
+
+                                const { data, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select('id, auditado_en')
+                                    .in('categoria_id', cats.map(c => c.id));
+
+                                if (error) {
+                                    migracionAuditoriaLista = false;
+                                    marcasAuditoria = {};
+                                    return;
+                                }
+                                migracionAuditoriaLista = true;
+                                marcasAuditoria = {};
+                                (data || []).forEach(r => { if (r.auditado_en) marcasAuditoria[r.id] = r.auditado_en; });
+                            }
+
+                            function progresoPorMes(cuentaId) {
+                                const porMes = {};
+                                movimientosAppDeCuenta(cuentaId).forEach(m => {
+                                    if (!m.clase || !m.dia) return;
+                                    const mes = m.dia.slice(0, 7);
+                                    if (!porMes[mes]) porMes[mes] = { total: 0, auditados: 0 };
+                                    porMes[mes].total++;
+                                    if (marcasAuditoria && marcasAuditoria[m.id]) porMes[mes].auditados++;
+                                });
+                                return porMes;
+                            }
+
+                            // Se marca lo que coincidió exactamente, en operaciones y en aportaciones. Nada
+                            // más: un movimiento con diferencias no está auditado, está pendiente.
+                            function movimientosQueCuadraron(rep) {
+                                const ids = [];
+                                (rep.operaciones.iguales || []).forEach(x => ids.push(x.app.id));
+                                (rep.aportaciones.iguales || []).forEach(x => ids.push(x.app.id));
+                                return [...new Set(ids)];
+                            }
+
+                            async function marcarComoAuditados() {
+                                const rep = auditoriaActual;
+                                if (!rep) return;
+
+                                if (rep.formatoSospechoso) {
+                                    alert('⚠️ Las comprobaciones del documento no cuadran, así que no se puede dar nada por auditado con esta lectura.');
+                                    return;
+                                }
+
+                                const ids = movimientosQueCuadraron(rep).filter(id => !(marcasAuditoria || {})[id]);
+                                if (!ids.length) { alert('No hay movimientos nuevos que marcar: los que cuadraron ya estaban auditados.'); return; }
+
+                                const docs = (rep.documentos || [])
+                                    .filter(d => d.tipo !== 'confirmacion')
+                                    .map(d => d.archivo).join(', ');
+
+                                if (!confirm(`Se marcarán ${ids.length} movimiento(s) como auditados.\n\n` +
+                                    `Son los que coincidieron exactamente con ${docs || 'los documentos importados'}.\n\n` +
+                                    `Los que tienen diferencias no se marcan: quedan pendientes hasta que los resuelvas.\n\n¿Continuar?`)) return;
+
+                                const { error } = await clienteSupabase
+                                    .from('registros')
+                                    .update({ auditado_en: new Date().toISOString(), auditado_doc: docs.slice(0, 400) })
+                                    .in('id', ids);
+
+                                if (error) {
+                                    if (/auditado_en|column/i.test(error.message || '')) {
+                                        alert('Falta ejecutar la migración.\n\nAbre Supabase → SQL Editor y ejecuta el archivo ' +
+                                            'migracion_auditoria_gbm.sql del repositorio. Sin esas columnas no hay dónde guardar el progreso.');
+                                    } else {
+                                        alert('No se pudo marcar: ' + error.message);
+                                    }
+                                    return;
+                                }
+
+                                await cargarMarcasAuditoria(rep.cuentaId);
+                                alert(`${ids.length} movimiento(s) marcados como auditados.`);
+                                renderGuiaAuditoria();
+                            }
+
                             function olvidarTodoAuditoria() {
                                 const s = sesionAuditoria;
                                 if (!s) return;
@@ -11460,15 +11605,56 @@
                                 return [...meses].sort();
                             }
 
+                            // La cobertura se mide sólo sobre los meses elegidos: pedir el estado de cuenta
+                            // de un mes que no vas a auditar ahora sería ruido.
                             function coberturaAuditoria(sesion) {
                                 const conPeriodo = tipo => sesion.documentos.filter(d => d.tipo === tipo && d.periodo);
                                 const usa = conPeriodo('estado_cuenta');
                                 const mx = conPeriodo('estado_mx');
                                 const cubre = (docs, mes) => docs.some(d =>
                                     d.periodo.desde.slice(0, 7) <= mes && mes <= d.periodo.hasta.slice(0, 7));
-                                return mesesConMovimientosInversion(sesion.cuentaId).map(mes => ({
+                                return mesesElegidos(sesion).map(mes => ({
                                     mes, usa: cubre(usa, mes), mx: cubre(mx, mes)
                                 }));
+                            }
+
+                            function mesesElegidos(sesion) {
+                                const todos = mesesConMovimientosInversion(sesion.cuentaId);
+                                const elegidos = (sesion.meses || []).filter(m => todos.includes(m));
+                                return elegidos.length ? elegidos.sort() : [];
+                            }
+
+                            // Se propone el mes más antiguo que aún tenga movimientos sin auditar: auditar
+                            // en orden es lo que hace que el progreso avance en línea recta.
+                            function mesSugerido(cuentaId) {
+                                const progreso = progresoPorMes(cuentaId);
+                                const meses = mesesConMovimientosInversion(cuentaId);
+                                const pendiente = meses.find(m => progreso[m] && progreso[m].auditados < progreso[m].total);
+                                return pendiente || meses[meses.length - 1] || null;
+                            }
+
+                            function alternarMesAuditoria(mes) {
+                                const s = sesionAuditoria;
+                                if (!s) return;
+                                const i = s.meses.indexOf(mes);
+                                if (i >= 0) s.meses.splice(i, 1);
+                                else s.meses.push(mes);
+                                renderGuiaAuditoria();
+                            }
+
+                            // Los documentos que tocan alguno de los meses elegidos. Tener guardado todo el
+                            // año no debe meter enero en una auditoría de julio.
+                            function documentosDeLosMeses(sesion) {
+                                const meses = mesesElegidos(sesion);
+                                if (!meses.length) return [];
+                                const dentro = mes => meses.includes(mes);
+                                return sesion.documentos.filter(d => {
+                                    if (d.periodo) {
+                                        return meses.some(m => d.periodo.desde.slice(0, 7) <= m && m <= d.periodo.hasta.slice(0, 7));
+                                    }
+                                    // Una confirmación no tiene periodo: se mira la fecha de sus operaciones.
+                                    return (d.operaciones || []).some(o => dentro(String(o.fecha).slice(0, 7)));
+                                });
                             }
 
                             function tarjetaPaso(numero, titulo, estado, cuerpo, etiqueta) {
@@ -11484,6 +11670,7 @@
                             }
 
                             function listaMeses(cobertura, campo) {
+                                if (!cobertura.length) return `<span style="color:#666; font-size:0.75em;">Elige arriba el mes que quieres auditar.</span>`;
                                 return cobertura.map(c => {
                                     const ok = c[campo];
                                     return `<span style="display:inline-block; margin:2px 4px 2px 0; padding:3px 9px; border-radius:20px; font-size:0.72em;
@@ -11497,65 +11684,116 @@
                             function renderGuiaAuditoria() {
                                 const s = sesionAuditoria;
                                 if (!s) return;
+                                const meses = mesesConMovimientosInversion(s.cuentaId);
+                                const progreso = progresoPorMes(s.cuentaId);
+                                const elegidos = mesesElegidos(s);
                                 const cobertura = coberturaAuditoria(s);
-                                const confirmaciones = s.documentos.filter(d => d.tipo === 'confirmacion');
+                                const confirmaciones = documentosDeLosMeses(s).filter(d => d.tipo === 'confirmacion');
                                 const operacionesConf = confirmaciones.reduce((a, c) => a + c.operaciones.length, 0);
                                 const conUsa = cobertura.filter(c => c.usa).length;
                                 const conMx = cobertura.filter(c => c.mx).length;
                                 const total = cobertura.length;
 
-                                let html = `<div style="color:#bbb; font-size:0.88em; line-height:1.55; margin-bottom:16px;">
-                                    Voy a comparar tus registros contra los documentos que emite GBM. Necesito
-                                    estos tres, y te digo de qué meses según los movimientos que ya tienes capturados.
-                                    <br><br>
-                                    <span style="color:#777; font-size:0.92em;">Los PDF se leen en este dispositivo y no se suben a ningún servidor.</span>
-                                </div>`;
+                                let html = '';
 
-                                if (!total) {
+                                if (!meses.length) {
                                     html += bloqueAuditoria('Esta cuenta no tiene movimientos de inversión',
                                         `<div style="color:#bbb; font-size:0.85em; line-height:1.5;">No hay nada que auditar todavía.</div>`);
                                     document.getElementById('contenidoAuditoriaGbm').innerHTML = html;
                                     return;
                                 }
 
-                                // Paso 1 · Trading USA
+                                // --- Progreso general ---
+                                const globales = Object.values(progreso).reduce((a, p) =>
+                                    ({ total: a.total + p.total, auditados: a.auditados + p.auditados }), { total: 0, auditados: 0 });
+                                const pct = globales.total ? (globales.auditados / globales.total) * 100 : 0;
+                                const mesesCompletos = meses.filter(m => progreso[m] && progreso[m].auditados === progreso[m].total).length;
+
+                                html += `<div style="background:#161616; border:1px solid #2a2a2a; border-radius:10px; padding:14px; margin-bottom:14px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+                                        <span style="color:#fff; font-weight:bold; font-size:0.95em;">Progreso de auditoría</span>
+                                        <span style="color:${pct >= 100 ? AUD_VERDE : '#bbb'}; font-size:0.85em; font-weight:bold;">${globales.auditados} de ${globales.total}</span>
+                                    </div>
+                                    <div style="width:100%; background:#2a2a2a; border-radius:6px; height:14px; overflow:hidden;">
+                                        <div style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%; background:${AUD_VERDE}; height:100%; transition:width 0.3s;"></div>
+                                    </div>
+                                    <div style="color:#777; font-size:0.75em; margin-top:7px; line-height:1.5;">
+                                        ${mesesCompletos} de ${meses.length} meses auditados por completo.
+                                        ${migracionAuditoriaLista === false
+                                            ? '<br><span style="color:' + AUD_AMBAR + ';">⚠️ Falta ejecutar <strong>migracion_auditoria_gbm.sql</strong> en Supabase. Sin esas columnas se puede auditar, pero el progreso no se guarda.</span>'
+                                            : ''}
+                                    </div>
+                                </div>`;
+
+                                // --- Elegir el mes ---
+                                const chips = meses.map(m => {
+                                    const p = progreso[m] || { total: 0, auditados: 0 };
+                                    const completo = p.total > 0 && p.auditados === p.total;
+                                    const activo = elegidos.includes(m);
+                                    return `<button onclick="alternarMesAuditoria('${m}')" style="width:auto; margin:3px 5px 3px 0; padding:7px 12px; border-radius:20px; font-size:0.76em; text-align:left; line-height:1.3;
+                                        background:${activo ? 'rgba(62,207,142,0.16)' : '#1c1c1c'};
+                                        color:${activo ? '#fff' : '#999'};
+                                        border:1px solid ${activo ? AUD_VERDE : '#333'};">
+                                        ${completo ? '✅' : activo ? '◉' : '○'} ${nombreMesClave(m)}
+                                        <span style="color:${completo ? AUD_VERDE : '#777'}; font-size:0.9em;"> ${p.auditados}/${p.total}</span>
+                                    </button>`;
+                                }).join('');
+
+                                html += bloqueAuditoria('📅 ¿Qué mes vas a auditar?',
+                                    `<div style="color:#999; font-size:0.8em; line-height:1.5; margin-bottom:8px;">
+                                        Lo normal es uno a la vez: son los documentos de un solo mes y el progreso avanza
+                                        en orden. Puedes elegir varios si prefieres hacerlo de una sentada.
+                                    </div>
+                                    <div>${chips}</div>`);
+
+                                if (!elegidos.length) {
+                                    html += `<div style="color:${AUD_AMBAR}; font-size:0.85em; text-align:center; padding:20px 10px; line-height:1.5;">
+                                        Elige al menos un mes para continuar.
+                                    </div>`;
+                                    document.getElementById('contenidoAuditoriaGbm').innerHTML = html;
+                                    return;
+                                }
+
+                                const enPalabras = elegidos.map(nombreMesClave).join(' y ');
+
+                                html += `<div style="color:#bbb; font-size:0.86em; line-height:1.55; margin:0 0 14px 0;">
+                                    Para auditar <strong style="color:#fff;">${enPalabras}</strong> necesito estos documentos.
+                                    <br><span style="color:#777; font-size:0.92em;">Se leen en este dispositivo y no se suben a ningún servidor.</span>
+                                </div>`;
+
                                 html += tarjetaPaso(1, 'Estado de cuenta de Trading USA',
                                     conUsa === 0 ? 'pendiente' : conUsa === total ? 'listo' : 'parcial',
                                     `<div style="color:#999; font-size:0.8em; line-height:1.5; margin-bottom:8px;">
-                                        El mensual que emite DriveWealth, en inglés. Es el que trae tus posiciones,
-                                        compras, ventas, dividendos y comisiones. <strong style="color:#ccc;">Sin al menos uno
-                                        no hay auditoría.</strong>
+                                        El mensual que emite DriveWealth, en inglés. Trae tus posiciones, compras,
+                                        ventas, dividendos y comisiones. <strong style="color:#ccc;">Sin él no hay auditoría.</strong>
                                     </div>
-                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Meses que necesito (${conUsa} de ${total}):</div>
+                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Necesito el de (${conUsa} de ${total}):</div>
                                     <div>${listaMeses(cobertura, 'usa')}</div>`,
                                     'obligatorio');
 
-                                // Paso 2 · Smart Cash
                                 html += tarjetaPaso(2, 'Estado de cuenta de Smart Cash',
                                     conMx === 0 ? 'pendiente' : conMx === total ? 'listo' : 'parcial',
                                     `<div style="color:#999; font-size:0.8em; line-height:1.5; margin-bottom:8px;">
-                                        El mensual de GBM México, en español. Es el único documento donde existen
-                                        los pesos y el tipo de cambio: sin él no puedo comprobar tus aportaciones,
-                                        porque el de Trading USA está entero en dólares.
+                                        El mensual de GBM México, en español. Es el único documento donde existen los
+                                        pesos y el tipo de cambio: sin él no puedo comprobar tus aportaciones.
                                     </div>
-                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Meses que necesito (${conMx} de ${total}):</div>
+                                    <div style="color:#777; font-size:0.75em; margin-bottom:6px;">Necesito el de (${conMx} de ${total}):</div>
                                     <div>${listaMeses(cobertura, 'mx')}</div>`,
                                     'muy recomendable');
 
-                                // Paso 3 · Confirmaciones
                                 html += tarjetaPaso(3, 'Confirmaciones de operación',
                                     operacionesConf ? 'listo' : 'pendiente',
                                     `<div style="color:#999; font-size:0.8em; line-height:1.5;">
-                                        Una por cada compra o venta. Traen la comisión desglosada y la hora exacta,
-                                        que sirven para desempatar dos operaciones del mismo día en la misma empresa.
-                                        Sin ellas la comisión se calcula desde el estado de cuenta, que también vale.
-                                        ${operacionesConf ? `<br><br><span style="color:${AUD_VERDE};">${operacionesConf} operación(es) en ${confirmaciones.length} documento(s).</span>` : ''}
+                                        Una por cada compra o venta. Traen la comisión desglosada y la hora exacta, útil
+                                        para desempatar dos operaciones del mismo día en la misma empresa. Sin ellas la
+                                        comisión se deduce del estado de cuenta, que también sirve.
+                                        ${operacionesConf ? `<br><br><span style="color:${AUD_VERDE};">${operacionesConf} operación(es) en ${confirmaciones.length} documento(s) de ${elegidos.length > 1 ? 'estos meses' : 'este mes'}.</span>` : ''}
                                     </div>`,
                                     'opcional');
 
                                 html += BOTON_IMPORTAR;
 
-                                // Lo que ya se entregó, con la forma de quitarlo
+                                // --- Lo guardado ---
                                 if (s.documentos.length || s.ignorados.length) {
                                     let filas = '';
                                     s.documentos.forEach((d, i) => {
@@ -11563,10 +11801,11 @@
                                             : d.tipo === 'estado_mx' ? 'Smart Cash' : 'Confirmación';
                                         const cuando = d.periodo ? nombreMesClave(d.periodo.desde.slice(0, 7))
                                             : (d.operaciones && d.operaciones[0] ? d.operaciones[0].fecha : '');
-                                        filas += `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #242424;">
+                                        const enUso = documentosDeLosMeses(s).includes(d);
+                                        filas += `<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #242424; opacity:${enUso ? 1 : 0.45};">
                                             <div style="min-width:0; line-height:1.35;">
                                                 <span style="color:#ddd; font-size:0.85em; word-break:break-all;">${d.archivo}</span><br>
-                                                <span style="color:#777; font-size:0.75em;">${que}${cuando ? ' · ' + cuando : ''}</span>
+                                                <span style="color:#777; font-size:0.75em;">${que}${cuando ? ' · ' + cuando : ''}${enUso ? '' : ' · fuera de los meses elegidos'}</span>
                                             </div>
                                             <button onclick="olvidarDocumentoAuditoria(${i})" style="width:auto; margin:0; padding:4px 10px; font-size:0.9em; background:none; color:#777; border:1px solid #383838; border-radius:6px; line-height:1;">✕</button>
                                         </div>`;
@@ -11579,7 +11818,7 @@
                                     filas += `<div style="color:#777; font-size:0.75em; line-height:1.5; margin-top:10px;">
                                         ${s.persistido === false
                                             ? '⚠️ No se pudieron guardar en este dispositivo (sin espacio o navegación privada). Al cerrar la app tendrás que volver a importarlos.'
-                                            : `Guardados en este dispositivo${s.guardadoEn ? ', última vez el ' + new Date(s.guardadoEn).toLocaleDateString('es-MX') : ''}. La próxima vez sólo tendrás que añadir el mes nuevo. No se guardan los PDF, sólo lo que la app leyó de ellos.`}
+                                            : `Guardados en este dispositivo${s.guardadoEn ? ', última vez el ' + new Date(s.guardadoEn).toLocaleDateString('es-MX') : ''}. Los de meses anteriores se conservan: no hace falta volver a traerlos.`}
                                     </div>`;
                                     if (s.documentos.length) {
                                         filas += `<button onclick="olvidarTodoAuditoria()" style="width:auto; margin-top:8px; padding:6px 12px; font-size:0.75em; background:none; color:#888; border:1px solid #383838; border-radius:6px;">Quitar todos</button>`;
@@ -11588,21 +11827,11 @@
                                     html += bloqueAuditoria(`📄 Documentos cargados (${s.documentos.length})`, filas);
                                 }
 
-                                // Qué se podrá auditar con lo que hay
                                 const puede = conUsa > 0;
-                                let cobertura2 = '';
-                                const linea = (ok, texto) => `<div style="color:${ok ? '#ccc' : '#777'}; font-size:0.83em; line-height:1.6;">${ok ? '✅' : '⬜'} ${texto}</div>`;
-                                cobertura2 += linea(conUsa > 0, 'Posiciones, compras y ventas, dividendos y comisiones');
-                                cobertura2 += linea(conMx > 0, 'Pesos y tipo de cambio de cada aportación');
-                                cobertura2 += linea(conUsa > 0 && conMx > 0, 'Cruce entre lo que salió de México y lo que llegó a EE.UU.');
-                                cobertura2 += linea(operacionesConf > 0, 'Comisión desglosada operación por operación');
-                                html += bloqueAuditoria('Con lo que llevas se puede auditar', cobertura2,
-                                    puede ? AUD_VERDE : null);
-
                                 html += `<button onclick="ejecutarAuditoriaGbm()" ${puede ? '' : 'disabled'}
                                     style="width:100%; margin-top:4px; padding:14px; font-size:1em; border-radius:10px; font-weight:bold; border:none;
                                     background:${puede ? AUD_VERDE : '#2a2a2a'}; color:${puede ? '#000' : '#666'};">
-                                    ${puede ? 'Auditar con estos documentos' : 'Falta el estado de cuenta de Trading USA'}
+                                    ${puede ? `Auditar ${enPalabras}` : 'Falta el estado de cuenta de Trading USA'}
                                 </button>`;
 
                                 document.getElementById('contenidoAuditoriaGbm').innerHTML = html;
@@ -11616,14 +11845,24 @@
                                     documentos: guardado.documentos,
                                     ignorados: guardado.ignorados,
                                     guardadoEn: guardado.guardadoEn,
-                                    persistido: true
+                                    persistido: true,
+                                    meses: []
                                 };
                                 auditoriaActual = null;
                                 const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
                                 document.getElementById('tituloAuditoriaGbm').textContent =
                                     `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
                                 abrirModalAuditoriaGbm();
-                                renderGuiaAuditoria();
+                                estadoAuditoria('Revisando qué llevas auditado…');
+
+                                // El progreso vive en la base, así que se consulta al abrir. Si la migración
+                                // no está hecha la consulta falla, se anota y la guía lo dice: auditar sigue
+                                // funcionando, sólo que sin memoria de lo ya revisado.
+                                cargarMarcasAuditoria(cuentaId).then(() => {
+                                    const sugerido = mesSugerido(cuentaId);
+                                    sesionAuditoria.meses = sugerido ? [sugerido] : [];
+                                    renderGuiaAuditoria();
+                                });
                             }
 
                             function pedirDocumentosAuditoria() {
@@ -11675,9 +11914,15 @@
                                 const s = sesionAuditoria;
                                 if (!s || !s.documentos.length) return;
 
-                                const rep = conciliarGbm(s.cuentaId, s.documentos);
+                                // Sólo los documentos de los meses elegidos. Tener el año entero guardado no
+                                // debe meter enero en una auditoría de julio.
+                                const usados = documentosDeLosMeses(s);
+                                if (!usados.length) return;
+
+                                const rep = conciliarGbm(s.cuentaId, usados);
                                 rep.cuentaId = s.cuentaId;
                                 rep.ignorados = s.ignorados;
+                                rep.meses = mesesElegidos(s);
                                 auditoriaActual = rep;
 
                                 // Un PDF de otra cuenta se detecta por el contrato. Los de GBM México y los
@@ -11685,7 +11930,7 @@
                                 // comparan entre documentos de la misma procedencia.
                                 let aviso = `<button onclick="renderGuiaAuditoria()" style="width:auto; margin:0 0 14px 0; padding:7px 14px; font-size:0.8em; background:#222; color:#bbb; border:1px solid #444; border-radius:8px;">← Volver a los documentos</button>`;
 
-                                const contratosUsa = new Set(s.documentos
+                                const contratosUsa = new Set(usados
                                     .filter(d => d.tipo !== 'estado_mx' && d.contrato)
                                     .map(d => normalizarContrato(d.contrato)));
                                 if (contratosUsa.size > 1) {
@@ -12015,6 +12260,18 @@
             if (!res.error) {
                             // Capturamos el estado antes de que cancelarEdicionMov lo borre
                             const eraEdicion = editIdMov !== null;
+
+                            // Un movimiento que cambia deja de estar auditado: la marca hablaba de los
+                            // datos de antes, y dejarla puesta volvería el progreso un número que miente.
+                            // Va en su propia consulta y sin esperar respuesta, para que la falta de la
+                            // migración de auditoría nunca impida guardar un movimiento.
+                            if (eraEdicion) {
+                                const idEditado = editIdMov;
+                                clienteSupabase.from('registros')
+                                    .update({ auditado_en: null, auditado_doc: null })
+                                    .eq('id', idEditado)
+                                    .then(() => {}, () => {});
+                            }
 
                             // Los ids que acaba de devolver el insert son los que el historial estrenará
                             // con animación. Al editar no hay nada que estrenar: el movimiento ya estaba.
