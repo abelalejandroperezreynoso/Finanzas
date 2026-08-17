@@ -10487,6 +10487,45 @@
                                 return pruebas;
                             }
 
+                            // --- Identidad de un documento -------------------------------------------
+                            //
+                            // Lo que hace único a un documento es su contenido, nunca cómo se llame el
+                            // archivo. El nombre falla en las dos direcciones: el mismo estado de cuenta
+                            // bajado dos veces llega como "Documento_PDF.pdf" y "Documento_PDF (1).pdf",
+                            // y dos meses distintos pueden llegar los dos como "Documento_PDF.pdf".
+                            //
+                            // Confiar en el nombre significaba contar dos veces los depósitos de un mes
+                            // repetido, o descartar en silencio un mes nuevo por llamarse igual que otro
+                            // —que es peor, porque el mes se daría por revisado sin haberlo mirado—.
+                            //
+                            // Un estado de cuenta se identifica por contrato y periodo, que es justo lo que
+                            // lo distingue. Una confirmación no trae folio, así que la firman sus propias
+                            // operaciones: fecha, empresa, títulos y precio.
+                            function huellaDocumento(d) {
+                                const contrato = normalizarContrato(d.contrato || '');
+                                if (d.tipo === 'confirmacion') {
+                                    const ops = (d.operaciones || [])
+                                        .map(o => `${o.fecha}|${o.ticker}|${o.clase}|${(o.acciones || 0).toFixed(8)}|${o.precio}`)
+                                        .sort().join(';');
+                                    return `confirmacion|${contrato}|${ops}`;
+                                }
+                                const p = d.periodo;
+                                return `${d.tipo}|${contrato}|${p ? p.desde + '|' + p.hasta : 'sin-periodo|' + d.archivo}`;
+                            }
+
+                            // Cómo nombrar un documento cuando lo que importa es cuál es, y no en qué
+                            // archivo venía. Es lo que se guarda junto a la marca de auditoría: dentro de
+                            // un año, "Trading USA · junio 2026" dice algo y "Documento_PDF (2).pdf" no.
+                            function etiquetaDocumento(d) {
+                                if (d.tipo === 'confirmacion') {
+                                    const ops = d.operaciones || [];
+                                    const cual = ops.length === 1 ? ` ${ops[0].ticker}` : ops.length ? ` (${ops.length} ops)` : '';
+                                    return `Confirmación${cual} · ${ops[0] ? ops[0].fecha : 'sin fecha'}`;
+                                }
+                                const donde = d.tipo === 'estado_mx' ? 'Smart Cash' : 'Trading USA';
+                                return `${donde} · ${d.periodo ? nombreMesClave(d.periodo.desde.slice(0, 7)) : 'sin periodo'}`;
+                            }
+
                             // --- Normalización y conciliación ----------------------------------------
 
                             // Un mismo movimiento puede llegar dos veces: en el estado de cuenta y en su
@@ -10508,7 +10547,7 @@
 
                                 documentos.filter(d => d.tipo === 'estado_cuenta').forEach(ec => {
                                     ec.actividad.forEach((m, i) => {
-                                        porClave.set(claveMovimiento(m, `${ec.archivo}#${i}`), {
+                                        porClave.set(claveMovimiento(m, `${huellaDocumento(ec)}#${i}`), {
                                             origen: 'estado de cuenta', archivo: ec.archivo,
                                             clase: m.clase, codigo: m.codigo, ticker: m.ticker,
                                             fecha: m.fecha, acciones: m.acciones, precio: m.precio,
@@ -11548,9 +11587,11 @@
                                 const ids = movimientosQueCuadraron(rep).filter(id => !(marcasAuditoria || {})[id]);
                                 if (!ids.length) { alert('No hay movimientos nuevos que marcar: los que cuadraron ya estaban auditados.'); return; }
 
+                                // Se guarda contra qué documento cuadró, no en qué archivo venía: dentro de
+                                // un año "Trading USA · junio 2026" dice algo y "Documento_PDF (2).pdf" no.
                                 const docs = (rep.documentos || [])
                                     .filter(d => d.tipo !== 'confirmacion')
-                                    .map(d => d.archivo).join(', ');
+                                    .map(etiquetaDocumento).join('; ');
 
                                 if (!confirm(`Se marcarán ${ids.length} movimiento(s) como auditados.\n\n` +
                                     `Son los que coincidieron exactamente con ${docs || 'los documentos importados'}.\n\n` +
@@ -11882,21 +11923,34 @@
                                 estadoAuditoria(`Leyendo ${archivos.length} documento(s)…<br><br>
                                     <span style="color:#666; font-size:0.85em;">Todo ocurre en este dispositivo: los PDF no se suben a ningún servidor.</span>`);
 
+                                const repetidos = [];
+
                                 try {
                                     for (const archivo of archivos) {
                                         const doc = await renglonesDePdf(archivo);
                                         const tipo = tipoDocumentoGbm(doc);
-                                        // Un mismo archivo dos veces duplicaría sus movimientos y con ellos
-                                        // los totales; se reconoce por nombre y periodo.
-                                        const yaEsta = s.documentos.some(d => d.archivo === doc.archivo);
-                                        if (yaEsta) continue;
 
-                                        if (tipo === 'estado_cuenta') s.documentos.push(parsearEstadoCuenta(doc));
-                                        else if (tipo === 'confirmacion') s.documentos.push(parsearConfirmacion(doc));
-                                        else if (tipo === 'estado_mx') s.documentos.push(parsearEstadoMx(doc));
-                                        else if (!s.ignorados.some(i => i.archivo === doc.archivo)) {
-                                            s.ignorados.push({ archivo: doc.archivo, tipo });
+                                        let leido = null;
+                                        if (tipo === 'estado_cuenta') leido = parsearEstadoCuenta(doc);
+                                        else if (tipo === 'confirmacion') leido = parsearConfirmacion(doc);
+                                        else if (tipo === 'estado_mx') leido = parsearEstadoMx(doc);
+
+                                        if (!leido) {
+                                            if (!s.ignorados.some(i => i.archivo === doc.archivo)) {
+                                                s.ignorados.push({ archivo: doc.archivo, tipo });
+                                            }
+                                            continue;
                                         }
+
+                                        // El mismo documento dos veces duplicaría sus depósitos y dividendos
+                                        // —las compras se emparejan solas, pero los depósitos no—, así que se
+                                        // compara el contenido y no el nombre del archivo.
+                                        const huella = huellaDocumento(leido);
+                                        if (s.documentos.some(d => huellaDocumento(d) === huella)) {
+                                            repetidos.push(etiquetaDocumento(leido));
+                                            continue;
+                                        }
+                                        s.documentos.push(leido);
                                     }
                                 } catch (e) {
                                     estadoAuditoria(`❌ No se pudo leer el PDF.<br><br>
@@ -11907,6 +11961,13 @@
                                 }
 
                                 guardarDocumentosAuditoria(s);
+                                // Se avisa de lo repetido en vez de descartarlo callando: si alguien
+                                // esperaba estar añadiendo un mes nuevo, tiene que enterarse de que no.
+                                if (repetidos.length) {
+                                    alert(`Ya tenías ${repetidos.length === 1 ? 'este documento' : 'estos documentos'}:\n\n` +
+                                        repetidos.map(r => '· ' + r).join('\n') +
+                                        `\n\nNo se añadieron otra vez. Si quieres reemplazar alguno, quítalo primero de la lista.`);
+                                }
                                 renderGuiaAuditoria();
                             }
 
