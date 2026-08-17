@@ -1618,6 +1618,114 @@
                                                     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
                                                     const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
+                                                    // --- Cuando la petición ni siquiera llega al servidor ---
+                                                    // Si el `fetch` no consigue conectar no hay error de la base que contar, así que
+                                                    // Supabase devuelve el del navegador tal cual: en iOS eso se lee "TypeError: Load
+                                                    // failed", que es exacto y no le dice nada a quien sólo quería registrar un gasto.
+                                                    // Pasa con la app instalada en el teléfono: al volver a ella después de un rato la
+                                                    // primera petición sale por una conexión que el sistema ya había cerrado y muere al
+                                                    // instante, y también en cualquier bache de la red móvil. En los dos casos la
+                                                    // petición no llegó a ejecutarse, así que repetirla suele bastar: eso es lo que
+                                                    // hacen los ayudantes de aquí abajo antes de molestar a nadie con un mensaje.
+                                                    const TEXTOS_FALLO_RED = [
+                                                        'load failed',                      // Safari / iOS
+                                                        'failed to fetch',                  // Chrome
+                                                        'networkerror',                     // Firefox
+                                                        'network request failed',
+                                                        'the network connection was lost'
+                                                    ];
+
+                                                    function esFalloDeRed(error) {
+                                                        if (!error) return false;
+                                                        // Un error de PostgREST siempre trae `code`; los de red vienen sin él, porque
+                                                        // nunca hubo respuesta que leer.
+                                                        if (error.code) return false;
+                                                        const texto = String(error.message || '').toLowerCase();
+                                                        return TEXTOS_FALLO_RED.some(t => texto.includes(t));
+                                                    }
+
+                                                    // Esperas entre intentos. Cortas a propósito: el caso típico es una conexión
+                                                    // muerta que se rehace al primer reintento, y del otro lado hay alguien mirando
+                                                    // el botón de guardar.
+                                                    const ESPERAS_REINTENTO = [400, 1200, 3000];
+
+                                                    const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
+                                                    // Repite una consulta que se cayó por la red. Sólo para lo que se puede repetir
+                                                    // sin consecuencias —lecturas y `update`, que dejan el mismo resultado se hagan
+                                                    // una vez o tres—. Un `insert` no entra aquí: tiene su propia versión más abajo.
+                                                    async function conReintentosDeRed(hacerPeticion, alReintentar) {
+                                                        let res = await hacerPeticion();
+                                                        for (const espera of ESPERAS_REINTENTO) {
+                                                            if (!esFalloDeRed(res.error)) return res;
+                                                            if (alReintentar) alReintentar();
+                                                            await esperar(espera);
+                                                            res = await hacerPeticion();
+                                                        }
+                                                        return res;
+                                                    }
+
+                                                    // Lo que se enseña cuando el guardado se cayó por la red. Enseñar "TypeError:
+                                                    // Load failed" es contarle al usuario el problema del navegador; lo que necesita
+                                                    // saber es que no se guardó, que no perdió lo capturado y que puede reintentar.
+                                                    function mensajeDeFalloAlGuardar(error, queEs) {
+                                                        return esFalloDeRed(error)
+                                                            ? `📶 No se pudo conectar con el servidor.\n\n${queEs} NO se guardó. Lo que capturaste sigue en el formulario: revisa tu conexión y vuelve a darle a Guardar.`
+                                                            : `Error al guardar ${queEs.toLowerCase()}: ${error.message}`;
+                                                    }
+
+                                                    // Un `insert` no se puede repetir a ciegas: la petición pudo haberse ejecutado en
+                                                    // el servidor y haberse perdido sólo la respuesta, y entonces el reintento deja el
+                                                    // movimiento duplicado —que en una app de dinero es peor que el error—. Así que
+                                                    // antes de insistir se le pregunta a la base si lo que se mandó ya está ahí, y
+                                                    // sólo se vuelve a insertar cuando la respuesta es que no.
+                                                    async function insertarRegistrosConReintentos(cuerpos, seleccion, alReintentar) {
+                                                        const insertar = () => clienteSupabase.from('registros').insert(cuerpos).select(seleccion);
+                                                        let res = await insertar();
+
+                                                        for (const espera of ESPERAS_REINTENTO) {
+                                                            if (!esFalloDeRed(res.error)) return res;
+                                                            if (alReintentar) alReintentar();
+                                                            await esperar(espera);
+
+                                                            // Los movimientos que se mandaron, tal cual: misma categoría, mismo monto
+                                                            // y las mismas fechas. Todos los del lote comparten todo salvo el día.
+                                                            const gemelos = await clienteSupabase
+                                                                .from('registros')
+                                                                .select(seleccion)
+                                                                .eq('user_id', cuerpos[0].user_id)
+                                                                .eq('categoria_id', cuerpos[0].categoria_id)
+                                                                .eq('monto', cuerpos[0].monto)
+                                                                .in('fecha', cuerpos.map(c => c.fecha));
+
+                                                            // Si tampoco se puede preguntar es que seguimos sin red. Volver a insertar
+                                                            // sería apostar, así que se espera a poder comprobarlo.
+                                                            if (gemelos.error) continue;
+
+                                                            if ((gemelos.data || []).length === 0) {
+                                                                res = await insertar();
+                                                                continue;
+                                                            }
+
+                                                            // Hay movimientos idénticos en la base. Casi siempre son los que se acaban
+                                                            // de guardar y de los que sólo se perdió la respuesta, pero podrían ser
+                                                            // unos capturados antes a propósito: idénticos son idénticos y la base no
+                                                            // distingue. Las dos salidas pierden algo —o falta un movimiento o sobra un
+                                                            // duplicado—, así que lo decide quien sí sabe qué acaba de capturar.
+                                                            const cuantos = gemelos.data.length;
+                                                            const volverAGuardar = confirm(
+                                                                `📶 Se perdió la conexión al guardar y no se pudo confirmar el resultado.\n\n` +
+                                                                `En la base ya hay ${cuantos} movimiento(s) idéntico(s): misma categoría, mismo monto y misma fecha. ` +
+                                                                `Lo más probable es que sean los que acabas de guardar.\n\n` +
+                                                                `Aceptar → guardarlo otra vez (puede quedar duplicado).\n` +
+                                                                `Cancelar → darlo por guardado.`
+                                                            );
+                                                            if (!volverAGuardar) return { data: gemelos.data, error: null };
+                                                            res = await insertar();
+                                                        }
+                                                        return res;
+                                                    }
+
                                                     let currentUser = null, editIdMov = null, editIdCuenta = null, editIdCat = null, miGrafico = null, miTreemap = null;
                                                     // Guarda cuenta/dirección cuando la categoría se crea desde la pantalla de registro
                                                     let contextoCatDesdeRegistro = null;
@@ -4000,17 +4108,38 @@
                                 );
                                 if (existente) return existente.id;
 
-                                const { data, error } = await clienteSupabase
-                                    .from('categorias')
-                                    // Sin predicciones: la caja no es un gasto recurrente que anticipar
-                                    .insert([{ cuenta_id: cuentaId, nombre: 'Caja GBM', tipo: 'inversion', ticker: null, desactivar_prediccion: true, user_id: currentUser.id }])
-                                    .select();
+                                // Sin predicciones: la caja no es un gasto recurrente que anticipar
+                                const nueva = { cuenta_id: cuentaId, nombre: 'Caja GBM', tipo: 'inversion', ticker: null, desactivar_prediccion: true, user_id: currentUser.id };
+                                let res = await clienteSupabase.from('categorias').insert([nueva]).select();
 
-                                if (error || !data || !data[0]) {
-                                    alert("No se pudo crear la categoría 'Caja GBM': " + (error ? error.message : 'error desconocido'));
+                                // Si el insert se cayó por la red hay que comprobar antes de repetirlo: la
+                                // caja pudo haberse creado y haberse perdido sólo la respuesta, y dos cajas
+                                // en la misma cuenta repartirían el saldo en dólares entre las dos.
+                                for (const espera of ESPERAS_REINTENTO) {
+                                    if (!esFalloDeRed(res.error)) break;
+                                    await esperar(espera);
+
+                                    const enLaBase = await clienteSupabase
+                                        .from('categorias')
+                                        .select('id, nombre, tipo, ticker')
+                                        .eq('user_id', currentUser.id)
+                                        .eq('cuenta_id', cuentaId);
+
+                                    if (enLaBase.error) continue;   // seguimos sin red: sólo se puede esperar
+
+                                    const caja = (enLaBase.data || []).find(esCategoriaCajaGbm);
+                                    if (caja) return caja.id;
+
+                                    res = await clienteSupabase.from('categorias').insert([nueva]).select();
+                                }
+
+                                if (res.error || !res.data || !res.data[0]) {
+                                    alert(esFalloDeRed(res.error)
+                                        ? "📶 No se pudo conectar con el servidor.\n\nEl movimiento NO se guardó: para una aportación o un retiro hace falta la categoría 'Caja GBM' y no se pudo crear. Revisa tu conexión y vuelve a darle a Guardar."
+                                        : "No se pudo crear la categoría 'Caja GBM': " + (res.error ? res.error.message : 'error desconocido'));
                                     return null;
                                 }
-                                return data[0].id;
+                                return res.data[0].id;
                             }
 
                             function verificarMostrarCostoAccion() {
@@ -12443,12 +12572,23 @@
                             }
                         }
 
+                        // 2. Desactivar botón temporalmente para evitar doble clic.
+                        // Se bloquea aquí y no justo antes del insert porque crear la caja GBM ya es
+                        // una ida al servidor, y con los reintentos de red puede tardar unos segundos:
+                        // ese rato con el botón vivo es tiempo de sobra para tocarlo dos veces y
+                        // acabar con el movimiento duplicado.
+                        const btnCrear = document.getElementById('btnCrearRegistro');
+                        const textoOriginal = btnCrear.textContent;
+                        const soltarBoton = () => { btnCrear.textContent = textoOriginal; btnCrear.disabled = false; };
+                        btnCrear.textContent = 'Guardando...';
+                        btnCrear.disabled = true;
+
                         // Las aportaciones y retiros no pertenecen a ninguna empresa: se guardan en la
                         // categoría "Caja GBM" de la cuenta, que se crea sola la primera vez
                         let categoriaFinalId = catId;
                         if (tipoMovimiento === 'aportacion' || tipoMovimiento === 'retiro') {
                             const idCatCaja = await obtenerCategoriaCajaGbm(catSeleccionada.cuenta_id);
-                            if (!idCatCaja) return;
+                            if (!idCatCaja) { soltarBoton(); return; }
                             categoriaFinalId = idCatCaja;
                         }
 
@@ -12464,25 +12604,26 @@
                             monto_usd: montoUsd,
                             user_id: currentUser.id
                         };
-            
-            // 2. Desactivar botón temporalmente para evitar doble clic
-            const btnCrear = document.getElementById('btnCrearRegistro');
-            const textoOriginal = btnCrear.textContent;
-            btnCrear.textContent = 'Guardando...';
-            btnCrear.disabled = true;
 
             // Un registro por fecha, iguales salvo el día. Van en un solo insert para que o
             // entran todos o no entra ninguno: a medias quedaría un lote partido sin forma de
             // saber cuáles faltaron.
             const cuerpos = fechasDelLote.map(f => ({ ...body, fecha: f.toISOString() }));
 
+            // Un fallo de red no es un "no se pudo": es un "no llegó". Los ayudantes lo
+            // reintentan solos y aquí sólo se avisa de que se está insistiendo, para que el
+            // par de segundos extra no se lean como que la app se quedó colgada.
+            const avisarReintento = () => { btnCrear.textContent = 'Reintentando...'; };
+            const SELECCION_MOV = '*, categorias(nombre, tipo)';
+
             const res = editIdMov
-                ? await clienteSupabase.from('registros').update(body).eq('id', editIdMov).select('*, categorias(nombre, tipo)')
-                : await clienteSupabase.from('registros').insert(cuerpos).select('*, categorias(nombre, tipo)');
-                
+                ? await conReintentosDeRed(
+                    () => clienteSupabase.from('registros').update(body).eq('id', editIdMov).select(SELECCION_MOV),
+                    avisarReintento)
+                : await insertarRegistrosConReintentos(cuerpos, SELECCION_MOV, avisarReintento);
+
             // Restaurar botón
-            btnCrear.textContent = textoOriginal;
-            btnCrear.disabled = false;
+            soltarBoton();
 
             if (!res.error) {
                             // Capturamos el estado antes de que cancelarEdicionMov lo borre
@@ -12533,7 +12674,7 @@
                             // momento no había nada frecuente que precargar.
                             preseleccionarFrecuentes(true);
                         } else {
-                alert("Error al guardar: " + res.error.message);
+                alert(mensajeDeFalloAlGuardar(res.error, 'El movimiento'));
             }
         });
 
