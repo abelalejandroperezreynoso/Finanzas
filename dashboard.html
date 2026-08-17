@@ -10957,7 +10957,7 @@
                                     </button>`;
                                     if (pendientes) {
                                         filas += `<div style="color:#777; font-size:0.75em; line-height:1.5; margin-top:7px;">
-                                            Los ${pendientes} pendientes no se marcan. Resuélvelos con los botones de abajo y vuelve a auditar.
+                                            Los ${pendientes} pendientes no se marcan. Ábrelos en los temas de abajo, resuélvelos y vuelve a auditar.
                                         </div>`;
                                     }
                                 } else if (cuadraron.length) {
@@ -10972,241 +10972,405 @@
                                 return bloqueAuditoria(titulo, filas, pendientes ? AUD_AMBAR : AUD_VERDE);
                             }
 
-                            function renderAuditoriaGbm(rep) {
-                                let html = bloqueProgresoAuditoria(rep);
+                            // --- Resumen y detalle ---------------------------------------------------
+                            //
+                            // Una auditoría produce ocho o nueve temas —integridad del documento, posiciones,
+                            // operaciones, aportaciones, traslado, dividendos, comisiones, caja— y antes se
+                            // pintaban todos desplegados, uno detrás de otro. Para saber si algo iba mal había
+                            // que recorrer pantallas de listas, y las listas largas son justo las que no
+                            // interesan cuando todo cuadra.
+                            //
+                            // Así que lo que se ve al terminar es un resumen: una línea por tema, con su
+                            // estado y su cifra. El detalle de cada uno —con sus botones de corregir, de
+                            // registrar o de ver el registro— se abre al tocar su línea.
+                            //
+                            // vistaAuditoria dice qué tema está abierto; null es el resumen.
 
-                                // 1. Integridad del documento: si esto falla, nada de lo demás vale
-                                let filasPruebas = '';
-                                rep.pruebas.forEach(grupo => {
-                                    filasPruebas += `<div style="color:#888; font-size:0.78em; margin:8px 0 2px 0;">${grupo.archivo}</div>`;
-                                    grupo.pruebas.forEach(p => {
-                                        const icono = p.estado === 'ok' ? '✅' : p.estado === 'falla' ? '❌' : '➖';
-                                        const color = p.estado === 'ok' ? AUD_VERDE : p.estado === 'falla' ? AUD_ROJO : '#777';
-                                        const valor = p.estado === 'sin_dato' ? 'sin dato'
-                                            : `${Number(p.calculado).toFixed(2)} / ${Number(p.declarado).toFixed(2)}`;
-                                        filasPruebas += filaAuditoria(`${icono} ${p.etiqueta}`, valor, color, p.nota);
-                                    });
+                            let vistaAuditoria = null;
+
+                            function abrirDetalleAuditoria(clave) {
+                                vistaAuditoria = clave;
+                                pintarAuditoria();
+                            }
+
+                            function volverResumenAuditoria() {
+                                vistaAuditoria = null;
+                                pintarAuditoria();
+                            }
+
+                            function pintarAuditoria() {
+                                const rep = auditoriaActual;
+                                const cont = document.getElementById('contenidoAuditoriaGbm');
+                                if (!rep || !cont) return;
+                                cont.innerHTML = renderAuditoriaGbm(rep);
+                                // Cambiar de pantalla dentro del panel empieza arriba: si no, tocar una línea
+                                // del final del resumen deja el detalle abierto a media página.
+                                const modal = document.getElementById('modalAuditoriaGbm');
+                                if (modal) modal.scrollTop = 0;
+                            }
+
+                            const BOTON_VOLVER_RESUMEN = `<button onclick="volverResumenAuditoria()" style="width:auto; margin:0 0 14px 0; padding:7px 14px; font-size:0.8em; background:#222; color:#bbb; border:1px solid #444; border-radius:8px;">← Resumen</button>`;
+
+                            // Una línea del resumen. El estado va escrito, no sólo en el color: "todo cuadra"
+                            // y "3 por revisar" se distinguen sin depender de ver el verde o el ámbar.
+                            function filaResumenAuditoria(sec, ultima) {
+                                return `<div onclick="abrirDetalleAuditoria('${sec.clave}')" style="display:flex; align-items:center; gap:10px; padding:12px 0; ${ultima ? '' : 'border-bottom:1px solid #242424;'} cursor:pointer; -webkit-tap-highlight-color:rgba(255,255,255,0.08);">
+                                    <div style="flex:1; min-width:0; line-height:1.35;">
+                                        <div style="color:#fff; font-size:0.9em;">${sec.icono} ${sec.titulo}</div>
+                                        ${sec.nota ? `<div style="color:#777; font-size:0.75em; margin-top:2px;">${sec.nota}</div>` : ''}
+                                    </div>
+                                    <div style="text-align:right; white-space:nowrap; color:${sec.color}; font-size:0.85em; font-weight:bold;">${sec.valor}</div>
+                                    <div style="color:#555; font-size:1.15em; line-height:1;">›</div>
+                                </div>`;
+                            }
+
+                            // Los temas del reporte, en el orden en que conviene mirarlos. Cada uno sabe
+                            // resumirse en una línea y pintarse entero; el detalle se construye sólo cuando
+                            // se abre, que es una vez y no nueve.
+                            function seccionesAuditoria(rep) {
+                                const secciones = [];
+
+                                // 1. Integridad y procedencia del documento: si esto falla, nada más vale
+                                secciones.push({
+                                    clave: 'documento',
+                                    icono: '📄',
+                                    titulo: 'Documentos',
+                                    valor: rep.formatoSospechoso ? 'formato en duda' : 'íntegros',
+                                    color: rep.formatoSospechoso ? AUD_ROJO : AUD_VERDE,
+                                    nota: `${rep.documentos.length} leído(s)` +
+                                        (rep.periodo ? ` · ${rep.periodo.desde} → ${rep.periodo.hasta}` : ''),
+                                    detalle: () => {
+                                        let filasPruebas = '';
+                                        rep.pruebas.forEach(grupo => {
+                                            filasPruebas += `<div style="color:#888; font-size:0.78em; margin:8px 0 2px 0;">${grupo.archivo}</div>`;
+                                            grupo.pruebas.forEach(p => {
+                                                const icono = p.estado === 'ok' ? '✅' : p.estado === 'falla' ? '❌' : '➖';
+                                                const color = p.estado === 'ok' ? AUD_VERDE : p.estado === 'falla' ? AUD_ROJO : '#777';
+                                                const valor = p.estado === 'sin_dato' ? 'sin dato'
+                                                    : `${Number(p.calculado).toFixed(2)} / ${Number(p.declarado).toFixed(2)}`;
+                                                filasPruebas += filaAuditoria(`${icono} ${p.etiqueta}`, valor, color, p.nota);
+                                            });
+                                        });
+
+                                        let html = rep.formatoSospechoso
+                                            ? bloqueAuditoria('⚠️ El formato del documento cambió',
+                                                `<div style="color:#ffb4b4; font-size:0.88em; line-height:1.5; margin-bottom:10px;">
+                                                    Las cuentas internas del propio documento no cuadran con lo que se leyó de él.
+                                                    Eso significa que GBM movió algo de sitio y la app está leyendo mal las columnas.
+                                                    <strong>No confíes en el resto de la auditoría</strong>: las diferencias que aparezcan
+                                                    probablemente sean del lector, no de tus registros.
+                                                </div>${filasPruebas}`, AUD_ROJO)
+                                            : bloqueAuditoria('✅ Documento íntegro', filasPruebas, AUD_VERDE);
+
+                                        let filasDoc = '';
+                                        if (rep.periodo) filasDoc += filaAuditoria('Periodo cubierto', `${rep.periodo.desde} → ${rep.periodo.hasta}`);
+                                        if (rep.contratos.length) filasDoc += filaAuditoria('Contrato', rep.contratos.join(', '));
+                                        filasDoc += filaAuditoria('Documentos leídos', String(rep.documentos.length));
+                                        return html + bloqueAuditoria('📄 Documentos', filasDoc);
+                                    }
                                 });
 
-                                if (rep.formatoSospechoso) {
-                                    html += bloqueAuditoria('⚠️ El formato del documento cambió',
-                                        `<div style="color:#ffb4b4; font-size:0.88em; line-height:1.5; margin-bottom:10px;">
-                                            Las cuentas internas del propio documento no cuadran con lo que se leyó de él.
-                                            Eso significa que GBM movió algo de sitio y la app está leyendo mal las columnas.
-                                            <strong>No confíes en la conciliación de abajo</strong>: las diferencias que aparezcan
-                                            probablemente sean del lector, no de tus registros.
-                                        </div>${filasPruebas}`, AUD_ROJO);
-                                } else {
-                                    html += bloqueAuditoria('✅ Documento íntegro', filasPruebas, AUD_VERDE);
-                                }
-
-                                // Cabecera con lo que se leyó
-                                let filasDoc = '';
-                                if (rep.periodo) filasDoc += filaAuditoria('Periodo cubierto', `${rep.periodo.desde} → ${rep.periodo.hasta}`);
-                                if (rep.contratos.length) filasDoc += filaAuditoria('Contrato', rep.contratos.join(', '));
-                                filasDoc += filaAuditoria('Documentos leídos', String(rep.documentos.length));
-                                html += bloqueAuditoria('📄 Documentos', filasDoc);
-
                                 if (rep.codigosDesconocidos.length) {
-                                    html += bloqueAuditoria('❓ Movimientos que no sé interpretar',
-                                        `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5; margin-bottom:8px;">
-                                            El documento trae tipos de movimiento que esta auditoría todavía no conoce.
-                                            No se adivinó su significado: quedan fuera de la conciliación y conviene revisarlos a mano.
-                                        </div>` +
-                                        rep.codigosDesconocidos.map(c => filaAuditoria(`Código <strong>${c}</strong>`, 'sin interpretar', AUD_AMBAR)).join(''),
-                                        AUD_AMBAR);
+                                    secciones.push({
+                                        clave: 'codigos',
+                                        icono: '❓',
+                                        titulo: 'Movimientos que no sé interpretar',
+                                        valor: `${rep.codigosDesconocidos.length} sin interpretar`,
+                                        color: AUD_AMBAR,
+                                        nota: 'Quedan fuera de la conciliación',
+                                        detalle: () => bloqueAuditoria('❓ Movimientos que no sé interpretar',
+                                            `<div style="color:#ffd9a0; font-size:0.85em; line-height:1.5; margin-bottom:8px;">
+                                                El documento trae tipos de movimiento que esta auditoría todavía no conoce.
+                                                No se adivinó su significado: quedan fuera de la conciliación y conviene revisarlos a mano.
+                                            </div>` +
+                                            rep.codigosDesconocidos.map(c => filaAuditoria(`Código <strong>${c}</strong>`, 'sin interpretar', AUD_AMBAR)).join(''),
+                                            AUD_AMBAR)
+                                    });
                                 }
 
                                 // 2. Posición al corte: el cuadre más valioso
                                 if (rep.posiciones.length) {
                                     const descuadres = rep.posiciones.filter(p => !p.cuadra);
-                                    let filas = '';
-                                    rep.posiciones.forEach(p => {
-                                        const icono = p.cuadra ? '✅' : '❌';
-                                        const color = p.cuadra ? AUD_VERDE : AUD_ROJO;
-                                        const nota = p.cuadra ? '' :
-                                            `app ${accionesConFormato(p.app)} · GBM ${accionesConFormato(p.gbm)}`;
-                                        const valor = p.cuadra ? accionesConFormato(p.gbm)
-                                            : `${p.diferencia >= 0 ? '+' : ''}${accionesConFormato(p.diferencia)}`;
-                                        filas += filaAuditoria(`${icono} ${p.ticker}`, valor, color, nota);
+                                    secciones.push({
+                                        clave: 'posiciones',
+                                        icono: '📊',
+                                        titulo: `Posición al ${rep.corte}`,
+                                        valor: descuadres.length ? `${descuadres.length} no cuadra(n)` : 'todo cuadra',
+                                        color: descuadres.length ? AUD_ROJO : AUD_VERDE,
+                                        nota: `${rep.posiciones.length} emisora(s) comparada(s)`,
+                                        detalle: () => {
+                                            let filas = '';
+                                            rep.posiciones.forEach(p => {
+                                                const icono = p.cuadra ? '✅' : '❌';
+                                                const color = p.cuadra ? AUD_VERDE : AUD_ROJO;
+                                                const nota = p.cuadra ? '' :
+                                                    `app ${accionesConFormato(p.app)} · GBM ${accionesConFormato(p.gbm)}`;
+                                                const valor = p.cuadra ? accionesConFormato(p.gbm)
+                                                    : `${p.diferencia >= 0 ? '+' : ''}${accionesConFormato(p.diferencia)}`;
+                                                filas += filaAuditoria(`${icono} ${p.ticker}`, valor, color, nota);
+                                            });
+                                            const titulo = descuadres.length
+                                                ? `📊 Posición al ${rep.corte} — ${descuadres.length} no cuadra(n)`
+                                                : `📊 Posición al ${rep.corte} — todo cuadra`;
+                                            return bloqueAuditoria(titulo, filas, descuadres.length ? AUD_ROJO : AUD_VERDE);
+                                        }
                                     });
-                                    const titulo = descuadres.length
-                                        ? `📊 Posición al ${rep.corte} — ${descuadres.length} no cuadra(n)`
-                                        : `📊 Posición al ${rep.corte} — todo cuadra`;
-                                    html += bloqueAuditoria(titulo, filas, descuadres.length ? AUD_ROJO : AUD_VERDE);
                                 }
 
                                 // 3. Operaciones
                                 const op = rep.operaciones;
-                                let filasOp = filaAuditoria('Coinciden exactamente', String(op.iguales.length), AUD_VERDE);
-                                if (op.distintas.length) filasOp += filaAuditoria('Coinciden con diferencias', String(op.distintas.length), AUD_AMBAR);
-                                if (op.faltanEnApp.length) filasOp += filaAuditoria('Están en GBM y no en la app', String(op.faltanEnApp.length), AUD_ROJO);
-                                if (op.sobranEnApp.length) filasOp += filaAuditoria('Están en la app y no en GBM', String(op.sobranEnApp.length), AUD_ROJO);
-                                html += bloqueAuditoria('🔁 Operaciones del periodo', filasOp);
+                                const pendientesOp = op.distintas.length + op.faltanEnApp.length + op.sobranEnApp.length;
+                                const gravesOp = op.faltanEnApp.length + op.sobranEnApp.length;
+                                secciones.push({
+                                    clave: 'operaciones',
+                                    icono: '🔁',
+                                    titulo: 'Operaciones del periodo',
+                                    valor: pendientesOp ? `${pendientesOp} por revisar` : 'todo cuadra',
+                                    color: gravesOp ? AUD_ROJO : pendientesOp ? AUD_AMBAR : AUD_VERDE,
+                                    nota: `${op.iguales.length} coinciden exactamente`,
+                                    detalle: () => {
+                                        let filasOp = filaAuditoria('Coinciden exactamente', String(op.iguales.length), AUD_VERDE);
+                                        if (op.distintas.length) filasOp += filaAuditoria('Coinciden con diferencias', String(op.distintas.length), AUD_AMBAR);
+                                        if (op.faltanEnApp.length) filasOp += filaAuditoria('Están en GBM y no en la app', String(op.faltanEnApp.length), AUD_ROJO);
+                                        if (op.sobranEnApp.length) filasOp += filaAuditoria('Están en la app y no en GBM', String(op.sobranEnApp.length), AUD_ROJO);
+                                        let html = bloqueAuditoria('🔁 Operaciones del periodo', filasOp);
 
-                                if (op.distintas.length) {
-                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                        Cada operación se corrige por separado, y sólo se tocan los campos que ves
-                                        listados. El documento de GBM manda, pero la decisión es tuya en cada caso.
-                                    </div>`;
-                                    op.distintas.forEach((d, i) => {
-                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
-                                            <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">
-                                                ${d.gbm.ticker} · ${d.gbm.clase} · ${d.gbm.fecha}
-                                            </div>
-                                            ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
-                                                ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
-                                                · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
-                                            </div>`).join('')}
-                                            <div style="display:flex; gap:8px; margin-top:7px;">
-                                                <button onclick="corregirDiferenciaAuditoria('operaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
-                                                <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
-                                            </div>
-                                        </div>`;
-                                    });
-                                    html += bloqueAuditoria('⚠️ Operaciones con diferencias', filas, AUD_AMBAR);
-                                }
+                                        if (op.distintas.length) {
+                                            let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                Cada operación se corrige por separado, y sólo se tocan los campos que ves
+                                                listados. El documento de GBM manda, pero la decisión es tuya en cada caso.
+                                            </div>`;
+                                            op.distintas.forEach((d, i) => {
+                                                filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                                    <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">
+                                                        ${d.gbm.ticker} · ${d.gbm.clase} · ${d.gbm.fecha}
+                                                    </div>
+                                                    ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
+                                                        ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
+                                                        · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
+                                                    </div>`).join('')}
+                                                    <div style="display:flex; gap:8px; margin-top:7px;">
+                                                        <button onclick="corregirDiferenciaAuditoria('operaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                        <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                                    </div>
+                                                </div>`;
+                                            });
+                                            html += bloqueAuditoria('⚠️ Operaciones con diferencias', filas, AUD_AMBAR);
+                                        }
 
-                                if (op.faltanEnApp.length) {
-                                    let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                        GBM ejecutó estas operaciones y no encuentro su registro en la app.
-                                    </div>`;
-                                    op.faltanEnApp.forEach((g, i) => {
-                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
-                                            <div style="color:#fff; font-size:0.9em;">${g.ticker || '—'} · ${g.clase} · ${g.fecha}</div>
-                                            <div style="color:#999; font-size:0.8em;">${accionesConFormato(g.acciones)} acciones · ${fMoneda(g.precio)} USD · ${fMoneda(g.usd)} USD</div>
-                                            <button onclick="registrarMovimientoFaltante(${i})" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Registrar este movimiento</button>
-                                        </div>`;
-                                    });
-                                    html += bloqueAuditoria('➕ Faltan en la app', filas, AUD_ROJO);
-                                }
+                                        if (op.faltanEnApp.length) {
+                                            let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                GBM ejecutó estas operaciones y no encuentro su registro en la app.
+                                            </div>`;
+                                            op.faltanEnApp.forEach((g, i) => {
+                                                filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                                    <div style="color:#fff; font-size:0.9em;">${g.ticker || '—'} · ${g.clase} · ${g.fecha}</div>
+                                                    <div style="color:#999; font-size:0.8em;">${accionesConFormato(g.acciones)} acciones · ${fMoneda(g.precio)} USD · ${fMoneda(g.usd)} USD</div>
+                                                    <button onclick="registrarMovimientoFaltante(${i})" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Registrar este movimiento</button>
+                                                </div>`;
+                                            });
+                                            html += bloqueAuditoria('➕ Faltan en la app', filas, AUD_ROJO);
+                                        }
 
-                                if (op.sobranEnApp.length) {
-                                    let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                        Están registradas en la app y no aparecen en el estado de cuenta que las cubre.
-                                        Suele ser un duplicado o una fecha mal capturada que las saca de su mes.
-                                    </div>`;
-                                    op.sobranEnApp.forEach(a => {
-                                        filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
-                                            <div style="color:#fff; font-size:0.9em;">${a.ticker || '—'} · ${a.clase} · ${a.dia}</div>
-                                            <div style="color:#999; font-size:0.8em;">${accionesConFormato(a.acciones)} acciones · ${fMoneda(a.precio)} USD</div>
-                                            <button onclick="verDetallesMovimiento('${a.id}')" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
-                                        </div>`;
-                                    });
-                                    html += bloqueAuditoria('➖ Sobran en la app', filas, AUD_ROJO);
-                                }
+                                        if (op.sobranEnApp.length) {
+                                            let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                Están registradas en la app y no aparecen en el estado de cuenta que las cubre.
+                                                Suele ser un duplicado o una fecha mal capturada que las saca de su mes.
+                                            </div>`;
+                                            op.sobranEnApp.forEach(a => {
+                                                filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                                    <div style="color:#fff; font-size:0.9em;">${a.ticker || '—'} · ${a.clase} · ${a.dia}</div>
+                                                    <div style="color:#999; font-size:0.8em;">${accionesConFormato(a.acciones)} acciones · ${fMoneda(a.precio)} USD</div>
+                                                    <button onclick="verDetallesMovimiento('${a.id}')" style="width:auto; margin:6px 0 0 0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                                </div>`;
+                                            });
+                                            html += bloqueAuditoria('➖ Sobran en la app', filas, AUD_ROJO);
+                                        }
+
+                                        return html;
+                                    }
+                                });
 
                                 // 3b. Aportaciones: el único sitio donde se ven los pesos
                                 const ap = rep.aportaciones;
                                 if (ap.iguales.length || ap.distintas.length || ap.faltanEnApp.length) {
-                                    let filasAp = filaAuditoria('Coinciden exactamente', String(ap.iguales.length), AUD_VERDE);
-                                    if (ap.distintas.length) filasAp += filaAuditoria('Coinciden con diferencias', String(ap.distintas.length), AUD_AMBAR);
-                                    if (ap.faltanEnApp.length) filasAp += filaAuditoria('Están en GBM y no en la app', String(ap.faltanEnApp.length), AUD_ROJO);
-                                    html += bloqueAuditoria('💱 Aportaciones (pesos → dólares)', filasAp);
+                                    const pendientesAp = ap.distintas.length + ap.faltanEnApp.length;
+                                    secciones.push({
+                                        clave: 'aportaciones',
+                                        icono: '💱',
+                                        titulo: 'Aportaciones (pesos → dólares)',
+                                        valor: pendientesAp ? `${pendientesAp} por revisar` : 'todo cuadra',
+                                        color: ap.faltanEnApp.length ? AUD_ROJO : pendientesAp ? AUD_AMBAR : AUD_VERDE,
+                                        nota: `${ap.iguales.length} coinciden exactamente`,
+                                        detalle: () => {
+                                            let filasAp = filaAuditoria('Coinciden exactamente', String(ap.iguales.length), AUD_VERDE);
+                                            if (ap.distintas.length) filasAp += filaAuditoria('Coinciden con diferencias', String(ap.distintas.length), AUD_AMBAR);
+                                            if (ap.faltanEnApp.length) filasAp += filaAuditoria('Están en GBM y no en la app', String(ap.faltanEnApp.length), AUD_ROJO);
+                                            let html = bloqueAuditoria('💱 Aportaciones (pesos → dólares)', filasAp);
 
-                                    if (ap.distintas.length) {
-                                        let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                            Los pesos y el tipo de cambio sólo se pueden comprobar con el estado de cuenta
-                                            de Smart Cash. Ojo con las aportaciones migradas del historial antiguo: se
-                                            reconstruyeron a partir de las compras, así que es normal que no cuadren.
-                                        </div>`;
-                                        ap.distintas.forEach((d, i) => {
-                                            filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
-                                                <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">Aportación del ${d.gbm.fecha}</div>
-                                                ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
-                                                    ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
-                                                    · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
-                                                </div>`).join('')}
-                                                <div style="display:flex; gap:8px; margin-top:7px;">
-                                                    <button onclick="corregirDiferenciaAuditoria('aportaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
-                                                    <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
-                                                </div>
-                                            </div>`;
-                                        });
-                                        html += bloqueAuditoria('⚠️ Aportaciones con diferencias', filas, AUD_AMBAR);
-                                    }
+                                            if (ap.distintas.length) {
+                                                let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                    Los pesos y el tipo de cambio sólo se pueden comprobar con el estado de cuenta
+                                                    de Smart Cash. Ojo con las aportaciones migradas del historial antiguo: se
+                                                    reconstruyeron a partir de las compras, así que es normal que no cuadren.
+                                                </div>`;
+                                                ap.distintas.forEach((d, i) => {
+                                                    filas += `<div style="padding:9px 0; border-bottom:1px solid #242424;">
+                                                        <div style="color:#fff; font-size:0.9em; margin-bottom:4px;">Aportación del ${d.gbm.fecha}</div>
+                                                        ${d.diferencias.map(x => `<div style="color:${AUD_AMBAR}; font-size:0.8em; line-height:1.4;">
+                                                            ${x.campo}: app <strong>${typeof x.app === 'number' ? accionesConFormato(x.app) : x.app}</strong>
+                                                            · GBM <strong>${typeof x.gbm === 'number' ? accionesConFormato(x.gbm) : x.gbm}</strong> (${x.detalle})
+                                                        </div>`).join('')}
+                                                        <div style="display:flex; gap:8px; margin-top:7px;">
+                                                            <button onclick="corregirDiferenciaAuditoria('aportaciones', ${i})" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:${AUD_VERDE}; color:#000; border:none; border-radius:6px; font-weight:bold;">Corregir con el dato de GBM</button>
+                                                            <button onclick="verDetallesMovimiento('${d.app.id}')" style="width:auto; margin:0; padding:5px 12px; font-size:0.75em; background:#333; color:#fff; border:1px solid #555; border-radius:6px;">Ver el registro</button>
+                                                        </div>
+                                                    </div>`;
+                                                });
+                                                html += bloqueAuditoria('⚠️ Aportaciones con diferencias', filas, AUD_AMBAR);
+                                            }
 
-                                    if (ap.faltanEnApp.length) {
-                                        let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                            Convertiste pesos a dólares en GBM y no encuentro la aportación en la app.
-                                        </div>`;
-                                        ap.faltanEnApp.forEach(cv => {
-                                            filas += filaAuditoria(cv.fecha,
-                                                `${fMoneda(cv.usd)} USD`, AUD_ROJO,
-                                                `${fMoneda(cv.mxn)} MXN a ${cv.tipoCambio.toFixed(4)}`);
-                                        });
-                                        html += bloqueAuditoria('➕ Aportaciones que faltan', filas, AUD_ROJO);
-                                    }
+                                            if (ap.faltanEnApp.length) {
+                                                let filas = `<div style="color:#ffd9a0; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                    Convertiste pesos a dólares en GBM y no encuentro la aportación en la app.
+                                                </div>`;
+                                                ap.faltanEnApp.forEach(cv => {
+                                                    filas += filaAuditoria(cv.fecha,
+                                                        `${fMoneda(cv.usd)} USD`, AUD_ROJO,
+                                                        `${fMoneda(cv.mxn)} MXN a ${cv.tipoCambio.toFixed(4)}`);
+                                                });
+                                                html += bloqueAuditoria('➕ Aportaciones que faltan', filas, AUD_ROJO);
+                                            }
+
+                                            return html;
+                                        }
+                                    });
                                 }
 
                                 // 3c. El traslado entre los dos documentos
                                 if (rep.traslado) {
                                     const t = rep.traslado;
-                                    const completo = t.sinLlegar.length === 0 && t.sinSalir.length === 0;
-                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                        Los dólares que salieron de Smart Cash contra los que llegaron a Trading USA.
-                                        Son dos documentos independientes: que cuadren entre sí no depende de tus registros.
-                                    </div>` +
-                                        filaAuditoria('Conversiones que llegaron a su destino',
-                                            `${t.emparejados} de ${t.conversiones}`, completo ? AUD_VERDE : AUD_AMBAR);
-                                    t.sinLlegar.forEach(cv => filas += filaAuditoria(`Salió de México el ${cv.fecha}`,
-                                        `${fMoneda(cv.usd)} USD`, AUD_AMBAR, 'Sin depósito equivalente en Trading USA'));
-                                    t.sinSalir.forEach(d => filas += filaAuditoria(`Llegó a Trading USA el ${d.fecha}`,
-                                        `${fMoneda(d.usd)} USD`, AUD_AMBAR, 'Sin conversión equivalente en Smart Cash'));
-                                    html += bloqueAuditoria('🔗 Traslado México → Estados Unidos', filas, completo ? AUD_VERDE : AUD_AMBAR);
+                                    const sueltas = t.sinLlegar.length + t.sinSalir.length;
+                                    const completo = sueltas === 0;
+                                    secciones.push({
+                                        clave: 'traslado',
+                                        icono: '🔗',
+                                        titulo: 'Traslado México → Estados Unidos',
+                                        valor: completo ? 'todo llegó' : `${sueltas} sin pareja`,
+                                        color: completo ? AUD_VERDE : AUD_AMBAR,
+                                        nota: `${t.emparejados} de ${t.conversiones} conversiones emparejadas`,
+                                        detalle: () => {
+                                            let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                Los dólares que salieron de Smart Cash contra los que llegaron a Trading USA.
+                                                Son dos documentos independientes: que cuadren entre sí no depende de tus registros.
+                                            </div>` +
+                                                filaAuditoria('Conversiones que llegaron a su destino',
+                                                    `${t.emparejados} de ${t.conversiones}`, completo ? AUD_VERDE : AUD_AMBAR);
+                                            t.sinLlegar.forEach(cv => filas += filaAuditoria(`Salió de México el ${cv.fecha}`,
+                                                `${fMoneda(cv.usd)} USD`, AUD_AMBAR, 'Sin depósito equivalente en Trading USA'));
+                                            t.sinSalir.forEach(d => filas += filaAuditoria(`Llegó a Trading USA el ${d.fecha}`,
+                                                `${fMoneda(d.usd)} USD`, AUD_AMBAR, 'Sin conversión equivalente en Smart Cash'));
+                                            return bloqueAuditoria('🔗 Traslado México → Estados Unidos', filas, completo ? AUD_VERDE : AUD_AMBAR);
+                                        }
+                                    });
                                 }
 
                                 // 4. Dividendos
                                 if (rep.dividendos.length) {
-                                    let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
-                                        Dólares que entraron a tu cuenta sin que tú los aportaras. La app no los tiene registrados,
-                                        así que hoy tu caja vale menos de lo que realmente vale.
-                                    </div>`;
-                                    rep.dividendos.forEach(d => {
-                                        filas += filaAuditoria(
-                                            `${d.ticker || '—'} · ${d.clase === 'retencion' ? 'retención' : d.clase}`,
-                                            `${fMoneda(d.importe)} USD`,
-                                            d.importe >= 0 ? AUD_VERDE : AUD_ROJO, d.fecha);
+                                    secciones.push({
+                                        clave: 'dividendos',
+                                        icono: '💵',
+                                        titulo: 'Dividendos e intereses',
+                                        valor: `${fMoneda(rep.dividendoNeto)} USD`,
+                                        color: AUD_AMBAR,
+                                        nota: `${rep.dividendos.length} movimiento(s) sin registrar en la app`,
+                                        detalle: () => {
+                                            let filas = `<div style="color:#bbb; font-size:0.83em; line-height:1.5; margin-bottom:8px;">
+                                                Dólares que entraron a tu cuenta sin que tú los aportaras. La app no los tiene registrados,
+                                                así que hoy tu caja vale menos de lo que realmente vale.
+                                            </div>`;
+                                            rep.dividendos.forEach(d => {
+                                                filas += filaAuditoria(
+                                                    `${d.ticker || '—'} · ${d.clase === 'retencion' ? 'retención' : d.clase}`,
+                                                    `${fMoneda(d.importe)} USD`,
+                                                    d.importe >= 0 ? AUD_VERDE : AUD_ROJO, d.fecha);
+                                            });
+                                            filas += filaAuditoria('<strong>Neto del periodo</strong>', `<strong>${fMoneda(rep.dividendoNeto)} USD</strong>`, AUD_VERDE);
+                                            filas += `<button onclick="registrarDividendosGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:${AUD_VERDE}; color:#000; border:none; border-radius:8px; font-weight:bold;">Registrar ${fMoneda(rep.dividendoNeto)} USD en la Caja GBM</button>`;
+                                            return bloqueAuditoria('💵 Dividendos e intereses', filas);
+                                        }
                                     });
-                                    filas += filaAuditoria('<strong>Neto del periodo</strong>', `<strong>${fMoneda(rep.dividendoNeto)} USD</strong>`, AUD_VERDE);
-                                    filas += `<button onclick="registrarDividendosGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:${AUD_VERDE}; color:#000; border:none; border-radius:8px; font-weight:bold;">Registrar ${fMoneda(rep.dividendoNeto)} USD en la Caja GBM</button>`;
-                                    html += bloqueAuditoria('💵 Dividendos e intereses', filas);
                                 }
 
                                 // 5. Comisiones
                                 if (rep.comisiones.total > 0.005) {
-                                    const filas = filaAuditoria('Operaciones con comisión', String(rep.comisiones.movimientos)) +
-                                        filaAuditoria('Comisión total cobrada por GBM', `${fMoneda(rep.comisiones.total)} USD`, AUD_AMBAR,
-                                            'La app descuenta de la caja el precio puro; GBM cobra además su comisión') +
-                                        `<button onclick="registrarComisionesGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:#333; color:#fff; border:1px solid #555; border-radius:8px; font-weight:bold;">Descontar ${fMoneda(rep.comisiones.total)} USD de la Caja GBM</button>`;
-                                    html += bloqueAuditoria('🧾 Comisiones no registradas', filas, AUD_AMBAR);
+                                    secciones.push({
+                                        clave: 'comisiones',
+                                        icono: '🧾',
+                                        titulo: 'Comisiones no registradas',
+                                        valor: `${fMoneda(rep.comisiones.total)} USD`,
+                                        color: AUD_AMBAR,
+                                        nota: `${rep.comisiones.movimientos} operación(es) con comisión`,
+                                        detalle: () => bloqueAuditoria('🧾 Comisiones no registradas',
+                                            filaAuditoria('Operaciones con comisión', String(rep.comisiones.movimientos)) +
+                                            filaAuditoria('Comisión total cobrada por GBM', `${fMoneda(rep.comisiones.total)} USD`, AUD_AMBAR,
+                                                'La app descuenta de la caja el precio puro; GBM cobra además su comisión') +
+                                            `<button onclick="registrarComisionesGbm()" style="width:100%; margin-top:10px; padding:11px; font-size:0.85em; background:#333; color:#fff; border:1px solid #555; border-radius:8px; font-weight:bold;">Descontar ${fMoneda(rep.comisiones.total)} USD de la Caja GBM</button>`,
+                                            AUD_AMBAR)
+                                    });
                                 }
 
                                 // 6. Caja: la diferencia, descompuesta término a término
                                 if (rep.caja && rep.caja.diferencia !== null) {
                                     const c = rep.caja;
                                     const residualOk = Math.abs(c.residual) <= 0.05;
-                                    let filas =
-                                        filaAuditoria('Caja según la app', `${fMoneda(c.cajaApp)} USD`) +
-                                        filaAuditoria('Efectivo según GBM', `${fMoneda(c.efectivoGbm)} USD`) +
-                                        filaAuditoria('<strong>Diferencia</strong>', `<strong>${fMoneda(c.diferencia)} USD</strong>`, AUD_AMBAR) +
-                                        `<div style="color:#888; font-size:0.78em; margin:10px 0 4px 0;">De dónde sale esa diferencia:</div>` +
-                                        filaAuditoria('Desfase de fondeo', `${fMoneda(c.desfaseFondeo)} USD`, '#bbb',
-                                            'La app apunta la aportación al comprar; GBM deposita al día siguiente') +
-                                        filaAuditoria('Comisiones no registradas', `${fMoneda(c.comisionesNoRegistradas)} USD`, '#bbb') +
-                                        (Math.abs(c.erroresDeCaptura) > 0.005
-                                            ? filaAuditoria('Diferencias de captura', `${fMoneda(c.erroresDeCaptura)} USD`, AUD_AMBAR,
-                                                'Operaciones cuyo importe en la app no coincide con el de GBM')
-                                            : '') +
-                                        filaAuditoria('Dividendos no registrados', `${fMoneda(-c.dividendosNoRegistrados)} USD`, '#bbb') +
-                                        filaAuditoria('Efectivo inicial del periodo', `${fMoneda(-c.efectivoInicial)} USD`, '#bbb') +
-                                        filaAuditoria('<strong>Sin explicar</strong>', `<strong>${fMoneda(c.residual)} USD</strong>`,
-                                            residualOk ? AUD_VERDE : AUD_ROJO,
-                                            residualOk ? 'Toda la diferencia queda explicada' : 'Queda dinero sin justificar: revisa las secciones de arriba');
-                                    html += bloqueAuditoria('🏦 Caja GBM', filas, residualOk ? null : AUD_ROJO);
+                                    secciones.push({
+                                        clave: 'caja',
+                                        icono: '🏦',
+                                        titulo: 'Caja GBM',
+                                        valor: residualOk ? 'todo explicado' : `${fMoneda(c.residual)} USD`,
+                                        color: residualOk ? AUD_VERDE : AUD_ROJO,
+                                        nota: residualOk
+                                            ? `Diferencia de ${fMoneda(c.diferencia)} USD, justificada entera`
+                                            : 'Dinero sin justificar',
+                                        detalle: () => bloqueAuditoria('🏦 Caja GBM',
+                                            filaAuditoria('Caja según la app', `${fMoneda(c.cajaApp)} USD`) +
+                                            filaAuditoria('Efectivo según GBM', `${fMoneda(c.efectivoGbm)} USD`) +
+                                            filaAuditoria('<strong>Diferencia</strong>', `<strong>${fMoneda(c.diferencia)} USD</strong>`, AUD_AMBAR) +
+                                            `<div style="color:#888; font-size:0.78em; margin:10px 0 4px 0;">De dónde sale esa diferencia:</div>` +
+                                            filaAuditoria('Desfase de fondeo', `${fMoneda(c.desfaseFondeo)} USD`, '#bbb',
+                                                'La app apunta la aportación al comprar; GBM deposita al día siguiente') +
+                                            filaAuditoria('Comisiones no registradas', `${fMoneda(c.comisionesNoRegistradas)} USD`, '#bbb') +
+                                            (Math.abs(c.erroresDeCaptura) > 0.005
+                                                ? filaAuditoria('Diferencias de captura', `${fMoneda(c.erroresDeCaptura)} USD`, AUD_AMBAR,
+                                                    'Operaciones cuyo importe en la app no coincide con el de GBM')
+                                                : '') +
+                                            filaAuditoria('Dividendos no registrados', `${fMoneda(-c.dividendosNoRegistrados)} USD`, '#bbb') +
+                                            filaAuditoria('Efectivo inicial del periodo', `${fMoneda(-c.efectivoInicial)} USD`, '#bbb') +
+                                            filaAuditoria('<strong>Sin explicar</strong>', `<strong>${fMoneda(c.residual)} USD</strong>`,
+                                                residualOk ? AUD_VERDE : AUD_ROJO,
+                                                residualOk ? 'Toda la diferencia queda explicada' : 'Queda dinero sin justificar: revisa los demás temas'),
+                                            residualOk ? null : AUD_ROJO)
+                                    });
                                 }
 
-                                return html;
+                                return secciones;
+                            }
+
+                            function renderAuditoriaGbm(rep) {
+                                const secciones = seccionesAuditoria(rep);
+
+                                // Corregir un registro puede hacer desaparecer el tema que estabas mirando
+                                // (ya no hay diferencias que ver). En ese caso se vuelve al resumen solo.
+                                const abierta = vistaAuditoria && secciones.find(s => s.clave === vistaAuditoria);
+                                if (vistaAuditoria && !abierta) vistaAuditoria = null;
+                                if (abierta) return BOTON_VOLVER_RESUMEN + abierta.detalle();
+
+                                return (rep.aviso || '') +
+                                    bloqueProgresoAuditoria(rep) +
+                                    bloqueAuditoria('🔎 Qué revisé',
+                                        `<div style="color:#777; font-size:0.78em; line-height:1.5; margin-bottom:4px;">Toca cualquier línea para ver el detalle.</div>` +
+                                        secciones.map((s, i) => filaResumenAuditoria(s, i === secciones.length - 1)).join(''));
                             }
 
                             // --- Acciones sobre lo encontrado ----------------------------------------
@@ -11233,8 +11397,7 @@
                                 rep.ignorados = anterior.ignorados;
                                 rep.aviso = anterior.aviso;
                                 auditoriaActual = rep;
-                                const cont = document.getElementById('contenidoAuditoriaGbm');
-                                if (cont) cont.innerHTML = (rep.aviso || '') + renderAuditoriaGbm(rep);
+                                pintarAuditoria();
                             }
 
                             // Aplica a un registro los valores de GBM. Es la única escritura sobre datos que
@@ -11890,6 +12053,7 @@
                                     meses: []
                                 };
                                 auditoriaActual = null;
+                                vistaAuditoria = null;
                                 const cuenta = (datosCuentas || []).find(c => String(c.id) === String(cuentaId));
                                 document.getElementById('tituloAuditoriaGbm').textContent =
                                     `Auditoría · ${cuenta ? cuenta.nombre : 'cuenta'}`;
@@ -12014,7 +12178,9 @@
                                 }
 
                                 rep.aviso = aviso;
-                                document.getElementById('contenidoAuditoriaGbm').innerHTML = aviso + renderAuditoriaGbm(rep);
+                                // Una auditoría nueva se abre siempre por el resumen, no por donde quedó la anterior.
+                                vistaAuditoria = null;
+                                pintarAuditoria();
                             }
 
                             function verDetallesMovimiento(id) {
