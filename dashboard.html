@@ -12983,14 +12983,29 @@
                                 }
                             }
 
-                                                                                                                                                    // Estos modales tienen contenido más alto que la pantalla y necesitan
-                                                                                                                                                    // conservar el scroll táctil; en el resto se bloquea para que el fondo no se mueva.
-                                                                                                                                                    // modalFiltros es una hoja estilo iOS: su cuerpo se desplaza solo y el arrastre
-                                                                                                                                                    // lo maneja su propio gesto, así que tampoco se le bloquea el touchmove.
-                                                                                                                                                    const MODALES_CON_SCROLL = ['modalDetallesMovimiento', 'modalDetallesCuenta', 'modalFiltros'];
+                                                                                                                                                    // En los modales que caben en pantalla se bloquea el touchmove para que el
+                                                                                                                                                    // fondo no se mueva por detrás. Antes la excepción era una lista de ids escrita
+                                                                                                                                                    // a mano, así que cada modal a pantalla completa que se añadía después nacía sin
+                                                                                                                                                    // poder desplazarse (le pasó a la auditoría y a los detalles de categoría).
+                                                                                                                                                    // Ahora se mira el CSS de verdad: si el dedo está encima de algo que puede
+                                                                                                                                                    // desplazarse, se le deja; si no, se bloquea.
+                                                                                                                                                    // Las hojas estilo iOS quedan fuera: su cuerpo se desplaza solo y el arrastre
+                                                                                                                                                    // para cerrarlas lo maneja su propio gesto.
+                                                                                                                                                    function tocaAlgoDesplazable(objetivo, modal) {
+                                                                                                                                                        let nodo = objetivo instanceof Element ? objetivo : null;
+                                                                                                                                                        while (nodo) {
+                                                                                                                                                            const estilo = getComputedStyle(nodo);
+                                                                                                                                                            if (/(auto|scroll)/.test(estilo.overflowY) && nodo.scrollHeight > nodo.clientHeight) return true;
+                                                                                                                                                            if (/(auto|scroll)/.test(estilo.overflowX) && nodo.scrollWidth > nodo.clientWidth) return true;
+                                                                                                                                                            if (nodo === modal) return false;
+                                                                                                                                                            nodo = nodo.parentElement;
+                                                                                                                                                        }
+                                                                                                                                                        return false;
+                                                                                                                                                    }
                                                                                                                                                     document.querySelectorAll('.modal-overlay').forEach(modal => {
+                                                                                                                                                                                    if (modal.classList.contains('hoja-ios')) return;
                                                                                                                                                                                     modal.addEventListener('touchmove', function(e) {
-                                                                                                                                                                                        if (!MODALES_CON_SCROLL.includes(modal.id)) {
+                                                                                                                                                                                        if (!tocaAlgoDesplazable(e.target, modal)) {
                                                                                                                                                                                             e.preventDefault();
                                                                                                                                                                                         }
                                                                                                                                                                                     }, { passive: false });
