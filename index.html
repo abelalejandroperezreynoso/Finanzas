@@ -43,18 +43,61 @@
         .toggle-link { display: block; text-align: center; margin-top: 15px; color: #ffffff; cursor: pointer; font-size: 0.9em; text-decoration: underline; }
                 
                 #loginSection, #registerSection { display: none; }
-                #loaderSection { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; max-width: 400px; }
-                .spinner { border: 4px solid rgba(255, 255, 255, 0.1); border-left-color: #3ecf8e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px; }
-                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* --- INICIO PANTALLA DE CARGA --- */
+        /* Negra, con el icono clavado en el centro y una barra fina debajo, como el arranque del
+           propio teléfono. Cada pieza va colocada en absoluto respecto al centro de la pantalla, no
+           apilada dentro de una caja: así nada cambia de sitio mientras carga, y el relevo entre esta
+           pantalla y la del dashboard —que lleva exactamente la misma— no se nota. */
+        #splashCarga {
+            position: fixed;
+            top: 0; right: 0; bottom: 0; left: 0;
+            z-index: 9999;
+            background-color: #000000;
+            transition: opacity 0.35s ease-out;
+        }
+        #splashCarga.oculto { opacity: 0; pointer-events: none; }
+        #splashCarga .splash-icono {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 96px;
+            height: 96px;
+            /* Centrado con márgenes negativos, no con transform: el icono queda en la rejilla de
+               píxeles y se ve nítido en pantallas de mucha densidad. */
+            margin: -48px 0 0 -48px;
+            border-radius: 22px;
+            display: block;
+        }
+        #splashCarga .splash-barra {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 170px;
+            height: 4px;
+            /* A distancia fija del centro, no del icono: la barra no puede empujar nada. */
+            margin: 96px 0 0 -85px;
+            background-color: #2a2a2a;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        #splashCarga .splash-relleno {
+            width: 0;
+            height: 100%;
+            background-color: #ffffff;
+            border-radius: 2px;
+            transition: width 0.35s ease-out;
+        }
+        /* --- FIN PANTALLA DE CARGA --- */
                 .fade-in { animation: fadeIn 0.4s ease-in forwards; }
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
             </style>
 </head>
 <body>
 
-<div class="container" id="loaderSection">
-    <div class="spinner"></div>
-    <p style="color: #888; font-weight: bold; margin: 0;">Verificando sesión...</p>
+<div id="splashCarga">
+    <img src="icono-192.png" alt="" class="splash-icono">
+    <div class="splash-barra"><div class="splash-relleno" id="splashRelleno"></div></div>
 </div>
 
 <div class="container" id="loginSection">
@@ -88,11 +131,27 @@
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
         const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
+        // La barra no es decorativa: marca por dónde va el arranque. Aquí sólo se comprueba la sesión,
+        // que es el primer tramo; el resto —cuentas, categorías, cotizaciones y movimientos— lo recorre
+        // el dashboard, que retoma la barra donde la deja esta pantalla.
+        const splashRelleno = document.getElementById('splashRelleno');
+        function avanzarCarga(porcentaje) {
+            if (splashRelleno) splashRelleno.style.width = porcentaje + '%';
+        }
+        // Un cuadro de espera antes de moverla: si el ancho ya estuviera puesto en el primer pintado,
+        // el navegador no tendría de dónde animarlo y el tramo aparecería de golpe.
+        requestAnimationFrame(() => avanzarCarga(14));
+
         clienteSupabase.auth.getSession().then(({ data: { session } }) => {
             if (session) {
+                avanzarCarga(25);
                 window.location.replace('dashboard.html');
             } else {
-                document.getElementById('loaderSection').style.display = 'none';
+                const splash = document.getElementById('splashCarga');
+                if (splash) {
+                    splash.classList.add('oculto');
+                    setTimeout(() => splash.remove(), 400);
+                }
                 const loginSection = document.getElementById('loginSection');
                 loginSection.style.display = 'block';
                 loginSection.classList.add('fade-in');
