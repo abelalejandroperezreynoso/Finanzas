@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gastos-app-v1';
+const CACHE_NAME = 'gastos-app-v2';
 
 // Archivos estáticos principales que queremos guardar en el dispositivo
 const ASSETS_TO_CACHE = [
