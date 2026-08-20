@@ -2317,6 +2317,15 @@
                             const tiraObjetivos = document.getElementById('contenedorObjetivosInicio');
                             if (tiraObjetivos) ajustarTextoDePie(tiraObjetivos);
                             }
+                            if (id === 'sec-lista' && hayFiltroDeTiempoActivo()) {
+                            // Gestión de Datos es para repasar y tocar los movimientos, y ahí el recorte de
+                            // tiempo estorba: el mes que la app trae puesto desde que abre dejaba fuera todo
+                            // lo demás sin que se notara que faltaba. Al entrar se quita solo; el filtro de
+                            // cuenta, categoría o búsqueda no se toca, que ése sí se pide a propósito.
+                            // Al volver a inicio, el embudo apagado devuelve el mes de un toque.
+                            quitarRangoDeTiempo();
+                            refrescarVistaConFiltros();
+                            }
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
                             // Con el formulario escondido la tira no tiene ancho y no hay dónde
@@ -13530,21 +13539,26 @@
                             }
 
                                                                                                                                                     let timeoutRefreshGlobal = null;
+                                                                                                                                                                                // Redibuja respetando el filtro de lista que hubiera puesto —cuenta, categoría o
+                                                                                                                                                                                // búsqueda—, porque aplicarFiltrosYRenderizar a secas lo perdería y devolvería el
+                                                                                                                                                                                // historial entero.
+                                                                                                                                                                                function refrescarVistaConFiltros() {
+                                                                                                                                                                                    if (window.filtroMovimientosActivo) {
+                                                                                                                                                                                        if (window.filtroMovimientosActivo.tipo === 'cuenta') {
+                                                                                                                                                                                            filtrarDashboardPorCuenta(window.filtroMovimientosActivo.valor);
+                                                                                                                                                                                        } else if (window.filtroMovimientosActivo.tipo === 'categoria') {
+                                                                                                                                                                                            filtrarRegistrosPorCategoria(window.filtroMovimientosActivo.valor);
+                                                                                                                                                                                        } else if (window.filtroMovimientosActivo.tipo === 'busqueda') {
+                                                                                                                                                                                            buscarEnTodosLosMovimientos();
+                                                                                                                                                                                        }
+                                                                                                                                                                                    } else {
+                                                                                                                                                                                        aplicarFiltrosYRenderizar();
+                                                                                                                                                                                    }
+                                                                                                                                                                                }
+
                                                                                                                                                                                 function debouncedRefreshUI() {
                                                                                                                                                                                     clearTimeout(timeoutRefreshGlobal);
-                                                                                                                                                                                    timeoutRefreshGlobal = setTimeout(() => {
-                                                                                                                                                                                        if (window.filtroMovimientosActivo) {
-                                                                                                                                                                                            if (window.filtroMovimientosActivo.tipo === 'cuenta') {
-                                                                                                                                                                                                filtrarDashboardPorCuenta(window.filtroMovimientosActivo.valor);
-                                                                                                                                                                                            } else if (window.filtroMovimientosActivo.tipo === 'categoria') {
-                                                                                                                                                                                                filtrarRegistrosPorCategoria(window.filtroMovimientosActivo.valor);
-                                                                                                                                                                                            } else if (window.filtroMovimientosActivo.tipo === 'busqueda') {
-                                                                                                                                                                                                buscarEnTodosLosMovimientos();
-                                                                                                                                                                                            }
-                                                                                                                                                                                        } else {
-                                                                                                                                                                                            aplicarFiltrosYRenderizar();
-                                                                                                                                                                                        }
-                                                                                                                                                                                    }, 400);
+                                                                                                                                                                                    timeoutRefreshGlobal = setTimeout(refrescarVistaConFiltros, 400);
                                                                                                                                                                                 }
                                                                                                                                                     
                                                                                                                     
