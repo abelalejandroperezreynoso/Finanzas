@@ -11062,7 +11062,15 @@
                                         if (Math.abs(Math.abs(a.mxn) - cv.mxn) > 0.02) {
                                             diferencias.push({ campo: 'Pesos', app: Math.abs(a.mxn), gbm: cv.mxn, detalle: `${fMoneda(Math.abs(a.mxn) - cv.mxn)} MXN` });
                                         }
-                                        if (Math.abs(a.tipoCambio - cv.tipoCambio) > 0.01) {
+                                        // El tipo de cambio de los dos lados es un cociente de importes redondeados,
+                                        // así que nunca coincide al decimal y eso no significa que nada esté mal: el
+                                        // estado de cuenta imprime el suyo con dos decimales, y el de la app sale de
+                                        // dividir los pesos entre unos dólares redondeados al centavo. Ese centavo
+                                        // pesa más cuanto más pequeña es la conversión, así que la tolerancia crece
+                                        // con ella en vez de ser un número fijo: con un fijo, transferir cien pesos
+                                        // salía marcado como diferencia cada vez.
+                                        const tolTipoCambio = Math.max(0.01, (cv.tipoCambio * 0.005) / Math.max(a.usd, 0.01));
+                                        if (Math.abs(a.tipoCambio - cv.tipoCambio) > tolTipoCambio) {
                                             diferencias.push({ campo: 'Tipo de cambio', app: a.tipoCambio, gbm: cv.tipoCambio, detalle: `${(a.tipoCambio - cv.tipoCambio).toFixed(4)}` });
                                         }
                                         const dd = diasEntre(a.dia, cv.fecha);
@@ -11726,8 +11734,10 @@
                                         cambios.monto = -Math.abs(d.gbm.mxn);
                                         lineas.push(`Pesos:     ${fMoneda(x.app)}  →  ${fMoneda(x.gbm)} MXN`);
                                     } else if (x.campo === 'Tipo de cambio') {
+                                        // Se anota, pero el valor definitivo lo decide el bloque de abajo: en una
+                                        // conversión el tipo de cambio no es un dato suelto, es lo que dicen sus
+                                        // dos importes.
                                         cambios.tipo_cambio = d.gbm.tipoCambio;
-                                        lineas.push(`T. cambio: ${Number(x.app).toFixed(4)}  →  ${Number(x.gbm).toFixed(4)}`);
                                     } else if (x.campo === 'Fecha') {
                                         // Sólo se mueve el día. La hora que capturaste se respeta: el estado
                                         // de cuenta no la trae y no hay con qué sustituirla.
@@ -11736,6 +11746,25 @@
                                         lineas.push(`Fecha:     ${x.app}  →  ${x.gbm}`);
                                     }
                                 });
+
+                                // En una conversión —aportación o retiro— los pesos, los dólares y el tipo de
+                                // cambio tienen que seguir contando lo mismo después de corregir. El tipo de
+                                // cambio se rehace de los dos importes que quedan, que son los hechos: si se
+                                // copiara el que imprime el estado de cuenta, redondeado a dos decimales, el
+                                // registro volvería a quedar descuadrado por céntimos.
+                                if (d.app.clase === 'aportacion' || d.app.clase === 'retiro') {
+                                    const pesosFinales = Math.abs(cambios.monto !== undefined ? cambios.monto : d.app.mxn);
+                                    const usdFinales = cambios.monto_usd !== undefined ? cambios.monto_usd : d.app.usd;
+                                    if (pesosFinales > 0 && usdFinales > 0) {
+                                        const tcFinal = pesosFinales / usdFinales;
+                                        if (Math.abs(tcFinal - d.app.tipoCambio) > 0.00005) {
+                                            cambios.tipo_cambio = tcFinal;
+                                            lineas.push(`T. cambio: ${Number(d.app.tipoCambio).toFixed(4)}  →  ${tcFinal.toFixed(4)}`);
+                                        } else {
+                                            delete cambios.tipo_cambio;
+                                        }
+                                    }
+                                }
 
                                 if (!lineas.length) return;
 
