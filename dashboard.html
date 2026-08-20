@@ -1270,6 +1270,16 @@
         <button type="button" id="btnSalida" class="btn-toggle" onclick="seleccionarTipoRegistro('salida')">Salida (-)</button>
         </div>
 
+        <!-- En GBM lo primero que se decide es qué operación es —pasar pesos a dólares, o dólares a
+             acciones—, y de ahí sale a qué categoría cae. Por eso el Tipo va por encima de Categoría,
+             y no enterrado más abajo con el resto de los datos de la operación. Sólo sale cuando la
+             categoría elegida es de inversión; en cualquier otro movimiento la fila no existe. -->
+        <div class="ios-fila ios-fila-select" id="filaTipoInversion" style="display: none;">
+            <label for="regTipoInversion">Tipo</label>
+            <span class="ios-espejo marcador">—</span>
+            <select id="regTipoInversion" onchange="actualizarCamposInversion()"></select>
+        </div>
+
         <div class="ios-fila ios-fila-select">
             <label for="regCategoriaSelect">Categoría</label>
             <span class="ios-espejo marcador">Elige cuenta y dirección</span>
@@ -1338,11 +1348,6 @@
     <div id="contenedorInversion" style="display: none; flex-direction: column;">
         <div class="ios-encabezado">Movimiento GBM</div>
         <div class="ios-grupo">
-            <div class="ios-fila ios-fila-select">
-                <label for="regTipoInversion">Tipo</label>
-                <span class="ios-espejo marcador">—</span>
-                <select id="regTipoInversion" onchange="actualizarCamposInversion()"></select>
-            </div>
             <div class="ios-fila" style="display: none;" id="divRegMontoUsd">
                 <label for="regMontoUsd">Dólares recibidos</label>
                 <input type="number" inputmode="decimal" id="regMontoUsd" placeholder="0.00" step="0.01" oninput="recalcularMontoAportacion()">
@@ -4260,8 +4265,11 @@
                                                             const cat = datosCategorias.find(c => String(c.id) === String(idCat));
                                                             const contenedorInversion = document.getElementById('contenedorInversion');
 
+                                                            const filaTipoInv = document.getElementById('filaTipoInversion');
+
                                                             if (cat && cat.tipo === 'inversion') {
                                                                 contenedorInversion.style.display = 'flex';
+                                                                if (filaTipoInv) filaTipoInv.style.display = '';
 
                                                                 // Poblar el selector de tipo de movimiento GBM según la dirección elegida
                                                                 const direccion = document.getElementById('regTipoSelect').value;
@@ -4271,17 +4279,20 @@
                                                                     // La caja solo mueve dinero MXN ↔ USD; comprar o vender ahí no tiene sentido
                                                                     selTipoInv.innerHTML = direccion === 'entrada'
                                                                         ? `<option value="retiro">🏦 Retiro (USD → MXN, sale de GBM)</option>`
-                                                                        : `<option value="aportacion">💵 Aportación (MXN → USD a Trading)</option>`;
+                                                                        : `<option value="aportacion">💵 MXN→USD</option>`;
                                                                 } else if (direccion === 'entrada') {
                                                                     selTipoInv.innerHTML = `
                                                                         <option value="venta">📤 Venta (los USD quedan en la caja GBM)</option>
                                                                         <option value="retiro">🏦 Retiro (USD → MXN, sale de GBM)</option>
                                                                         <option value="venta_directa">Venta directa a pesos (venta + retiro)</option>`;
                                                                 } else {
+                                                                    // Las dos operaciones de salida son conversiones, y así se nombran: pesos a
+                                                                    // dólares, o dólares a acciones. La compra directa con pesos ya no se ofrece
+                                                                    // —hacía las dos cosas de una vez y enturbiaba el saldo de la caja—, pero los
+                                                                    // registros antiguos que la usaron se siguen leyendo y se pueden editar.
                                                                     selTipoInv.innerHTML = `
-                                                                        <option value="compra">🛒 Compra (usa USD de la caja GBM)</option>
-                                                                        <option value="aportacion">💵 Aportación (MXN → USD a Trading)</option>
-                                                                        <option value="compra_directa">Compra directa con pesos (aportación + compra)</option>`;
+                                                                        <option value="compra">🛒 USD→ACCIONES</option>
+                                                                        <option value="aportacion">💵 MXN→USD</option>`;
                                                                 }
                                                                 // Conservar la elección si sigue disponible tras cambiar de categoría
                                                                 if (valorPrevio && [...selTipoInv.options].some(o => o.value === valorPrevio)) {
@@ -4297,6 +4308,7 @@
                                                                 actualizarCamposInversion();
                                                             } else {
                                                                 contenedorInversion.style.display = 'none';
+                                                                if (filaTipoInv) filaTipoInv.style.display = 'none';
                                                                 document.getElementById('regCostoAccion').value = '';
                                                                 document.getElementById('regTipoCambio').value = '';
                                                                 document.getElementById('regMontoUsd').value = '';
@@ -12822,9 +12834,19 @@
                                                                 if (cat && cat.tipo === 'inversion') {
                                                                     const selTipoInvEdit = document.getElementById('regTipoInversion');
                                                                     const tipoGuardado = r.tipo_movimiento || (montoNum < 0 ? 'compra_directa' : 'venta_directa');
-                                                                    if ([...selTipoInvEdit.options].some(o => o.value === tipoGuardado)) {
-                                                                        selTipoInvEdit.value = tipoGuardado;
+                                                                    // Un tipo que ya no se ofrece —la compra directa con pesos, y los históricos
+                                                                    // sin tipo que se leen como tal— se repone sólo para este registro. Sin esto
+                                                                    // el select caería en la primera opción y guardar una corrección de fecha o
+                                                                    // de descripción cambiaría de paso lo que el movimiento es.
+                                                                    if (![...selTipoInvEdit.options].some(o => o.value === tipoGuardado)) {
+                                                                        const opHistorica = document.createElement('option');
+                                                                        opHistorica.value = tipoGuardado;
+                                                                        opHistorica.textContent = tipoGuardado === 'compra_directa'
+                                                                            ? '🛒 MXN→ACCIONES (registro antiguo)'
+                                                                            : tipoGuardado;
+                                                                        selTipoInvEdit.appendChild(opHistorica);
                                                                     }
+                                                                    selTipoInvEdit.value = tipoGuardado;
                                                                     // Al corregir una aportación se edita el USD recibido; si el registro
                                                                     // es viejo y no lo guardó, se reconstruye con sus pesos y su TC
                                                                     if (r.tipo_movimiento === 'aportacion') {
