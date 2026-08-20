@@ -9309,80 +9309,6 @@
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
                                                     if (r.tieneInversion) {
-                                                        // --- Dólares de la cuenta y tipo de cambio ---
-                                                        // Todo lo cambiario vive aquí, y no en cada acción: los pesos se vuelven dólares
-                                                        // al aportar y regresan a pesos al retirar. Comprar una acción no cambia tu
-                                                        // exposición al peso, sólo cambia de forma los mismos dólares, así que la cuenta
-                                                        // se hace sobre todos: los de la caja y los que están dentro de las empresas.
-                                                        const hayCaja = r.cajaUsd > 0.005;
-
-                                                        // Los dólares que compraste con pesos, frente a los que tienes hoy. La diferencia
-                                                        // entre ambos es lo que ganaron las empresas, y no lleva pesos de por medio.
-                                                        const usdBase = r.cajaUsd + r.costoAccionesUsd;
-                                                        const usdHoy = r.cajaUsd + r.valorAccionesUsd;
-                                                        const baseMxn = r.cajaMxnBase + r.costoAccionesMxn;
-                                                        const tcPromedioCuenta = usdBase > 0.005 ? baseMxn / usdBase : 0;
-
-                                                        // Las dos ganancias no se solapan y suman el total exacto: lo que rindieron las
-                                                        // empresas se valúa al cambio de hoy, y lo cambiario aplica sólo a los dólares
-                                                        // que ya tenías. (gananciaUsd + usdBase) × TC = usdHoy × TC.
-                                                        const gananciaEmpresasUsd = r.valorAccionesUsd - r.costoAccionesUsd;
-                                                        const gananciaEmpresasMxn = gananciaEmpresasUsd * globalUsdToMxn;
-                                                        const gananciaCambiaria = usdBase * (globalUsdToMxn - tcPromedioCuenta);
-                                                        const totalSobreAportado = (usdHoy * globalUsdToMxn) - baseMxn;
-
-                                                        let filasCaja = filaDetalleCuenta('Dólares hoy',
-                                                            `<span style="color:#4da6ff; font-size:1.15em;">${fMoneda(usdHoy)} USD</span>`, null,
-                                                            `${fMoneda(r.cajaUsd)} en la caja · ${fMoneda(r.valorAccionesUsd)} en acciones`);
-
-                                                        if (usdBase > 0.005) {
-                                                            filasCaja += filaDetalleCuenta('Equivalente hoy', `${fMoneda(usdHoy * globalUsdToMxn)} MXN`, '#fff', `TC ${fMoneda(globalUsdToMxn)}`);
-                                                            filasCaja += filaDetalleCuenta('Te costaron', `${fMoneda(baseMxn)} MXN`, '#fff', `TC promedio ${fMoneda(tcPromedioCuenta)}`);
-                                                            filasCaja += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
-                                                            filasCaja += filaDetalleCuenta('Ganancia cambiaria',
-                                                                `${signo(gananciaCambiaria)}${fMoneda(gananciaCambiaria)} MXN`, colorGan(gananciaCambiaria),
-                                                                `${fMoneda(usdBase)} USD × (${fMoneda(globalUsdToMxn)} − ${fMoneda(tcPromedioCuenta)})`);
-                                                            filasCaja += filaDetalleCuenta('Ganancia de las empresas',
-                                                                `${signo(gananciaEmpresasMxn)}${fMoneda(gananciaEmpresasMxn)} MXN`, colorGan(gananciaEmpresasMxn),
-                                                                `${signo(gananciaEmpresasUsd)}${fMoneda(gananciaEmpresasUsd)} USD al cambio de hoy`);
-                                                            filasCaja += filaDetalleCuenta('Total sobre lo aportado',
-                                                                `${signo(totalSobreAportado)}${fMoneda(totalSobreAportado)} MXN`, colorGan(totalSobreAportado));
-                                                        } else {
-                                                            filasCaja += `<div style="color:#666; font-size:0.85em; margin-top:6px;">Sin dólares en la cuenta.</div>`;
-                                                        }
-                                                        html += bloqueDetalleCuenta('💱 Tus dólares (Trading USA)', filasCaja, hayCaja ? '#4da6ff' : '#333');
-
-                                                        // --- Portafolio de acciones ---
-                                                        // En dólares, que es la moneda en la que se compran y se venden. La cifra en
-                                                        // pesos queda de referencia debajo, pero el rendimiento no se mide con ella:
-                                                        // llevaría dentro el tipo de cambio, que ya tiene su propio renglón arriba.
-                                                        const plusvaliaAccionesUsd = r.valorAccionesUsd - r.costoAccionesUsd;
-                                                        const pctAcciones = r.costoAccionesUsd > 0 ? (plusvaliaAccionesUsd / r.costoAccionesUsd) * 100 : 0;
-                                                        // El aviso de empresas sin precio ya se da en el resumen, donde afecta al neto
-                                                        const filasPort =
-                                                            filaDetalleCuenta('Empresas con posición', `${empresasConPosicion}`) +
-                                                            filaDetalleCuenta('Valor de mercado', `${fMoneda(r.valorAccionesUsd)} USD`, '#fff', `${fMoneda(r.valorAccionesMxn)} MXN al cambio de hoy`) +
-                                                            filaDetalleCuenta('Costo invertido', `${fMoneda(r.costoAccionesUsd)} USD`, '#fff', `${fMoneda(r.costoAccionesMxn)} MXN que te costaron esos dólares`) +
-                                                            filaDetalleCuenta('Plusvalía en papel',
-                                                                `${signo(plusvaliaAccionesUsd)}${fMoneda(plusvaliaAccionesUsd)} USD (${signo(pctAcciones)}${pctAcciones.toFixed(2)}%)`,
-                                                                colorGan(plusvaliaAccionesUsd), 'Aún no vendida · sólo lo que hicieron las empresas');
-                                                        html += bloqueDetalleCuenta('📈 Portafolio de acciones', filasPort);
-
-                                                        // --- Rendimiento global ---
-                                                        let filasRend =
-                                                            filaDetalleCuenta('Rendimiento total',
-                                                                `${signo(r.rendimientoInversionMxn)}${fMoneda(r.rendimientoInversionMxn)} (${signo(r.pctRendimiento)}${r.pctRendimiento.toFixed(2)}%)`,
-                                                                colorGan(r.rendimientoInversionMxn), 'Acciones + caja + lo ya vendido') +
-                                                            filaDetalleCuenta('Rendimiento mensual',
-                                                                `${signo(r.pctMensual)}${r.pctMensual.toFixed(2)}% / mes`,
-                                                                colorGan(r.pctMensual), `Antigüedad promedio ${r.avgMeses.toFixed(1)} meses`);
-                                                        if (Math.abs(r.totalRealizadaCuenta) > 0.005) {
-                                                            filasRend += filaDetalleCuenta('✓ Ganancia ya materializada',
-                                                                `${signo(r.totalRealizadaCuenta)}${fMoneda(r.totalRealizadaCuenta)}`,
-                                                                colorGan(r.totalRealizadaCuenta), 'Retiros y ventas cobradas en pesos');
-                                                        }
-                                                        html += bloqueDetalleCuenta('🎯 Rendimiento', filasRend);
-
                                                         // --- Plusvalía accesible ---
                                                         const totalHoy = r.valorAccionesMxn + (r.cajaUsd * globalUsdToMxn);
                                                         let pctBarra = totalHoy > 0 ? (r.plusvaliaAccesibleTotal / totalHoy) * 100 : 0;
@@ -9402,30 +9328,6 @@
                                                             </div>`;
                                                         html += bloqueDetalleCuenta('💚 Plusvalía accesible', filasAcc, '#3ecf8e');
 
-                                                        // --- Desglose por empresa ---
-                                                        if (r.empresas.length > 0) {
-                                                            let filasEmpresas = '';
-                                                            r.empresas.forEach(e => {
-                                                                // El rendimiento de cada empresa, en su moneda. El peso dentro del
-                                                                // portafolio da igual medirlo en una u otra: es una proporción.
-                                                                const pct = e.costoUsd > 0 ? (e.plusvaliaUsd / e.costoUsd) * 100 : 0;
-                                                                const peso = r.valorAccionesUsd > 0 ? (e.valorUsd / r.valorAccionesUsd) * 100 : 0;
-                                                                filasEmpresas += `
-                                                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #262626; gap: 10px;">
-                                                                    <div style="text-align: left; line-height: 1.35; min-width: 0;">
-                                                                        <span style="color: #fff; font-size: 0.95em;">${e.nombre}</span>
-                                                                        <span style="font-size:0.7em; background:#333; color:#bbb; padding:1px 5px; border-radius:3px; margin-left:4px;">${e.ticker}</span><br>
-                                                                        <span style="color: #888; font-size: 0.78em;">${e.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} accs · ${fMoneda(e.precioUsd)} USD · ${peso.toFixed(1)}% del portafolio</span>
-                                                                        ${Math.abs(e.realizadaMxn) > 0.005 ? `<br><span style="color:#4da6ff; font-size:0.78em;">✓ Realizado: ${signo(e.realizadaMxn)}${fMoneda(e.realizadaMxn)}</span>` : ''}
-                                                                    </div>
-                                                                    <div style="text-align: right; line-height: 1.35; white-space: nowrap;">
-                                                                        <strong style="color: #fff;">${fMoneda(e.valorUsd)} <span style="color:#888; font-size:0.7em; font-weight:normal;">USD</span></strong><br>
-                                                                        <span style="color: ${colorGan(e.plusvaliaUsd)}; font-size: 0.8em;">${signo(e.plusvaliaUsd)}${fMoneda(e.plusvaliaUsd)} (${signo(pct)}${pct.toFixed(1)}%)</span>
-                                                                    </div>
-                                                                </div>`;
-                                                            });
-                                                            html += bloqueDetalleCuenta(`🏢 Empresas (${r.empresas.length})`, filasEmpresas);
-                                                        }
                                                     }
 
                                                     document.getElementById('contenidoDetallesCuenta').innerHTML = html;
