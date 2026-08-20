@@ -9266,6 +9266,23 @@
                                                         </div>`;
                                                     }
 
+                                                    // Un escalón del recorrido GBM. El número a la izquierda no es adorno: es el
+                                                    // orden en que pasa el dinero, y verlo siempre —aunque ese paso todavía no se
+                                                    // haya dado— es lo que convierte la lista en un mapa del camino.
+                                                    function pasoFlujoGbm(numero, titulo, valor, detalle, activo) {
+                                                        const colorNumero = activo ? '#3ecf8e' : '#3a3a3a';
+                                                        const colorTexto = activo ? '#fff' : '#666';
+                                                        return `
+                                                        <div style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid #262626;">
+                                                            <span style="flex: 0 0 22px; height: 22px; border-radius: 50%; background: ${colorNumero}; color: ${activo ? '#000' : '#888'}; font-size: 0.75em; font-weight: bold; display: flex; align-items: center; justify-content: center;">${numero}</span>
+                                                            <div style="flex: 1; min-width: 0; line-height: 1.35;">
+                                                                <span style="color: ${activo ? '#aaa' : '#555'}; font-size: 0.85em;">${titulo}</span>
+                                                                ${detalle ? `<br><span style="color: #666; font-size: 0.78em;">${detalle}</span>` : ''}
+                                                            </div>
+                                                            <strong style="color: ${colorTexto}; white-space: nowrap; text-align: right; font-size: 0.95em;">${valor}</strong>
+                                                        </div>`;
+                                                    }
+
                                                     function verDetallesCuenta(id) {
                                                     const c = datosCuentas.find(x => String(x.id) === String(id));
                                                     if (!c) return;
@@ -9309,6 +9326,73 @@
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
                                                     if (r.tieneInversion) {
+                                                        // --- El recorrido del dinero, paso por paso ---
+                                                        // Primero dónde está parado ahora mismo, que es lo que se viene a mirar, y
+                                                        // debajo los seis escalones con lo que ha pasado por cada uno.
+                                                        const f = calcularFlujoGbmCuenta(id);
+                                                        const usdEnAcciones = r.valorAccionesUsd;
+
+                                                        let filasFlujo =
+                                                            filaDetalleCuenta('Pesos en Smart Cash', `${fMoneda(c.balanceReal)} MXN`,
+                                                                c.balanceReal >= 0 ? '#fff' : '#ff5c5c', 'Esperando para convertirse en dólares') +
+                                                            filaDetalleCuenta('Dólares sin invertir', `${fMoneda(r.cajaUsd)} USD`,
+                                                                r.cajaUsd > 0.005 ? '#4da6ff' : '#666', `Caja GBM · ${fMoneda(r.cajaUsd * globalUsdToMxn)} MXN de hoy`) +
+                                                            filaDetalleCuenta('Dólares en acciones', `${fMoneda(usdEnAcciones)} USD`,
+                                                                usdEnAcciones > 0.005 ? '#fff' : '#666', `${empresasConPosicion} empresa(s) · ${fMoneda(r.valorAccionesMxn)} MXN de hoy`);
+
+                                                        filasFlujo += `<div style="border-top: 1px dashed #333; margin: 12px 0 4px 0;"></div>`;
+
+                                                        // Paso 1
+                                                        const entradaConSaldo = f.entradaMxn.mxn + (parseFloat(c.saldo_inicial) || 0);
+                                                        filasFlujo += pasoFlujoGbm(1, 'Banco → Smart Cash',
+                                                            entradaConSaldo > 0.005 ? `${fMoneda(entradaConSaldo)} MXN` : '—',
+                                                            entradaConSaldo > 0.005
+                                                                ? `${f.entradaMxn.n} entrada(s)${(parseFloat(c.saldo_inicial) || 0) !== 0 ? ` · incluye el saldo base de ${fMoneda(c.saldo_inicial)}` : ''}`
+                                                                : 'Todavía no has metido pesos aquí',
+                                                            entradaConSaldo > 0.005);
+
+                                                        // Paso 2
+                                                        filasFlujo += pasoFlujoGbm(2, 'Smart Cash → cuenta USA',
+                                                            f.aMonedaUsd.usd > 0.005 ? `${fMoneda(f.aMonedaUsd.usd)} USD` : '—',
+                                                            f.aMonedaUsd.usd > 0.005
+                                                                ? `${fMoneda(f.aMonedaUsd.mxn)} MXN convertidos · TC promedio ${fMoneda(f.aMonedaUsd.tc)} · ${f.aMonedaUsd.n} operación(es)`
+                                                                : 'Sin pesos convertidos a dólares',
+                                                            f.aMonedaUsd.usd > 0.005);
+
+                                                        // Paso 3
+                                                        filasFlujo += pasoFlujoGbm(3, 'Dólares → acciones',
+                                                            f.aAcciones.usd > 0.005 ? `${fMoneda(f.aAcciones.usd)} USD` : '—',
+                                                            f.aAcciones.usd > 0.005
+                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones compradas · ${f.aAcciones.n} compra(s)`
+                                                                : 'Sin compras registradas',
+                                                            f.aAcciones.usd > 0.005);
+
+                                                        // Paso 4
+                                                        filasFlujo += pasoFlujoGbm(4, 'Acciones → dólares',
+                                                            f.aVenta.usd > 0.005 ? `${fMoneda(f.aVenta.usd)} USD` : '—',
+                                                            f.aVenta.usd > 0.005
+                                                                ? `${f.aVenta.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones vendidas · ${f.aVenta.n} venta(s)`
+                                                                : 'Sin ventas: todo sigue invertido',
+                                                            f.aVenta.usd > 0.005);
+
+                                                        // Paso 5
+                                                        filasFlujo += pasoFlujoGbm(5, 'Cuenta USA → Smart Cash',
+                                                            f.aPesos.mxn > 0.005 ? `${fMoneda(f.aPesos.mxn)} MXN` : '—',
+                                                            f.aPesos.mxn > 0.005
+                                                                ? `${fMoneda(f.aPesos.usd)} USD retirados · TC promedio ${fMoneda(f.aPesos.tc)} · ${f.aPesos.n} retiro(s)`
+                                                                : 'Sin dólares devueltos a pesos',
+                                                            f.aPesos.mxn > 0.005);
+
+                                                        // Paso 6
+                                                        filasFlujo += pasoFlujoGbm(6, 'Smart Cash → banco',
+                                                            f.salidaMxn.mxn > 0.005 ? `${fMoneda(f.salidaMxn.mxn)} MXN` : '—',
+                                                            f.salidaMxn.mxn > 0.005
+                                                                ? `${f.salidaMxn.n} salida(s) de pesos de la cuenta`
+                                                                : 'Nada ha vuelto al banco todavía',
+                                                            f.salidaMxn.mxn > 0.005);
+
+                                                        html += bloqueDetalleCuenta('🔄 Flujo GBM USA', filasFlujo, '#4da6ff');
+
                                                         // --- Plusvalía accesible ---
                                                         const totalHoy = r.valorAccionesMxn + (r.cajaUsd * globalUsdToMxn);
                                                         let pctBarra = totalHoy > 0 ? (r.plusvaliaAccesibleTotal / totalHoy) * 100 : 0;
@@ -13358,6 +13442,89 @@
                             
                             // Reúne en un solo lugar todas las métricas de inversión de una cuenta:
                             // las usan tanto la pastilla del listado como el panel de detalles.
+                            // El dinero que va a GBM USA recorre siempre el mismo camino de ida y vuelta:
+                            // del banco a Smart Cash, de ahí a la cuenta en dólares, de los dólares a las
+                            // acciones, y luego lo mismo al revés. Cada paso ya queda registrado como un
+                            // movimiento; esto sólo los agrupa por el escalón al que pertenecen, para poder
+                            // leer la cuenta como el recorrido que es y no como una lista suelta.
+                            //
+                            // Los movimientos "directos" —los antiguos, que hacían dos escalones de una vez—
+                            // se reparten entre los dos que atravesaron, que es lo que de verdad pasó.
+                            function calcularFlujoGbmCuenta(cuentaId) {
+                            const idsDeLaCuenta = new Set(
+                            datosCategorias
+                            .filter(cat => String(cat.cuenta_id) === String(cuentaId))
+                            .map(cat => String(cat.id))
+                            );
+
+                            const paso = {
+                            entradaMxn: { mxn: 0, n: 0 },
+                            aMonedaUsd: { mxn: 0, usd: 0, n: 0 },
+                            aAcciones: { usd: 0, acciones: 0, n: 0 },
+                            aVenta: { usd: 0, acciones: 0, n: 0 },
+                            aPesos: { mxn: 0, usd: 0, n: 0 },
+                            salidaMxn: { mxn: 0, n: 0 }
+                            };
+
+                            (datosUsoCompleto || []).forEach(u => {
+                            if (!idsDeLaCuenta.has(String(u.categoria_id))) return;
+
+                            const monto = parseFloat(u.monto) || 0;
+                            const usd = Math.abs(parseFloat(u.monto_usd) || 0);
+                            const acciones = Math.abs(parseFloat(u.cantidad_acciones) || 0);
+                            const tipo = tipoMovInversion(u);
+
+                            if (tipo === 'aportacion') {
+                            paso.aMonedaUsd.mxn += Math.abs(monto);
+                            paso.aMonedaUsd.usd += usd;
+                            paso.aMonedaUsd.n++;
+                            } else if (tipo === 'compra') {
+                            paso.aAcciones.usd += usd;
+                            paso.aAcciones.acciones += acciones;
+                            paso.aAcciones.n++;
+                            } else if (tipo === 'compra_directa') {
+                            // Pesos que se volvieron dólares y dólares que se volvieron acciones, en un
+                            // solo apunte: cuenta en los dos escalones que cruzó.
+                            paso.aMonedaUsd.mxn += Math.abs(monto);
+                            paso.aMonedaUsd.usd += usd;
+                            paso.aMonedaUsd.n++;
+                            paso.aAcciones.usd += usd;
+                            paso.aAcciones.acciones += acciones;
+                            paso.aAcciones.n++;
+                            } else if (tipo === 'venta') {
+                            paso.aVenta.usd += usd;
+                            paso.aVenta.acciones += acciones;
+                            paso.aVenta.n++;
+                            } else if (tipo === 'venta_directa') {
+                            paso.aVenta.usd += usd;
+                            paso.aVenta.acciones += acciones;
+                            paso.aVenta.n++;
+                            paso.aPesos.usd += usd;
+                            paso.aPesos.mxn += Math.abs(monto);
+                            paso.aPesos.n++;
+                            } else if (tipo === 'retiro') {
+                            paso.aPesos.usd += usd;
+                            paso.aPesos.mxn += Math.abs(monto);
+                            paso.aPesos.n++;
+                            } else if (monto > 0) {
+                            // Pesos que entran a la cuenta sin ser un retiro de GBM: dinero del banco.
+                            paso.entradaMxn.mxn += monto;
+                            paso.entradaMxn.n++;
+                            } else if (monto < 0) {
+                            // Y pesos que salen sin convertirse en dólares: vuelven al banco.
+                            paso.salidaMxn.mxn += -monto;
+                            paso.salidaMxn.n++;
+                            }
+                            });
+
+                            // El tipo de cambio de cada tramo se saca de los totales, no de promediar los
+                            // tipos de cambio de cada apunte: así una aportación grande pesa lo que le toca.
+                            paso.aMonedaUsd.tc = paso.aMonedaUsd.usd > 0.005 ? paso.aMonedaUsd.mxn / paso.aMonedaUsd.usd : 0;
+                            paso.aPesos.tc = paso.aPesos.usd > 0.005 ? paso.aPesos.mxn / paso.aPesos.usd : 0;
+
+                            return paso;
+                            }
+
                             function calcularResumenInversionCuenta(cuentaId) {
                             let tieneInversion = false;
                             let valorInversiones = 0;
