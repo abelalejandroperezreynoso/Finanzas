@@ -1301,8 +1301,8 @@
     <!-- Qué movimiento es: cuánto, cuándo y de qué -->
     <div class="ios-grupo">
         <div class="ios-fila" id="filaRegMonto">
-            <label for="regMonto">Monto</label>
-            <input type="number" inputmode="decimal" id="regMonto" step="0.01" placeholder="0.00" required onfocus="limpiarSiAutofill(this)">
+            <label for="regMonto" id="labelRegMonto">Monto</label>
+            <input type="number" inputmode="decimal" id="regMonto" step="0.01" placeholder="0.00" required onfocus="limpiarSiAutofill(this)" oninput="recalcularConversionGbm()">
         </div>
         <div class="ios-fila">
             <label for="regFecha">Fecha</label>
@@ -1349,8 +1349,8 @@
         <div class="ios-encabezado">Movimiento GBM</div>
         <div class="ios-grupo">
             <div class="ios-fila" style="display: none;" id="divRegMontoUsd">
-                <label for="regMontoUsd">Dólares recibidos</label>
-                <input type="number" inputmode="decimal" id="regMontoUsd" placeholder="0.00" step="0.01" oninput="recalcularMontoAportacion()">
+                <label for="regMontoUsd" id="labelRegMontoUsd">Dólares recibidos</label>
+                <input type="number" inputmode="decimal" id="regMontoUsd" placeholder="0.00" step="0.01" oninput="recalcularConversionGbm()">
             </div>
             <div class="ios-fila" id="divRegAcciones">
                 <label for="regAcciones">Acciones</label>
@@ -1362,7 +1362,7 @@
             </div>
             <div class="ios-fila" id="divRegTipoCambio">
                 <label for="regTipoCambio" id="labelRegTipoCambio">Tipo de Cambio (MXN)</label>
-                <input type="number" inputmode="decimal" id="regTipoCambio" placeholder="0.00" step="0.0001" oninput="recalcularMontoAportacion()">
+                <input type="number" inputmode="decimal" id="regTipoCambio" placeholder="0.00" step="0.0001" oninput="recalcularConversionGbm()">
             </div>
         </div>
         <div id="resumenAportacion" class="ios-nota" style="display: none;"></div>
@@ -4416,23 +4416,39 @@
                                 inputMonto.required = muevePesos;
                                 if (!muevePesos) inputMonto.value = '';
 
-                                // En una aportación GBM ajusta los dólares que realmente te acredita, así que
-                                // el dato firme es el USD recibido: se captura ése y los pesos se calculan solos.
-                                const esAportacion = tipoInv === 'aportacion';
-                                document.getElementById('divRegMontoUsd').style.display = esAportacion ? '' : 'none';
-                                if (esAportacion) {
-                                    inputMonto.readOnly = true;
-                                    inputMonto.required = false;
-                                    inputMonto.dataset.autofill = 'false'; // El valor lo manda el cálculo, no la sugerencia
-                                    inputMonto.placeholder = 'Se calcula solo';
-                                    inputMonto.classList.add('ios-calculado');
+                                // Aportar y retirar son lo mismo en direcciones contrarias: un cambio de moneda.
+                                // De los dos se capturan los dos importes del comprobante —los pesos que se
+                                // cobraron o se recibieron, y los dólares del otro lado— y el tipo de cambio se
+                                // deduce de ellos. Antes se capturaba el TC y se derivaba el importe que faltaba,
+                                // y como el TC del comprobante viene redondeado, el resultado nunca era el cargo
+                                // real: los gastos de la Caja GBM quedaban con céntimos de más o de menos.
+                                const esConversion = tipoInv === 'aportacion' || tipoInv === 'retiro';
+                                const inputUsd = document.getElementById('regMontoUsd');
+                                const inputTc = document.getElementById('regTipoCambio');
+                                const labelMonto = document.getElementById('labelRegMonto');
+                                const labelUsd = document.getElementById('labelRegMontoUsd');
+
+                                document.getElementById('divRegMontoUsd').style.display = esConversion ? '' : 'none';
+
+                                inputMonto.readOnly = false;
+                                inputMonto.placeholder = '0.00';
+                                inputMonto.classList.remove('ios-calculado');
+
+                                if (esConversion) {
+                                    if (labelMonto) labelMonto.textContent = tipoInv === 'aportacion' ? 'Pesos cobrados' : 'Pesos recibidos';
+                                    if (labelUsd) labelUsd.textContent = tipoInv === 'aportacion' ? 'Dólares acreditados' : 'Dólares retirados';
+                                    // El tipo de cambio deja de capturarse: lo dicen los dos importes.
+                                    inputTc.readOnly = true;
+                                    inputTc.placeholder = 'Se calcula solo';
+                                    inputTc.classList.add('ios-calculado');
                                 } else {
-                                    inputMonto.readOnly = false;
-                                    inputMonto.placeholder = '0.00';
-                                    inputMonto.classList.remove('ios-calculado');
-                                    document.getElementById('regMontoUsd').value = '';
+                                    if (labelMonto) labelMonto.textContent = 'Monto';
+                                    inputTc.readOnly = false;
+                                    inputTc.placeholder = '0.00';
+                                    inputTc.classList.remove('ios-calculado');
+                                    inputUsd.value = '';
                                 }
-                                recalcularMontoAportacion();
+                                recalcularConversionGbm();
 
                                 // El TC solo importa cuando hay conversión de pesos: aportación, retiro y los
                                 // movimientos directos. En una venta todo queda en dólares (no se pide), y en
@@ -4444,47 +4460,62 @@
                                 divTC.style.display = muestraTC ? '' : 'none';
 
                                 labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
-                                labelTC.textContent = (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
+                                labelTC.textContent = esConversion ? 'Tipo de cambio real'
+                                    : (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
 
                                 let textoHint = '';
-                                if (tipoInv === 'aportacion') textoHint = `Captura los dólares que GBM te acreditó y el tipo de cambio: los pesos que salieron de Smart Cash se calculan solos. ${cajaTxt}`;
+                                if (tipoInv === 'aportacion') textoHint = `Copia del comprobante los dos importes: los pesos que GBM cobró y los dólares que acreditó. El tipo de cambio sale de ellos —el del comprobante viene redondeado y no cuadra al centavo—. ${cajaTxt}`;
                                 else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}${hayCaja ? '' : ' Sin caja, el costo en pesos del lote se estima con el TC capturado.'}`;
                                 else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
-                                else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash / banco. ${cajaTxt}`;
+                                else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash. Captura los dos importes del comprobante —los pesos recibidos y los dólares retirados— y el tipo de cambio se calcula solo. ${cajaTxt}`;
                                 hint.textContent = textoHint;
                                 hint.style.display = textoHint ? 'block' : 'none';
                             }
 
-                            // Pesos de una aportación = dólares acreditados × tipo de cambio.
-                            // GBM redondea los dólares que entrega, por eso el USD es el dato que se captura
-                            // y el gasto en pesos se deriva (y se redondea a centavos, como el cargo real).
-                            function pesosDeAportacion(usd, tc) {
-                                if (!(usd > 0) || !(tc > 0)) return 0;
-                                return Math.round(usd * tc * 100) / 100;
+                            // El tipo de cambio de una conversión sale de los dos importes, no al revés.
+                            //
+                            // El comprobante de GBM trae tres cifras —pesos cobrados, dólares acreditados y tipo
+                            // de cambio—, pero sólo las dos primeras son hechos: el propio comprobante avisa de
+                            // que el tipo de cambio es referencial. Multiplicar dólares por ese TC redondeado da
+                            // un peso que no es el que te cobraron: 58.62 × 17.06 = 1,000.06 cuando el cargo real
+                            // fue de 999.97. Céntimos, pero céntimos que nunca cuadran con el estado de cuenta.
+                            //
+                            // Así que se capturan los dos importes, que son los que puedes leer del comprobante
+                            // y de tu banco, y el tipo de cambio se deduce de ellos con todos sus decimales.
+                            function tipoCambioDeConversion(pesos, usd) {
+                                if (!(pesos > 0) || !(usd > 0)) return 0;
+                                return pesos / usd;
                             }
 
-                            // Mantiene el campo de pesos (solo lectura) al día mientras se captura una aportación.
-                            function recalcularMontoAportacion() {
+                            // Mantiene el tipo de cambio al día mientras se capturan los dos importes de una
+                            // conversión (aportación o retiro).
+                            function recalcularConversionGbm() {
                                 const selTipoInv = document.getElementById('regTipoInversion');
-                                const inputMonto = document.getElementById('regMonto');
+                                const inputTc = document.getElementById('regTipoCambio');
                                 const resumen = document.getElementById('resumenAportacion');
-                                if (!selTipoInv || !inputMonto || !resumen) return;
+                                if (!selTipoInv || !inputTc || !resumen) return;
 
-                                if (selTipoInv.value !== 'aportacion') {
+                                const tipoInv = selTipoInv.value;
+                                if (tipoInv !== 'aportacion' && tipoInv !== 'retiro') {
                                     resumen.style.display = 'none';
                                     return;
                                 }
 
-                                const usd = parseFloat(document.getElementById('regMontoUsd').value) || 0;
-                                const tc = parseFloat(document.getElementById('regTipoCambio').value) || 0;
-                                const pesos = pesosDeAportacion(usd, tc);
+                                const pesos = Math.abs(parseFloat(document.getElementById('regMonto').value) || 0);
+                                const usd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value) || 0);
+                                const tc = tipoCambioDeConversion(pesos, usd);
 
-                                inputMonto.value = pesos > 0 ? pesos.toFixed(2) : '';
+                                // Cuatro decimales en el campo: es donde se ve que el cambio real no es el
+                                // redondeado del comprobante, y con eso los dos importes vuelven a cuadrar.
+                                inputTc.value = tc > 0 ? tc.toFixed(4) : '';
 
-                                if (pesos > 0) {
-                                    resumen.innerHTML = `${fMoneda(usd)} USD × ${tc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} = <strong style="color:#fff;">${fMoneda(pesos)} MXN</strong> de gasto`;
+                                if (tc > 0) {
+                                    const esAporte = tipoInv === 'aportacion';
+                                    resumen.innerHTML = esAporte
+                                        ? `${fMoneda(pesos)} MXN → ${fMoneda(usd)} USD · tipo de cambio real <strong style="color:#fff;">${tc.toFixed(4)}</strong>`
+                                        : `${fMoneda(usd)} USD → ${fMoneda(pesos)} MXN · tipo de cambio real <strong style="color:#fff;">${tc.toFixed(4)}</strong>`;
                                 } else {
-                                    resumen.innerHTML = 'Captura los dólares recibidos y el tipo de cambio para calcular el gasto en pesos.';
+                                    resumen.innerHTML = 'Captura los dos importes del comprobante —pesos y dólares— y el tipo de cambio se calcula solo.';
                                 }
                                 resumen.style.display = 'block';
                             }
@@ -12656,22 +12687,24 @@
                             const cajaDisponibleUsd = cajaCta ? cajaCta.usd : 0;
 
                             if (tipoMovimiento === 'aportacion') {
-                                // GBM ajusta los dólares que acredita: el USD recibido es el dato real y
-                                // el gasto en pesos se deriva de él con el tipo de cambio de la operación.
+                                // Los dos importes del comprobante son el dato firme; el tipo de cambio se
+                                // deduce de ellos. Al revés —dólares por el TC redondeado del comprobante— el
+                                // gasto en pesos salía con céntimos que nunca cuadraban con el cargo real.
                                 montoUsd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value)) || 0;
-                                if (!montoUsd || montoUsd <= 0 || tipoCambio <= 0) {
-                                    alert("⚠️ Para una aportación captura los dólares recibidos y el tipo de cambio.");
+                                if (!montoInput || montoInput <= 0 || !montoUsd || montoUsd <= 0) {
+                                    alert("⚠️ Para una aportación captura los pesos que te cobraron y los dólares que te acreditaron.");
                                     return;
                                 }
-                                montoInput = pesosDeAportacion(montoUsd, tipoCambio);
+                                tipoCambio = tipoCambioDeConversion(montoInput, montoUsd);
                                 montoFinal = direccion === 'salida' ? -montoInput : montoInput;
                                 cantidadAcciones = 0;
                             } else if (tipoMovimiento === 'retiro') {
-                                if (!montoInput || montoInput <= 0 || tipoCambio <= 0) {
-                                    alert("⚠️ Para un retiro captura el monto en pesos y el tipo de cambio.");
+                                montoUsd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value)) || 0;
+                                if (!montoInput || montoInput <= 0 || !montoUsd || montoUsd <= 0) {
+                                    alert("⚠️ Para un retiro captura los pesos que recibiste y los dólares que salieron de la caja.");
                                     return;
                                 }
-                                montoUsd = montoInput / tipoCambio;
+                                tipoCambio = tipoCambioDeConversion(montoInput, montoUsd);
                                 cantidadAcciones = 0;
                                 if (!editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
                                     if (!confirm(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
@@ -12856,9 +12889,9 @@
                                                                         selTipoInvEdit.appendChild(opHistorica);
                                                                     }
                                                                     selTipoInvEdit.value = tipoGuardado;
-                                                                    // Al corregir una aportación se edita el USD recibido; si el registro
-                                                                    // es viejo y no lo guardó, se reconstruye con sus pesos y su TC
-                                                                    if (r.tipo_movimiento === 'aportacion') {
+                                                                    // Al corregir una conversión se editan sus dos importes; si el registro
+                                                                    // es viejo y no guardó los dólares, se reconstruyen con sus pesos y su TC
+                                                                    if (r.tipo_movimiento === 'aportacion' || r.tipo_movimiento === 'retiro') {
                                                                         const tcGuardado = parseFloat(r.tipo_cambio) || 0;
                                                                         const usdGuardado = parseFloat(r.monto_usd) || (tcGuardado > 0 ? Math.abs(parseFloat(r.monto) || 0) / tcGuardado : 0);
                                                                         document.getElementById('regMontoUsd').value = usdGuardado > 0 ? usdGuardado.toFixed(2) : '';
