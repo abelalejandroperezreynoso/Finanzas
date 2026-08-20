@@ -2317,14 +2317,31 @@
                             const tiraObjetivos = document.getElementById('contenedorObjetivosInicio');
                             if (tiraObjetivos) ajustarTextoDePie(tiraObjetivos);
                             }
-                            if (id === 'sec-lista' && hayFiltroDeTiempoActivo()) {
+                            if (id === 'sec-lista' && filtroPorDefectoPuesto && hayFiltroDeTiempoActivo()) {
                             // Gestión de Datos es para repasar y tocar los movimientos, y ahí el recorte de
                             // tiempo estorba: el mes que la app trae puesto desde que abre dejaba fuera todo
-                            // lo demás sin que se notara que faltaba. Al entrar se quita solo; el filtro de
-                            // cuenta, categoría o búsqueda no se toca, que ése sí se pide a propósito.
-                            // Al volver a inicio, el embudo apagado devuelve el mes de un toque.
+                            // lo demás sin que se notara que faltaba. Al entrar se retira solo y se anota,
+                            // para reponerlo al volver a inicio.
+                            //
+                            // Sólo se retira el recorte que puso la app. Si el de turno lo elegiste tú en la
+                            // hoja de Filtro —o con las flechas—, se queda: no es la app quien decide deshacer
+                            // lo que se pidió a mano. Los filtros de cuenta, categoría o búsqueda tampoco se
+                            // tocan nunca.
                             quitarRangoDeTiempo();
+                            filtroPorDefectoRetiradoEnGestion = true;
                             refrescarVistaConFiltros();
+                            }
+
+                            if (id === 'sec-inicio' && filtroPorDefectoRetiradoEnGestion) {
+                            // Al cerrar Gestión de Datos vuelve el mes, que es como se usa el inicio. Salvo que
+                            // haya quedado algo filtrado —una categoría o una búsqueda hecha allí dentro, o un
+                            // recorte elegido en la hoja de Filtro—: eso se pidió a propósito y mandaría más
+                            // que el automatismo, así que en ese caso no se repone nada.
+                            filtroPorDefectoRetiradoEnGestion = false;
+                            if (!hayAlgunFiltroPuesto()) {
+                            aplicarRangoDeArranque();
+                            aplicarFiltrosYRenderizar();
+                            }
                             }
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
@@ -2967,8 +2984,18 @@
                                         return !!(inicio || fin);
                                     }
 
+                                    // Distingue el recorte que pone la app —el mes de arranque, y el que devuelve el
+                                    // embudo apagado— del que elige el usuario en la hoja de Filtro o con las flechas.
+                                    // La app sólo se permite quitar y reponer el suyo: lo que se pide a mano se respeta.
+                                    let filtroPorDefectoPuesto = false;
+
+                                    // Queda a true mientras Gestión de Datos tenga retirado ese recorte, para saber al
+                                    // salir que hay algo que reponer.
+                                    let filtroPorDefectoRetiradoEnGestion = false;
+
                                     function aplicarRangoDeArranque() {
                                         const porDefecto = rangoPorDefecto();
+                                        filtroPorDefectoPuesto = true;
                                         // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el
                                         // título saldría como un rango suelto y el atajo "Mes" no aparecería marcado.
                                         tipoFiltroActual = 'mes';
@@ -2986,6 +3013,7 @@
                                     // en los inputs, para que el dashboard, la gráfica y el historial muestren todo.
                                     // No vuelve al mes de arranque a propósito: eso seguiría siendo un filtro puesto.
                                     function quitarRangoDeTiempo() {
+                                        filtroPorDefectoPuesto = false;
                                         tipoFiltroActual = 'todo';
                                         offsetFiltroActual = 0;
                                         const inputInicio = document.getElementById('filtroInicio');
@@ -3011,13 +3039,15 @@
 
                                     // Un único lugar decide cuál de los dos se ve, para que el rango de tiempo cuente
                                     // igual que los filtros de cuenta, categoría o búsqueda.
-                                    function actualizarBotonQuitarFiltro() {
-                                        const hayFiltro = !!idCuentaFiltrada
+                                    function hayAlgunFiltroPuesto() {
+                                        return !!idCuentaFiltrada
                                             || !!window.filtroMovimientosActivo
                                             || (window.filtroTipoCategoriaActivo && window.filtroTipoCategoriaActivo !== 'todas')
                                             || hayFiltroDeTiempoActivo();
+                                    }
 
-                                        pintarBotonesDeFiltro(hayFiltro);
+                                    function actualizarBotonQuitarFiltro() {
+                                        pintarBotonesDeFiltro(hayAlgunFiltroPuesto());
                                     }
 
                                     // La ✕ deja la app en "Todo el Tiempo" a propósito, pero volver al mes obligaba a
@@ -3029,6 +3059,8 @@
                                     }
 
                                     function aplicarRangoManual() {
+                                        // Un rango escrito a mano en la hoja de Filtro ya no es el de la app.
+                                        filtroPorDefectoPuesto = false;
                                         tipoFiltroActual = 'personalizado';
                                         offsetFiltroActual = 0;
                                         aplicarFiltrosYRenderizar();
@@ -3067,6 +3099,9 @@
                                     }
 
                                     function procesarDesplazamiento() {
+                                        // Por aquí pasan los atajos de la hoja de Filtro y las flechas ◀ ▶: en cuanto
+                                        // se toca cualquiera de los dos, el recorte pasa a ser cosa del usuario.
+                                        filtroPorDefectoPuesto = false;
                                         const base = new Date();
                                         const relativoAHoy = document.getElementById('checkDesdeHoy')?.checked;
 
