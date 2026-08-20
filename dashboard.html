@@ -4271,16 +4271,14 @@
                                                                 contenedorInversion.style.display = 'flex';
                                                                 if (filaTipoInv) filaTipoInv.style.display = '';
 
-                                                                // Poblar el selector de tipo de movimiento GBM según la dirección elegida
+                                                                // El tipo se elige antes que la categoría, así que la lista depende sólo de la
+                                                                // dirección. Antes se recortaba también por la categoría, y ahí estaba la trampa:
+                                                                // con la Caja GBM puesta sólo quedaba MXN→USD, y como ese tipo bloquea la
+                                                                // categoría en la propia caja, no había manera de llegar a USD→ACCIONES.
                                                                 const direccion = document.getElementById('regTipoSelect').value;
                                                                 const selTipoInv = document.getElementById('regTipoInversion');
                                                                 const valorPrevio = selTipoInv.value;
-                                                                if (esCategoriaCajaGbm(cat)) {
-                                                                    // La caja solo mueve dinero MXN ↔ USD; comprar o vender ahí no tiene sentido
-                                                                    selTipoInv.innerHTML = direccion === 'entrada'
-                                                                        ? `<option value="retiro">🏦 Retiro (USD → MXN, sale de GBM)</option>`
-                                                                        : `<option value="aportacion">💵 MXN→USD</option>`;
-                                                                } else if (direccion === 'entrada') {
+                                                                if (direccion === 'entrada') {
                                                                     selTipoInv.innerHTML = `
                                                                         <option value="venta">📤 Venta (los USD quedan en la caja GBM)</option>
                                                                         <option value="retiro">🏦 Retiro (USD → MXN, sale de GBM)</option>
@@ -4294,9 +4292,23 @@
                                                                         <option value="compra">🛒 USD→ACCIONES</option>
                                                                         <option value="aportacion">💵 MXN→USD</option>`;
                                                                 }
-                                                                // Conservar la elección si sigue disponible tras cambiar de categoría
-                                                                if (valorPrevio && [...selTipoInv.options].some(o => o.value === valorPrevio)) {
+
+                                                                // Tipo y categoría tienen que contar lo mismo, y manda el último que se tocó.
+                                                                // Este camino se recorre al cambiar de categoría, así que aquí manda ella: la
+                                                                // Caja GBM sólo mueve dinero entre monedas, y una empresa sólo compra o vende.
+                                                                // El sentido contrario —elegir el tipo y que la categoría se acomode— lo
+                                                                // resuelve actualizarCamposInversion.
+                                                                const esMovimientoDeCaja = t => t === 'aportacion' || t === 'retiro';
+                                                                const categoriaEsCaja = esCategoriaCajaGbm(cat);
+                                                                const previoSirve = valorPrevio
+                                                                    && [...selTipoInv.options].some(o => o.value === valorPrevio)
+                                                                    && esMovimientoDeCaja(valorPrevio) === categoriaEsCaja;
+                                                                if (previoSirve) {
                                                                     selTipoInv.value = valorPrevio;
+                                                                } else if (categoriaEsCaja) {
+                                                                    selTipoInv.value = direccion === 'entrada' ? 'retiro' : 'aportacion';
+                                                                } else {
+                                                                    selTipoInv.value = direccion === 'entrada' ? 'venta' : 'compra';
                                                                 }
 
                                                                 // Sugerir el tipo de cambio actual por defecto si está vacío
@@ -4374,15 +4386,26 @@
                                     // si el usuario eligió la Caja GBM a propósito, puede seguir navegando
                                     selCat.disabled = true;
                                     }
-                                } else if (selCat.disabled) {
-                                    // Al regresar a compra/venta/directo restauramos la categoría original
-                                    selCat.disabled = false;
-                                    const catPrevia = selCat.dataset.catAntesCaja;
-                                    if (catPrevia && [...selCat.options].some(o => o.value === catPrevia)) {
-                                        selCat.value = catPrevia;
-                                        cat = datosCategorias.find(c => String(c.id) === String(catPrevia));
+                                } else {
+                                    // Comprar o vender es cosa de una empresa, no de la caja.
+                                    if (selCat.disabled) {
+                                        // Si fuimos nosotros quienes pusimos la caja, se devuelve la categoría
+                                        // que había antes.
+                                        selCat.disabled = false;
+                                        const catPrevia = selCat.dataset.catAntesCaja;
+                                        if (catPrevia && [...selCat.options].some(o => o.value === catPrevia)) {
+                                            selCat.value = catPrevia;
+                                            cat = datosCategorias.find(c => String(c.id) === String(catPrevia));
+                                        }
+                                        delete selCat.dataset.catAntesCaja;
+                                    } else if (cat && esCategoriaCajaGbm(cat)) {
+                                        // Y si la caja la había elegido la persona, se suelta la categoría para
+                                        // que diga de qué empresa habla. Antes esto no podía pasar porque con la
+                                        // caja puesta no se ofrecía comprar; ahora el tipo va primero y es la
+                                        // categoría la que tiene que ceder.
+                                        selCat.value = '';
+                                        cat = null;
                                     }
-                                    delete selCat.dataset.catAntesCaja;
                                 }
 
                                 divAcciones.style.display = usaAcciones ? '' : 'none';
