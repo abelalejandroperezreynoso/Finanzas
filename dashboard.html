@@ -990,14 +990,14 @@
                                 </button>
 
                     <!-- Poner el filtro del mes (Página Principal). Ocupa el mismo hueco que la ✕ y es su
-                         contrario: se ve sólo cuando no hay ningún filtro puesto. El embudo es el mismo de
-                         la ✕ para que se lea como el mismo mando, y las dos pestañas de arriba son las de
-                         un calendario: lo que devuelve es el recorte del mes con el que abre la app. -->
-                                <button id="btnFiltroMesInicio" onclick="activarFiltroPorDefecto()" title="Filtrar por el mes en curso" aria-label="Filtrar por el mes en curso" style="display: none; width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; align-items: center;">
+                         contrario: se ve sólo cuando no hay ningún filtro puesto. Lleva el mismo icono a
+                         propósito —es el mismo mando— y va a media opacidad, que es lo que distingue el
+                         filtro apagado del puesto. Al pulsarlo vuelve el mes en curso, el recorte con el
+                         que abre la app. -->
+                                <button id="btnFiltroMesInicio" onclick="activarFiltroPorDefecto()" title="Filtrar por el mes en curso" aria-label="Filtrar por el mes en curso" style="display: none; opacity: 0.5; width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; align-items: center;">
                                     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="8" y1="1" x2="8" y2="4"></line>
-                                        <line x1="16" y1="1" x2="16" y2="4"></line>
-                                        <polygon points="22 6 2 6 10 14.6 10 21 14 23 14 14.6 22 6"></polygon>
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                                     </svg>
                                 </button>
 
@@ -1168,15 +1168,6 @@
                                     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                                         <line x1="18" y1="6" x2="6" y2="18"></line>
                                         <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                                    </svg>
-                                </button>
-
-                        <!-- Poner el filtro del mes (Gestión de Datos), el contrario de la ✕ de al lado -->
-                                <button id="btnFiltroMesLista" onclick="activarFiltroPorDefecto()" title="Filtrar por el mes en curso" aria-label="Filtrar por el mes en curso" style="display: none; width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; align-items: center;">
-                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="8" y1="1" x2="8" y2="4"></line>
-                                        <line x1="16" y1="1" x2="16" y2="4"></line>
-                                        <polygon points="22 6 2 6 10 14.6 10 21 14 23 14 14.6 22 6"></polygon>
                                     </svg>
                                 </button>
 
@@ -2997,16 +2988,16 @@
                                     }
 
                                     // El hueco de arriba tiene dos mandos que nunca se ven a la vez: con algo filtrado,
-                                    // la ✕ que lo quita; sin nada filtrado, el embudo que devuelve el mes en curso.
+                                    // el embudo entero, que lo quita; sin nada filtrado, el mismo embudo a media
+                                    // opacidad, que devuelve el mes en curso. Ese segundo vive sólo en la pantalla de
+                                    // inicio: en Gestión de Datos basta con poder quitar el filtro.
                                     function pintarBotonesDeFiltro(hayFiltro) {
                                         ['btnQuitarFiltroInicio', 'btnQuitarFiltroLista'].forEach(id => {
                                             const btn = document.getElementById(id);
                                             if (btn) btn.style.display = hayFiltro ? 'flex' : 'none';
                                         });
-                                        ['btnFiltroMesInicio', 'btnFiltroMesLista'].forEach(id => {
-                                            const btn = document.getElementById(id);
-                                            if (btn) btn.style.display = hayFiltro ? 'none' : 'flex';
-                                        });
+                                        const btnMes = document.getElementById('btnFiltroMesInicio');
+                                        if (btnMes) btnMes.style.display = hayFiltro ? 'none' : 'flex';
                                     }
 
                                     // Un único lugar decide cuál de los dos se ve, para que el rango de tiempo cuente
