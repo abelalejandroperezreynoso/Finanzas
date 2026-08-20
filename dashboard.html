@@ -13,9 +13,9 @@
         <link rel="manifest" href="manifest.json">
             
     <title>Dashboard - App de Gastos</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap"></script>
+    <script src="vendor/supabase-js.js"></script>
+        <script src="vendor/chart.umd.min.js"></script>
+        <script src="vendor/chartjs-chart-treemap.min.js"></script>
         
         <style>
         /* --- INICIO: Evitar selección de texto accidental --- */
@@ -9820,8 +9820,8 @@
                             // pdf.js se trae sólo cuando vas a auditar. Es la única dependencia nueva y no
                             // es ligera: cargarla al abrir la app la haría más lenta todos los días en que
                             // nadie audita nada.
-                            const URL_PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.min.mjs';
-                            const URL_PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.worker.min.mjs';
+                            const URL_PDFJS = './vendor/pdf.min.mjs';
+                            const URL_PDFJS_WORKER = './vendor/pdf.worker.min.mjs';
                             let promesaPdfJs = null;
 
                             function cargarPdfJs() {
