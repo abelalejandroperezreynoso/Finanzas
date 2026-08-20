@@ -1685,6 +1685,37 @@
                         // fechas. Se rehace con cada recarga de datos.
                         let diasConRegistroPorCat = {};
                                             const cachePreciosMercado = {};
+
+                                    // Los precios de mercado llegan de Finnhub, un viaje por empresa que tarda más que
+                                    // la propia base de datos. Al abrir la app se piden todos de golpe y aquí se guardan
+                                    // sus promesas para que el arranque pueda esperarlas: si el primer dibujo ya lleva
+                                    // los precios puestos, la pantalla no se rehace entera cuatro décimas después.
+                                    let promesasPreciosMercado = [];
+
+                                    // La gráfica y el mapa de categorías se dibujan puestos, sin animación de entrada.
+                                    // Cada redibujo destruye el objeto de Chart.js y lo crea de nuevo, y con él se
+                                    // reproducía la animación: las barras brotaban desde cero. Al abrir la app eso
+                                    // asomaba por debajo del velo, y en cada refresco —al guardar un movimiento, al
+                                    // llegar una cotización— volvía a pasar, con lo que parecía que los datos se
+                                    // cargaban por segunda vez. Aquí lo que se quiere es justo lo contrario: que la
+                                    // pantalla aparezca ya hecha y luego no se mueva sola.
+                                    const ANIMACION_GRAFICAS = false;
+
+                                    // Mientras dura el arranque, un precio que llega no pide redibujar: el render que
+                                    // viene detrás ya lo va a incluir. En cuanto la app está en pie vuelve a hacerlo,
+                                    // que es lo que mantiene al día las cotizaciones durante el resto de la sesión.
+                                    let arranqueEnCurso = true;
+
+                                    // Tope de espera de los precios. Si Finnhub tarda más, se arranca sin ellos y cada
+                                    // precio que llegue después refresca por su cuenta: más vale la app en pantalla con
+                                    // una cotización pendiente que un cargador esperando a un servidor ajeno.
+                                    const ESPERA_MAXIMA_PRECIOS = 4000;
+
+                                    async function esperarPreciosDeMercado() {
+                                        if (promesasPreciosMercado.length === 0) return;
+                                        const tope = new Promise(resolve => setTimeout(resolve, ESPERA_MAXIMA_PRECIOS));
+                                        await Promise.race([Promise.allSettled(promesasPreciosMercado), tope]);
+                                    }
                                     let timeoutBusqueda = null;
                                     let globalUsdToMxn = 17.50; // Valor por defecto de seguridad
 
@@ -3279,12 +3310,21 @@
                                                                 await cargarCuentas();
                                                                 await tipoCambioListo;
                                                                 await cargarCategorias();
+                                                                // Las cotizaciones se piden dentro de cargarCategorias y se esperan aquí, antes
+                                                                // del único dibujo del arranque. Sin esta espera llegaban con la pantalla ya
+                                                                // pintada y forzaban un segundo render completo: la gráfica se rehacía y
+                                                                // parecía que los datos se cargaban dos veces.
+                                                                await esperarPreciosDeMercado();
                                                                 await cargarDatosBase();
                                                             } catch (e) {
                                                                 // Si algo falla (sin red, por ejemplo) se destapa igual: más vale la app vacía
                                                                 // y usable que un spinner que no se va nunca.
                                                                 console.error('Error cargando los datos iniciales', e);
                                                             } finally {
+                                                                // A partir de aquí la app está en pie: los precios que sigan llegando (porque
+                                                                // Finnhub tardó más que el tope) ya pueden pedir su refresco como durante el
+                                                                // resto de la sesión.
+                                                                arranqueEnCurso = false;
                                                                 // Dos cuadros de espera: el primero cierra el que está en curso y el segundo asegura
                                                                 // que el navegador ya pintó las cifras antes de quitar el velo. Sin esto se alcanza
                                                                 // a ver un parpadeo del dashboard todavía en $0.00.
@@ -4770,9 +4810,11 @@
                                                                         actualizarCategoriasRegistro();
                                                                         datosCuentas.forEach(c => actualizarUIValorActualCuenta(c.id));
 
-                                                                        // === NUEVO: Disparar la carga de precios en paralelo inmediatamente al abrir la app ===
-                                                                        datosCategorias.filter(cat => cat.tipo === 'inversion' && cat.ticker).forEach(inv => {
-                                                                            buscarPrecioFinnhub(
+                                                                        // === Disparar la carga de precios en paralelo inmediatamente al abrir la app ===
+                                                                        // Las promesas se guardan, no se tiran: el arranque las espera antes de dibujar
+                                                                        // para que la primera pantalla ya salga con las cotizaciones puestas.
+                                                                        promesasPreciosMercado = datosCategorias.filter(cat => cat.tipo === 'inversion' && cat.ticker).map(inv => {
+                                                                            return buscarPrecioFinnhub(
                                                                                 inv.ticker,
                                                                                 `precio-mercado-${inv.id}`,
                                                                                 inv.totalAcciones,
@@ -7206,6 +7248,7 @@
                                         datasets: datasetsGrafico
                                     },
                                     options: {
+                                        animation: ANIMACION_GRAFICAS,
                                         responsive: true,
                                         maintainAspectRatio: false,
                                         onHover: function(event, activeElements) {
@@ -8657,6 +8700,7 @@
                                         }]
                                     },
                                     options: {
+                                        animation: ANIMACION_GRAFICAS,
                                         maintainAspectRatio: false,
                                         // El relleno de cada recuadro es un degradado en coordenadas del lienzo, así
                                         // que al cambiar de tamaño —girar el teléfono— habría que recalcularlo:
@@ -8995,6 +9039,7 @@
                     }]
                 },
                 options: {
+                    animation: ANIMACION_GRAFICAS,
                     responsive: true,
                     maintainAspectRatio: false,
                     onHover: function(event, activeElements) {
@@ -13568,19 +13613,20 @@
                                         delete window.cacheErroresMercado[ticker];
                                         mostrarDatosMercado(precio);
                                         
-                                        debouncedRefreshUI(); // ◄ AGREGAR AQUÍ: Refresca las listas automáticamente
+                                        // Durante el arranque no: el render que viene detrás ya lleva este precio.
+                                        if (!arranqueEnCurso) debouncedRefreshUI(); // Refresca las listas automáticamente
                                     } else {
                                         window.cacheErroresMercado[ticker] = 'Ticker no válido o sin datos';
                                         mostrarDatosMercado(null, 'Ticker no válido');
                                         
-                                        debouncedRefreshUI(); // ◄ AGREGAR AQUÍ: Quita el estado "Cargando..." si falla
+                                        if (!arranqueEnCurso) debouncedRefreshUI(); // Quita el estado "Cargando..." si falla
                                     }
                                 } catch (error) {
                                     window.cacheErroresMercado = window.cacheErroresMercado || {};
                                     window.cacheErroresMercado[ticker] = 'Error de conexión API';
                                     mostrarDatosMercado(null, 'Error de conexión API');
                                     
-                                    debouncedRefreshUI();
+                                    if (!arranqueEnCurso) debouncedRefreshUI();
                                 }
                             }
 
