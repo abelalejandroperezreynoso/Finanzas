@@ -156,6 +156,12 @@
                 .selector-lista { display: flex; background: #333; border-radius: 8px; padding: 4px; margin-bottom: 15px; }
                 .tab-btn { flex: 1; padding: 8px; border: none; background: none; color: #888; font-size: 0.85em; cursor: pointer; border-radius: 6px; font-weight: bold; }
                 .tab-btn.active { background: #ffffff; color: #000000; }
+                /* Una pestaña que lleva un filtro puesto se marca en blanco —y con el nombre de la cuenta
+                   o la categoría en vez del suyo— para que resalte sobre el fondo oscuro. Pero la pestaña
+                   abierta tiene el fondo blanco, y ahí ese mismo blanco dejaba el texto invisible: se veía
+                   un botón blanco y vacío. Sobre su propio fondo, la marca vuelve al negro. */
+                .tab-btn.filtrada { color: #ffffff; }
+                .tab-btn.active.filtrada { color: #000000; }
                 /* Acciones principales de Gestión de Datos, con el mismo blanco que la hoja
                    de filtros. Como clase y no en línea, para conservar el realce del ratón. */
                 .btn-claro { background-color: #ffffff; color: #000000; }
@@ -5180,13 +5186,13 @@
                                                         const btnTabCuentas = document.getElementById('btnTabCuentas');
                                                         if (btnTabCuentas) {
                                                             btnTabCuentas.textContent = 'Cuentas';
-                                                            btnTabCuentas.style.color = ''; // Restaura el color original
+                                                            btnTabCuentas.classList.remove('filtrada');
                                                         }
 
                                                         const btnTabCategorias = document.getElementById('btnTabCategorias');
                                                         if (btnTabCategorias) {
                                                             btnTabCategorias.textContent = 'Categorías';
-                                                            btnTabCategorias.style.color = '';
+                                                            btnTabCategorias.classList.remove('filtrada');
                                                         }
 
                                                         // 4. Resetear los colores de los botones de filtro de categorías ("Todas", "Ingresos", etc.)
@@ -5223,7 +5229,7 @@
                                                         const btnTabCuentas = document.getElementById('btnTabCuentas');
                                                         if (btnTabCuentas && cuenta) {
                                                             btnTabCuentas.textContent = cuenta.nombre;
-                                                            btnTabCuentas.style.color = '#ffffff'; // Aplica el blanco puro
+                                                            btnTabCuentas.classList.add('filtrada');
                                                         }
                                                         // -------------------------------------------------------
 
@@ -5242,7 +5248,7 @@
                                 const btnTabCuentas = document.getElementById('btnTabCuentas');
                                 if (btnTabCuentas) {
                                     btnTabCuentas.textContent = 'Cuentas';
-                                    btnTabCuentas.style.color = ''; // Esto le quita el blanco y restaura el CSS original
+                                    btnTabCuentas.classList.remove('filtrada');
                                 }
 
                                         // 1. Restaurar todos los botones al estilo por defecto (gris)
@@ -5633,13 +5639,13 @@
                                 const btnTabCuentas = document.getElementById('btnTabCuentas');
                                 if (btnTabCuentas) {
                                     btnTabCuentas.textContent = 'Cuentas';
-                                    btnTabCuentas.style.color = '';
+                                    btnTabCuentas.classList.remove('filtrada');
                                 }
 
                                 const btnTabCategorias = document.getElementById('btnTabCategorias');
                                 if (btnTabCategorias) {
                                     btnTabCategorias.textContent = 'Categorías';
-                                    btnTabCategorias.style.color = '';
+                                    btnTabCategorias.classList.remove('filtrada');
                                 }
 
                                 const buscador = document.getElementById('buscadorMovimientos');
@@ -12985,7 +12991,7 @@
                                                         const btnTabCategorias = document.getElementById('btnTabCategorias');
                                                         if (btnTabCategorias && cat) {
                                                             btnTabCategorias.textContent = cat.nombre;
-                                                            btnTabCategorias.style.color = '#ffffff';
+                                                            btnTabCategorias.classList.add('filtrada');
                                                         }
 
                                                         // ---> NUEVO: Mostrar el botón de quitar filtro cuando se selecciona una categoría <---
@@ -13058,7 +13064,7 @@
                                 const btnTabCategorias = document.getElementById('btnTabCategorias');
                                 if (btnTabCategorias) {
                                     btnTabCategorias.textContent = 'Categorías';
-                                    btnTabCategorias.style.color = '';
+                                    btnTabCategorias.classList.remove('filtrada');
                                 }
 
                                 // 1. Consultamos a Supabase cruzando tablas para obtener solo movimientos de esta cuenta
