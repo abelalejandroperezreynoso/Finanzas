@@ -12698,7 +12698,9 @@
             let montoFinal = direccion === 'salida' ? -montoInput : montoInput;
 
             const costoAccion = parseFloat(document.getElementById('regCostoAccion').value) || 0;
-                        const tipoCambio = parseFloat(document.getElementById('regTipoCambio').value) || 1;
+                        // No es constante: en una conversión el tipo de cambio no se captura, se deduce de
+                        // los dos importes, así que las ramas de aportación y retiro lo recalculan más abajo.
+                        let tipoCambio = parseFloat(document.getElementById('regTipoCambio').value) || 1;
                         const inputAcciones = document.getElementById('regAcciones');
                         let cantidadAcciones = inputAcciones ? parseFloat(inputAcciones.value) || 0 : 0;
 
@@ -12863,13 +12865,20 @@
                                 editIdMov = id;
                                 
                                 const cat = datosCategorias.find(c => String(c.id) === String(r.categoria_id));
+
+                                // El signo del monto se usa en dos sitios de esta función —para la dirección y,
+                                // más abajo, para adivinar el tipo de los registros que no lo guardaron—, así que
+                                // vive fuera del if. Estaba dentro, y al editar un registro antiguo sin tipo de
+                                // movimiento la función se rompía justo ahí: el formulario se quedaba a medio
+                                // llenar y no había manera de actualizarlo.
+                                const montoNum = parseFloat(r.monto) || 0;
+
                                 if (cat) {
                                     document.getElementById('regCuentaSelect').value = cat.cuenta_id;
                                     
                                     // Calculamos si originalmente fue entrada o salida basándonos en el signo del monto.
                                                 // Las compras/ventas de la caja GBM tienen monto 0, así que su dirección
                                                 // sale del tipo de movimiento, no del signo.
-                                                const montoNum = parseFloat(r.monto) || 0;
                                                 let direccionEdit = montoNum >= 0 ? 'entrada' : 'salida';
                                                 if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'aportacion') direccionEdit = 'salida';
                                                 if (r.tipo_movimiento === 'venta' || r.tipo_movimiento === 'retiro') direccionEdit = 'entrada';
@@ -12904,7 +12913,18 @@
                                                                 // Reflejar el tipo de movimiento GBM guardado (los históricos sin tipo son "directos")
                                                                 if (cat && cat.tipo === 'inversion') {
                                                                     const selTipoInvEdit = document.getElementById('regTipoInversion');
-                                                                    const tipoGuardado = r.tipo_movimiento || (montoNum < 0 ? 'compra_directa' : 'venta_directa');
+                                                                    // Los registros antiguos no guardaban el tipo, así que hay que deducirlo.
+                                                                    // Dentro de la Caja GBM no cabe una compra: esa categoría sólo cambia
+                                                                    // pesos por dólares y al revés, así que un apunte suyo es una aportación
+                                                                    // o un retiro según por dónde salió el dinero. Deducirlo como compra
+                                                                    // directa —que es lo que se hacía— dejaba el registro en un tipo que el
+                                                                    // formulario no sabe representar, y con él no había forma de ponerle sus
+                                                                    // dólares.
+                                                                    const tipoGuardado = r.tipo_movimiento || (
+                                                                        esCategoriaCajaGbm(cat) && !(parseFloat(r.cantidad_acciones) > 0)
+                                                                            ? (montoNum < 0 ? 'aportacion' : 'retiro')
+                                                                            : (montoNum < 0 ? 'compra_directa' : 'venta_directa')
+                                                                    );
                                                                     // Un tipo que ya no se ofrece —la compra directa con pesos, y los históricos
                                                                     // sin tipo que se leen como tal— se repone sólo para este registro. Sin esto
                                                                     // el select caería en la primera opción y guardar una corrección de fecha o
@@ -12920,7 +12940,7 @@
                                                                     selTipoInvEdit.value = tipoGuardado;
                                                                     // Al corregir una conversión se editan sus dos importes; si el registro
                                                                     // es viejo y no guardó los dólares, se reconstruyen con sus pesos y su TC
-                                                                    if (r.tipo_movimiento === 'aportacion' || r.tipo_movimiento === 'retiro') {
+                                                                    if (tipoGuardado === 'aportacion' || tipoGuardado === 'retiro') {
                                                                         const tcGuardado = parseFloat(r.tipo_cambio) || 0;
                                                                         const usdGuardado = parseFloat(r.monto_usd) || (tcGuardado > 0 ? Math.abs(parseFloat(r.monto) || 0) / tcGuardado : 0);
                                                                         document.getElementById('regMontoUsd').value = usdGuardado > 0 ? usdGuardado.toFixed(2) : '';
