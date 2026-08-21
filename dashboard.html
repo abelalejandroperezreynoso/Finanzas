@@ -9328,8 +9328,12 @@
                                                     const cajaEnPesos = r.cajaUsd * globalUsdToMxn;
                                                     const empresasConPosicion = r.empresas.filter(e => e.acciones > 0.00001).length;
 
+                                                    // El saldo base sólo se enseña si lo hay: en una cuenta que arrancó de cero
+                                                    // es un renglón en blanco que no cuenta nada y estorba a los que sí.
+                                                    const saldoBase = parseFloat(c.saldo_inicial) || 0;
+
                                                     let filasResumen =
-                                                        filaDetalleCuenta('Saldo base', `${fMoneda(c.saldo_inicial || 0)}`) +
+                                                        (saldoBase !== 0 ? filaDetalleCuenta('Saldo base', `${fMoneda(saldoBase)}`) : '') +
                                                         filaDetalleCuenta('Balance en pesos', `${fMoneda(c.balanceReal)}`,
                                                             c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c',
                                                             c.balanceReal < 0 && r.tieneInversion ? 'Capital que has aportado' : '');
