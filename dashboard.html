@@ -9344,6 +9344,14 @@
                                                         filasResumen +=
                                                             filaDetalleCuenta(`Acciones${empresasConPosicion ? ` (${empresasConPosicion})` : ''}`,
                                                                 `${fMoneda(r.valorAccionesMxn)}`, null, 'A precio de mercado de hoy', true) +
+                                                            // Al lado del valor de hoy, lo que costaron: sin esa referencia la cifra de
+                                                            // arriba no dice si vas ganando o perdiendo. Va en pesos, como el resto del
+                                                            // resumen, con los dólares que se pagaron de apoyo debajo.
+                                                            (r.costoAccionesMxn > 0.005
+                                                                ? filaDetalleCuenta('Costo inicial',
+                                                                    `${fMoneda(r.costoAccionesMxn)}`, null,
+                                                                    `${fMoneda(r.costoAccionesUsd)} USD que pagaste por ellas`, true)
+                                                                : '') +
                                                             filaDetalleCuenta('Caja GBM',
                                                                 `${fMoneda(cajaEnPesos)}`, null,
                                                                 r.cajaUsd > 0.005 ? `${fMoneda(r.cajaUsd)} USD sin invertir` : 'Sin dólares esperando', true) +
