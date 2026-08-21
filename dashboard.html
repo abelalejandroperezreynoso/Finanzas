@@ -9358,24 +9358,14 @@
 
                                                     if (r.tieneInversion) {
                                                         // --- El recorrido del dinero, paso por paso ---
-                                                        // Primero dónde está parado ahora mismo, que es lo que se viene a mirar, y
-                                                        // debajo los seis escalones con lo que ha pasado por cada uno.
+                                                        // Sólo los seis escalones y lo que ha pasado por cada uno. Dónde está parado
+                                                        // el dinero ahora mismo ya lo cuenta el Resumen de arriba, y repetirlo aquí
+                                                        // era leer dos veces lo mismo antes de llegar a lo que este bloque aporta.
                                                         const f = calcularFlujoGbmCuenta(id);
-                                                        const usdEnAcciones = r.valorAccionesUsd;
-
-                                                        let filasFlujo =
-                                                            filaDetalleCuenta('Pesos en Smart Cash', `${fMoneda(c.balanceReal)} MXN`,
-                                                                c.balanceReal >= 0 ? '#fff' : '#ff5c5c', 'Esperando para convertirse en dólares') +
-                                                            filaDetalleCuenta('Dólares sin invertir', `${fMoneda(r.cajaUsd)} USD`,
-                                                                r.cajaUsd > 0.005 ? '#4da6ff' : '#666', `Caja GBM · ${fMoneda(r.cajaUsd * globalUsdToMxn)} MXN de hoy`) +
-                                                            filaDetalleCuenta('Dólares en acciones', `${fMoneda(usdEnAcciones)} USD`,
-                                                                usdEnAcciones > 0.005 ? '#fff' : '#666', `${empresasConPosicion} empresa(s) · ${fMoneda(r.valorAccionesMxn)} MXN de hoy`);
-
-                                                        filasFlujo += `<div style="border-top: 1px dashed #333; margin: 12px 0 4px 0;"></div>`;
 
                                                         // Paso 1
                                                         const entradaConSaldo = f.entradaMxn.mxn + (parseFloat(c.saldo_inicial) || 0);
-                                                        filasFlujo += pasoFlujoGbm(1, 'Banco → Smart Cash',
+                                                        let filasFlujo = pasoFlujoGbm(1, 'Banco → Smart Cash',
                                                             entradaConSaldo > 0.005 ? `${fMoneda(entradaConSaldo)} MXN` : '—',
                                                             entradaConSaldo > 0.005
                                                                 ? `${f.entradaMxn.n} entrada(s)${(parseFloat(c.saldo_inicial) || 0) !== 0 ? ` · incluye el saldo base de ${fMoneda(c.saldo_inicial)}` : ''}`
