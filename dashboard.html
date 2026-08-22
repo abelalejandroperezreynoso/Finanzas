@@ -9492,13 +9492,26 @@
                                                         const f = calcularFlujoGbmCuenta(id);
 
                                                         // Paso 1
-                                                        const entradaConSaldo = f.entradaMxn.mxn + (parseFloat(c.saldo_inicial) || 0);
+                                                        // Un saldo en pesos negativo es dinero que salió de tu banco sin quedar apuntado
+                                                        // como entrada: la cuenta no puede haber gastado pesos que nunca tuvo. Contarlo
+                                                        // aquí es lo que hace que este paso cuadre tanto si apuntas el traspaso desde el
+                                                        // banco como si vas derecho a la conversión, que es lo normal cuando el dinero
+                                                        // llega y se cambia el mismo día. Antes sólo se miraban las entradas apuntadas,
+                                                        // así que en ese caso el paso salía vacío mientras el 2 enseñaba los pesos
+                                                        // convertidos, y el recorrido parecía empezar de la nada.
+                                                        const entradasApuntadas = f.entradaMxn.mxn + saldoBase;
+                                                        const salioSinApuntarse = Math.max(0, -c.balanceReal);
+                                                        const pesosDelBanco = entradasApuntadas + salioSinApuntarse;
+
+                                                        const detallePaso1 = [];
+                                                        if (f.entradaMxn.n > 0) detallePaso1.push(`${f.entradaMxn.n} entrada(s) apuntada(s)`);
+                                                        if (saldoBase !== 0) detallePaso1.push(`saldo base de ${fMoneda(saldoBase)}`);
+                                                        if (salioSinApuntarse > 0.005) detallePaso1.push(`${fMoneda(salioSinApuntarse)} que salieron del banco sin apuntarse`);
+
                                                         let filasFlujo = pasoFlujoGbm(1, 'Banco → Smart Cash',
-                                                            entradaConSaldo > 0.005 ? `${fMoneda(entradaConSaldo)} MXN` : '—',
-                                                            entradaConSaldo > 0.005
-                                                                ? `${f.entradaMxn.n} entrada(s)${(parseFloat(c.saldo_inicial) || 0) !== 0 ? ` · incluye el saldo base de ${fMoneda(c.saldo_inicial)}` : ''}`
-                                                                : 'Todavía no has metido pesos aquí',
-                                                            entradaConSaldo > 0.005);
+                                                            pesosDelBanco > 0.005 ? `${fMoneda(pesosDelBanco)} MXN` : '—',
+                                                            pesosDelBanco > 0.005 ? detallePaso1.join(' · ') : 'Todavía no has metido pesos aquí',
+                                                            pesosDelBanco > 0.005);
 
                                                         // Paso 2
                                                         filasFlujo += pasoFlujoGbm(2, 'Smart Cash → cuenta USA',
