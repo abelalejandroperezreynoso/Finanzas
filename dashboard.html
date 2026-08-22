@@ -9419,6 +9419,12 @@
                                                     // Un escalón del recorrido GBM, en su propia tarjeta. El número no es adorno:
                                                     // es el orden en que pasa el dinero, y verlos todos —también los que aún no se
                                                     // han dado, apagados— es lo que convierte la tira en un mapa del camino.
+                                                    // "53 compra(s)" se lee peor que "53 compras", y en estas tarjetas cada carácter
+                                                    // cuenta. Los plurales del español que salen aquí son todos regulares.
+                                                    function cuantos(n, singular, plural) {
+                                                        return `${n} ${n === 1 ? singular : (plural || singular + 's')}`;
+                                                    }
+
                                                     function pasoFlujoGbm(numero, titulo, valor, detalle, activo, extra) {
                                                         const colorNumero = activo ? '#3ecf8e' : '#3a3a3a';
                                                         return `
@@ -9531,10 +9537,16 @@
                                                         const salioSinApuntarse = Math.max(0, -c.balanceReal);
                                                         const pesosDelBanco = entradasApuntadas + salioSinApuntarse;
 
+                                                        // El monto ya está en grande arriba: aquí sólo se dice de dónde sale. Repetirlo
+                                                        // llenaba la tarjeta de una cifra que ya se acababa de leer.
                                                         const detallePaso1 = [];
-                                                        if (f.entradaMxn.n > 0) detallePaso1.push(`${f.entradaMxn.n} entrada(s) apuntada(s)`);
+                                                        if (f.entradaMxn.n > 0) detallePaso1.push(cuantos(f.entradaMxn.n, 'entrada apuntada', 'entradas apuntadas'));
                                                         if (saldoBase !== 0) detallePaso1.push(`saldo base de ${fMoneda(saldoBase)}`);
-                                                        if (salioSinApuntarse > 0.005) detallePaso1.push(`${fMoneda(salioSinApuntarse)} que salieron del banco sin apuntarse`);
+                                                        if (salioSinApuntarse > 0.005) {
+                                                            detallePaso1.push(detallePaso1.length
+                                                                ? `${fMoneda(salioSinApuntarse)} sin apuntar`
+                                                                : 'Salieron del banco sin apuntarse como entrada');
+                                                        }
 
                                                         let filasFlujo = pasoFlujoGbm(1, 'Banco → Smart Cash',
                                                             pesosDelBanco > 0.005 ? `${fMoneda(pesosDelBanco)} MXN` : '—',
@@ -9545,7 +9557,7 @@
                                                         filasFlujo += pasoFlujoGbm(2, 'Smart Cash → cuenta USA',
                                                             f.aMonedaUsd.usd > 0.005 ? `${fMoneda(f.aMonedaUsd.usd)} USD` : '—',
                                                             f.aMonedaUsd.usd > 0.005
-                                                                ? `${fMoneda(f.aMonedaUsd.mxn)} MXN convertidos · TC promedio ${fMoneda(f.aMonedaUsd.tc)} · ${f.aMonedaUsd.n} operación(es)`
+                                                                ? `${fMoneda(f.aMonedaUsd.mxn)} convertidos · ${cuantos(f.aMonedaUsd.n, 'operación', 'operaciones')}<br>TC promedio ${fMoneda(f.aMonedaUsd.tc)}`
                                                                 : 'Sin pesos convertidos a dólares',
                                                             f.aMonedaUsd.usd > 0.005);
 
@@ -9564,24 +9576,33 @@
                                                         filasFlujo += pasoFlujoGbm(3, 'Dólares → acciones',
                                                             f.aAcciones.usd > 0.005 ? `${fMoneda(f.aAcciones.usd)} USD` : '—',
                                                             f.aAcciones.usd > 0.005
-                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${f.aAcciones.n} compra(s) · costaron ${fMoneda(f.aAcciones.mxn)} MXN y hoy son ${fMoneda(invertidoHoyMxn)} MXN${f.aAcciones.mxnReinvertido > 0.005 ? ` · incluye ${fMoneda(f.aAcciones.mxnReinvertido)} MXN de ventas reinvertidas, que no salieron del banco` : ''}`
+                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${cuantos(f.aAcciones.n, 'compra')}<br>Costaron ${fMoneda(f.aAcciones.mxn)} y hoy son ${fMoneda(invertidoHoyMxn)}`
                                                                 : 'Sin compras registradas',
                                                             f.aAcciones.usd > 0.005,
                                                             extraPaso3);
 
                                                         // Paso 4
+                                                        // La venta es también el sitio donde explicar el dinero que da la vuelta: lo que
+                                                        // te costó lo vendido vuelve a la caja y se reinvierte, y por eso el paso 3 suma
+                                                        // más pesos de los que han salido del banco. Contarlo aquí, junto a la venta que
+                                                        // lo originó, se entiende mejor que como una nota al pie del paso 3.
+                                                        const extraPaso4 = f.aVenta.usd > 0.005 && Math.abs(f.aVenta.gananciaUsd) > 0.005
+                                                            ? `<div style="color: ${colorGan(f.aVenta.gananciaUsd)}; font-size: 0.78em; margin-top: 4px;">${signo(f.aVenta.gananciaUsd)}${fMoneda(f.aVenta.gananciaUsd)} USD de ganancia</div>`
+                                                            : '';
+
                                                         filasFlujo += pasoFlujoGbm(4, 'Acciones → dólares',
                                                             f.aVenta.usd > 0.005 ? `${fMoneda(f.aVenta.usd)} USD` : '—',
                                                             f.aVenta.usd > 0.005
-                                                                ? `${f.aVenta.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones vendidas · ${f.aVenta.n} venta(s)`
+                                                                ? `${f.aVenta.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${cuantos(f.aVenta.n, 'venta')}${f.aAcciones.mxnReinvertido > 0.005 ? `<br>Volviste a invertir ${fMoneda(f.aAcciones.mxnReinvertido)}, que es lo que te habían costado` : ''}`
                                                                 : 'Sin ventas: todo sigue invertido',
-                                                            f.aVenta.usd > 0.005);
+                                                            f.aVenta.usd > 0.005,
+                                                            extraPaso4);
 
                                                         // Paso 5
                                                         filasFlujo += pasoFlujoGbm(5, 'Cuenta USA → Smart Cash',
                                                             f.aPesos.mxn > 0.005 ? `${fMoneda(f.aPesos.mxn)} MXN` : '—',
                                                             f.aPesos.mxn > 0.005
-                                                                ? `${fMoneda(f.aPesos.usd)} USD retirados · TC promedio ${fMoneda(f.aPesos.tc)} · ${f.aPesos.n} retiro(s)`
+                                                                ? `${fMoneda(f.aPesos.usd)} USD · ${cuantos(f.aPesos.n, 'retiro')}<br>TC promedio ${fMoneda(f.aPesos.tc)}`
                                                                 : 'Sin dólares devueltos a pesos',
                                                             f.aPesos.mxn > 0.005);
 
@@ -9589,7 +9610,7 @@
                                                         filasFlujo += pasoFlujoGbm(6, 'Smart Cash → banco',
                                                             f.salidaMxn.mxn > 0.005 ? `${fMoneda(f.salidaMxn.mxn)} MXN` : '—',
                                                             f.salidaMxn.mxn > 0.005
-                                                                ? `${f.salidaMxn.n} salida(s) de pesos de la cuenta`
+                                                                ? `${cuantos(f.salidaMxn.n, 'salida')} de pesos de la cuenta`
                                                                 : 'Nada ha vuelto al banco todavía',
                                                             f.salidaMxn.mxn > 0.005);
 
@@ -13715,7 +13736,7 @@
                             entradaMxn: { mxn: 0, n: 0 },
                             aMonedaUsd: { mxn: 0, usd: 0, n: 0 },
                             aAcciones: { usd: 0, mxn: 0, mxnReinvertido: 0, acciones: 0, n: 0 },
-                            aVenta: { usd: 0, acciones: 0, n: 0 },
+                            aVenta: { usd: 0, gananciaUsd: 0, acciones: 0, n: 0 },
                             aPesos: { mxn: 0, usd: 0, n: 0 },
                             salidaMxn: { mxn: 0, n: 0 }
                             };
@@ -13754,6 +13775,9 @@
                             paso.aAcciones.n++;
                             } else if (tipo === 'venta') {
                             paso.aVenta.usd += usd;
+                            // Lo que sacaste de más sobre lo que te había costado, en dólares, que es la
+                            // moneda en la que se compró y se vendió.
+                            paso.aVenta.gananciaUsd += (window.gananciaRealizadaUsdMap && window.gananciaRealizadaUsdMap[u.id]) || 0;
                             paso.aVenta.acciones += acciones;
                             paso.aVenta.n++;
                             } else if (tipo === 'venta_directa') {
