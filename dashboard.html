@@ -4596,6 +4596,7 @@
                             window.gananciaRealizadaMap = {}; // NUEVO: Para guardar la ganancia por venta
                             window.gananciaRealizadaUsdMap = {}; // FLUJO GBM: ganancia en USD de ventas cuyo dinero queda en la caja
                             window.costoMxnLoteMap = {}; // FLUJO GBM: costo base MXN de compras pagadas con la caja (su monto es 0)
+                            window.reinvertidoMxnLoteMap = {}; // De ese costo, lo que se pagó con dólares que volvieron de una venta
                             window.costoUsdLoteMap = {}; // Lo que costó cada lote en dólares, que es en lo que se mide una posición
 
                             // FLUJO GBM: caja de dólares por cuenta (dinero en Trading USA sin invertir).
@@ -4697,7 +4698,12 @@
                             // mesesPonderados = pesos x meses que llevan dentro. Guardado así, quitar una
                             // parte es una regla de tres y no hace falta recordar cada aportación por
                             // separado. Sirve para saber en cuánto tiempo se ganó lo que puso el cambio.
-                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0, mesesPonderados: 0 };
+                            // usdDeVentas = cuántos de los dólares que hay en la caja volvieron de vender, y
+                            // no de cambiar pesos. Hacen falta aparte porque esos dólares ya se compraron una
+                            // vez: al reinvertirlos vuelven a pasar por la compra, pero no salen pesos nuevos
+                            // del banco, y sin distinguirlos la cuenta de lo invertido parecía superar a lo
+                            // que se ha ingresado.
+                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0, mesesPonderados: 0, usdDeVentas: 0 };
                             const caja = cajaPorCuenta[idCuentaCat];
                             const usdRegistro = parseFloat(u.monto_usd) || 0;
 
@@ -4720,11 +4726,13 @@
                             realizadaFueraCajaCuentaMap[idCuentaCat] = (realizadaFueraCajaCuentaMap[idCuentaCat] || 0) + (Math.abs(monto) - baseMxnRetirada);
                             costoRealizadoFueraCajaCuentaMap[idCuentaCat] = (costoRealizadoFueraCajaCuentaMap[idCuentaCat] || 0) + baseMxnRetirada;
                             // Los pesos que salen se llevan su parte proporcional de antigüedad
+                            const fraccionVentasRetiro = caja.usd > 0.00001 ? Math.min(1, (caja.usdDeVentas || 0) / caja.usd) : 0;
+                            caja.usdDeVentas = Math.max(0, (caja.usdDeVentas || 0) - (usdRetirado * fraccionVentasRetiro));
                             const parteRetirada = caja.mxnBase > 0.00001 ? Math.min(1, baseMxnRetirada / caja.mxnBase) : 0;
                             caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteRetirada));
                             caja.usd = Math.max(0, caja.usd - usdRetirado);
                             caja.mxnBase = Math.max(0, caja.mxnBase - baseMxnRetirada);
-                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; }
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.usdDeVentas = 0; }
 
                             } else if (acciones > 0 && (tipoMov === 'compra' || tipoMov === 'compra_directa')) {
                             if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
@@ -4757,6 +4765,17 @@
                             ? tcCercano
                             : (caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1));
                             mxnCompra = usdCompra * tcLote;
+                            // La caja no puede pagar más pesos de los que tiene: si la compra sale a un tipo
+                            // de cambio más alto del que costó lo que hay dentro, se cobra lo que hay.
+                            if (caja.mxnBase > 0.005 && mxnCompra > caja.mxnBase) mxnCompra = caja.mxnBase;
+
+                            // Los dólares de la caja están mezclados —unos vienen de cambiar pesos y otros de
+                            // vender—, así que la compra se paga con unos y otros en la misma proporción en la
+                            // que están. Lo que toca a los de venta es dinero reinvertido: ya pasó por aquí.
+                            const fraccionDeVentas = caja.usd > 0.00001 ? Math.min(1, (caja.usdDeVentas || 0) / caja.usd) : 0;
+                            window.reinvertidoMxnLoteMap[u.id] = mxnCompra * fraccionDeVentas;
+                            caja.usdDeVentas = Math.max(0, (caja.usdDeVentas || 0) - (usdCompra * fraccionDeVentas));
+
                             const parteComprada = caja.mxnBase > 0.00001 ? Math.min(1, mxnCompra / caja.mxnBase) : 0;
                             caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteComprada));
                             caja.usd = Math.max(0, caja.usd - usdCompra);
@@ -4765,7 +4784,7 @@
                             // de la caja, así que lo que queda en pesos ya no es exactamente proporcional a los
                             // dólares que quedan. Con la caja vacía no puede sobrar base en pesos: serían pesos
                             // sin dólares detrás, y falsearían el tipo de cambio promedio de la cuenta.
-                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; }
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.usdDeVentas = 0; }
                             }
 
                             accionesMap[u.categoria_id] += acciones;
@@ -4815,6 +4834,7 @@
                             realizadaUsdCatMap[u.categoria_id] = (realizadaUsdCatMap[u.categoria_id] || 0) + (usdVenta - costoDeLoVendidoUsd);
                             caja.usd += usdVenta;
                             caja.mxnBase += costoDeLoVendido;
+                            caja.usdDeVentas = (caja.usdDeVentas || 0) + usdVenta;
                             }
 
                             // El costo de lo vendido alimenta el denominador de los rendimientos históricos
@@ -9537,7 +9557,7 @@
                                                         filasFlujo += pasoFlujoGbm(3, 'Dólares → acciones',
                                                             f.aAcciones.usd > 0.005 ? `${fMoneda(f.aAcciones.usd)} USD` : '—',
                                                             f.aAcciones.usd > 0.005
-                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${f.aAcciones.n} compra(s) · costaron ${fMoneda(f.aAcciones.mxn)} MXN y hoy son ${fMoneda(invertidoHoyMxn)} MXN`
+                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${f.aAcciones.n} compra(s) · costaron ${fMoneda(f.aAcciones.mxn)} MXN y hoy son ${fMoneda(invertidoHoyMxn)} MXN${f.aAcciones.mxnReinvertido > 0.005 ? ` · incluye ${fMoneda(f.aAcciones.mxnReinvertido)} MXN de ventas reinvertidas, que no salieron del banco` : ''}`
                                                                 : 'Sin compras registradas',
                                                             f.aAcciones.usd > 0.005,
                                                             extraPaso3);
@@ -13687,7 +13707,7 @@
                             const paso = {
                             entradaMxn: { mxn: 0, n: 0 },
                             aMonedaUsd: { mxn: 0, usd: 0, n: 0 },
-                            aAcciones: { usd: 0, mxn: 0, acciones: 0, n: 0 },
+                            aAcciones: { usd: 0, mxn: 0, mxnReinvertido: 0, acciones: 0, n: 0 },
                             aVenta: { usd: 0, acciones: 0, n: 0 },
                             aPesos: { mxn: 0, usd: 0, n: 0 },
                             salidaMxn: { mxn: 0, n: 0 }
@@ -13712,6 +13732,7 @@
                             paso.aAcciones.mxn += (window.costoMxnLoteMap && window.costoMxnLoteMap[u.id] !== undefined)
                             ? window.costoMxnLoteMap[u.id]
                             : Math.abs(monto);
+                            paso.aAcciones.mxnReinvertido += (window.reinvertidoMxnLoteMap && window.reinvertidoMxnLoteMap[u.id]) || 0;
                             paso.aAcciones.acciones += acciones;
                             paso.aAcciones.n++;
                             } else if (tipo === 'compra_directa') {
