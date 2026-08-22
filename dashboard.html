@@ -9365,6 +9365,22 @@
                                                         filasResumen += filaDetalleCuenta('Neto total', `${fMoneda(netoTotal)}`,
                                                             netoTotal >= 0 ? '#2ac555' : '#ff5c5c',
                                                             c.balanceReal < 0 ? (netoTotal >= 0 ? 'Ganancia sobre lo aportado' : 'Aún por debajo de lo aportado') : '');
+
+                                                        // Cuánto de lo de arriba lo puso el tipo de cambio y no las empresas. Tus dólares
+                                                        // valen más pesos que cuando los compraste —o menos—, y eso mueve el neto sin que
+                                                        // ninguna acción se haya movido. La cuenta se hace sobre todos los dólares que
+                                                        // sigues teniendo, los de la caja y los que están dentro de las acciones: comprar
+                                                        // una acción no cambia tu exposición al peso, sólo cambia de forma los mismos
+                                                        // dólares.
+                                                        const usdEnPie = r.cajaUsd + r.costoAccionesUsd;
+                                                        const pesosQueCostaron = r.cajaMxnBase + r.costoAccionesMxn;
+                                                        if (usdEnPie > 0.005 && pesosQueCostaron > 0.005) {
+                                                            const tcAlQueCompraste = pesosQueCostaron / usdEnPie;
+                                                            const efectoCambio = usdEnPie * (globalUsdToMxn - tcAlQueCompraste);
+                                                            filasResumen += filaDetalleCuenta('Efecto del tipo de cambio',
+                                                                `${signo(efectoCambio)}${fMoneda(efectoCambio)}`, colorGan(efectoCambio),
+                                                                `Ya está dentro del neto · ${fMoneda(usdEnPie)} USD comprados a ${fMoneda(tcAlQueCompraste)} y hoy a ${fMoneda(globalUsdToMxn)}`);
+                                                        }
                                                     }
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
