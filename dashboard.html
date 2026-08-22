@@ -923,36 +923,20 @@
                 /* --- FIN ESTILOS TIRA DE OBJETIVOS --- */
 
                 /* --- INICIO ESTILOS INVERTIDO Y PLUSVALÍA --- */
-                /* Las dos cifras que resume el mapa, una a cada lado: lo que pusiste y lo que ha dado.
-                   Van arriba porque el mapa reparte, no suma: el total tiene que estar a la vista para
-                   poder leer el tamaño de cada cuadro como una parte de algo. */
-                .cuadros-cabecera {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    gap: 10px;
-                    margin-bottom: 10px;
-                }
-                .cuadros-cabecera .cifra { display: block; color: #fff; font-size: 1.05em; font-weight: bold; line-height: 1.2; }
+                /* La cifra que el mapa reparte, arriba del todo: sin ella el tamaño de los dos cuadros
+                   no se puede leer como una parte de algo, que es justo lo que un mapa de cuadros dice. */
+                .cuadros-cabecera { margin-bottom: 10px; }
+                .cuadros-cabecera .cifra { display: block; color: #fff; font-size: 1.15em; font-weight: bold; line-height: 1.2; }
                 .cuadros-cabecera .pie { display: block; color: #777; font-size: 0.72em; margin-top: 2px; }
-                /* El alto lo pone el bloque según cuántos cuadros haya que repartir; el ancho es el de
-                   la tarjeta. Un treemap sin superficie deja los cuadros de la cola como hilos. */
-                .cuadros-lienzo { position: relative; width: 100%; }
-                /* Qué significa cada color, en tres palabras. El mapa se puede leer sin esto —la parte
-                   blanca es siempre la de abajo— pero la primera vez hace falta que alguien lo diga. */
-                .cuadros-pie {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 4px 14px;
-                    margin-top: 10px;
-                    color: #777;
-                    font-size: 0.74em;
-                }
-                .cuadros-pie span { display: inline-flex; align-items: center; gap: 5px; }
-                /* Cuando falta el precio de alguna empresa, su cuadro no se puede dibujar y el total de
-                   arriba se queda corto. Se dice, en vez de dejar creer que el mapa está completo. */
+                /* Dos cuadros piden poco alto: con más, se estiran sin decir nada nuevo y empujan hacia
+                   abajo lo que viene después. */
+                .cuadros-lienzo { position: relative; width: 100%; height: 150px; }
+                /* El rendimiento en una línea. Va debajo y no dentro de un cuadro porque no es un área:
+                   es lo que ha dado medido contra lo que pusiste, y el mapa reparte otra cosa. */
+                .cuadros-pie { margin-top: 10px; color: #888; font-size: 0.8em; line-height: 1.4; }
+                /* Cuando falta el precio de alguna empresa, lo que pusiste en ella no entra en la cuenta
+                   de arriba. Se dice, en vez de dejar creer que el mapa está completo. */
                 .cuadros-aviso { color: #f39c12; font-size: 0.78em; line-height: 1.35; margin-top: 8px; }
-                .cuadros-pie i { width: 8px; height: 8px; border-radius: 2px; }
                 /* --- FIN ESTILOS INVERTIDO Y PLUSVALÍA --- */
 
                 /* --- INICIO ESTILOS FLUJO GBM --- */
@@ -9472,92 +9456,75 @@
 
                                                     let miCuadrosCuenta = null;
 
-                                                    // El mapa de cuadros de la cuenta, con la misma mecánica que el del portafolio en la
-                                                    // pantalla principal: cada empresa es un rectángulo, el área es el mayor entre lo que
-                                                    // pusiste y lo que vale hoy, la parte llena de abajo es la menor de las dos y la franja
-                                                    // que queda arriba es la diferencia —verde si subió, roja si bajó—.
+                                                    // El mapa de cuadros de la cuenta: dos rectángulos, lo que pusiste y lo que ha dado,
+                                                    // repartiéndose la cifra grande de arriba. El área es la cifra, así que se ve de un
+                                                    // vistazo cuánto de lo que hay hoy lo pusiste tú y cuánto lo puso el mercado.
                                                     //
-                                                    // Así las dos preguntas se contestan con la misma figura: el tamaño dice cuánto pesa esa
-                                                    // posición dentro de la cuenta, y la franja dice cuánto de eso es plusvalía. Una posición
-                                                    // que sólo creció un poco sale casi llena; una que se disparó, con media casilla de color.
+                                                    // Qué se reparte depende de por dónde vaya la cuenta, y en los dos casos el reparto es
+                                                    // de verdad —las partes suman el total, que es lo que un mapa de cuadros promete—:
                                                     //
-                                                    // La caja GBM entra como un cuadro más cuando tiene dólares parados: también es dinero
-                                                    // tuyo dentro de la cuenta, y su franja es lo que le ha hecho el tipo de cambio.
+                                                    //   ganando   → el total es el valor de hoy, y se parte en lo invertido y la plusvalía
+                                                    //   perdiendo → el total es lo invertido, y se parte en lo que queda y lo que se perdió
+                                                    //
+                                                    // La caja GBM cuenta dentro de lo invertido: sus pesos salieron de tu bolsillo igual que
+                                                    // los de las acciones, y lo que el tipo de cambio les haya hecho es plusvalía como
+                                                    // cualquier otra.
                                                     function cuadrosDeLaCuenta(r, tcHoy) {
-                                                        const cuadros = [];
+                                                        let invertido = r.cajaMxnBase || 0;
+                                                        let valorHoy = (r.cajaUsd || 0) * tcHoy;
 
                                                         (r.empresas || []).forEach(e => {
                                                             if (!(e.acciones > 0.00001)) return;
-                                                            const costo = e.costoMxn || 0;
-                                                            const valor = e.valorMxn || 0;
-                                                            if (!(costo > 0.005) && !(valor > 0.005)) return;
-                                                            cuadros.push({
-                                                                id: e.ticker || e.nombre,
-                                                                categoriaId: e.id,
-                                                                nombre: e.ticker || e.nombre,
-                                                                completo: e.nombre,
-                                                                costo: costo,
-                                                                valor: valor,
-                                                                caja: false
-                                                            });
+                                                            invertido += e.costoMxn || 0;
+                                                            valorHoy += e.valorMxn || 0;
                                                         });
 
-                                                        const cajaEnPesos = r.cajaUsd * tcHoy;
-                                                        if (r.cajaUsd > 0.005 && (r.cajaMxnBase > 0.005 || cajaEnPesos > 0.005)) {
-                                                            cuadros.push({
-                                                                id: 'caja-gbm', categoriaId: null, nombre: 'Caja', completo: 'Caja GBM',
-                                                                costo: r.cajaMxnBase, valor: cajaEnPesos, caja: true
-                                                            });
-                                                        }
+                                                        if (!(invertido > 0.005) && !(valorHoy > 0.005)) return null;
 
-                                                        if (cuadros.length === 0) return null;
+                                                        const plusvalia = valorHoy - invertido;
+                                                        const gana = plusvalia >= 0;
+                                                        const total = gana ? valorHoy : invertido;
 
-                                                        cuadros.forEach(c => {
-                                                            c.plusvalia = c.valor - c.costo;
-                                                            // El área es el mayor de los dos. Si fuera siempre el valor de hoy, una posición
-                                                            // hundida encogería justo cuando más importa mirarla; y si fuera siempre el costo,
-                                                            // una que se multiplicó no se notaría. Con el mayor, el cuadro nunca miente sobre
-                                                            // cuánto dinero tuyo está en juego ahí.
-                                                            c.monto = Math.max(c.costo, c.valor);
-                                                            c.lleno = c.monto > 0 ? Math.min(c.costo, c.valor) / c.monto : 1;
-                                                        });
+                                                        const cuadros = gana
+                                                            ? [
+                                                                { nombre: 'Invertido', monto: invertido, color: '#ffffff' },
+                                                                { nombre: 'Plusvalía', monto: plusvalia, color: VERDE_GANANCIA_TREEMAP, firmado: true }
+                                                            ]
+                                                            : [
+                                                                { nombre: 'Valor hoy', monto: valorHoy, color: '#ffffff' },
+                                                                { nombre: 'Pérdida', monto: -plusvalia, color: ROJO_PERDIDA_TREEMAP, firmado: true, negativo: true }
+                                                            ];
 
-                                                        cuadros.sort((a, b) => b.monto - a.monto);
+                                                        // Un cuadro sin superficie no se puede dibujar y además no dice nada: una cuenta que
+                                                        // va justa en cero no tiene plusvalía que enseñar, sólo lo que pusiste.
+                                                        const visibles = cuadros.filter(c => c.monto > 0.005);
+                                                        if (visibles.length === 0) return null;
+                                                        visibles.forEach(c => { c.parte = total > 0.005 ? (c.monto / total) * 100 : 100; });
 
-                                                        const invertido = cuadros.reduce((a, c) => a + c.costo, 0);
-                                                        const valorHoy = cuadros.reduce((a, c) => a + c.valor, 0);
-                                                        return { cuadros, invertido, valorHoy, plusvalia: valorHoy - invertido, sinPrecio: r.empresasSinPrecio || 0 };
+                                                        return {
+                                                            cuadros: visibles, invertido, valorHoy, plusvalia, gana, total,
+                                                            pct: invertido > 0.005 ? (plusvalia / invertido) * 100 : 0,
+                                                            sinPrecio: r.empresasSinPrecio || 0
+                                                        };
                                                     }
 
                                                     function bloqueCuadrosCuenta(mapa) {
-                                                        const pct = mapa.invertido > 0.005 ? (mapa.plusvalia / mapa.invertido) * 100 : 0;
-                                                        const color = mapa.plusvalia >= 0 ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP;
-                                                        const signo = mapa.plusvalia >= 0 ? '+' : '−';
-
-                                                        // Los cuadros necesitan superficie para poder repartirse: con pocos basta poco alto,
-                                                        // con muchos hace falta más o los de la cola salen como hilos donde no cabe ni el nombre.
-                                                        const alto = Math.max(190, Math.min(300, 130 + mapa.cuadros.length * 12));
+                                                        const signo = mapa.gana ? '+' : '−';
+                                                        const colorPlus = mapa.gana ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP;
 
                                                         return bloqueDetalleCuenta('🟦 Invertido y plusvalía', `
                                                             <div class="cuadros-cabecera">
-                                                                <div>
-                                                                    <span class="cifra">${fMoneda(mapa.invertido)}</span>
-                                                                    <span class="pie">invertido</span>
-                                                                </div>
-                                                                <div style="text-align: right;">
-                                                                    <span class="cifra" style="color: ${color};">${signo}${fMoneda(Math.abs(mapa.plusvalia))}</span>
-                                                                    <span class="pie">${signo}${Math.abs(pct).toFixed(1)}% ${mapa.plusvalia >= 0 ? 'de plusvalía' : 'de pérdida'}</span>
-                                                                </div>
+                                                                <span class="cifra">${fMoneda(mapa.total)}</span>
+                                                                <span class="pie">${mapa.gana ? 'valor de hoy, repartido en' : 'lo que has invertido, repartido en'}</span>
                                                             </div>
-                                                            <div class="cuadros-lienzo" style="height: ${alto}px;">
+                                                            <div class="cuadros-lienzo">
                                                                 <canvas id="cuadrosCuenta"></canvas>
                                                             </div>
-                                                            ${mapa.sinPrecio > 0 ? `<div class="cuadros-aviso">⚠️ ${mapa.sinPrecio} empresa(s) sin precio de mercado no salen aquí: lo que pusiste en ellas no está sumado arriba.</div>` : ''}
-        <div class="cuadros-pie">
-                                                                <span><i style="background: #ffffff;"></i>Lo que pusiste</span>
-                                                                <span><i style="background: ${VERDE_GANANCIA_TREEMAP};"></i>Ganancia</span>
-                                                                <span><i style="background: ${ROJO_PERDIDA_TREEMAP};"></i>Pérdida</span>
-                                                            </div>`);
+                                                            <div class="cuadros-pie">
+                                                                ${signo}${fMoneda(Math.abs(mapa.plusvalia))} sobre ${fMoneda(mapa.invertido)} invertidos:
+                                                                <b style="color: ${colorPlus};">${signo}${Math.abs(mapa.pct).toFixed(1)}%</b>
+                                                            </div>
+                                                            ${mapa.sinPrecio > 0 ? `<div class="cuadros-aviso">⚠️ ${mapa.sinPrecio} empresa(s) sin precio de mercado no entran en esta cuenta: lo que pusiste en ellas no está sumado.</div>` : ''}`);
                                                     }
 
                                                     // Se dibuja después de meter el HTML en la página: antes el lienzo todavía no
@@ -9574,19 +9541,15 @@
                                                             return mapa.cuadros.find(c => c.nombre === etiqueta) || null;
                                                         };
 
-                                                        // Los renglones del cuadro: quién es, cuánto pusiste y cuánto ha dado. Cuántos caben
-                                                        // lo decide el alto: por debajo de cierto tamaño tres renglones no entran ni con la
-                                                        // letra más chica, y el treemap no recorta lo que se sale —se mete en el cuadro de al
-                                                        // lado o se va por el borde—. Así que se van soltando por orden de importancia. Lo que
-                                                        // pusiste es lo primero que cae, porque el tamaño del cuadro ya lo dice; lo que ha
-                                                        // dado es lo último, porque es la pregunta del mapa.
+                                                        // Tres renglones: qué es, cuánto y qué parte del total se lleva. Si el cuadro no da
+                                                        // para los tres, cae primero el porcentaje —el tamaño ya lo dice— y después el
+                                                        // nombre. El treemap no recorta lo que se sale, así que lo que no cabe no se pide.
                                                         const medidas = (raw) => {
                                                             const c = deRecuadro(raw);
                                                             if (!c) return { lineas: [], fuentes: [{ size: 12, weight: 'bold' }] };
 
-                                                            // El treemap deja más aire entre renglones del que sugiere el cuerpo de letra, así
-                                                            // que la cuenta se hace con 1.45 de interlineado: con el ajustado, el último renglón
-                                                            // de los cuadros chicos se salía por el borde de abajo.
+                                                            // El treemap deja más aire entre renglones del que sugiere el cuerpo de letra,
+                                                            // así que la cuenta se hace con 1.45 de interlineado y no con el ajustado.
                                                             const INTERLINEA = 1.45;
                                                             const alto = raw.h - PADDING_ETIQUETA_TREEMAP * 2;
                                                             let renglones = 3;
@@ -9597,75 +9560,20 @@
                                                                 (raw.w - PADDING_ETIQUETA_TREEMAP * 2) / 3.2
                                                             ))));
 
-                                                            // Sólo se recorta el nombre: es lo único que puede ser largo. Las cifras van compactas
-                                                            // —"$5.7k", "+$15k"— y si alguna se pasa de ancho por poco, el propio treemap la
-                                                            // encoge con overflow 'fit'; cortarlas a mano dejaba "+$1.…" donde cabía "+$1.9k".
-                                                            const caben = Math.floor((raw.w - PADDING_ETIQUETA_TREEMAP * 2) / (tam * 0.58));
-                                                            const nombre = caben < 2 ? '…' : (c.nombre.length > caben ? `${c.nombre.slice(0, caben - 1)}…` : c.nombre);
+                                                            // Con dos cuadros grandes casi siempre cabe la cifra entera, y "$52,740" dice
+                                                            // más que "$53k" —sobre todo cuando la de arriba lleva los centavos—. Sólo se
+                                                            // recorta a la forma compacta si de verdad no entra a lo ancho.
+                                                            const marca = c.firmado ? (c.negativo ? '−' : '+') : '';
+                                                            const caben = Math.floor((raw.w - PADDING_ETIQUETA_TREEMAP * 2) / (tam * 0.6));
+                                                            const entera = `${marca}$${Math.round(c.monto).toLocaleString('en-US')}`;
+                                                            const cifra = entera.length <= caben ? entera : `${marca}${montoCompactoTreemap(c.monto)}`;
+                                                            const parte = `${c.parte.toFixed(1)}%`;
+                                                            const grande = { size: tam, weight: 'bold' };
+                                                            const chico = { size: Math.max(MIN_FUENTE_TREEMAP, tam - 2) };
 
-                                                            const signo = c.plusvalia >= 0 ? '+' : '−';
-                                                            const plus = `${signo}${montoCompactoTreemap(Math.abs(c.plusvalia))}`;
-                                                            const chicoFuerte = { size: Math.max(MIN_FUENTE_TREEMAP, tam - 1), weight: 'bold' };
-
-                                                            if (renglones >= 3) {
-                                                                return {
-                                                                    lineas: [nombre, montoCompactoTreemap(c.costo), plus],
-                                                                    fuentes: [{ size: tam, weight: 'bold' }, { size: Math.max(MIN_FUENTE_TREEMAP, tam - 1) }, chicoFuerte]
-                                                                };
-                                                            }
-                                                            if (renglones === 2) {
-                                                                return { lineas: [nombre, plus], fuentes: [{ size: tam, weight: 'bold' }, chicoFuerte] };
-                                                            }
-                                                            // Con sitio para un solo renglón se intenta meter las dos cosas —quién es y
-                                                            // cuánto ha dado— en la misma línea; si no caben, gana la cifra, que es la
-                                                            // pregunta del mapa, y el nombre se ve al tocar el cuadro.
-                                                            const juntos = `${nombre} ${plus}`;
-                                                            return { lineas: [juntos.length <= caben ? juntos : plus], fuentes: [{ size: tam, weight: 'bold' }] };
-                                                        };
-
-                                                        const franja = (c) => c.plusvalia >= 0 ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP;
-
-                                                        const fondoRecuadroCuenta = (context) => {
-                                                            if (context.type !== 'data') return 'transparent';
-                                                            const c = deRecuadro(context.raw);
-                                                            if (!c) return '#3a3a3a';
-                                                            const base = '#ffffff';
-                                                            const { y, h } = context.raw;
-                                                            // Sin diferencia que enseñar el cuadro va entero del color de lo aportado, y sin
-                                                            // alto no hay degradado que construir: antes de inventarse una franja, se pinta liso.
-                                                            if (c.lleno >= 0.9995 || !(h > 0)) return base;
-
-                                                            const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
-                                                            grad.addColorStop(0, base);
-                                                            grad.addColorStop(c.lleno, base);
-                                                            grad.addColorStop(c.lleno, franja(c));
-                                                            grad.addColorStop(1, franja(c));
-                                                            return grad;
-                                                        };
-
-                                                        // La junta entre las dos partes se traza, no se degrada: media raya de píxel dentro de
-                                                        // un degradado se pierde al rasterizar, y como trazo sale del mismo grosor que el hilo
-                                                        // que separa un cuadro de otro, que es lo que es: una junta, no un dato.
-                                                        const juntaCuadros = {
-                                                            id: 'juntaCuadrosCuenta',
-                                                            afterDatasetsDraw(chart) {
-                                                                const meta = chart.getDatasetMeta(0);
-                                                                if (!meta || !meta.data || !meta.data.length) return;
-                                                                const ctx = chart.ctx;
-                                                                ctx.save();
-                                                                ctx.strokeStyle = COLOR_MARCA_OBJETIVO_TREEMAP;
-                                                                ctx.lineWidth = ESPACIO_TREEMAP;
-                                                                meta.data.forEach((el, i) => {
-                                                                    const c = deRecuadro(chart.data.datasets[0].data[i]);
-                                                                    if (!c || c.lleno >= 0.9995 || !(el.height > 0)) return;
-                                                                    const alturaJunta = el.y + el.height * (1 - c.lleno);
-                                                                    ctx.beginPath();
-                                                                    ctx.moveTo(el.x, alturaJunta);
-                                                                    ctx.lineTo(el.x + el.width, alturaJunta);
-                                                                    ctx.stroke();
-                                                                });
-                                                                ctx.restore();
-                                                            }
+                                                            if (renglones >= 3) return { lineas: [c.nombre, cifra, parte], fuentes: [{ size: Math.max(MIN_FUENTE_TREEMAP, tam - 2) }, grande, chico] };
+                                                            if (renglones === 2) return { lineas: [c.nombre, cifra], fuentes: [chico, grande] };
+                                                            return { lineas: [cifra], fuentes: [grande] };
                                                         };
 
                                                         miCuadrosCuenta = new Chart(lienzo, {
@@ -9677,20 +9585,25 @@
                                                                     groups: ['nombre'],
                                                                     spacing: ESPACIO_TREEMAP,
                                                                     borderWidth: 0,
-                                                                    backgroundColor: fondoRecuadroCuenta,
-                                                                    hoverBackgroundColor: fondoRecuadroCuenta,
+                                                                    backgroundColor: (context) => {
+                                                                        if (context.type !== 'data') return 'transparent';
+                                                                        const c = deRecuadro(context.raw);
+                                                                        return c ? c.color : '#3a3a3a';
+                                                                    },
+                                                                    hoverBackgroundColor: (context) => {
+                                                                        if (context.type !== 'data') return 'transparent';
+                                                                        const c = deRecuadro(context.raw);
+                                                                        return c ? c.color : '#3a3a3a';
+                                                                    },
                                                                     hoverBorderWidth: 0,
                                                                     labels: {
                                                                         display: true,
                                                                         align: 'center',
                                                                         position: 'middle',
                                                                         overflow: 'fit',
-                                                                    // Negro siempre. El texto va centrado y la junta lo puede cruzar, así que tiene
-                                                                    // que leerse sobre las dos partes del cuadro a la vez; las tres son claras —blanco
-                                                                    // lo que pusiste, verde o rojo la diferencia— y contra las tres el negro pasa de
-                                                                    // sobra. Eligiendo por la mitad más grande, los renglones que caían del otro lado
-                                                                    // salían blancos sobre el blanco del relleno y desaparecían.
-                                                                    color: '#0a0a0a',
+                                                                        // Los dos cuadros son claros —blanco lo que pusiste, verde o rojo la
+                                                                        // diferencia— y contra los tres el negro pasa de sobra.
+                                                                        color: '#0a0a0a',
                                                                         padding: PADDING_ETIQUETA_TREEMAP,
                                                                         font: (context) => context.type !== 'data' ? { size: 12, weight: 'bold' } : medidas(context.raw).fuentes,
                                                                         formatter: (context) => context.type !== 'data' ? [] : medidas(context.raw).lineas
@@ -9701,37 +9614,21 @@
                                                                 animation: ANIMACION_GRAFICAS,
                                                                 maintainAspectRatio: false,
                                                                 responsive: true,
-                                                                // El relleno es un degradado en coordenadas del lienzo: al cambiar de tamaño hay
-                                                                // que rehacerlo o los cuadros se mueven y las franjas se quedan donde estaban.
-                                                                onResize: (chart) => chart.update(),
                                                                 plugins: {
                                                                     legend: { display: false },
                                                                     tooltip: {
                                                                         displayColors: false,
                                                                         callbacks: {
-                                                                            title: (items) => { const c = deRecuadro(items[0].raw); return c ? c.completo : ''; },
+                                                                            title: (items) => { const c = deRecuadro(items[0].raw); return c ? c.nombre : ''; },
                                                                             label: (context) => {
                                                                                 const c = deRecuadro(context.raw);
                                                                                 if (!c) return '';
-                                                                                const signo = c.plusvalia >= 0 ? '+' : '−';
-                                                                                const pct = c.costo > 0.005 ? ` (${signo}${Math.abs((c.plusvalia / c.costo) * 100).toFixed(1)}%)` : '';
-                                                                                return [
-                                                                                    `Pusiste ${fMoneda(c.costo)}`,
-                                                                                    `Hoy vale ${fMoneda(c.valor)}`,
-                                                                                    `${signo}${fMoneda(Math.abs(c.plusvalia))}${pct}`
-                                                                                ];
+                                                                                return [`${fMoneda(c.monto)}`, `${c.parte.toFixed(1)}% de ${fMoneda(mapa.total)}`];
                                                                             }
                                                                         }
                                                                     }
-                                                                },
-                                                                events: ['click', 'mousemove', 'touchstart'],
-                                                                onClick: (event, elements) => {
-                                                                    if (!elements || elements.length === 0) return;
-                                                                    const c = deRecuadro(miCuadrosCuenta.data.datasets[0].data[elements[0].index]);
-                                                                    if (c && c.categoriaId) { cerrarModalDetallesCuenta(); verDetallesCategoria(c.categoriaId); }
                                                                 }
-                                                            },
-                                                            plugins: [juntaCuadros]
+                                                            }
                                                         });
                                                     }
 
