@@ -9522,10 +9522,13 @@
                                                             f.aMonedaUsd.usd > 0.005);
 
                                                         // Paso 3
+                                                        // El equivalente en pesos de hoy dice qué pesarían esos dólares si volvieran ahora
+                                                        // mismo: al lado de los pesos que costaron —el paso 2— se ve de un vistazo lo que
+                                                        // ha puesto el tipo de cambio sobre lo invertido.
                                                         filasFlujo += pasoFlujoGbm(3, 'Dólares → acciones',
                                                             f.aAcciones.usd > 0.005 ? `${fMoneda(f.aAcciones.usd)} USD` : '—',
                                                             f.aAcciones.usd > 0.005
-                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones compradas · ${f.aAcciones.n} compra(s)`
+                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones compradas · ${f.aAcciones.n} compra(s) · ${fMoneda(f.aAcciones.usd * globalUsdToMxn)} MXN al cambio de hoy`
                                                                 : 'Sin compras registradas',
                                                             f.aAcciones.usd > 0.005);
 
