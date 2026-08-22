@@ -4667,7 +4667,10 @@
 
                             if (tipoMov) {
                             const idCuentaCat = cuentaPorCategoria[u.categoria_id];
-                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0 };
+                            // mesesPonderados = pesos x meses que llevan dentro. Guardado así, quitar una
+                            // parte es una regla de tres y no hace falta recordar cada aportación por
+                            // separado. Sirve para saber en cuánto tiempo se ganó lo que puso el cambio.
+                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0, mesesPonderados: 0 };
                             const caja = cajaPorCuenta[idCuentaCat];
                             const usdRegistro = parseFloat(u.monto_usd) || 0;
 
@@ -4676,6 +4679,7 @@
                             const usdAportado = usdRegistro || (Math.abs(monto) / (parseFloat(u.tipo_cambio) || 1));
                             caja.usd += usdAportado;
                             caja.mxnBase += Math.abs(monto);
+                            caja.mesesPonderados += Math.abs(monto) * mesesTranscurridos(u.fecha);
 
                             } else if (tipoMov === 'retiro') {
                             // Trading USA → Smart Cash: salen dólares de la caja, regresan pesos.
@@ -4688,8 +4692,12 @@
                             window.gananciaRealizadaMap[u.id] = Math.abs(monto) - baseMxnRetirada;
                             realizadaFueraCajaCuentaMap[idCuentaCat] = (realizadaFueraCajaCuentaMap[idCuentaCat] || 0) + (Math.abs(monto) - baseMxnRetirada);
                             costoRealizadoFueraCajaCuentaMap[idCuentaCat] = (costoRealizadoFueraCajaCuentaMap[idCuentaCat] || 0) + baseMxnRetirada;
+                            // Los pesos que salen se llevan su parte proporcional de antigüedad
+                            const parteRetirada = caja.mxnBase > 0.00001 ? Math.min(1, baseMxnRetirada / caja.mxnBase) : 0;
+                            caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteRetirada));
                             caja.usd = Math.max(0, caja.usd - usdRetirado);
                             caja.mxnBase = Math.max(0, caja.mxnBase - baseMxnRetirada);
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; }
 
                             } else if (acciones > 0 && (tipoMov === 'compra' || tipoMov === 'compra_directa')) {
                             if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
@@ -4722,13 +4730,15 @@
                             ? tcCercano
                             : (caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1));
                             mxnCompra = usdCompra * tcLote;
+                            const parteComprada = caja.mxnBase > 0.00001 ? Math.min(1, mxnCompra / caja.mxnBase) : 0;
+                            caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteComprada));
                             caja.usd = Math.max(0, caja.usd - usdCompra);
                             caja.mxnBase = Math.max(0, caja.mxnBase - mxnCompra);
                             // Cada compra se lleva sus pesos al tipo de cambio de su aportación, no al promedio
                             // de la caja, así que lo que queda en pesos ya no es exactamente proporcional a los
                             // dólares que quedan. Con la caja vacía no puede sobrar base en pesos: serían pesos
                             // sin dólares detrás, y falsearían el tipo de cambio promedio de la cuenta.
-                            if (caja.usd < 0.00001) caja.mxnBase = 0;
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; }
                             }
 
                             accionesMap[u.categoria_id] += acciones;
@@ -9432,9 +9442,20 @@
                                                         if (usdEnPie > 0.005 && pesosQueCostaron > 0.005) {
                                                             const tcAlQueCompraste = pesosQueCostaron / usdEnPie;
                                                             const efectoCambio = usdEnPie * (globalUsdToMxn - tcAlQueCompraste);
+                                                            // El porcentaje se mide contra lo que costaron esos dólares, que es lo que
+                                                            // se puso en juego. Y para repartirlo en el tiempo, la antigüedad de lo que
+                                                            // sigue en pie: los pesos dentro de las acciones con la de sus lotes, los de
+                                                            // la caja con la suya. No es lo mismo un 8% en dos meses que en dos años.
+                                                            const pctEfecto = (efectoCambio / pesosQueCostaron) * 100;
+                                                            const mesesDeLosDolares = (r.mesesPonderadosAcciones + (r.cajaMxnBase * r.cajaMeses)) / pesosQueCostaron;
+                                                            const pctEfectoMensual = pctEfecto / divisorMeses(mesesDeLosDolares);
+
                                                             filasResumen += filaDetalleCuenta('Efecto del tipo de cambio',
-                                                                `${signo(efectoCambio)}${fMoneda(efectoCambio)}`, colorGan(efectoCambio),
+                                                                `${signo(efectoCambio)}${fMoneda(efectoCambio)} (${signo(pctEfecto)}${pctEfecto.toFixed(2)}%)`, colorGan(efectoCambio),
                                                                 `Ya está dentro del neto · ${fMoneda(usdEnPie)} USD comprados a ${fMoneda(tcAlQueCompraste)} y hoy a ${fMoneda(globalUsdToMxn)}`);
+                                                            filasResumen += filaDetalleCuenta('Efecto mensual',
+                                                                `${signo(pctEfectoMensual)}${pctEfectoMensual.toFixed(2)}% / mes`, colorGan(pctEfectoMensual),
+                                                                `Esos dólares llevan ${mesesDeLosDolares.toFixed(1)} meses en promedio`, true);
                                                         }
                                                     }
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
@@ -13807,6 +13828,11 @@
                             cajaUsd: cajaUsdCuenta,
                             cajaMxnBase: cajaCuenta ? cajaCuenta.mxnBase : 0,
                             cajaTcPromedio: cajaCuenta ? cajaCuenta.tcPromedio : 0,
+                            // Antigüedad de lo que sigue en pie, para poder repartir en el tiempo lo que
+                            // puso el tipo de cambio: los pesos de la caja por un lado y los que están
+                            // dentro de las acciones por otro.
+                            cajaMeses: (cajaCuenta && cajaCuenta.mxnBase > 0.005) ? (cajaCuenta.mesesPonderados || 0) / cajaCuenta.mxnBase : 0,
+                            mesesPonderadosAcciones: totalMesesPonderados,
                             valorAccionesMxn, valorAccionesUsd, costoAccionesMxn, costoAccionesUsd,
                             empresas, empresasSinPrecio
                             };
