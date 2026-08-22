@@ -4580,6 +4580,51 @@
                             if (usoData) {
                             const registrosAsc = [...usoData].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
+                            // Una compra se paga con dólares que ya estaban en la caja, así que su registro no
+                            // guarda tipo de cambio: dentro de la caja no se cambia moneda. El tipo de cambio de
+                            // verdad de esas acciones es al que se compraron esos dólares, y eso sí está anotado,
+                            // en la aportación que los trajo. En la práctica se aporta y se compra el mismo día
+                            // —el dinero llega a la caja para comprar, no para quedarse—, así que la aportación
+                            // más cercana en fecha es casi siempre la que financió la compra.
+                            //
+                            // Se indexan aquí, antes del recorrido, para no rebuscar entre todos los movimientos
+                            // en cada compra.
+                            const aportacionesPorCuenta = {};
+                            registrosAsc.forEach(u => {
+                            if (tipoMovInversion(u) !== 'aportacion') return;
+                            const idCuentaApo = cuentaPorCategoria[u.categoria_id];
+                            if (!idCuentaApo) return;
+                            const pesosApo = Math.abs(parseFloat(u.monto) || 0);
+                            const usdApo = Math.abs(parseFloat(u.monto_usd) || 0);
+                            // El tipo de cambio sale de los dos importes, que es como se captura ahora. Los
+                            // registros viejos que no guardaron los dólares dejan el suyo anotado a mano.
+                            const tcApo = (pesosApo > 0 && usdApo > 0) ? (pesosApo / usdApo) : (parseFloat(u.tipo_cambio) || 0);
+                            if (!(tcApo > 0)) return;
+                            const t = new Date(u.fecha).getTime();
+                            if (isNaN(t)) return;
+                            if (!aportacionesPorCuenta[idCuentaApo]) aportacionesPorCuenta[idCuentaApo] = [];
+                            aportacionesPorCuenta[idCuentaApo].push({ t, tc: tcApo });
+                            });
+
+                            function tipoCambioDeAportacionCercana(idCuenta, fecha) {
+                            const lista = aportacionesPorCuenta[idCuenta];
+                            if (!lista || lista.length === 0) return 0;
+                            const t = new Date(fecha).getTime();
+                            if (isNaN(t)) return 0;
+                            let mejor = null;
+                            let mejorDistancia = Infinity;
+                            lista.forEach(a => {
+                            const distancia = Math.abs(a.t - t);
+                            // A igual distancia gana la anterior: si una compra queda justo entre dos
+                            // aportaciones, la que la financió es la que ya había pasado.
+                            if (distancia < mejorDistancia || (distancia === mejorDistancia && mejor && a.t < mejor.t)) {
+                            mejor = a;
+                            mejorDistancia = distancia;
+                            }
+                            });
+                            return mejor ? mejor.tc : 0;
+                            }
+
                             registrosAsc.forEach(u => {
                             usoMap[u.categoria_id] = (usoMap[u.categoria_id] || 0) + 1;
 
@@ -4669,11 +4714,21 @@
                             usdCompra = mxnCompra / tcLote;
                             }
                             } else {
-                            // Compra pagada con la caja USD: hereda el TC promedio real de las aportaciones
-                            tcLote = caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1);
+                            // Compra pagada con la caja USD: el tipo de cambio es el de la aportación más
+                            // cercana, que es la que trajo esos dólares. Sin ninguna aportación de la que
+                            // tirar se cae al promedio de la caja, que es lo que se hacía antes.
+                            const tcCercano = tipoCambioDeAportacionCercana(idCuentaCat, u.fecha);
+                            tcLote = tcCercano > 0
+                            ? tcCercano
+                            : (caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1));
                             mxnCompra = usdCompra * tcLote;
                             caja.usd = Math.max(0, caja.usd - usdCompra);
                             caja.mxnBase = Math.max(0, caja.mxnBase - mxnCompra);
+                            // Cada compra se lleva sus pesos al tipo de cambio de su aportación, no al promedio
+                            // de la caja, así que lo que queda en pesos ya no es exactamente proporcional a los
+                            // dólares que quedan. Con la caja vacía no puede sobrar base en pesos: serían pesos
+                            // sin dólares detrás, y falsearían el tipo de cambio promedio de la cuenta.
+                            if (caja.usd < 0.00001) caja.mxnBase = 0;
                             }
 
                             accionesMap[u.categoria_id] += acciones;
