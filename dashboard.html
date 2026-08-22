@@ -926,6 +926,26 @@
                 /* La cifra que el mapa reparte, arriba del todo: sin ella el tamaño de los dos cuadros
                    no se puede leer como una parte de algo, que es justo lo que un mapa de cuadros dice. */
                 .cuadros-cabecera { margin-bottom: 10px; }
+                /* La salida de un desglose. Va arriba del todo y con la flecha por delante, que es
+                   donde se busca para volver; sin ella, dentro de una capa no hay más camino de vuelta
+                   que cerrar la ficha entera. */
+                .cuadros-volver {
+                    display: inline-block;
+                    /* La regla general de la hoja pone los botones al ancho completo y en verde: aquí
+                       no es una acción principal, es una salida discreta, y se pide sólo lo que ocupa. */
+                    width: auto;
+                    font-weight: normal;
+                    background: #2a2a2a;
+                    color: #bbb;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 5px 10px;
+                    margin-bottom: 8px;
+                    font-size: 0.75em;
+                    font-family: inherit;
+                    cursor: pointer;
+                }
+                .cuadros-volver:active { background: #383838; }
                 .cuadros-cabecera .cifra { display: block; color: #fff; font-size: 1.15em; font-weight: bold; line-height: 1.2; }
                 .cuadros-cabecera .pie { display: block; color: #777; font-size: 0.72em; margin-top: 2px; }
                 /* Dos cuadros piden poco alto: con más, se estiran sin decir nada nuevo y empujan hacia
@@ -934,6 +954,9 @@
                 /* El rendimiento en una línea. Va debajo y no dentro de un cuadro porque no es un área:
                    es lo que ha dado medido contra lo que pusiste, y el mapa reparte otra cosa. */
                 .cuadros-pie { margin-top: 10px; color: #888; font-size: 0.8em; line-height: 1.4; }
+                /* Que los recuadros se abren no se ve mirándolos, y el globo de información no sirve
+                   para decirlo: el mismo toque que lo abriría ya cambia de capa. Así que se dice aquí. */
+                .cuadros-pista { display: block; color: #666; margin-top: 4px; }
                 /* Cuando falta el precio de alguna empresa, lo que pusiste en ella no entra en la cuenta
                    de arriba. Se dice, en vez de dejar creer que el mapa está completo. */
                 .cuadros-aviso { color: #f39c12; font-size: 0.78em; line-height: 1.35; margin-top: 8px; }
@@ -9455,6 +9478,11 @@
                                                     }
 
                                                     let miCuadrosCuenta = null;
+                                                    // El mapa que se está mirando y en qué capa: arriba el reparto en dos, y dentro de cada
+                                                    // uno el desglose por empresa. Vive fuera de la función porque tocar un cuadro tiene que
+                                                    // poder repintar el bloque sin volver a calcular la cuenta entera.
+                                                    let mapaCuadrosActual = null;
+                                                    let capaCuadros = null;
 
                                                     // El mapa de cuadros de la cuenta: dos rectángulos, lo que pusiste y lo que ha dado,
                                                     // repartiéndose la cifra grande de arriba. El área es la cifra, así que se ve de un
@@ -9466,65 +9494,199 @@
                                                     //   ganando   → el total es el valor de hoy, y se parte en lo invertido y la plusvalía
                                                     //   perdiendo → el total es lo invertido, y se parte en lo que queda y lo que se perdió
                                                     //
-                                                    // La caja GBM cuenta dentro de lo invertido: sus pesos salieron de tu bolsillo igual que
-                                                    // los de las acciones, y lo que el tipo de cambio les haya hecho es plusvalía como
-                                                    // cualquier otra.
+                                                    // Cada uno de los dos se abre y enseña por dentro qué empresa puso cada parte. La caja
+                                                    // GBM entra como una más: sus pesos salieron del bolsillo igual que los de las acciones,
+                                                    // y lo que el tipo de cambio les haya hecho es plusvalía como cualquier otra.
                                                     function cuadrosDeLaCuenta(r, tcHoy) {
-                                                        let invertido = r.cajaMxnBase || 0;
-                                                        let valorHoy = (r.cajaUsd || 0) * tcHoy;
+                                                        const piezas = [];
 
                                                         (r.empresas || []).forEach(e => {
                                                             if (!(e.acciones > 0.00001)) return;
-                                                            invertido += e.costoMxn || 0;
-                                                            valorHoy += e.valorMxn || 0;
+                                                            piezas.push({
+                                                                nombre: e.ticker || e.nombre,
+                                                                completo: e.nombre,
+                                                                categoriaId: e.id,
+                                                                costo: e.costoMxn || 0,
+                                                                valor: e.valorMxn || 0
+                                                            });
                                                         });
 
+                                                        const cajaEnPesos = (r.cajaUsd || 0) * tcHoy;
+                                                        if (r.cajaUsd > 0.005 || r.cajaMxnBase > 0.005) {
+                                                            piezas.push({ nombre: 'Caja', completo: 'Caja GBM', categoriaId: null, esCaja: true, costo: r.cajaMxnBase || 0, valor: cajaEnPesos });
+                                                        }
+
+                                                        const invertido = piezas.reduce((a, p) => a + p.costo, 0);
+                                                        const valorHoy = piezas.reduce((a, p) => a + p.valor, 0);
                                                         if (!(invertido > 0.005) && !(valorHoy > 0.005)) return null;
 
                                                         const plusvalia = valorHoy - invertido;
                                                         const gana = plusvalia >= 0;
                                                         const total = gana ? valorHoy : invertido;
 
-                                                        const cuadros = gana
-                                                            ? [
-                                                                { nombre: 'Invertido', monto: invertido, color: '#ffffff' },
-                                                                { nombre: 'Plusvalía', monto: plusvalia, color: VERDE_GANANCIA_TREEMAP, firmado: true }
-                                                            ]
-                                                            : [
-                                                                { nombre: 'Valor hoy', monto: valorHoy, color: '#ffffff' },
-                                                                { nombre: 'Pérdida', monto: -plusvalia, color: ROJO_PERDIDA_TREEMAP, firmado: true, negativo: true }
-                                                            ];
+                                                        const cuadros = [
+                                                            { clave: 'base', nombre: gana ? 'Invertido' : 'Valor hoy', monto: gana ? invertido : valorHoy, color: '#ffffff' },
+                                                            { clave: 'plus', nombre: gana ? 'Plusvalía' : 'Pérdida', monto: Math.abs(plusvalia),
+                                                              color: gana ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP, firmado: true, negativo: !gana }
+                                                        ].filter(c => c.monto > 0.005);
+                                                        if (cuadros.length === 0) return null;
+                                                        cuadros.forEach(c => { c.parte = total > 0.005 ? (c.monto / total) * 100 : 100; });
 
-                                                        // Un cuadro sin superficie no se puede dibujar y además no dice nada: una cuenta que
-                                                        // va justa en cero no tiene plusvalía que enseñar, sólo lo que pusiste.
-                                                        const visibles = cuadros.filter(c => c.monto > 0.005);
-                                                        if (visibles.length === 0) return null;
-                                                        visibles.forEach(c => { c.parte = total > 0.005 ? (c.monto / total) * 100 : 100; });
+                                                        // --- El desglose de cada uno de los dos ---
+
+                                                        // El primero se parte por empresa igual que dice su nombre: lo que pusiste en cada
+                                                        // una, o lo que vale hoy cada una. Todo suma, así que el porcentaje es una parte real.
+                                                        const campoBase = gana ? 'costo' : 'valor';
+                                                        const totalBase = gana ? invertido : valorHoy;
+                                                        const dentroBase = piezas
+                                                            .filter(p => p[campoBase] > 0.005)
+                                                            .sort((a, b) => b[campoBase] - a[campoBase])
+                                                            .map(p => ({
+                                                                nombre: p.nombre, completo: p.completo, categoriaId: p.categoriaId, esCaja: p.esCaja,
+                                                                monto: p[campoBase], color: '#ffffff',
+                                                                parte: totalBase > 0.005 ? (p[campoBase] / totalBase) * 100 : 0
+                                                            }));
+
+                                                        // El segundo no se puede partir igual. La plusvalía es un neto: unas empresas suman y
+                                                        // otras restan, y un área negativa no existe. Así que aquí el tamaño no es una parte
+                                                        // del total sino cuánto movió cada una, con el color diciendo hacia dónde. La nota de
+                                                        // abajo pone las dos sumas para que no se lea como un reparto de algo.
+                                                        const conMovimiento = piezas
+                                                            .map(p => ({ ...p, dif: p.valor - p.costo }))
+                                                            .filter(p => Math.abs(p.dif) > 0.005)
+                                                            .sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+                                                        const sumaGanan = conMovimiento.filter(p => p.dif > 0).reduce((a, p) => a + p.dif, 0);
+                                                        const sumaPierden = conMovimiento.filter(p => p.dif < 0).reduce((a, p) => a - p.dif, 0);
+                                                        const dentroPlus = conMovimiento.map(p => ({
+                                                            nombre: p.nombre, completo: p.completo, categoriaId: p.categoriaId,
+                                                            monto: Math.abs(p.dif), firmado: true, negativo: p.dif < 0,
+                                                            color: p.dif >= 0 ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP
+                                                        }));
+
+                                                        // Cómo se nombra un grupo de piezas: si es una sola se dice cuál, que es más útil que
+                                                        // anunciar que hay una; si son varias se cuentan. La caja va fuera de esa cuenta porque
+                                                        // no es una empresa, y "1 empresa" cuando lo único que hay es la caja se lee mal.
+                                                        const nombrarGrupo = (lista) => {
+                                                            if (lista.length === 1) return lista[0].completo || lista[0].nombre;
+                                                            const nEmpresas = lista.filter(x => !x.esCaja).length;
+                                                            const trozos = [];
+                                                            if (nEmpresas > 0) trozos.push(`${nEmpresas} ${nEmpresas === 1 ? 'empresa' : 'empresas'}`);
+                                                            if (lista.some(x => x.esCaja)) trozos.push('la caja');
+                                                            return trozos.join(' y ');
+                                                        };
+                                                        const ganan = conMovimiento.filter(p => p.dif > 0);
+                                                        const pierden = conMovimiento.filter(p => p.dif < 0);
 
                                                         return {
-                                                            cuadros: visibles, invertido, valorHoy, plusvalia, gana, total,
+                                                            cuadros, invertido, valorHoy, plusvalia, gana, total,
                                                             pct: invertido > 0.005 ? (plusvalia / invertido) * 100 : 0,
-                                                            sinPrecio: r.empresasSinPrecio || 0
+                                                            sinPrecio: r.empresasSinPrecio || 0,
+                                                            detalle: {
+                                                                base: {
+                                                                    cifra: fMoneda(totalBase),
+                                                                    pie: dentroBase.length === 0
+                                                                        ? (gana ? 'invertido' : 'valor de hoy')
+                                                                        : dentroBase.length === 1
+                                                                        ? `${gana ? 'invertido' : 'valor de hoy'}, todo en ${nombrarGrupo(dentroBase)}`
+                                                                        : `${gana ? 'invertido' : 'valor de hoy'}, repartido entre ${nombrarGrupo(dentroBase)}`,
+                                                                    cuadros: dentroBase,
+                                                                    conParte: true,
+                                                                    nota: ''
+                                                                },
+                                                                plus: {
+                                                                    cifra: `${gana ? '+' : '−'}${fMoneda(Math.abs(plusvalia))}`,
+                                                                    pie: `${gana ? 'de plusvalía' : 'de pérdida'} · el tamaño es lo que movió cada empresa`,
+                                                                    cuadros: dentroPlus,
+                                                                    conParte: false,
+                                                                    // Las dos sumas por separado, que es lo que el mapa no puede enseñar: el área dice
+                                                                    // cuánto movió cada empresa, pero el neto de arriba sale de restar una de la otra.
+                                                                    nota: conMovimiento.length === 0 ? '' : [
+                                                                        ganan.length > 0 ? `${nombrarGrupo(ganan)} ${ganan.length === 1 ? 'suma' : 'suman'} ${fMoneda(sumaGanan)}` : '',
+                                                                        pierden.length > 0 ? `${nombrarGrupo(pierden)} ${pierden.length === 1 ? 'resta' : 'restan'} ${fMoneda(sumaPierden)}` : ''
+                                                                    ].filter(Boolean).join(' y ') + '.'
+                                                                }
+                                                            }
                                                         };
                                                     }
 
-                                                    function bloqueCuadrosCuenta(mapa) {
+                                                    // Qué se está enseñando ahora mismo: el reparto en dos, o lo que hay dentro de uno de
+                                                    // ellos. Todo lo que cambia entre una capa y otra sale de aquí.
+                                                    function vistaCuadrosCuenta(mapa) {
+                                                        const dentro = capaCuadros ? mapa.detalle[capaCuadros] : null;
+                                                        if (!dentro) {
+                                                            return {
+                                                                cifra: fMoneda(mapa.total),
+                                                                pie: mapa.gana ? 'valor de hoy, repartido en' : 'lo que has invertido, repartido en',
+                                                                cuadros: mapa.cuadros,
+                                                                conParte: true,
+                                                                nota: '',
+                                                                dentro: false
+                                                            };
+                                                        }
+                                                        return { ...dentro, dentro: true };
+                                                    }
+
+                                                    function interiorCuadrosCuenta(mapa) {
+                                                        const v = vistaCuadrosCuenta(mapa);
                                                         const signo = mapa.gana ? '+' : '−';
                                                         const colorPlus = mapa.gana ? VERDE_GANANCIA_TREEMAP : ROJO_PERDIDA_TREEMAP;
 
-                                                        return bloqueDetalleCuenta('🟦 Invertido y plusvalía', `
+                                                        // Dos cuadros piden poco alto; muchos necesitan superficie para repartirse o los de
+                                                        // la cola salen como hilos donde no cabe ni el nombre.
+                                                        const alto = v.dentro ? Math.max(190, Math.min(300, 130 + v.cuadros.length * 12)) : 150;
+
+                                                        // El pie de abajo cambia con la capa: arriba es el rendimiento de la cuenta, dentro
+                                                        // es lo que haga falta decir de ese desglose.
+                                                        const pieAbajo = v.dentro
+                                                            ? (v.nota ? `<div class="cuadros-pie">${v.nota}</div>` : '')
+                                                            : `<div class="cuadros-pie">
+                                                                    ${signo}${fMoneda(Math.abs(mapa.plusvalia))} sobre ${fMoneda(mapa.invertido)} invertidos:
+                                                                    <b style="color: ${colorPlus};">${signo}${Math.abs(mapa.pct).toFixed(1)}%</b>
+                                                                    ${mapa.detalle.base.cuadros.length > 1 || mapa.detalle.plus.cuadros.length > 1
+                                                                        ? '<span class="cuadros-pista">Toca un recuadro para ver qué empresa puso cada parte.</span>' : ''}
+                                                               </div>`;
+
+                                                        return `
                                                             <div class="cuadros-cabecera">
-                                                                <span class="cifra">${fMoneda(mapa.total)}</span>
-                                                                <span class="pie">${mapa.gana ? 'valor de hoy, repartido en' : 'lo que has invertido, repartido en'}</span>
+                                                                ${v.dentro ? '<button type="button" class="cuadros-volver">‹ Ver el reparto</button>' : ''}
+                                                                <span class="cifra">${v.cifra}</span>
+                                                                <span class="pie">${v.pie}</span>
                                                             </div>
-                                                            <div class="cuadros-lienzo">
+                                                            <div class="cuadros-lienzo" style="height: ${alto}px;">
                                                                 <canvas id="cuadrosCuenta"></canvas>
                                                             </div>
-                                                            <div class="cuadros-pie">
-                                                                ${signo}${fMoneda(Math.abs(mapa.plusvalia))} sobre ${fMoneda(mapa.invertido)} invertidos:
-                                                                <b style="color: ${colorPlus};">${signo}${Math.abs(mapa.pct).toFixed(1)}%</b>
-                                                            </div>
-                                                            ${mapa.sinPrecio > 0 ? `<div class="cuadros-aviso">⚠️ ${mapa.sinPrecio} empresa(s) sin precio de mercado no entran en esta cuenta: lo que pusiste en ellas no está sumado.</div>` : ''}`);
+                                                            ${pieAbajo}
+                                                            ${mapa.sinPrecio > 0 ? `<div class="cuadros-aviso">⚠️ ${mapa.sinPrecio} empresa(s) sin precio de mercado no entran en esta cuenta: lo que pusiste en ellas no está sumado.</div>` : ''}`;
+                                                    }
+
+                                                    function bloqueCuadrosCuenta(mapa) {
+                                                        // El interior va en su propia caja con nombre: al abrir o cerrar una capa se vuelve a
+                                                        // pintar sólo esto, sin tocar el resto de la ficha ni perder por dónde iba el scroll.
+                                                        return bloqueDetalleCuenta('🟦 Invertido y plusvalía',
+                                                            `<div id="cuadrosCuentaCaja">${interiorCuadrosCuenta(mapa)}</div>`);
+                                                    }
+
+                                                    function abrirCapaCuadros(clave) {
+                                                        if (!mapaCuadrosActual) return;
+                                                        const dentro = mapaCuadrosActual.detalle[clave];
+                                                        // Un cuadro sin nada dentro no se abre: dejaría el bloque en blanco y sin salida
+                                                        // aparente más que el botón de volver.
+                                                        if (!dentro || dentro.cuadros.length === 0) return;
+                                                        capaCuadros = clave;
+                                                        pintarCuadrosCuenta(mapaCuadrosActual);
+                                                    }
+
+                                                    function pintarCuadrosCuenta(mapa) {
+                                                        mapaCuadrosActual = mapa;
+                                                        // El gráfico se tira antes de rehacer el HTML. Al revés, el lienzo desaparece con
+                                                        // el innerHTML y destroy() se queda sin contexto sobre el que trabajar.
+                                                        if (miCuadrosCuenta) { miCuadrosCuenta.destroy(); miCuadrosCuenta = null; }
+                                                        const caja = document.getElementById('cuadrosCuentaCaja');
+                                                        if (caja) caja.innerHTML = interiorCuadrosCuenta(mapa);
+                                                        dibujarCuadrosCuenta(mapa);
+
+                                                        const volver = caja && caja.querySelector('.cuadros-volver');
+                                                        if (volver) volver.onclick = () => { capaCuadros = null; pintarCuadrosCuenta(mapa); };
                                                     }
 
                                                     // Se dibuja después de meter el HTML en la página: antes el lienzo todavía no
@@ -9532,18 +9694,21 @@
                                                     function dibujarCuadrosCuenta(mapa) {
                                                         if (miCuadrosCuenta) { miCuadrosCuenta.destroy(); miCuadrosCuenta = null; }
                                                         if (!mapa) return;
+                                                        mapaCuadrosActual = mapa;
                                                         const lienzo = document.getElementById('cuadrosCuenta');
                                                         if (!lienzo || typeof Chart === 'undefined') return;
 
+                                                        const v = vistaCuadrosCuenta(mapa);
                                                         const deRecuadro = (raw) => {
                                                             if (!raw) return null;
                                                             const etiqueta = raw.g || (raw._data && raw._data.nombre);
-                                                            return mapa.cuadros.find(c => c.nombre === etiqueta) || null;
+                                                            return v.cuadros.find(c => c.nombre === etiqueta) || null;
                                                         };
 
-                                                        // Tres renglones: qué es, cuánto y qué parte del total se lleva. Si el cuadro no da
-                                                        // para los tres, cae primero el porcentaje —el tamaño ya lo dice— y después el
-                                                        // nombre. El treemap no recorta lo que se sale, así que lo que no cabe no se pide.
+                                                        // Los renglones: qué es, cuánto y —cuando el reparto es real— qué parte se lleva. Si
+                                                        // el cuadro no da para los tres, cae primero el porcentaje, que el tamaño ya lo dice,
+                                                        // y después el nombre. El treemap no recorta lo que se sale, así que lo que no cabe
+                                                        // no se pide.
                                                         const medidas = (raw) => {
                                                             const c = deRecuadro(raw);
                                                             if (!c) return { lineas: [], fuentes: [{ size: 12, weight: 'bold' }] };
@@ -9552,7 +9717,7 @@
                                                             // así que la cuenta se hace con 1.45 de interlineado y no con el ajustado.
                                                             const INTERLINEA = 1.45;
                                                             const alto = raw.h - PADDING_ETIQUETA_TREEMAP * 2;
-                                                            let renglones = 3;
+                                                            let renglones = v.conParte ? 3 : 2;
                                                             while (renglones > 1 && renglones * INTERLINEA * MIN_FUENTE_TREEMAP > alto) renglones--;
 
                                                             const tam = Math.max(MIN_FUENTE_TREEMAP, Math.min(MAX_FUENTE_TREEMAP, Math.floor(Math.min(
@@ -9560,48 +9725,47 @@
                                                                 (raw.w - PADDING_ETIQUETA_TREEMAP * 2) / 3.2
                                                             ))));
 
-                                                            // Con dos cuadros grandes casi siempre cabe la cifra entera, y "$52,740" dice
-                                                            // más que "$53k" —sobre todo cuando la de arriba lleva los centavos—. Sólo se
-                                                            // recorta a la forma compacta si de verdad no entra a lo ancho.
-                                                            const marca = c.firmado ? (c.negativo ? '−' : '+') : '';
                                                             const caben = Math.floor((raw.w - PADDING_ETIQUETA_TREEMAP * 2) / (tam * 0.6));
+                                                            const nombre = caben < 2 ? '…' : (c.nombre.length > caben ? `${c.nombre.slice(0, caben - 1)}…` : c.nombre);
+
+                                                            // Cuando cabe entera se escribe entera: "$52,740" dice más que "$53k", sobre todo
+                                                            // al lado de la cifra de arriba, que lleva hasta los centavos.
+                                                            const marca = c.firmado ? (c.negativo ? '−' : '+') : '';
                                                             const entera = `${marca}$${Math.round(c.monto).toLocaleString('en-US')}`;
                                                             const cifra = entera.length <= caben ? entera : `${marca}${montoCompactoTreemap(c.monto)}`;
-                                                            const parte = `${c.parte.toFixed(1)}%`;
+
                                                             const grande = { size: tam, weight: 'bold' };
                                                             const chico = { size: Math.max(MIN_FUENTE_TREEMAP, tam - 2) };
 
-                                                            if (renglones >= 3) return { lineas: [c.nombre, cifra, parte], fuentes: [{ size: Math.max(MIN_FUENTE_TREEMAP, tam - 2) }, grande, chico] };
-                                                            if (renglones === 2) return { lineas: [c.nombre, cifra], fuentes: [chico, grande] };
+                                                            if (renglones >= 3) return { lineas: [nombre, cifra, `${c.parte.toFixed(1)}%`], fuentes: [chico, grande, chico] };
+                                                            if (renglones === 2) return { lineas: [nombre, cifra], fuentes: [chico, grande] };
                                                             return { lineas: [cifra], fuentes: [grande] };
+                                                        };
+
+                                                        const colorDe = (context) => {
+                                                            if (context.type !== 'data') return 'transparent';
+                                                            const c = deRecuadro(context.raw);
+                                                            return c ? c.color : '#3a3a3a';
                                                         };
 
                                                         miCuadrosCuenta = new Chart(lienzo, {
                                                             type: 'treemap',
                                                             data: {
                                                                 datasets: [{
-                                                                    tree: mapa.cuadros,
+                                                                    tree: v.cuadros,
                                                                     key: 'monto',
                                                                     groups: ['nombre'],
                                                                     spacing: ESPACIO_TREEMAP,
                                                                     borderWidth: 0,
-                                                                    backgroundColor: (context) => {
-                                                                        if (context.type !== 'data') return 'transparent';
-                                                                        const c = deRecuadro(context.raw);
-                                                                        return c ? c.color : '#3a3a3a';
-                                                                    },
-                                                                    hoverBackgroundColor: (context) => {
-                                                                        if (context.type !== 'data') return 'transparent';
-                                                                        const c = deRecuadro(context.raw);
-                                                                        return c ? c.color : '#3a3a3a';
-                                                                    },
+                                                                    backgroundColor: colorDe,
+                                                                    hoverBackgroundColor: colorDe,
                                                                     hoverBorderWidth: 0,
                                                                     labels: {
                                                                         display: true,
                                                                         align: 'center',
                                                                         position: 'middle',
                                                                         overflow: 'fit',
-                                                                        // Los dos cuadros son claros —blanco lo que pusiste, verde o rojo la
+                                                                        // Los tres rellenos son claros —blanco lo que pusiste, verde o rojo la
                                                                         // diferencia— y contra los tres el negro pasa de sobra.
                                                                         color: '#0a0a0a',
                                                                         padding: PADDING_ETIQUETA_TREEMAP,
@@ -9619,14 +9783,32 @@
                                                                     tooltip: {
                                                                         displayColors: false,
                                                                         callbacks: {
-                                                                            title: (items) => { const c = deRecuadro(items[0].raw); return c ? c.nombre : ''; },
+                                                                            title: (items) => { const c = deRecuadro(items[0].raw); return c ? (c.completo || c.nombre) : ''; },
                                                                             label: (context) => {
                                                                                 const c = deRecuadro(context.raw);
                                                                                 if (!c) return '';
-                                                                                return [`${fMoneda(c.monto)}`, `${c.parte.toFixed(1)}% de ${fMoneda(mapa.total)}`];
+                                                                                const marca = c.firmado ? (c.negativo ? '−' : '+') : '';
+                                                                                const filas = [`${marca}${fMoneda(c.monto)}`];
+                                                                                if (v.conParte) filas.push(`${c.parte.toFixed(1)}% de ${v.cifra}`);
+                                                                                    return filas;
                                                                             }
                                                                         }
                                                                     }
+                                                                },
+                                                                // Sólo el clic. Con los eventos por defecto Chart.js deja resaltado el cuadro
+                                                                // que quedó bajo el dedo al arrastrar, y aquí no hay nada que seleccionar.
+                                                                events: ['click'],
+                                                                onClick: (event, elements) => {
+                                                                    if (!elements || elements.length === 0) return;
+                                                                    const c = deRecuadro(miCuadrosCuenta.data.datasets[0].data[elements[0].index]);
+                                                                    if (!c) return;
+                                                                    // Arriba, tocar abre lo que hay dentro de ese cuadro. Dentro, tocar una
+                                                                    // empresa abre su ficha, que es a donde se iba a llegar de todos modos.
+                                                                    // El cambio de capa espera al siguiente cuadro de animación: si se hace
+                                                                    // aquí mismo, Chart.js sigue atendiendo el mismo clic sobre un gráfico que
+                                                                    // ya se tiró y se queda sin lienzo a media pasada.
+                                                                    if (!capaCuadros) { const clave = c.clave; requestAnimationFrame(() => abrirCapaCuadros(clave)); }
+                                                                    else if (c.categoriaId) { cerrarModalDetallesCuenta(); verDetallesCategoria(c.categoriaId); }
                                                                 }
                                                             }
                                                         });
@@ -9716,6 +9898,9 @@
                                                     // Dónde está el dinero y cuánto ha dado, en cuadros. Va justo después del
                                                     // resumen: primero el detalle renglón a renglón, luego el mismo dinero visto
                                                     // de un golpe, y al final el recorrido que siguió para llegar hasta ahí.
+                                                    // Cada vez que se abre una ficha se empieza por el reparto en dos, no por donde
+                                                    // se hubiera quedado la anterior.
+                                                    capaCuadros = null;
                                                     const cuadrosCuenta = r.tieneInversion ? cuadrosDeLaCuenta(r, globalUsdToMxn) : null;
                                                     if (cuadrosCuenta) html += bloqueCuadrosCuenta(cuadrosCuenta);
 
@@ -9840,7 +10025,7 @@
                                                     }
 
                                                     document.getElementById('contenidoDetallesCuenta').innerHTML = html;
-                                                    dibujarCuadrosCuenta(cuadrosCuenta);
+                                                    pintarCuadrosCuenta(cuadrosCuenta);
 
                                                     const btnEditarCta = document.getElementById('btnEditarCuentaModal');
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
@@ -9864,6 +10049,8 @@
 
                                                     function cerrarModalDetallesCuenta() {
                                                     if (miCuadrosCuenta) { miCuadrosCuenta.destroy(); miCuadrosCuenta = null; }
+                                                    mapaCuadrosActual = null;
+                                                    capaCuadros = null;
                                                     document.getElementById('modalDetallesCuenta').classList.remove('activa');
                                                     document.body.classList.remove('modal-abierto');
                                                     }
