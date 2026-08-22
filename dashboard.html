@@ -9392,13 +9392,14 @@
                                                     // Un escalón del recorrido GBM, en su propia tarjeta. El número no es adorno:
                                                     // es el orden en que pasa el dinero, y verlos todos —también los que aún no se
                                                     // han dado, apagados— es lo que convierte la tira en un mapa del camino.
-                                                    function pasoFlujoGbm(numero, titulo, valor, detalle, activo) {
+                                                    function pasoFlujoGbm(numero, titulo, valor, detalle, activo, extra) {
                                                         const colorNumero = activo ? '#3ecf8e' : '#3a3a3a';
                                                         return `
                                                         <div class="flujo-gbm-paso">
                                                             <span style="display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: ${colorNumero}; color: ${activo ? '#000' : '#888'}; font-size: 0.7em; font-weight: bold; align-items: center; justify-content: center;">${numero}</span>
                                                             <div style="color: ${activo ? '#aaa' : '#555'}; font-size: 0.8em; line-height: 1.3; margin: 8px 0 6px 0; min-height: 2.6em;">${titulo}</div>
                                                             <strong style="display: block; color: ${activo ? '#fff' : '#666'}; font-size: 1.05em; line-height: 1.2;">${valor}</strong>
+                                                            ${extra || ''}
                                                             <div style="color: #666; font-size: 0.72em; line-height: 1.35; margin-top: 6px; min-height: 3.6em;">${detalle || ''}</div>
                                                         </div>`;
                                                     }
@@ -9522,15 +9523,24 @@
                                                             f.aMonedaUsd.usd > 0.005);
 
                                                         // Paso 3
-                                                        // El equivalente en pesos de hoy dice qué pesarían esos dólares si volvieran ahora
-                                                        // mismo: al lado de los pesos que costaron —el paso 2— se ve de un vistazo lo que
-                                                        // ha puesto el tipo de cambio sobre lo invertido.
+                                                        // Esos dólares costaron unos pesos y hoy valen otros. La diferencia es lo que ha
+                                                        // puesto el tipo de cambio sobre lo invertido, y va en su propia línea y en color
+                                                        // para no confundirla con lo que hayan hecho las empresas: aquí no se mira el
+                                                        // precio de las acciones, sólo el de la moneda.
+                                                        const invertidoHoyMxn = f.aAcciones.usd * globalUsdToMxn;
+                                                        const cambioSobreInvertido = invertidoHoyMxn - f.aAcciones.mxn;
+                                                        const pctCambioInvertido = f.aAcciones.mxn > 0.005 ? (cambioSobreInvertido / f.aAcciones.mxn) * 100 : 0;
+                                                        const extraPaso3 = f.aAcciones.mxn > 0.005
+                                                            ? `<div style="color: ${colorGan(cambioSobreInvertido)}; font-size: 0.78em; margin-top: 4px;">${signo(cambioSobreInvertido)}${fMoneda(cambioSobreInvertido)} (${signo(pctCambioInvertido)}${pctCambioInvertido.toFixed(2)}%)</div>`
+                                                            : '';
+
                                                         filasFlujo += pasoFlujoGbm(3, 'Dólares → acciones',
                                                             f.aAcciones.usd > 0.005 ? `${fMoneda(f.aAcciones.usd)} USD` : '—',
                                                             f.aAcciones.usd > 0.005
-                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones compradas · ${f.aAcciones.n} compra(s) · ${fMoneda(f.aAcciones.usd * globalUsdToMxn)} MXN al cambio de hoy`
+                                                                ? `${f.aAcciones.acciones.toLocaleString('en-US', { maximumFractionDigits: 4 })} acciones · ${f.aAcciones.n} compra(s) · costaron ${fMoneda(f.aAcciones.mxn)} MXN y hoy son ${fMoneda(invertidoHoyMxn)} MXN`
                                                                 : 'Sin compras registradas',
-                                                            f.aAcciones.usd > 0.005);
+                                                            f.aAcciones.usd > 0.005,
+                                                            extraPaso3);
 
                                                         // Paso 4
                                                         filasFlujo += pasoFlujoGbm(4, 'Acciones → dólares',
@@ -13677,7 +13687,7 @@
                             const paso = {
                             entradaMxn: { mxn: 0, n: 0 },
                             aMonedaUsd: { mxn: 0, usd: 0, n: 0 },
-                            aAcciones: { usd: 0, acciones: 0, n: 0 },
+                            aAcciones: { usd: 0, mxn: 0, acciones: 0, n: 0 },
                             aVenta: { usd: 0, acciones: 0, n: 0 },
                             aPesos: { mxn: 0, usd: 0, n: 0 },
                             salidaMxn: { mxn: 0, n: 0 }
@@ -13697,6 +13707,11 @@
                             paso.aMonedaUsd.n++;
                             } else if (tipo === 'compra') {
                             paso.aAcciones.usd += usd;
+                            // Los pesos que costó cada compra ya los repartió la carga de categorías, cada
+                            // uno al tipo de cambio de su aportación. Aquí sólo se suman.
+                            paso.aAcciones.mxn += (window.costoMxnLoteMap && window.costoMxnLoteMap[u.id] !== undefined)
+                            ? window.costoMxnLoteMap[u.id]
+                            : Math.abs(monto);
                             paso.aAcciones.acciones += acciones;
                             paso.aAcciones.n++;
                             } else if (tipo === 'compra_directa') {
@@ -13706,6 +13721,7 @@
                             paso.aMonedaUsd.usd += usd;
                             paso.aMonedaUsd.n++;
                             paso.aAcciones.usd += usd;
+                            paso.aAcciones.mxn += Math.abs(monto);
                             paso.aAcciones.acciones += acciones;
                             paso.aAcciones.n++;
                             } else if (tipo === 'venta') {
