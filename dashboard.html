@@ -922,6 +922,43 @@
                 }
                 /* --- FIN ESTILOS TIRA DE OBJETIVOS --- */
 
+                /* --- INICIO ESTILOS REPARTO DEL PORTAFOLIO --- */
+                .pastel-envoltura {
+                    position: relative;
+                    width: 100%;
+                    max-width: 240px;
+                    margin: 0 auto 14px auto;
+                    aspect-ratio: 1 / 1;
+                }
+                /* El total va en el hueco de la dona, que si no es espacio desperdiciado: la cifra que
+                   se reparte tiene que estar a la vista para poder leer los porcentajes. */
+                .pastel-centro {
+                    position: absolute;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    pointer-events: none;
+                    text-align: center;
+                }
+                .pastel-centro .cifra { color: #fff; font-size: 1.15em; font-weight: bold; line-height: 1.2; }
+                .pastel-centro .pie { color: #666; font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+                /* Cada renglón lleva su nombre y su cifra: el color acompaña, no identifica él solo. */
+                .pastel-fila {
+                    display: flex;
+                    align-items: baseline;
+                    gap: 8px;
+                    padding: 5px 0;
+                    border-bottom: 1px solid #262626;
+                }
+                .pastel-fila:last-child { border-bottom: none; }
+                .pastel-punto { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 2px; }
+                .pastel-nombre { flex: 1; min-width: 0; color: #aaa; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .pastel-valor { color: #ddd; font-size: 0.85em; white-space: nowrap; }
+                .pastel-pct { color: #777; font-size: 0.8em; white-space: nowrap; min-width: 44px; text-align: right; }
+                /* --- FIN ESTILOS REPARTO DEL PORTAFOLIO --- */
+
                 /* --- INICIO ESTILOS FLUJO GBM --- */
                 /* Los seis pasos van en una tira que se desliza a lo ancho. En vertical ocupaban media
                    pantalla y había que bajar para ver el recorrido entero, que es justo lo que se viene a
@@ -9437,6 +9474,116 @@
                                                         </div>`;
                                                     }
 
+                                                    // Los seis colores del reparto, en este orden y sin ciclar. Están comprobados
+                                                    // contra el fondo oscuro de la tarjeta: se distinguen entre sí también con
+                                                    // daltonismo, y ninguno se pierde contra el negro. Si algún día hicieran falta
+                                                    // más, no se inventa un séptimo: se agrupa en "Otras".
+                                                    const COLORES_REPARTO = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'];
+                                                    const MAX_REBANADAS = 6;
+                                                    let miPastelPortafolio = null;
+
+                                                    // Reparte el portafolio en como mucho seis trozos: las cinco empresas más grandes
+                                                    // y el resto junto. Una dona con treinta y dos trozos no se puede leer —todos
+                                                    // salen iguales— y la pregunta que sí contesta es cuánto pesan las mayores frente
+                                                    // a todo lo demás.
+                                                    function repartoDelPortafolio(empresas) {
+                                                        const conPosicion = (empresas || [])
+                                                            .filter(e => e.acciones > 0.00001 && e.valorMxn > 0.005)
+                                                            .sort((a, b) => b.valorMxn - a.valorMxn);
+                                                        if (conPosicion.length === 0) return null;
+
+                                                        const total = conPosicion.reduce((a, e) => a + e.valorMxn, 0);
+                                                        if (!(total > 0.005)) return null;
+
+                                                        let trozos;
+                                                        if (conPosicion.length <= MAX_REBANADAS) {
+                                                            trozos = conPosicion.map(e => ({ nombre: e.nombre, valor: e.valorMxn }));
+                                                        } else {
+                                                            const cabeza = conPosicion.slice(0, MAX_REBANADAS - 1);
+                                                            const resto = conPosicion.slice(MAX_REBANADAS - 1);
+                                                            trozos = cabeza.map(e => ({ nombre: e.nombre, valor: e.valorMxn }));
+                                                            trozos.push({
+                                                                nombre: `Otras (${resto.length})`,
+                                                                valor: resto.reduce((a, e) => a + e.valorMxn, 0)
+                                                            });
+                                                        }
+                                                        trozos.forEach((t, i) => {
+                                                            t.color = COLORES_REPARTO[i];
+                                                            t.pct = (t.valor / total) * 100;
+                                                        });
+                                                        return { trozos, total };
+                                                    }
+
+                                                    function bloqueRepartoPortafolio(reparto) {
+                                                        const filas = reparto.trozos.map(t => `
+                                                            <div class="pastel-fila">
+                                                                <span class="pastel-punto" style="background: ${t.color};"></span>
+                                                                <span class="pastel-nombre">${t.nombre}</span>
+                                                                <span class="pastel-valor">${fMoneda(t.valor)}</span>
+                                                                <span class="pastel-pct">${t.pct.toFixed(1)}%</span>
+                                                            </div>`).join('');
+
+                                                        // Con uno o dos trozos la dona no dice nada que no diga la lista: un anillo de un
+                                                        // solo color, o dos, es un adorno alrededor de dos cifras. A partir de tres sí se
+                                                        // ve de un golpe cómo está repartido, que es a lo que viene.
+                                                        const dona = reparto.trozos.length >= 3 ? `
+                                                            <div class="pastel-envoltura">
+                                                                <canvas id="pastelPortafolio"></canvas>
+                                                                <div class="pastel-centro">
+                                                                    <span class="cifra">${fMoneda(reparto.total)}</span>
+                                                                    <span class="pie">en acciones</span>
+                                                                </div>
+                                                            </div>` : '';
+
+                                                        return bloqueDetalleCuenta('🥧 Reparto del portafolio', `${dona}${filas}`);
+                                                    }
+
+                                                    // Se dibuja después de meter el HTML en la página: antes el lienzo todavía no
+                                                    // existe y Chart.js no tendría dónde pintar.
+                                                    function dibujarPastelPortafolio(reparto) {
+                                                        if (miPastelPortafolio) { miPastelPortafolio.destroy(); miPastelPortafolio = null; }
+                                                        if (!reparto) return;
+                                                        const lienzo = document.getElementById('pastelPortafolio');
+                                                        if (!lienzo || typeof Chart === 'undefined') return;
+
+                                                        miPastelPortafolio = new Chart(lienzo, {
+                                                            type: 'doughnut',
+                                                            data: {
+                                                                labels: reparto.trozos.map(t => t.nombre),
+                                                                datasets: [{
+                                                                    data: reparto.trozos.map(t => t.valor),
+                                                                    backgroundColor: reparto.trozos.map(t => t.color),
+                                                                    // El hilo del color del fondo separa un trozo del siguiente: sin él, dos
+                                                                    // colores contiguos se leen como una sola mancha.
+                                                                    borderColor: '#1c1c1c',
+                                                                    borderWidth: 2,
+                                                                    hoverBorderColor: '#1c1c1c',
+                                                                    hoverOffset: 6
+                                                                }]
+                                                            },
+                                                            options: {
+                                                                animation: ANIMACION_GRAFICAS,
+                                                                responsive: true,
+                                                                maintainAspectRatio: false,
+                                                                // El hueco deja sitio al total sin comerse la corona
+                                                                cutout: '62%',
+                                                                plugins: {
+                                                                    // La leyenda va debajo en HTML, con su nombre y su cifra al lado
+                                                                    legend: { display: false },
+                                                                    tooltip: {
+                                                                        displayColors: false,
+                                                                        callbacks: {
+                                                                            label: (ctx) => {
+                                                                                const t = reparto.trozos[ctx.dataIndex];
+                                                                                return `${fMoneda(t.valor)} · ${t.pct.toFixed(1)}%`;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+
                                                     function verDetallesCuenta(id) {
                                                     const c = datosCuentas.find(x => String(x.id) === String(id));
                                                     if (!c) return;
@@ -9517,6 +9664,11 @@
                                                         }
                                                     }
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
+
+                                                    // En qué está repartido lo que tienes invertido. Va justo después del resumen:
+                                                    // primero cuánto hay, luego en qué está, y después cómo llegó ahí.
+                                                    const repartoPortafolio = r.tieneInversion ? repartoDelPortafolio(r.empresas) : null;
+                                                    if (repartoPortafolio) html += bloqueRepartoPortafolio(repartoPortafolio);
 
                                                     if (r.tieneInversion) {
                                                         // --- El recorrido del dinero, paso por paso ---
@@ -9639,6 +9791,7 @@
                                                     }
 
                                                     document.getElementById('contenidoDetallesCuenta').innerHTML = html;
+                                                    dibujarPastelPortafolio(repartoPortafolio);
 
                                                     const btnEditarCta = document.getElementById('btnEditarCuentaModal');
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
@@ -9661,6 +9814,7 @@
                                                     }
 
                                                     function cerrarModalDetallesCuenta() {
+                                                    if (miPastelPortafolio) { miPastelPortafolio.destroy(); miPastelPortafolio = null; }
                                                     document.getElementById('modalDetallesCuenta').classList.remove('activa');
                                                     document.body.classList.remove('modal-abierto');
                                                     }
