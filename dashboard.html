@@ -1091,6 +1091,70 @@
                     padding: 2px 15px 4px 15px;
                 }
                 .flujo-gbm-tira::-webkit-scrollbar { display: none; }
+
+                /* --- CUADRÍCULA DE MOVIMIENTOS DE LA CUENTA ---
+                   Un cuadrito por movimiento, en bloques de mes. La tira se arrastra de lado y
+                   sangra hasta el borde de la tarjeta, igual que la del flujo, para que el mes
+                   siguiente asome y se vea que hay más historia fuera de la pantalla. */
+                .movs-mes-tira {
+                    display: flex;
+                    align-items: flex-end;
+                    gap: 10px;
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                    margin: 0 -15px;
+                    padding: 2px 15px 4px 15px;
+                }
+                .movs-mes-tira::-webkit-scrollbar { display: none; }
+
+                .movs-mes-bloque {
+                    flex: 0 0 auto;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 5px;
+                }
+
+                /* Se rellena por columnas: los movimientos del mes bajan por la primera y siguen
+                   por la de al lado, así que un mes movido se hace ancho y eso ya dice algo antes
+                   de leer ninguna cifra. */
+                .movs-mes-celdas {
+                    display: grid;
+                    grid-auto-flow: column;
+                    grid-template-rows: repeat(6, 10px);
+                    grid-auto-columns: 10px;
+                    gap: 3px;
+                }
+
+                .movs-mes-celda {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    transition: transform 0.12s, box-shadow 0.12s;
+                }
+
+                /* Un mes sin movimientos no tiene nada que abrir */
+                .movs-mes-celda.vacia { cursor: default; }
+
+                /* El elegido se marca con un aro, no cambiando su color: el color es el dato. */
+                .movs-mes-celda.elegida {
+                    box-shadow: 0 0 0 2px #ffffff;
+                    transform: scale(1.15);
+                }
+
+                .movs-mes-etiqueta {
+                    font-size: 0.62em;
+                    color: #777;
+                    letter-spacing: 0.5px;
+                    white-space: nowrap;
+                }
+
+                /* El año sólo se escribe cuando cambia, y entonces se destaca: repetirlo en los
+                   doce meses llenaba la tira de un dato que casi nunca es el que se busca. */
+                .movs-mes-etiqueta strong { color: #aaa; font-weight: bold; }
                 .flujo-gbm-paso {
                     flex: 0 0 170px;
                     scroll-snap-align: start;
@@ -9730,6 +9794,151 @@
                             
                                                     // --- PANEL DE DETALLES DE CUENTA ---
                                                     // Bloque de tarjeta con título, para agrupar cada sección del panel
+                                                    // --- CUADRÍCULA DE MOVIMIENTOS DE LA CUENTA ---
+                                                    // Toda la historia de la cuenta de un vistazo: un cuadrito por movimiento,
+                                                    // agrupados en bloques de mes. Las cifras del resumen dicen dónde está el
+                                                    // dinero hoy; esto dice cómo llegó ahí —en qué meses hubo movimiento, cuándo
+                                                    // se paró, si lo que entra y lo que sale se alternan o se apelotonan— y eso
+                                                    // no se puede leer en una lista de trescientos renglones.
+                                                    //
+                                                    // Los movimientos elegidos se guardan aquí para que el toque sobre un
+                                                    // cuadrito pueda contar cuál es sin volver a filtrarlo todo.
+                                                    let movsCuadriculaCuenta = [];
+
+                                                    // Hacia dónde mueve el dinero un registro y cuánto, en pesos.
+                                                    //
+                                                    // Los movimientos normales lo dicen con el signo del monto. Los de inversión
+                                                    // dentro de GBM no: una compra guarda su importe en dólares y en positivo, y
+                                                    // lo que dice que el dinero sale es la clase del movimiento. Leerlos por el
+                                                    // signo pintaría de verde todas las compras.
+                                                    function movimientoEnPesos(r) {
+                                                        const mxn = parseFloat(r.monto) || 0;
+                                                        const usd = parseFloat(r.monto_usd) || 0;
+
+                                                        if (Math.abs(mxn) < 0.005 && Math.abs(usd) > 0.005) {
+                                                            const tipo = tipoMovInversion(r);
+                                                            const entra = (tipo === 'venta' || tipo === 'venta_directa') ? true
+                                                                : (tipo === 'compra' || tipo === 'compra_directa') ? false
+                                                                    : usd >= 0;
+                                                            return { entra, monto: Math.abs(usd) * (globalUsdToMxn || 1), enUsd: Math.abs(usd) };
+                                                        }
+
+                                                        return { entra: mxn >= 0, monto: Math.abs(mxn), enUsd: 0 };
+                                                    }
+
+                                                    // Cuánto dinero hace falta para que un cuadrito se pinte del todo. No sirve
+                                                    // el movimiento más grande: un traspaso de seis cifras dejaría el resto de
+                                                    // la cuadrícula en gris. Se toma el percentil 90, así que la mayoría de los
+                                                    // movimientos reparten el rango entero y los cuatro grandes se quedan
+                                                    // arriba del todo, que es donde tienen que estar.
+                                                    function referenciaMontoMovs(montos) {
+                                                        if (montos.length === 0) return 1;
+                                                        const ordenados = [...montos].sort((a, b) => a - b);
+                                                        const p90 = ordenados[Math.min(ordenados.length - 1, Math.floor(ordenados.length * 0.9))];
+                                                        return p90 > 0.005 ? p90 : (ordenados[ordenados.length - 1] || 1);
+                                                    }
+
+                                                    function cuadriculaMovimientosCuenta(idCuenta) {
+                                                        movsCuadriculaCuenta = [];
+
+                                                        const cats = (datosCategorias || []).filter(c => String(c.cuenta_id) === String(idCuenta));
+                                                        const porId = {};
+                                                        cats.forEach(c => { porId[String(c.id)] = c; });
+
+                                                        // Los registros cuelgan de la categoría, no de la cuenta: se llega a ellos
+                                                        // por las categorías que son suyas.
+                                                        const movs = (datosUsoCompleto || [])
+                                                            .filter(r => porId[String(r.categoria_id)])
+                                                            .map(r => {
+                                                                const { entra, monto, enUsd } = movimientoEnPesos(r);
+                                                                return { dia: diaDeRegistro(r), cat: porId[String(r.categoria_id)], entra, monto, enUsd };
+                                                            })
+                                                            .filter(m => m.dia.length === 10)
+                                                            .sort((a, b) => a.dia.localeCompare(b.dia));
+
+                                                        if (movs.length === 0) return '';
+
+                                                        const referencia = referenciaMontoMovs(movs.map(m => m.monto));
+
+                                                        // Un mes sin movimientos también se dibuja, en una columna apagada: es la
+                                                        // única forma de que la tira sea una línea de tiempo y no una lista de los
+                                                        // meses que sí tuvieron algo. Un parón de medio año se ve como lo que es.
+                                                        const mesDe = (dia) => dia.slice(0, 7);
+                                                        const porMes = {};
+                                                        movs.forEach(m => { (porMes[mesDe(m.dia)] = porMes[mesDe(m.dia)] || []).push(m); });
+
+                                                        const [anioIni, mesIni] = mesDe(movs[0].dia).split('-').map(Number);
+                                                        const [anioFin, mesFin] = mesDe(movs[movs.length - 1].dia).split('-').map(Number);
+
+                                                        let bloques = '';
+                                                        let anioEscrito = null;
+                                                        let indice = 0;
+
+                                                        for (let a = anioIni, mes = mesIni; a < anioFin || (a === anioFin && mes <= mesFin);) {
+                                                            const clave = `${a}-${String(mes).padStart(2, '0')}`;
+                                                            const delMes = porMes[clave] || [];
+
+                                                            let celdas = '';
+                                                            if (delMes.length === 0) {
+                                                                celdas = '<span class="movs-mes-celda vacia" style="background: #1f1f1f;"></span>'.repeat(6);
+                                                            } else {
+                                                                celdas = delMes.map(m => {
+                                                                    // Lo sólido del cuadrito es cuánto dinero movió. El suelo está para que
+                                                                    // el movimiento más pequeño siga siendo un movimiento y no un hueco.
+                                                                    const fuerza = 0.25 + 0.75 * Math.min(1, m.monto / referencia);
+                                                                    const color = m.entra ? `rgba(62, 207, 142, ${fuerza.toFixed(3)})` : `rgba(255, 92, 92, ${fuerza.toFixed(3)})`;
+                                                                    movsCuadriculaCuenta.push(m);
+                                                                    return `<span class="movs-mes-celda" style="background: ${color};" onclick="elegirMovCuadricula(this, ${indice++})"></span>`;
+                                                                }).join('');
+                                                            }
+
+                                                            const escribeAnio = anioEscrito !== a;
+                                                            anioEscrito = a;
+                                                            const etiqueta = `${NOMBRES_MESES[mes - 1].slice(0, 3).toLowerCase()}${escribeAnio ? ` <strong>${String(a).slice(2)}</strong>` : ''}`;
+
+                                                            bloques += `
+                                                            <div class="movs-mes-bloque">
+                                                                <div class="movs-mes-celdas">${celdas}</div>
+                                                                <span class="movs-mes-etiqueta">${etiqueta}</span>
+                                                            </div>`;
+
+                                                            mes++;
+                                                            if (mes > 12) { mes = 1; a++; }
+                                                        }
+
+                                                        // El recuento va en su propio renglón y no en el pie: el pie lo pisa el
+                                                        // movimiento que se toque, y cuántos hay es de la cuenta entera.
+                                                        const entradas = movs.filter(m => m.entra).length;
+                                                        const recuento = `${cuantos(movs.length, 'movimiento')} · ${entradas} entran, ${movs.length - entradas} salen`;
+
+                                                        return bloqueDetalleCuenta('📅 Movimientos por mes', `
+                                                            <div class="movs-mes-tira" id="tiraMovsCuenta">${bloques}</div>
+                                                            <div style="color: #888; font-size: 0.8em; margin-top: 8px;">${recuento}</div>
+                                                            <div id="pieMovsCuenta" style="color: #666; font-size: 0.78em; margin-top: 3px; line-height: 1.4;">
+                                                                Toca un cuadro · verde entra, rojo sale · cuanto más sólido, más dinero
+                                                            </div>`);
+                                                    }
+
+                                                    // Al tocar un cuadrito, el pie de la cuadrícula deja de ser la leyenda y pasa
+                                                    // a contar ese movimiento. Es el sitio donde ya estaba mirando el ojo, y así
+                                                    // la tira no tiene que abrir nada encima de sí misma.
+                                                    function elegirMovCuadricula(celda, indice) {
+                                                        const m = movsCuadriculaCuenta[indice];
+                                                        const pie = document.getElementById('pieMovsCuenta');
+                                                        if (!m || !pie) return;
+
+                                                        document.querySelectorAll('.movs-mes-celda.elegida').forEach(c => c.classList.remove('elegida'));
+                                                        celda.classList.add('elegida');
+
+                                                        const [anio, mes, dia] = m.dia.split('-');
+                                                        const fecha = `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].toLowerCase()} ${anio}`;
+                                                        const color = m.entra ? '#3ecf8e' : '#ff5c5c';
+                                                        const enDolares = m.enUsd > 0.005 ? ` <span style="color:#666;">(${fMoneda(m.enUsd)} USD)</span>` : '';
+
+                                                        pie.innerHTML = `<span style="color:#aaa;">${fecha}</span> · ${m.cat ? m.cat.nombre : 'Sin categoría'}
+                                                            <strong style="color:${color};"> ${m.entra ? '+' : '-'}${fMoneda(m.monto)}</strong>${enDolares}`;
+                                                    }
+
                                                     function bloqueDetalleCuenta(titulo, filasHtml, colorBorde) {
                                                         return `
                                                         <div style="background: #1c1c1c; padding: 15px; border-radius: 8px; margin-bottom: 12px; border: 1px solid ${colorBorde || '#333'};">
@@ -10221,6 +10430,11 @@
                                                     const cuadrosCuenta = r.tieneInversion ? cuadrosDeLaCuenta(r, globalUsdToMxn) : null;
                                                     if (cuadrosCuenta) html += bloqueCuadrosCuenta(cuadrosCuenta);
 
+                                                    // La historia de la cuenta va antes del recorrido del dinero, que sólo tienen
+                                                    // las de inversión: así toda cuenta —también una de gastos— tiene algo que
+                                                    // mirar después del resumen.
+                                                    html += cuadriculaMovimientosCuenta(id);
+
                                                     if (r.tieneInversion) {
                                                         // --- El recorrido del dinero, paso por paso ---
                                                         // Sólo los seis escalones y lo que ha pasado por cada uno. Dónde está parado
@@ -10343,6 +10557,11 @@
 
                                                     document.getElementById('contenidoDetallesCuenta').innerHTML = html;
                                                     pintarCuadrosCuenta(cuadrosCuenta);
+
+                                                    // La tira de meses arranca por el final: lo último que pasó en la cuenta es
+                                                    // lo que se viene a ver, y con años de historia el principio queda muy lejos.
+                                                    const tiraMovs = document.getElementById('tiraMovsCuenta');
+                                                    if (tiraMovs) tiraMovs.scrollLeft = tiraMovs.scrollWidth;
 
                                                     const btnEditarCta = document.getElementById('btnEditarCuentaModal');
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
