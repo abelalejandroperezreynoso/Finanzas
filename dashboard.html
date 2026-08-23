@@ -7913,12 +7913,29 @@
                                 return `$${Math.round(monto)}`;
                             }
 
-                            // Cuerpo de letra que deja caber los tres renglones dentro del rectángulo: lo limita
-                            // el alto (tres líneas más su interlineado) y el ancho del renglón más largo.
+                            // El treemap deja más aire entre renglones del que sugiere el cuerpo de letra, así
+                            // que las cuentas de alto se hacen con esto y no con el interlineado ajustado. Con el
+                            // ajustado, el último renglón de los recuadros chicos se salía por el borde de abajo.
+                            const INTERLINEA_TREEMAP = 1.45;
+
+                            // Cuerpo de letra que deja caber los renglones pedidos dentro del rectángulo: lo limita
+                            // el alto (las líneas más su interlineado) y el ancho del renglón más largo.
                             function fuenteTreemap(w, h, renglones = 3) {
-                                const porAlto = (h - PADDING_ETIQUETA_TREEMAP * 2) / (renglones * 1.3);
+                                const porAlto = (h - PADDING_ETIQUETA_TREEMAP * 2) / (renglones * INTERLINEA_TREEMAP);
                                 const porAncho = (w - PADDING_ETIQUETA_TREEMAP * 2) / 3.2;
                                 return Math.max(MIN_FUENTE_TREEMAP, Math.min(MAX_FUENTE_TREEMAP, Math.floor(Math.min(porAlto, porAncho))));
+                            }
+
+                            // Cuántos renglones caben de verdad en un recuadro de este alto. El cuerpo de letra
+                            // tiene un suelo —por debajo no se lee—, así que pedir tres renglones a un recuadro
+                            // bajo no los encoge: los dibuja igual y el último se sale por el borde o se mete en el
+                            // recuadro vecino, porque el treemap no recorta lo que no cabe. Se pide sólo lo que
+                            // entra y los renglones se van soltando por orden de importancia.
+                            function renglonesQueCabenTreemap(h, deseados) {
+                                const disponible = h - PADDING_ETIQUETA_TREEMAP * 2;
+                                let n = deseados;
+                                while (n > 1 && n * INTERLINEA_TREEMAP * MIN_FUENTE_TREEMAP > disponible) n--;
+                                return n;
                             }
 
                             // El tile hereda el color con el que esa categoría aparece en la barra del mes. La
@@ -8758,6 +8775,10 @@
                                     const cabe = (texto, tam) => anchoTexto(texto, tam) <= disponible;
                                     const conObjetivo = d.esperado > 0;
 
+                                    // Cuántos renglones da el alto de este recuadro. Los intentos de abajo van de
+                                    // más completo a más corto y ninguno puede pedir más de esto.
+                                    const cabenRenglones = renglonesQueCabenTreemap(h, 4);
+
                                     const redondo = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
                                     // De más completo a más compacto
                                     const formasSueltas = (n) => [`${fMoneda(n)}`, redondo(n), montoCompactoTreemap(n)];
@@ -8870,7 +8891,7 @@
                                     // más dice de un lote, pero cede en cuanto no cabe: antes que un renglón
                                     // ilegible, el recuadro de siempre.
                                     const formasExtra = conRitmo ? formasRitmo : [];
-                                    if (formasExtra.length > 0 && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
+                                    if (formasExtra.length > 0 && cabenRenglones >= 4 && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
                                         const cuatro = armar(4);
                                         const cifras = enUnRenglon(cuatro.tamCifra);
                                         const suelto = enUnRenglon(cuatro.tamCifra, formasExtra);
@@ -8888,7 +8909,7 @@
                                     // Intento 2: tres renglones, con la cifra en el último
                                     const tres = armar(3);
                                     const juntas = enUnRenglon(tres.tamCifra);
-                                    if (juntas) {
+                                    if (cabenRenglones >= 3 && juntas) {
                                         return {
                                             lineas: [tres.nombre, tres.textoPorc, juntas.forma],
                                             fuentes: [tres.fuente(tres.tamNombre, 'bold'),
@@ -8897,11 +8918,31 @@
                                         };
                                     }
 
+                                    // Recuadros bajos: se sueltan renglones por orden de importancia. El primero
+                                    // que cae es el porcentaje, porque el tamaño del recuadro ya dice cuánto pesa
+                                    // y el color hacia dónde va; queda quién es y cuánto, que es lo que no se
+                                    // puede deducir mirando. Y si sólo cabe uno, el nombre: una cifra suelta en un
+                                    // recuadro sin nombre, en un mapa de treinta, no se sabe de quién es.
+                                    if (cabenRenglones === 2) {
+                                        const dos = armar(2);
+                                        const cifra = enUnRenglon(dos.tamCifra);
+                                        if (cifra) {
+                                            return {
+                                                lineas: [dos.nombre, cifra.forma],
+                                                fuentes: [dos.fuente(dos.tamNombre, 'bold'), dos.fuente(cifra.tam, 'normal')]
+                                            };
+                                        }
+                                    }
+                                    if (cabenRenglones <= 2) {
+                                        const uno = armar(1);
+                                        return { lineas: [uno.nombre], fuentes: [uno.fuente(uno.tamNombre, 'bold')] };
+                                    }
+
                                     // Intento 3: cuatro renglones, cada cifra en el suyo. Sólo donde el recuadro
                                     // lleva el par "llevas / se espera": en el portafolio la cifra es la ganancia,
                                     // una sola, y no hay nada que partir. El alto tiene que dar para el renglón
                                     // de más.
-                                    if (conObjetivo && !enElPortafolio && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
+                                    if (conObjetivo && !enElPortafolio && cabenRenglones >= 4 && h >= ALTO_MIN_CUARTO_RENGLON_TREEMAP) {
                                         const cuatro = armar(4);
                                         for (let tam = cuatro.tamCifra; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
                                             const llevas = [`${fMoneda(d.real)}`, redondo(d.real), montoCompactoTreemap(d.real)].find(f => cabe(f, tam));
@@ -9048,11 +9089,20 @@
                                                 overflow: 'fit',
                                                 color: (context) => {
                                                     if (context.type !== 'data') return '#ffffff';
+                                                    // En el portafolio, negro siempre. Las tres partes del recuadro
+                                                    // son claras —blanco lo que costó, verde o rojo la diferencia—
+                                                    // y el negro se lee sobre las tres. Tiene que ser un solo color
+                                                    // porque la junta cruza el texto: eligiendo por la mitad más
+                                                    // grande, los renglones que caían del otro lado salían blancos
+                                                    // sobre el blanco del relleno y desaparecían, que es lo que le
+                                                    // pasaba a las posiciones en pérdida.
+                                                    if (esPortafolio) return '#0a0a0a';
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
-                                                    // El texto va centrado: sólo cae sobre el color pleno si el
-                                                    // relleno pasa de la mitad. Si no, el fondo es el tono apagado
-                                                    // sobre negro y ahí siempre gana el blanco.
+                                                    // En los otros mapas el recuadro es del color de la categoría y
+                                                    // lo que sobra es ese mismo tono apagado sobre negro. El texto
+                                                    // va centrado: sólo cae sobre el color pleno si el relleno pasa
+                                                    // de la mitad, y sobre el apagado siempre gana el blanco.
                                                     if (fraccionLlenado(d) < 0.55) return '#ffffff';
                                                     return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas));
                                                 },
