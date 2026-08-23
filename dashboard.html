@@ -8961,7 +8961,7 @@
                                     //
                                     // Fuera del portafolio el par se queda: ahí las dos caras son lo que llevas y
                                     // lo que se espera, y la gracia está justamente en verlas juntas.
-                                    const formasCifra = enElPortafolio
+                                    const formasDinero = enElPortafolio
                                         ? (hayGanancia
                                             ? [conPct(fMoneda(absGanancia), pctGanancia.toFixed(1)),
                                                conPct(redondo(absGanancia), pctGanancia.toFixed(1)),
@@ -9017,22 +9017,26 @@
                                         `${signoRitmo}${d.mensual.toFixed(1)}%/${Math.round(d.meses)}m`
                                     ];
 
-                                    // Con el ritmo puesto, la cifra que encabeza el recuadro deja de ser lo que
-                                    // pesa la posición y pasa a ser a qué ritmo rinde: es lo que se vino a ver,
-                                    // y ponerlo arriba lo hace comparable de un vistazo entre recuadros de
-                                    // tamaños muy distintos.
-                                    const encabezaRitmo = vistaMensual && hayRitmo;
+                                    // Con el ritmo puesto, el recuadro cambia su renglón de abajo: donde iba la
+                                    // plusvalía va el ritmo. Las dos responden a lo mismo —cómo va la posición—
+                                    // y el ritmo es esa respuesta repartida entre los meses que llevó
+                                    // conseguirla, así que es la una o la otra, nunca las dos.
+                                    //
+                                    // El renglón de arriba no se toca: lo que pesa la posición en la cartera es
+                                    // otra pregunta y no cambia porque se mire el rendimiento de otra forma.
+                                    // Antes el ritmo se ponía ahí y desaparecía el peso, que era quitar el dato
+                                    // que no estorbaba para dejar dos veces el mismo.
+                                    const muestraRitmo = vistaMensual && hayRitmo;
+                                    const formasCifra = muestraRitmo ? formasRitmo : formasDinero;
 
                                     // La forma corta suelta el decimal para ganar dos caracteres, pero una
                                     // posición que pesa menos del 1% se quedaría en "0%", que no es que sea
                                     // impreciso: es falso. Por debajo de ahí el decimal no se suelta.
-                                    const formasPorc = encabezaRitmo
-                                        ? formasRitmo
-                                        : [`${porc.toFixed(1)}%`, `${porc >= 0.95 ? Math.round(porc) : porc.toFixed(1)}%`];
+                                    const formasPorc = [`${porc.toFixed(1)}%`, `${porc >= 0.95 ? Math.round(porc) : porc.toFixed(1)}%`];
 
                                     // El renglón de más con el ritmo sólo lo llevan las compras de una empresa, y
-                                    // sólo cuando no encabeza ya el recuadro: repetido dos veces no dice nada.
-                                    const conRitmo = hayRitmo && !encabezaRitmo && d.esLote;
+                                    // sólo cuando el recuadro no lo lleva ya abajo: repetido dos veces no dice nada.
+                                    const conRitmo = hayRitmo && !muestraRitmo && d.esLote;
 
                                     // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre. La
                                     // regla de siempre es que manda el tamaño: entre "$1.2k" grande y
