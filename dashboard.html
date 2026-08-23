@@ -8018,21 +8018,33 @@
                             // llena con lo que vale hoy, así una posición a la baja sale a medio llenar y una en
                             // ganancia, llena y con la raya de lo que costó por dentro.
                             function datosInversionesTreemap() {
-                                // Las dos caras se convierten con el mismo número, así que el porcentaje y el
-                                // relleno no se mueven al cambiar de moneda: sólo cambia la cifra que se lee.
-                                const factor = monedaTreemapInversiones === 'mxn' ? (globalUsdToMxn || 1) : 1;
+                                // El interruptor de moneda cambia la pregunta, no sólo la escala: en dólares
+                                // se ve lo que hicieron las empresas y en pesos lo que hizo tu dinero, con el
+                                // tipo de cambio dentro. Por eso el porcentaje sale distinto en cada posición.
+                                const enPesos = monedaTreemapInversiones === 'mxn';
+                                const factor = enPesos ? (globalUsdToMxn || 1) : 1;
 
                                 return datosCategorias
                                     .filter(cat => cat.tipo === 'inversion')
                                     .map(cat => {
-                                        // Todo en dólares, que es la moneda en la que se compran las acciones.
-                                        // Medir el valor de hoy contra un costo en pesos mezclaba dos cosas
-                                        // distintas: lo que hizo la empresa y lo que hizo el tipo de cambio. Una
-                                        // acción plana en dólares aparecía en verde si el peso se había
-                                        // depreciado, y el mapa no sabía decir cuánto era de cada quién.
-                                        const costo = (cat.costoBaseInvertidoUsd || 0) * factor;
+                                        // Cada moneda mide contra su propio costo, y ahí está toda la diferencia
+                                        // entre las dos lecturas:
+                                        //
+                                        //   en dólares → contra lo que costó en dólares. El tipo de cambio se va
+                                        //     de la cuenta y queda sólo lo que hizo la empresa. Una acción plana
+                                        //     sale plana aunque el peso se haya movido.
+                                        //   en pesos   → contra los pesos que de verdad pagaste, al tipo de cambio
+                                        //     del día que depositaste. Aquí sí entra la moneda, porque tú pusiste
+                                        //     pesos y lo que te llevarías son pesos.
+                                        //
+                                        // Antes las dos caras usaban el costo en dólares y sólo cambiaba la escala,
+                                        // así que el porcentaje era idéntico en las dos posiciones y el pie decía
+                                        // "MXN" sobre una cifra que no eran pesos que hubieras puesto nunca.
                                         const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
                                         const valor = precio ? (cat.totalAcciones || 0) * precio * factor : 0;
+                                        const costo = enPesos
+                                            ? (cat.costoBaseInvertido || 0)
+                                            : (cat.costoBaseInvertidoUsd || 0);
 
                                         // Cuánto lleva puesto el dinero de la empresa: la antigüedad de sus compras
                                         // vivas ponderada por lo que costó cada una, que es la misma que la ficha
@@ -8041,6 +8053,27 @@
                                         const meses = cat.mesesPromedioExacto || 0;
                                         const base = { id: String(cat.id), cat: cat, nombre: cat.ticker || cat.nombre };
                                         if (meses > 0) base.meses = meses;
+
+                                        // La caja GBM no es una empresa: son dólares parados esperando a comprar
+                                        // algo. Faltaba del mapa y era dinero tuyo que no se veía por ningún lado,
+                                        // así que el pie sumaba menos de lo que tienes y no cuadraba con la ficha
+                                        // de la cuenta. En dólares no puede ganar ni perder —un dólar vale un
+                                        // dólar— y sale llena; en pesos vale lo que valgan hoy esos dólares contra
+                                        // los pesos que costaron, que es justo lo que les hizo el tipo de cambio.
+                                        if (esCategoriaCajaGbm(cat)) {
+                                            const caja = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
+                                            if (!caja || !(caja.usd > 0.005)) return null;
+                                            const costoCaja = enPesos ? (caja.mxnBase || 0) : caja.usd;
+                                            const valorCaja = caja.usd * factor;
+                                            if (!(costoCaja > 0) && !(valorCaja > 0)) return null;
+                                            const mesesCaja = (caja.mxnBase > 0.005) ? (caja.mesesPonderados || 0) / caja.mxnBase : 0;
+                                            const pieza = { ...base, esCaja: true, monto: Math.max(costoCaja, valorCaja), real: valorCaja, esperado: costoCaja };
+                                            if (mesesCaja > 0 && costoCaja > 0) {
+                                                pieza.meses = mesesCaja;
+                                                pieza.mensual = ((valorCaja - costoCaja) / costoCaja) * 100 / divisorMeses(mesesCaja);
+                                            }
+                                            return pieza;
+                                        }
 
                                         // Sin precio de mercado lo único que se sabe es lo que costó, y de una
                                         // compra vieja sin costo por acción, sólo lo que vale hoy. En los dos
@@ -8064,7 +8097,7 @@
 
                                         return empresa;
                                     })
-                                    .filter(d => d.monto > 0);
+                                    .filter(d => d && d.monto > 0);
                             }
 
                             // ---- Lo accesible: lo que se puede vender hoy sin realizar una pérdida ----
@@ -8258,6 +8291,16 @@
                             // historial, que es donde se resuelve el tipo de cambio real de cada compra; el
                             // respaldo reconstruye lo que se pueda de un registro que no pasó por ahí, y si no
                             // hay con qué, devuelve cero antes que inventar un costo.
+                            // Y lo mismo en pesos, para la cara en pesos del mapa: los pesos que costó ese
+                            // lote, cada uno al tipo de cambio de la aportación con la que se pagó. Si el reparto
+                            // no llegó a hacerse, lo apuntado en el propio registro.
+                            function costoMxnDeLote(u) {
+                                if (window.costoMxnLoteMap && window.costoMxnLoteMap[u.id] !== undefined) {
+                                    return window.costoMxnLoteMap[u.id];
+                                }
+                                return Math.abs(parseFloat(u.monto) || 0);
+                            }
+
                             function costoUsdDeLote(u) {
                                 if (window.costoUsdLoteMap && window.costoUsdLoteMap[u.id] !== undefined) {
                                     return window.costoUsdLoteMap[u.id];
@@ -8297,7 +8340,8 @@
                             // que queda: lo vendido ya no es de esta empresa, es dinero en la caja, y pintarlo aquí
                             // haría que el mapa dijera que tienes más de lo que tienes.
                             function datosMovimientosEmpresaTreemap(cat) {
-                                const factor = monedaTreemapInversiones === 'mxn' ? (globalUsdToMxn || 1) : 1;
+                                const enPesos = monedaTreemapInversiones === 'mxn';
+                                const factor = enPesos ? (globalUsdToMxn || 1) : 1;
                                 const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
                                 const vistos = {};
 
@@ -8312,7 +8356,10 @@
                                         if (!(vivas > 0.00001)) return null;
 
                                         const parteViva = compradas > 0 ? Math.min(1, vivas / compradas) : 1;
-                                        const costo = costoUsdDeLote(u) * parteViva * factor;
+                                        // Cada compra mide contra su propio costo en la moneda que se esté
+                                        // mirando, igual que el recuadro de la empresa del que salió: si no, las
+                                        // piezas dirían una cosa y la caja que las contiene otra.
+                                        const costo = (enPesos ? costoMxnDeLote(u) : costoUsdDeLote(u)) * parteViva;
                                         const valor = precio ? vivas * precio * factor : 0;
 
                                         // El recuadro se busca por su etiqueta, así que dos compras del mismo día
@@ -9077,6 +9124,9 @@
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
                                         if (empresaAbierta) subirNivelTreemap();
+                                        // La caja no tiene compras dentro: bajar a su capa dejaría el mapa vacío,
+                                        // así que un toque abre su ficha, que es lo único que hay que ver de ella.
+                                        else if (d.esCaja) verDetallesCategoria(d.id);
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {

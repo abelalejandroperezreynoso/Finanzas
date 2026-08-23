@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v36';
+const CACHE_NAME = 'gastos-app-v37';
 
 // El armazón de la app: todo lo que hace falta para que abra y se vea, sin datos todavía.
 // Se guarda entero durante la instalación para que el primer arranque desde el icono no dependa
