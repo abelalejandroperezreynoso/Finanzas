@@ -8859,6 +8859,13 @@
                                 }
 
                                 const total = datos.reduce((acc, d) => acc + d.monto, 0);
+
+                                // Cuánto vale hoy todo lo que se está viendo. Es el denominador del peso que
+                                // encabeza cada recuadro del portafolio —qué parte de la cartera es esta
+                                // posición—, y no sirve `total` para eso: aquél suma la cara mayor de cada
+                                // recuadro, que en una posición en pérdida es lo que costó y no lo que vale, así
+                                // que los pesos no sumarían cien.
+                                const totalValor = datos.reduce((acc, d) => acc + (d.real !== undefined ? d.real : d.monto), 0);
                                 const buscarDato = (raw) => {
                                     if (!raw) return null;
                                     const etiqueta = raw.g || (raw._data && raw._data.nombre);
@@ -8929,18 +8936,37 @@
                                     const signoGanancia = ganancia >= 0 ? '+' : '-';
                                     const absGanancia = Math.abs(ganancia);
 
-                                    // En el portafolio el recuadro no repite el par "vale / costó": el porcentaje ya
-                                    // dice cuánto se movió y la ganancia dice cuánto dinero es, que es lo que se
-                                    // viene a mirar. Con las dos cifras además puestas, el recuadro pedía un
-                                    // renglón más y toda la letra se encogía para hacerle sitio. Así que la
-                                    // ganancia ocupa ese renglón en vez de pedir uno propio.
+                                    // La misma ganancia leída en porcentaje: cuánto ha rendido lo que se puso en
+                                    // esta posición. Va pegada al dinero porque las dos cifras responden a la
+                                    // misma pregunta y por separado ninguna basta —"+$460" no dice si es mucho
+                                    // sobre lo invertido, "+23%" no dice de cuánto dinero hablamos—. Comparten
+                                    // signo, así que se escribe una vez para cada una y la cifra va en absoluto.
+                                    const pctGanancia = d.esperado > 0 ? Math.abs((ganancia / d.esperado) * 100) : 0;
+
+                                    // La forma apretada suelta el decimal, salvo cuando sin él la cifra se
+                                    // quedaría en "0%": una posición que apenas se movió no ha rendido cero, y
+                                    // decirlo así al lado de un "+$2" hace dudar de las dos cifras.
+                                    const pctCorto = pctGanancia >= 0.95 ? pctGanancia.toFixed(0) : pctGanancia.toFixed(1);
+                                    const conPct = (dinero, pct) => `${signoGanancia}${dinero} (${signoGanancia}${pct}%)`;
+
+                                    // En el portafolio el recuadro no repite el par "vale / costó": arriba va lo
+                                    // que pesa la posición en la cartera y abajo lo que ha ganado o perdido, en
+                                    // dinero y en porcentaje. Con las dos caras además puestas, el recuadro pedía
+                                    // un renglón más y toda la letra se encogía para hacerle sitio.
+                                    //
+                                    // Al apretarse, lo primero que cede es la precisión del dinero y sólo al final
+                                    // el porcentaje: pasar de "-$290.83" a "-$291" y luego a "-$0.3k" cuesta
+                                    // poco, y quedarse sin el porcentaje deja el recuadro sin la única cifra que
+                                    // se puede comparar entre posiciones de tamaños muy distintos.
                                     //
                                     // Fuera del portafolio el par se queda: ahí las dos caras son lo que llevas y
                                     // lo que se espera, y la gracia está justamente en verlas juntas.
                                     const formasCifra = enElPortafolio
                                         ? (hayGanancia
-                                            ? [`${signoGanancia}${fMoneda(absGanancia)}`,
-                                               `${signoGanancia}${redondo(absGanancia)}`,
+                                            ? [conPct(fMoneda(absGanancia), pctGanancia.toFixed(1)),
+                                               conPct(redondo(absGanancia), pctGanancia.toFixed(1)),
+                                               conPct(montoCompactoTreemap(absGanancia), pctGanancia.toFixed(1)),
+                                               conPct(montoCompactoTreemap(absGanancia), pctCorto),
                                                `${signoGanancia}${montoCompactoTreemap(absGanancia)}`]
                                             // Una posición plana no tiene ganancia que enseñar, y "$2.0k / $2.0k"
                                             // tampoco dice nada: se queda con lo que vale y ya.
@@ -8951,7 +8977,23 @@
                                            `${montoCompactoTreemap(d.real)}/${montoCompactoTreemap(d.esperado)}`]
                                         : formasSueltas(d.monto);
 
-                                    const porc = conObjetivo
+                                    // Qué parte de la cartera es esta posición. Antes aquí iba cuánto vale de lo
+                                    // que costó, que es lo mismo que ya dice la plusvalía del renglón de abajo
+                                    // —"94.9%" y "-5.1%" son la misma cuenta— y dejaba sin decir lo que no se
+                                    // puede deducir mirando: el área del recuadro se compara bien con su vecino,
+                                    // pero no con el total, y menos entre capas.
+                                    //
+                                    // Es el peso dentro de lo que se está viendo, no del portafolio entero:
+                                    // dentro de una cuenta cada empresa pesa sobre esa cuenta, y dentro de una
+                                    // empresa cada compra sobre esa empresa. Así los porcentajes de la capa
+                                    // siempre suman cien y el recuadro dice algo de lo que tiene al lado.
+                                    //
+                                    // Fuera del portafolio la cifra no cambia: ahí son lo que llevas sobre lo
+                                    // que se espera, o lo que pesa la categoría en el periodo.
+                                    const valorRecuadro = d.real !== undefined ? d.real : d.monto;
+                                    const porc = esPortafolio
+                                        ? (totalValor > 0 ? (valorRecuadro / totalValor) * 100 : 0)
+                                        : conObjetivo
                                         ? (d.real / d.esperado) * 100
                                         : (total > 0 ? (d.monto / total) * 100 : 0);
 
@@ -8975,21 +9017,46 @@
                                         `${signoRitmo}${d.mensual.toFixed(1)}%/${Math.round(d.meses)}m`
                                     ];
 
-                                    // Con el ritmo puesto, la cifra que encabeza el recuadro deja de ser cuánto
-                                    // vale de lo que costó y pasa a ser a qué ritmo lo consiguió: es lo que se
-                                    // vino a ver, y ponerlo arriba lo hace comparable de un vistazo entre
-                                    // recuadros de tamaños muy distintos.
+                                    // Con el ritmo puesto, la cifra que encabeza el recuadro deja de ser lo que
+                                    // pesa la posición y pasa a ser a qué ritmo rinde: es lo que se vino a ver,
+                                    // y ponerlo arriba lo hace comparable de un vistazo entre recuadros de
+                                    // tamaños muy distintos.
                                     const encabezaRitmo = vistaMensual && hayRitmo;
+
+                                    // La forma corta suelta el decimal para ganar dos caracteres, pero una
+                                    // posición que pesa menos del 1% se quedaría en "0%", que no es que sea
+                                    // impreciso: es falso. Por debajo de ahí el decimal no se suelta.
                                     const formasPorc = encabezaRitmo
                                         ? formasRitmo
-                                        : [`${porc.toFixed(1)}%`, `${Math.round(porc)}%`];
+                                        : [`${porc.toFixed(1)}%`, `${porc >= 0.95 ? Math.round(porc) : porc.toFixed(1)}%`];
 
                                     // El renglón de más con el ritmo sólo lo llevan las compras de una empresa, y
                                     // sólo cuando no encabeza ya el recuadro: repetido dos veces no dice nada.
                                     const conRitmo = hayRitmo && !encabezaRitmo && d.esLote;
 
-                                    // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre
-                                    const enUnRenglon = (tope, formas = formasCifra) => {
+                                    // Busca el mayor cuerpo, hasta el mínimo, con el que alguna forma entre. La
+                                    // regla de siempre es que manda el tamaño: entre "$1.2k" grande y
+                                    // "$1,234.56" pequeño, gana el grande, porque en un mapa de treinta recuadros
+                                    // lo primero es poder leerlos.
+                                    //
+                                    // En el portafolio manda al revés hasta un piso: primero la forma más
+                                    // completa y luego el cuerpo. Es el único mapa donde la cifra lleva dos datos
+                                    // pegados —el dinero y su porcentaje—, y con la regla de siempre el recuadro
+                                    // más grande se quedaba con "-$290.83" a cuerpo grande pudiendo llevar
+                                    // "-$290.83 (-5.1%)" entero: el hueco de la derecha no lo aprovechaba nadie
+                                    // y el porcentaje se perdía justo en las posiciones que más pesan.
+                                    //
+                                    // El piso es la mitad del cuerpo pedido y nunca por debajo del mínimo
+                                    // legible, para no llegar a letra que no se lee por salvar un decimal.
+                                    const enUnRenglon = (tope, formas = formasCifra, completaPrimero = enElPortafolio && formas === formasCifra) => {
+                                        if (completaPrimero) {
+                                            const piso = Math.max(MIN_FUENTE_TREEMAP, Math.round(tope * 0.5));
+                                            for (const forma of formas) {
+                                                for (let tam = tope; tam >= piso; tam--) {
+                                                    if (cabe(forma, tam)) return { forma, tam };
+                                                }
+                                            }
+                                        }
                                         for (let tam = tope; tam >= MIN_FUENTE_TREEMAP - 1; tam--) {
                                             const forma = formas.find(f => cabe(f, tam));
                                             if (forma) return { forma, tam };
