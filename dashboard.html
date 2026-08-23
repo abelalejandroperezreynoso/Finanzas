@@ -954,9 +954,11 @@
                 /* El rendimiento en una línea. Va debajo y no dentro de un cuadro porque no es un área:
                    es lo que ha dado medido contra lo que pusiste, y el mapa reparte otra cosa. */
                 .cuadros-pie { margin-top: 10px; color: #888; font-size: 0.8em; line-height: 1.4; }
-                /* Que los recuadros se abren no se ve mirándolos, y el globo de información no sirve
-                   para decirlo: el mismo toque que lo abriría ya cambia de capa. Así que se dice aquí. */
-                .cuadros-pista { display: block; color: #666; margin-top: 4px; }
+                /* Renglón secundario del pie, más apagado que el principal: la pista de que los
+                   recuadros se abren —que mirándolos no se ve, y el globo de información no puede
+                   decirlo porque el mismo toque que lo abriría ya cambia de capa— y, dentro de la
+                   plusvalía, el desglose de cuánto de ella la puso el tipo de cambio. */
+                .cuadros-linea2 { display: block; color: #666; margin-top: 4px; }
                 /* Cuando falta el precio de alguna empresa, lo que pusiste en ella no entra en la cuenta
                    de arriba. Se dice, en vez de dejar creer que el mapa está completo. */
                 .cuadros-aviso { color: #f39c12; font-size: 0.78em; line-height: 1.35; margin-top: 8px; }
@@ -9574,6 +9576,19 @@
                                                             if (lista.some(x => x.esCaja)) trozos.push('la caja');
                                                             return trozos.join(' y ');
                                                         };
+                                                        // Cuánto de esa plusvalía lo pusieron las empresas y cuánto la moneda. Los dos lados de
+                                                        // la resta están en pesos de días distintos —el costo al tipo de cambio del día que
+                                                        // depositaste, el valor de hoy al de hoy—, así que la diferencia arrastra las dos cosas.
+                                                        // Aquí se separan: la parte de la moneda es lo que valen hoy de más (o de menos) los
+                                                        // dólares que siguen en pie, y lo que queda es lo que hicieron las empresas.
+                                                        const usdEnPie = (r.cajaUsd || 0) + (r.costoAccionesUsd || 0);
+                                                        const pesosQueCostaron = (r.cajaMxnBase || 0) + (r.costoAccionesMxn || 0);
+                                                        const tcCompra = usdEnPie > 0.005 ? pesosQueCostaron / usdEnPie : 0;
+                                                        const efectoTc = tcCompra > 0 ? usdEnPie * (tcHoy - tcCompra) : 0;
+                                                        const deLasEmpresas = plusvalia - efectoTc;
+                                                        // El signo va pegado a la cifra y sin cortes: el navegador toma el menos por un
+                                                        // operador y parte el renglón justo ahí, dejando el "−" solo al final de la línea.
+                                                        const conSigno = (n) => `<span style="white-space: nowrap;">${n >= 0 ? '+' : '−'}${fMoneda(Math.abs(n))}</span>`;
                                                         const ganan = conMovimiento.filter(p => p.dif > 0);
                                                         const pierden = conMovimiento.filter(p => p.dif < 0);
 
@@ -9591,7 +9606,8 @@
                                                                         : `${gana ? 'invertido' : 'valor de hoy'}, repartido entre ${nombrarGrupo(dentroBase)}`,
                                                                     cuadros: dentroBase,
                                                                     conParte: true,
-                                                                    nota: ''
+                                                                    nota: '',
+                                                                    nota2: ''
                                                                 },
                                                                 plus: {
                                                                     cifra: `${gana ? '+' : '−'}${fMoneda(Math.abs(plusvalia))}`,
@@ -9603,7 +9619,16 @@
                                                                     nota: conMovimiento.length === 0 ? '' : [
                                                                         ganan.length > 0 ? `${nombrarGrupo(ganan)} ${ganan.length === 1 ? 'suma' : 'suman'} ${fMoneda(sumaGanan)}` : '',
                                                                         pierden.length > 0 ? `${nombrarGrupo(pierden)} ${pierden.length === 1 ? 'resta' : 'restan'} ${fMoneda(sumaPierden)}` : ''
-                                                                    ].filter(Boolean).join(' y ') + '.'
+                                                                    ].filter(Boolean).join(' y ') + '.',
+                                                                    // Y de ese neto, cuánto es la moneda. Sin esto la cifra de arriba parece toda
+                                                                    // mérito o culpa de las empresas, y una buena parte puede ser el tipo de cambio.
+                                                                    nota2: Math.abs(efectoTc) <= 0.005
+                                                                        ? ''
+                                                                        // Sin empresas de por medio —una cuenta con sólo dólares parados— no hay dos
+                                                                        // partes que separar: todo lo que hay es la moneda.
+                                                                        : Math.abs(deLasEmpresas) <= 0.005
+                                                                        ? `Todo esto lo puso el tipo de cambio: compraste tus dólares a ${fMoneda(tcCompra)} y hoy están a ${fMoneda(tcHoy)}.`
+                                                                        : `De ese total, ${conSigno(deLasEmpresas)} lo pusieron las empresas y ${conSigno(efectoTc)} el tipo de cambio: compraste tus dólares a ${fMoneda(tcCompra)} y hoy están a ${fMoneda(tcHoy)}.`
                                                                 }
                                                             }
                                                         };
@@ -9638,12 +9663,14 @@
                                                         // El pie de abajo cambia con la capa: arriba es el rendimiento de la cuenta, dentro
                                                         // es lo que haga falta decir de ese desglose.
                                                         const pieAbajo = v.dentro
-                                                            ? (v.nota ? `<div class="cuadros-pie">${v.nota}</div>` : '')
+                                                            ? ((v.nota || v.nota2)
+                                                                ? `<div class="cuadros-pie">${v.nota || ''}${v.nota2 ? `<span class="cuadros-linea2">${v.nota2}</span>` : ''}</div>`
+                                                                : '')
                                                             : `<div class="cuadros-pie">
                                                                     ${signo}${fMoneda(Math.abs(mapa.plusvalia))} sobre ${fMoneda(mapa.invertido)} invertidos:
                                                                     <b style="color: ${colorPlus};">${signo}${Math.abs(mapa.pct).toFixed(1)}%</b>
                                                                     ${mapa.detalle.base.cuadros.length > 1 || mapa.detalle.plus.cuadros.length > 1
-                                                                        ? '<span class="cuadros-pista">Toca un recuadro para ver qué empresa puso cada parte.</span>' : ''}
+                                                                        ? '<span class="cuadros-linea2">Toca un recuadro para ver qué empresa puso cada parte.</span>' : ''}
                                                                </div>`;
 
                                                         return `
