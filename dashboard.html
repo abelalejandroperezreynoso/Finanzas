@@ -922,6 +922,39 @@
                 }
                 /* --- FIN ESTILOS TIRA DE OBJETIVOS --- */
 
+                /* --- INICIO ESTILOS AVISO DE VERSIÓN --- */
+                /* Sale abajo cuando el service worker ya guardó una versión nueva y la app estaba en
+                   uso: recargar sin avisar sería quitarle de las manos lo que está mirando. Durante el
+                   arranque no hace falta —ahí se recarga sola, que nadie ha tocado nada todavía—. */
+                .aviso-version {
+                    position: fixed;
+                    left: 12px;
+                    right: 12px;
+                    bottom: calc(12px + env(safe-area-inset-bottom));
+                    z-index: 9998;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    background: #232323;
+                    border: 1px solid #3a3a3a;
+                    border-radius: 10px;
+                    padding: 10px 12px;
+                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+                }
+                .aviso-version span { flex: 1; color: #ddd; font-size: 0.85em; line-height: 1.3; }
+                .aviso-version button {
+                    width: auto;
+                    margin: 0;
+                    padding: 7px 14px;
+                    font-size: 0.8em;
+                    background: #3ecf8e;
+                    color: #000000;
+                    border: none;
+                    border-radius: 8px;
+                    font-weight: bold;
+                }
+                /* --- FIN ESTILOS AVISO DE VERSIÓN --- */
+
                 /* --- INICIO ESTILOS INVERTIDO Y PLUSVALÍA --- */
                 /* La cifra que el mapa reparte, arriba del todo: sin ella el tamaño de los dos cuadros
                    no se puede leer como una parte de algo, que es justo lo que un mapa de cuadros dice. */
@@ -14653,14 +14686,70 @@
                                             </script>
 
                         <script>
-                                                  if ('serviceWorker' in navigator) {
-                                                    window.addEventListener('load', () => {
-                                                      navigator.serviceWorker.register('./sw.js')
-                                                        .then(reg => console.log('Service Worker registrado:', reg.scope))
-                                                        .catch(err => console.error('Error en Service Worker:', err));
-                                                    });
-                                                  }
-                                                </script>
+                        if ('serviceWorker' in navigator) {
+                            window.addEventListener('load', () => {
+                                navigator.serviceWorker.register('./sw.js')
+                                    .then(reg => console.log('Service Worker registrado:', reg.scope))
+                                    .catch(err => console.error('Error en Service Worker:', err));
+                            });
+
+                            // El service worker avisa en cuanto tiene guardada una versión nueva. Antes ese aviso
+                            // no existía: la copia fresca se quedaba esperando en la caché y sólo se veía al
+                            // siguiente arranque, así que había que cerrar la app dos veces para ver un cambio,
+                            // una para que se descargara y otra para verlo.
+                            //
+                            // Qué se hace con el aviso depende de dónde pille al usuario. Si todavía está la
+                            // pantalla de carga, la app no se ha enseñado y nadie ha tocado nada: se recarga sin
+                            // más y lo único que se nota es que el velo dura un poco. Con la app ya en uso se le
+                            // ofrece y decide él, porque recargar de golpe sería quitarle lo que está mirando.
+                            let avisoDeVersionAtendido = false;
+
+                            function arrancandoTodavia() {
+                                const velo = document.getElementById('splashCarga');
+                                return !!velo && !velo.classList.contains('oculto');
+                            }
+
+                            function recargarPorVersionNueva() {
+                                sessionStorage.setItem('recargaPorVersion', String(Date.now()));
+                                location.reload();
+                            }
+
+                            function mostrarAvisoDeVersion() {
+                                if (document.getElementById('avisoVersion')) return;
+                                const aviso = document.createElement('div');
+                                aviso.id = 'avisoVersion';
+                                aviso.className = 'aviso-version';
+                                aviso.innerHTML = '<span>Hay una versión nueva de la app lista.</span>';
+                                const boton = document.createElement('button');
+                                boton.type = 'button';
+                                boton.textContent = 'Actualizar';
+                                boton.onclick = recargarPorVersionNueva;
+                                aviso.appendChild(boton);
+                                document.body.appendChild(aviso);
+                            }
+
+                            navigator.serviceWorker.addEventListener('message', (evento) => {
+                                if (!evento.data || evento.data.tipo !== 'version-nueva') return;
+                                if (avisoDeVersionAtendido) return;
+                                avisoDeVersionAtendido = true;
+
+                                // Cinturón contra un bucle de recargas: si por lo que fuera el aviso llegara una y
+                                // otra vez, la app se quedaría recargándose sin parar y sin forma de usarla. Tras
+                                // una recarga reciente por este motivo el aviso pasa a ser un botón y ya no
+                                // recarga sola.
+                                const ultima = parseInt(sessionStorage.getItem('recargaPorVersion') || '0', 10);
+                                if (Date.now() - ultima < 20000) return;
+
+                                // El service worker puede avisar dos veces del mismo cambio —una al comparar la
+                                // página servida con la del servidor y otra al activarse la versión nueva—, así
+                                // que venir de una recarga reciente es motivo para no hacer nada: ya estamos en
+                                // la versión de la que avisa, y enseñar "hay una versión nueva" justo después de
+                                // haberla puesto sería decir una cosa por otra.
+                                if (arrancandoTodavia()) recargarPorVersionNueva();
+                                else mostrarAvisoDeVersion();
+                            });
+                        }
+                        </script>
 
                                                 </body>
                                                 </html>

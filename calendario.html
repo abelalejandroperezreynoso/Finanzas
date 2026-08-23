@@ -568,6 +568,19 @@
                         .then(reg => console.log('Service Worker registrado:', reg.scope))
                         .catch(err => console.error('Error en Service Worker:', err));
                     });
+
+                    // El service worker avisa en cuanto tiene guardada una versión nueva. Sin ese aviso la copia
+                    // fresca se quedaba esperando al siguiente arranque, y había que cerrar la app dos veces para
+                    // ver un cambio. Esta pantalla no tiene nada que el usuario esté a medias de hacer, así que se
+                    // recarga sola; el cinturón de los veinte segundos es por si el aviso llegara en bucle, para
+                    // que la app no se quede recargándose sin parar.
+                    navigator.serviceWorker.addEventListener('message', (evento) => {
+                      if (!evento.data || evento.data.tipo !== 'version-nueva') return;
+                      const ultima = parseInt(sessionStorage.getItem('recargaPorVersion') || '0', 10);
+                      if (Date.now() - ultima < 20000) return;
+                      sessionStorage.setItem('recargaPorVersion', String(Date.now()));
+                      location.reload();
+                    });
                   }
                 </script>
 

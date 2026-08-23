@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v39';
+const CACHE_NAME = 'gastos-app-v40';
 
 // El armazón de la app: todo lo que hace falta para que abra y se vea, sin datos todavía.
 // Se guarda entero durante la instalación para que el primer arranque desde el icono no dependa
@@ -38,6 +38,15 @@ const DOMINIOS_SIEMPRE_RED = [
     'finnhub.io'
 ];
 
+// Avisa a las pestañas abiertas de que hay una versión nueva ya guardada. Sin esto, la copia
+// fresca se queda esperando en la caché y sólo se ve al siguiente arranque: el usuario tenía que
+// cerrar la app dos veces para que un cambio apareciera, una para que se descargara y otra para
+// verlo. Ahora se avisa en cuanto está lista y la app decide qué hacer con el aviso.
+function avisarDeVersionNueva() {
+    return self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then((ventanas) => ventanas.forEach((v) => v.postMessage({ tipo: 'version-nueva' })));
+}
+
 // 1. Instalación: se guarda el armazón completo.
 self.addEventListener('install', (event) => {
     event.waitUntil(
@@ -61,16 +70,19 @@ self.addEventListener('install', (event) => {
 // 2. Activación: se borran las cachés de versiones anteriores.
 self.addEventListener('activate', (event) => {
     event.waitUntil(
-        caches.keys().then((cacheNames) => {
-            return Promise.all(
-                cacheNames.map((cache) => {
-                    if (cache !== CACHE_NAME) {
-                        console.log('Borrando caché antigua:', cache);
-                        return caches.delete(cache);
-                    }
-                })
-            );
-        }).then(() => self.clients.claim())
+        caches.keys().then((nombres) => {
+            const viejas = nombres.filter((nombre) => nombre !== CACHE_NAME);
+            viejas.forEach((nombre) => console.log('Borrando caché antigua:', nombre));
+            // Que hubiera cachés viejas es lo que distingue una actualización de una instalación
+            // desde cero. En la primera instalación no hay a quién avisar —nadie está mirando una
+            // versión anterior— y avisar recargaría la app recién abierta sin motivo.
+            return Promise.all(viejas.map((nombre) => caches.delete(nombre)))
+                .then(() => viejas.length > 0);
+        }).then((eraUnaActualizacion) => {
+            return self.clients.claim().then(() => {
+                if (eraUnaActualizacion) return avisarDeVersionNueva();
+            });
+        })
     );
 });
 
@@ -102,9 +114,31 @@ self.addEventListener('fetch', (event) => {
                 const enRed = fetch(request)
                     .then((respuesta) => {
                         if (respuesta && respuesta.status === 200 && respuesta.type === 'basic') {
-                            // La respuesta sólo se puede leer una vez: una copia va a la caché y
-                            // la otra al navegador.
-                            cache.put(request, respuesta.clone());
+                            // La respuesta sólo se puede leer una vez: unas copias van a la caché y
+                            // a la comparación, y el original al navegador. Los clones se sacan aquí,
+                            // antes de que nadie lo lea.
+                            const paraGuardar = respuesta.clone();
+                            const paraComparar = (request.mode === 'navigate' && cacheada) ? respuesta.clone() : null;
+                            const guardado = cache.put(request, paraGuardar);
+
+                            // Si la página que se acaba de servir de la caché ya no es la que hay en
+                            // el servidor, hay que decirlo: la copia nueva queda guardada aquí mismo,
+                            // pero el usuario está mirando la vieja. Esto cubre además el caso de
+                            // publicar un cambio sin subir la versión de CACHE_NAME, donde el service
+                            // worker no se reinstala y nadie se enteraría.
+                            //
+                            // El aviso espera a que la copia nueva esté guardada de verdad. Avisando
+                            // antes, la app se recargaba tan rápido que la caché todavía tenía la
+                            // vieja: volvía a servirla y el usuario seguía sin ver el cambio.
+                            if (paraComparar) {
+                                event.waitUntil(
+                                    Promise.all([guardado, cacheada.clone().text(), paraComparar.text()])
+                                        .then(([, vieja, nueva]) => {
+                                            if (vieja !== nueva) return avisarDeVersionNueva();
+                                        })
+                                        .catch(() => {})
+                                );
+                            }
                         }
                         return respuesta;
                     })
@@ -117,7 +151,9 @@ self.addEventListener('fetch', (event) => {
                 // Con copia guardada se contesta al instante y la red se queda actualizando sola.
                 if (cacheada) {
                     event.waitUntil(enRed);
-                    return cacheada;
+                    // Se entrega una copia: el original se queda aquí para poder compararlo con lo
+                    // que traiga la red. Un cuerpo sólo se puede leer una vez.
+                    return cacheada.clone();
                 }
 
                 // Sin copia (primera visita a esa dirección) toca esperar a la red. Si tampoco hay

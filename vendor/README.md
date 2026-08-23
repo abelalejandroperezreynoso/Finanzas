@@ -36,5 +36,10 @@ Después hay que quitar la última línea `//# sourceMappingURL=...` del archivo
 versión de `CACHE_NAME` en `sw.js`**. Sin eso, los teléfonos que ya tengan la app instalada seguirán
 usando la copia vieja que tienen guardada.
 
+Al subir la versión, el service worker avisa a la app en cuanto la copia nueva está guardada: si
+todavía está la pantalla de carga se recarga sola, y si la app ya está en uso sale abajo un botón
+para actualizar. Antes de eso había que cerrar la app dos veces —una para que se descargara y otra
+para verlo—.
+
 `chartjs-chart-treemap` es un complemento de `chart.js`: si actualizas uno, comprueba que la versión
 del otro le sirve (la 4.2.0 del treemap pide `chart.js >= 3`).
