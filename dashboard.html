@@ -779,6 +779,83 @@
                             font-weight: bold;
                             transition: all 0.2s;
                         }
+
+                        /* --- FILA DE FILTROS DEL MAPA DE CATEGORÍAS ---
+                           Los cinco filtros van en un solo renglón que se arrastra de lado. Apilados
+                           ocupaban cuatro renglones y en un teléfono empujaban el mapa fuera de la
+                           primera pantalla: ahora la fila crece a lo ancho y el mapa no se mueve. */
+                        .filtros-treemap {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            margin-bottom: 8px;
+                            overflow-x: auto;
+                            overflow-y: hidden;
+                            -webkit-overflow-scrolling: touch;
+                            /* La barra de desplazamiento no se ve: el corte de la última pastilla
+                               en la orilla ya avisa de que hay más filtros a la derecha. */
+                            scrollbar-width: none;
+                            -ms-overflow-style: none;
+                        }
+
+                        .filtros-treemap::-webkit-scrollbar { display: none; }
+
+                        /* El borde se difumina sólo por el lado donde quedan filtros sin ver. Las
+                           clases las pone el JS al dibujar el mapa y al arrastrar la fila; cuando
+                           caben todos —en pantalla ancha— no se difumina ningún lado. */
+                        .filtros-treemap.hay-mas-der {
+                            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+                            mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+                        }
+
+                        .filtros-treemap.hay-mas-izq {
+                            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px);
+                            mask-image: linear-gradient(to right, transparent 0, #000 28px);
+                        }
+
+                        .filtros-treemap.hay-mas-izq.hay-mas-der {
+                            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+                            mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+                        }
+
+                        /* Nada se encoge dentro de la fila: si no cabe, se arrastra */
+                        .filtros-treemap > * { flex-shrink: 0; }
+
+                        .pastilla-treemap {
+                            display: flex;
+                            background: #1c1c1c;
+                            border-radius: 50px;
+                            padding: 3px;
+                            flex-shrink: 0;
+                        }
+
+                        .pastilla-treemap button {
+                            width: auto; /* Sin esto heredan el width: 100% de los botones normales */
+                            margin: 0;
+                            padding: 4px 12px;
+                            font-size: 0.72em;
+                            font-weight: bold;
+                            border-radius: 50px;
+                            background: none;
+                            border: none;
+                            color: #888;
+                            cursor: pointer;
+                            white-space: nowrap;
+                            transition: all 0.2s;
+                        }
+
+                        /* Dice qué elige la pastilla que va justo a su derecha. Sin la etiqueta,
+                           "Total / Mensual" no se entiende suelto en medio de la fila. */
+                        .etiqueta-filtro-treemap {
+                            font-size: 0.7em;
+                            color: #666;
+                            font-weight: bold;
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                            margin-left: 4px;
+                        }
         body.modal-abierto {
                                 overflow: hidden;
                             }
@@ -1182,50 +1259,49 @@
 
     <!-- INICIO TARJETA DE MAPA DE CATEGORÍAS -->
     <div class="card" id="cardTreemapCategorias" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0; gap: 10px;">
+        <!-- El título ocupa su propio renglón entero: dentro de una capa dice a qué se entró
+             ("‹ Acciones · empresas") y es además el "volver", así que no puede quedarse sin
+             sitio por culpa de los filtros. -->
+        <div style="display: flex; align-items: center; margin-bottom: 8px; padding: 0;">
             <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
-            <div id="pastillaDireccionTreemap" style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0; transition: opacity 0.2s;">
-                <button id="btnTreemapSalidas" onclick="cambiarDireccionTreemapCategorias('salidas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Salidas</button>
-                <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Entradas</button>
-            </div>
         </div>
 
-        <!-- Segunda pastilla: acota el mapa a un solo tipo. Va en su propia fila porque junto al
-             título y a la pastilla de dirección no cabría en un teléfono estrecho. Se combina con
-             Salidas/Entradas, así que "Salidas + Deudas" son los pagos y "Entradas + Deudas" lo
-             adquirido. Volver a tocar el botón activo lo suelta y el mapa vuelve a mostrarlo todo. -->
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-            <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
-                <button id="btnTreemapInversion" onclick="cambiarTipoTreemapCategorias('inversion')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Inversiones</button>
-                <button id="btnTreemapPrestamo" onclick="cambiarTipoTreemapCategorias('prestamo')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Préstamos</button>
-                <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Deudas</button>
+        <!-- Todos los filtros del mapa en un solo renglón que se arrastra de lado. El de tipo se
+             combina con Salidas/Entradas, así que "Salidas + Deudas" son los pagos y
+             "Entradas + Deudas" lo adquirido; volver a tocar el botón activo lo suelta y el mapa
+             vuelve a mostrarlo todo. Los tres últimos sólo son del portafolio y aparecen con ese
+             mapa puesto: en uno de gastos no hay moneda que elegir. -->
+        <div id="filtrosTreemapCategorias" class="filtros-treemap">
+            <div id="pastillaDireccionTreemap" class="pastilla-treemap" style="transition: opacity 0.2s;">
+                <button id="btnTreemapSalidas" onclick="cambiarDireccionTreemapCategorias('salidas')">Salidas</button>
+                <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')">Entradas</button>
             </div>
-        </div>
 
-        <!-- Controles que sólo son del portafolio. Viven en su propia fila y sólo aparecen con ese
-             mapa puesto: en uno de gastos no hay moneda que elegir. Antes se colaban dentro de la
-             pastilla de Salidas/Entradas, que se quedaba sin sus botones y obligaba a recordar que
-             ahí ponía otra cosa. -->
-        <div id="controlesPortafolioTreemap" style="display: none; flex-direction: column; gap: 6px; margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Moneda</span>
-                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
-                    <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">USD</button>
-                    <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">MXN</button>
-                </div>
+            <div class="pastilla-treemap">
+                <button id="btnTreemapInversion" onclick="cambiarTipoTreemapCategorias('inversion')">Inversiones</button>
+                <button id="btnTreemapPrestamo" onclick="cambiarTipoTreemapCategorias('prestamo')">Préstamos</button>
+                <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')">Deudas</button>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Mostrar</span>
-                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
-                    <button id="btnTreemapTodo" onclick="cambiarVistaTreemapInversiones('todo')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Todo</button>
-                    <button id="btnTreemapAccesible" onclick="cambiarVistaTreemapInversiones('accesible')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Accesible</button>
+
+            <!-- Se enseña y se esconde entero desde el JS; por eso los tres van juntos en un
+                 contenedor y no sueltos en la fila. -->
+            <div id="controlesPortafolioTreemap" style="display: none; align-items: center; gap: 8px;">
+                <span class="etiqueta-filtro-treemap">Moneda</span>
+                <div class="pastilla-treemap">
+                    <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')">USD</button>
+                    <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')">MXN</button>
                 </div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                <span style="font-size: 0.7em; color: #666; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Rendimiento</span>
-                <div style="display: flex; background: #1c1c1c; border-radius: 50px; padding: 3px; flex-shrink: 0;">
-                    <button id="btnTreemapRendTotal" onclick="cambiarRendimientoTreemapInversiones('total')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Total</button>
-                    <button id="btnTreemapRendMensual" onclick="cambiarRendimientoTreemapInversiones('mensual')" style="width: auto; margin: 0; padding: 4px 12px; font-size: 0.72em; font-weight: bold; border-radius: 50px; background: none; border: none; color: #888; cursor: pointer; transition: all 0.2s;">Mensual</button>
+
+                <span class="etiqueta-filtro-treemap">Mostrar</span>
+                <div class="pastilla-treemap">
+                    <button id="btnTreemapTodo" onclick="cambiarVistaTreemapInversiones('todo')">Todo</button>
+                    <button id="btnTreemapAccesible" onclick="cambiarVistaTreemapInversiones('accesible')">Accesible</button>
+                </div>
+
+                <span class="etiqueta-filtro-treemap">Rendimiento</span>
+                <div class="pastilla-treemap">
+                    <button id="btnTreemapRendTotal" onclick="cambiarRendimientoTreemapInversiones('total')">Total</button>
+                    <button id="btnTreemapRendMensual" onclick="cambiarRendimientoTreemapInversiones('mensual')">Mensual</button>
                 </div>
             </div>
         </div>
@@ -8627,10 +8703,29 @@
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
 
-                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, su fila
-                                // desaparece en vez de quedarse ahí sin nada que hacer.
+                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, sus tres
+                                // filtros se van de la fila en vez de quedarse ahí sin nada que hacer.
                                 const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
                                 if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
+
+                                // La fila de filtros no cabe entera en un teléfono, así que se arrastra de lado.
+                                // El borde se desvanece sólo por donde queda algo por ver: es lo único que avisa
+                                // de que hay más filtros fuera de la pantalla, y con el portafolio puesto son
+                                // tres más. Se recalcula aquí porque enseñarlos u ocultarlos cambia el ancho.
+                                const filaFiltrosTreemap = document.getElementById('filtrosTreemapCategorias');
+                                if (filaFiltrosTreemap) {
+                                    const marcarBordesFiltros = () => {
+                                        const sobra = filaFiltrosTreemap.scrollWidth - filaFiltrosTreemap.clientWidth;
+                                        filaFiltrosTreemap.classList.toggle('hay-mas-izq', filaFiltrosTreemap.scrollLeft > 4);
+                                        filaFiltrosTreemap.classList.toggle('hay-mas-der', sobra > 4 && filaFiltrosTreemap.scrollLeft < sobra - 4);
+                                    };
+                                    if (!filaFiltrosTreemap.dataset.bordesLigados) {
+                                        filaFiltrosTreemap.dataset.bordesLigados = '1';
+                                        filaFiltrosTreemap.addEventListener('scroll', marcarBordesFiltros, { passive: true });
+                                        window.addEventListener('resize', marcarBordesFiltros);
+                                    }
+                                    marcarBordesFiltros();
+                                }
 
                                 // En los tres modos la pastilla de arriba no parte nada, así que se apaga. Sigue
                                 // pulsable a propósito: es la salida del modo, y dejarla muerta obligaría a
