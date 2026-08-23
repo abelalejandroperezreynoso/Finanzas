@@ -9059,14 +9059,15 @@
                                 // que la traza y sigue el mismo criterio que el relleno.
                                 const juntaDelRecuadro = (d) => {
                                     if (!d || !d.cat) return null;
-                                    const f = fraccionLlenado(d);
-                                    const marca = fraccionObjetivo(d);
-                                    // Los recuadros llenos y sin marca no tienen dos partes que separar
-                                    if (f >= 1 && marca === null) return null;
-                                    // Fuera del portafolio sólo se marcaba lo que se pasó del objetivo; ahí el
-                                    // corte de un recuadro a medias ya lo dice el cambio de tono.
-                                    if (marca === null && !esPortafolio) return null;
-                                    return marca !== null ? marca : f;
+                                    // En el portafolio no lleva ninguna. Ahí las dos partes son blanco contra verde
+                                    // o rojo y el corte se ve solo; la raya negra encima partía el recuadro en dos
+                                    // como si fueran dos cosas y no una posición con su diferencia.
+                                    if (esPortafolio) return null;
+                                    // En los demás mapas sí, pero sólo para marcar el objetivo cuando el gasto se
+                                    // pasó de él: el recuadro creció con lo real y sin la raya no se sabría por
+                                    // dónde iba la raya de llegada. El corte de un recuadro a medias no la
+                                    // necesita, que ya lo dice el cambio de tono.
+                                    return fraccionObjetivo(d);
                                 };
 
                                 // La junta se traza, no se degrada. Chrome resuelve los gradientes con una tabla de
