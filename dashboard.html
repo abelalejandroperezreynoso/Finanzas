@@ -1643,6 +1643,48 @@
     <span id="userEmailDisplay" style="font-weight: bold; color: #ffffff; font-size: 1em;">...</span>
     </div>
 
+    <!-- INICIO CURVA DEL PORTAFOLIO -->
+    <!-- Va antes de la matriz porque contesta la pregunta más grande —cómo va el portafolio—
+         y la matriz contesta la siguiente: cuál de las empresas lo mueve. -->
+    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px;">
+            <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Tu portafolio</h3>
+            <div id="monedaCurvaPortafolio" class="pastilla-treemap">
+                <button id="btnCurvaMXN" onclick="cambiarMonedaCurvaPortafolio('mxn')">MXN</button>
+                <button id="btnCurvaUSD" onclick="cambiarMonedaCurvaPortafolio('usd')">USD</button>
+            </div>
+        </div>
+
+        <div style="position: relative; width: 100%; height: 220px;">
+            <canvas id="graficoCurvaPortafolio"></canvas>
+        </div>
+
+        <div id="pieCurvaPortafolio" style="color: #888; font-size: 0.8em; margin-top: 10px; line-height: 1.5;">
+            Cargando…
+        </div>
+
+        <!-- El histórico se trae una vez y luego crece solo. Los ajustes viven aquí abajo,
+             plegados: se tocan el primer día y ya no se vuelven a mirar. -->
+        <details style="margin-top: 12px; border-top: 1px dashed #333; padding-top: 10px;">
+            <summary style="color: #666; font-size: 0.78em; cursor: pointer;">Traer el histórico del pasado</summary>
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 10px 0;">
+                La curva crece sola: cada día que abras la app guarda el precio de ese día. Para
+                dibujar también lo de antes hace falta pedirle los cierres a alguien, una sola vez.
+                Consigue una clave gratuita en
+                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">alphavantage.co</a>
+                y pégala aquí.
+            </p>
+            <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage" autocomplete="off"
+                   style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
+            <button id="btnTraerHistorico" onclick="pedirHistoricoDesdeAjustes()"
+                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
+                Traer histórico
+            </button>
+            <div id="avisoHistorico" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+        </details>
+    </div>
+    <!-- FIN CURVA DEL PORTAFOLIO -->
+
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
     <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Matriz de Portafolio</h3>
@@ -1997,6 +2039,523 @@
                                             console.error("Error obteniendo tipo de cambio", e);
                                         }
                                     }
+
+                                    // =========================================================
+                                    // HISTÓRICO DE PRECIOS
+                                    // =========================================================
+                                    // Finnhub dice cuánto vale una empresa hoy, y eso basta para saber cuánto
+                                    // tienes ahora mismo. Para saber cómo llegaste hasta ahí hace falta el
+                                    // precio de cada día del pasado: las acciones que tenías en cada fecha ya
+                                    // están en tus registros, lo que faltaba era a cuánto cotizaban.
+                                    //
+                                    // Los cierres viven en la tabla `precios_historicos` y se llenan de dos
+                                    // formas: hacia atrás una sola vez, desde Configuración, y hacia adelante
+                                    // solos, guardando el precio de hoy cada vez que abres la app. El tipo de
+                                    // cambio se guarda ahí mismo con el ticker 'USDMXN': es el mismo dato
+                                    // —cuánto valía algo un día— y separarlo obligaría a duplicar cada consulta.
+                                    const TICKER_TIPO_CAMBIO = 'USDMXN';
+                                    const CLAVE_API_HISTORICO = 'claveApiHistorico';
+
+                                    // { TICKER: [{ dia, cierre }] } ordenado por día. Se llena una vez al
+                                    // arrancar y se mantiene en memoria: la curva se repinta muchas veces
+                                    // —al cambiar de moneda, al girar el teléfono— y no puede volver a la base
+                                    // cada vez.
+                                    let cacheHistoricoPrecios = {};
+                                    let historicoPreciosListo = false;
+
+                                    const diaISO = (fecha) => {
+                                        const d = fecha instanceof Date ? fecha : new Date(fecha);
+                                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                    };
+
+                                    async function cargarHistoricoPrecios() {
+                                        if (!clienteSupabase || !currentUser) return;
+
+                                        // Se pide por tandas a propósito. Supabase corta cualquier consulta en
+                                        // mil filas y no avisa: con tres años y diez empresas son varios miles
+                                        // de cierres, así que sin paginar la curva se quedaría plana desde el
+                                        // día mil sin que nada pareciera roto, que es la peor forma de fallar.
+                                        const TANDA = 1000;
+                                        const filas = [];
+                                        for (let desde = 0; ; desde += TANDA) {
+                                            const { data, error } = await clienteSupabase
+                                                .from('precios_historicos')
+                                                .select('ticker, dia, cierre')
+                                                .order('ticker', { ascending: true })
+                                                .order('dia', { ascending: true })
+                                                .range(desde, desde + TANDA - 1);
+
+                                            // Sin la tabla creada, la app sigue funcionando entera: lo único que
+                                            // desaparece es la curva, que dirá por qué en su propio sitio.
+                                            if (error) { historicoPreciosListo = false; return; }
+
+                                            filas.push(...(data || []));
+                                            if (!data || data.length < TANDA) break;
+                                        }
+
+                                        cacheHistoricoPrecios = {};
+                                        filas.forEach(p => {
+                                            (cacheHistoricoPrecios[p.ticker] = cacheHistoricoPrecios[p.ticker] || [])
+                                                .push({ dia: p.dia, cierre: parseFloat(p.cierre) });
+                                        });
+                                        historicoPreciosListo = true;
+                                    }
+
+                                    // El cierre de hoy de todo lo que tienes, guardado para mañana. Es lo que
+                                    // hace que el histórico crezca solo: cada día que abres la app queda un
+                                    // punto más de la curva, sin volver a pedirle nada a nadie.
+                                    //
+                                    // Se escribe con upsert sobre la clave (usuario, ticker, día): abrir la app
+                                    // cinco veces en un día deja una sola fila, la última.
+                                    async function guardarCierresDeHoy() {
+                                        if (!clienteSupabase || !currentUser || !historicoPreciosListo) return;
+
+                                        const hoy = diaISO(new Date());
+                                        const filas = [];
+
+                                        (datosCategorias || [])
+                                            .filter(c => c.tipo === 'inversion' && c.ticker && cachePreciosMercado[c.ticker] > 0)
+                                            .forEach(c => { filas.push({ user_id: currentUser.id, ticker: c.ticker, dia: hoy, cierre: cachePreciosMercado[c.ticker] }); });
+
+                                        if (globalUsdToMxn > 0) {
+                                            filas.push({ user_id: currentUser.id, ticker: TICKER_TIPO_CAMBIO, dia: hoy, cierre: globalUsdToMxn });
+                                        }
+
+                                        // Dos categorías pueden apuntar al mismo ticker; la base rechazaría el
+                                        // lote entero por clave repetida dentro de la misma sentencia.
+                                        const unicas = {};
+                                        filas.forEach(f => { unicas[f.ticker] = f; });
+                                        const lote = Object.values(unicas);
+                                        if (lote.length === 0) return;
+
+                                        const { error } = await clienteSupabase
+                                            .from('precios_historicos')
+                                            .upsert(lote, { onConflict: 'user_id,ticker,dia' });
+                                        if (error) return;
+
+                                        // La copia en memoria se actualiza en el sitio para que la curva pintada
+                                        // justo después ya llegue hasta hoy.
+                                        lote.forEach(f => {
+                                            const serie = cacheHistoricoPrecios[f.ticker] = cacheHistoricoPrecios[f.ticker] || [];
+                                            const ultimo = serie[serie.length - 1];
+                                            if (ultimo && ultimo.dia === f.dia) ultimo.cierre = f.cierre;
+                                            else serie.push({ dia: f.dia, cierre: f.cierre });
+                                        });
+                                    }
+
+                                    // --- Traer el pasado, una sola vez ---
+                                    //
+                                    // Alpha Vantage da los cierres diarios gratis y responde a peticiones desde
+                                    // el navegador. Su plan gratuito cuenta las peticiones del día, así que se
+                                    // pide un ticker por vez, se guarda lo que llega antes de seguir con el
+                                    // siguiente, y si corta a mitad lo ya guardado se queda: la siguiente vez
+                                    // continúa por donde se quedó en lugar de empezar de cero.
+                                    function urlHistorico(ticker, clave) {
+                                        return ticker === TICKER_TIPO_CAMBIO
+                                            ? `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=USD&to_symbol=MXN&outputsize=full&apikey=${clave}`
+                                            : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=full&apikey=${clave}`;
+                                    }
+
+                                    // Devuelve [{dia, cierre}] o lanza con el motivo en claro. Alpha Vantage
+                                    // contesta 200 también cuando no puede servir: el error viene dentro del
+                                    // JSON, en 'Note' si se acabó la cuota o en 'Error Message' si el símbolo
+                                    // no existe. Leer sólo el código HTTP daría todo por bueno.
+                                    async function pedirHistoricoTicker(ticker, clave) {
+                                        const res = await fetch(urlHistorico(ticker, clave));
+                                        if (!res.ok) throw new Error(`el servidor respondió ${res.status}`);
+
+                                        const data = await res.json();
+                                        const aviso = data['Note'] || data['Information'] || data['Error Message'];
+                                        if (aviso) throw new Error(aviso);
+
+                                        const serie = data['Time Series (Daily)'] || data['Time Series FX (Daily)'];
+                                        if (!serie) throw new Error('la respuesta no traía precios');
+
+                                        return Object.keys(serie).map(dia => ({
+                                            dia,
+                                            cierre: parseFloat(serie[dia]['4. close'])
+                                        })).filter(p => p.cierre > 0);
+                                    }
+
+                                    // Qué tickers hacen falta y desde cuándo. No se piden años que no vas a
+                                    // mirar: la curva empieza en tu primera compra, así que lo anterior sobra.
+                                    function tickersDelHistorico() {
+                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
+                                        const compras = (datosUsoCompleto || []).filter(u => esCompraInversion(u) && parseFloat(u.cantidad_acciones) > 0);
+
+                                        const primerDia = {};
+                                        compras.forEach(u => {
+                                            const cat = cats.find(c => String(c.id) === String(u.categoria_id));
+                                            if (!cat) return;
+                                            const dia = diaDeRegistro(u);
+                                            if (!primerDia[cat.ticker] || dia < primerDia[cat.ticker]) primerDia[cat.ticker] = dia;
+                                        });
+
+                                        const tickers = Object.keys(primerDia);
+                                        // El tipo de cambio hace falta desde la primera compra de todas: es lo
+                                        // que pone la curva entera en pesos.
+                                        if (tickers.length > 0) primerDia[TICKER_TIPO_CAMBIO] = tickers.map(t => primerDia[t]).sort()[0];
+                                        return primerDia;
+                                    }
+
+                                    async function traerHistoricoDePrecios(avisar) {
+                                        const clave = (localStorage.getItem(CLAVE_API_HISTORICO) || '').trim();
+                                        if (!clave) { avisar('Falta la clave de Alpha Vantage', true); return; }
+                                        if (!historicoPreciosListo) { avisar('Falta crear la tabla: ejecuta migracion_historico_precios.sql', true); return; }
+
+                                        const desdePorTicker = tickersDelHistorico();
+                                        const tickers = Object.keys(desdePorTicker);
+                                        if (tickers.length === 0) { avisar('No hay compras de las que traer histórico', true); return; }
+
+                                        let guardados = 0;
+                                        for (let i = 0; i < tickers.length; i++) {
+                                            const ticker = tickers[i];
+                                            avisar(`Trayendo ${ticker}… (${i + 1} de ${tickers.length})`);
+
+                                            let puntos;
+                                            try {
+                                                puntos = await pedirHistoricoTicker(ticker, clave);
+                                            } catch (e) {
+                                                // Lo traído hasta aquí ya está guardado. Se para en el primer
+                                                // fallo en vez de seguir gastando cuota contra el mismo muro.
+                                                avisar(`${ticker}: ${e.message}${guardados > 0 ? ` · se guardaron ${guardados} cierres antes de parar` : ''}`, true);
+                                                return;
+                                            }
+
+                                            const desde = desdePorTicker[ticker];
+                                            const filas = puntos
+                                                .filter(p => p.dia >= desde)
+                                                .map(p => ({ user_id: currentUser.id, ticker, dia: p.dia, cierre: p.cierre }));
+
+                                            // De golpe son miles de filas: se mandan por tandas para no pasarse
+                                            // del tamaño que aguanta una petición.
+                                            for (let k = 0; k < filas.length; k += 500) {
+                                                const { error } = await clienteSupabase
+                                                    .from('precios_historicos')
+                                                    .upsert(filas.slice(k, k + 500), { onConflict: 'user_id,ticker,dia' });
+                                                if (error) { avisar(`No se pudieron guardar los cierres de ${ticker}: ${error.message}`, true); return; }
+                                            }
+                                            guardados += filas.length;
+                                        }
+
+                                        await cargarHistoricoPrecios();
+                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series`);
+                                        renderizarCurvaPortafolio();
+                                    }
+
+                                    // =========================================================
+                                    // LA CURVA DEL PORTAFOLIO
+                                    // =========================================================
+                                    // Dos líneas: lo que valían tus acciones cada día y lo que te habían
+                                    // costado. La distancia entre ellas es la plusvalía, y verla abrirse y
+                                    // cerrarse es lo que esta gráfica cuenta y ninguna otra de la app dice.
+                                    //
+                                    // La caja de dólares se queda fuera a propósito. Es dinero parado, no
+                                    // portafolio: metida aquí, un retiro se leería como una caída y una
+                                    // aportación como una subida, cuando el mercado no se movió.
+                                    let miCurvaPortafolio = null;
+                                    let monedaCurvaPortafolio = localStorage.getItem('monedaCurvaPortafolio') || 'mxn';
+
+                                    // El cierre de un ticker en un día, o el último conocido antes de ese día.
+                                    // Los mercados cierran fines de semana y festivos: sin arrastrar el último
+                                    // precio, la curva caería a cero cada sábado.
+                                    //
+                                    // Recibe el punto por el que iba la búsqueda anterior y lo devuelve, porque
+                                    // los días se recorren en orden: así cada serie se lee una sola vez en vez
+                                    // de buscar desde el principio unas mil veces.
+                                    function cierreHasta(serie, dia, cursor) {
+                                        let i = cursor;
+                                        while (i + 1 < serie.length && serie[i + 1].dia <= dia) i++;
+                                        if (serie.length === 0 || serie[0].dia > dia) return { valor: null, cursor: i };
+                                        return { valor: serie[i].cierre, cursor: i };
+                                    }
+
+                                    // El estado del portafolio día a día, desde la primera compra hasta hoy.
+                                    //
+                                    // Las posiciones se rehacen recorriendo tus movimientos en orden con las
+                                    // mismas reglas que usa la app para el saldo de hoy —las ventas salen a
+                                    // costo promedio, no FIFO—, de modo que el último punto de la curva es
+                                    // exactamente la cifra que ya enseña el resumen. Con otra convención, la
+                                    // gráfica y el resumen dirían dos verdades distintas del mismo día.
+                                    function serieHistoricaPortafolio() {
+                                        const enPesos = monedaCurvaPortafolio === 'mxn';
+                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
+                                        if (cats.length === 0) return null;
+
+                                        const porId = {};
+                                        cats.forEach(c => { porId[String(c.id)] = c; });
+
+                                        const movs = (datosUsoCompleto || [])
+                                            .filter(u => porId[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0)
+                                            .filter(u => esCompraInversion(u) || esVentaInversion(u))
+                                            .map(u => ({ dia: diaDeRegistro(u), u, cat: porId[String(u.categoria_id)] }))
+                                            .filter(m => m.dia.length === 10)
+                                            .sort((a, b) => a.dia.localeCompare(b.dia));
+
+                                        if (movs.length === 0) return null;
+
+                                        // Estado vivo por categoría: cuántas acciones quedan y lo que costaron.
+                                        const pos = {};
+                                        cats.forEach(c => { pos[String(c.id)] = { acciones: 0, costoMxn: 0, costoUsd: 0 }; });
+
+                                        const aplicar = (m) => {
+                                            const p = pos[String(m.cat.id)];
+                                            const acciones = parseFloat(m.u.cantidad_acciones) || 0;
+
+                                            if (esCompraInversion(m.u)) {
+                                                p.acciones += acciones;
+                                                p.costoMxn += costoMxnDeLote(m.u);
+                                                p.costoUsd += costoUsdDeLote(m.u);
+                                                return;
+                                            }
+
+                                            // Venta: se va la parte proporcional del costo, que es lo que hace
+                                            // la app en su cuenta principal.
+                                            const promedioMxn = p.acciones > 0 ? p.costoMxn / p.acciones : 0;
+                                            const promedioUsd = p.acciones > 0 ? p.costoUsd / p.acciones : 0;
+                                            const salen = Math.min(acciones, p.acciones);
+                                            p.acciones -= salen;
+                                            p.costoMxn -= salen * promedioMxn;
+                                            p.costoUsd -= salen * promedioUsd;
+                                            if (p.acciones <= 0.00001) { p.acciones = 0; p.costoMxn = 0; p.costoUsd = 0; }
+                                        };
+
+                                        // Un cursor por serie de precios, y el día del que se parte.
+                                        const cursores = {};
+                                        const serieDe = (ticker) => cacheHistoricoPrecios[ticker] || [];
+                                        cats.forEach(c => { cursores[c.ticker] = 0; });
+                                        cursores[TICKER_TIPO_CAMBIO] = 0;
+
+                                        const dias = [], valores = [], costos = [];
+                                        const sinPrecio = new Set();
+                                        let iMov = 0;
+
+                                        const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
+                                        const cursor = new Date(`${movs[0].dia}T12:00:00`);
+
+                                        while (diaISO(cursor) <= diaISO(hoy)) {
+                                            const dia = diaISO(cursor);
+
+                                            // Todo lo que pasó ese día entra antes de valorar: una compra cuenta
+                                            // desde el día que la hiciste.
+                                            while (iMov < movs.length && movs[iMov].dia <= dia) aplicar(movs[iMov++]);
+
+                                            const tc = cierreHasta(serieDe(TICKER_TIPO_CAMBIO), dia, cursores[TICKER_TIPO_CAMBIO]);
+                                            cursores[TICKER_TIPO_CAMBIO] = tc.cursor;
+                                            // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con
+                                            // el peso plano al principio que ninguna curva.
+                                            const cambio = tc.valor || globalUsdToMxn || 1;
+
+                                            let valor = 0, costo = 0, medible = false;
+                                            cats.forEach(c => {
+                                                const p = pos[String(c.id)];
+                                                if (!(p.acciones > 0.00001)) return;
+
+                                                costo += enPesos ? p.costoMxn : p.costoUsd;
+
+                                                const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
+                                                cursores[c.ticker] = cierre.cursor;
+
+                                                if (cierre.valor === null) {
+                                                    // Sin precio de ese día, esa posición vale lo que costó: la
+                                                    // curva no inventa un movimiento que no se puede saber.
+                                                    valor += enPesos ? p.costoMxn : p.costoUsd;
+                                                    sinPrecio.add(c.ticker);
+                                                } else {
+                                                    valor += p.acciones * cierre.valor * (enPesos ? cambio : 1);
+                                                    medible = true;
+                                                }
+                                            });
+
+                                            if (costo > 0.005) {
+                                                dias.push(dia);
+                                                valores.push(valor);
+                                                costos.push(costo);
+                                            }
+
+                                            cursor.setDate(cursor.getDate() + 1);
+                                        }
+
+                                        if (dias.length === 0) return null;
+                                        return { dias, valores, costos, sinPrecio: [...sinPrecio], enPesos };
+                                    }
+
+                                    // El botón de los ajustes: guarda la clave, dispara la traída y va
+                                    // contando por dónde va. Tarda —son varios viajes a una API que además
+                                    // limita el ritmo—, así que el botón se apaga mientras tanto: pulsarlo dos
+                                    // veces lanzaría dos traídas contra la misma cuota.
+                                    async function pedirHistoricoDesdeAjustes() {
+                                        const campo = document.getElementById('claveApiHistorico');
+                                        const btn = document.getElementById('btnTraerHistorico');
+                                        const aviso = document.getElementById('avisoHistorico');
+                                        if (!campo || !btn || !aviso) return;
+
+                                        const clave = campo.value.trim();
+                                        if (clave) localStorage.setItem(CLAVE_API_HISTORICO, clave);
+
+                                        const avisar = (texto, malo) => {
+                                            aviso.innerHTML = texto;
+                                            aviso.style.color = malo ? '#ff5c5c' : '#666';
+                                        };
+
+                                        btn.disabled = true;
+                                        const textoOriginal = btn.textContent;
+                                        btn.textContent = 'Trayendo…';
+                                        try {
+                                            await traerHistoricoDePrecios(avisar);
+                                        } finally {
+                                            btn.disabled = false;
+                                            btn.textContent = textoOriginal;
+                                        }
+                                    }
+
+                                    // La clave se queda en este navegador y no viaja a la base: es de quien usa
+                                    // la app, no del dato, y en la tabla sólo estorbaría.
+                                    function cargarClaveHistoricoGuardada() {
+                                        const campo = document.getElementById('claveApiHistorico');
+                                        if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
+                                    }
+
+                                    function cambiarMonedaCurvaPortafolio(moneda) {
+                                        monedaCurvaPortafolio = moneda === 'usd' ? 'usd' : 'mxn';
+                                        localStorage.setItem('monedaCurvaPortafolio', monedaCurvaPortafolio);
+                                        renderizarCurvaPortafolio();
+                                    }
+
+                                    function renderizarCurvaPortafolio() {
+                                        const lienzo = document.getElementById('graficoCurvaPortafolio');
+                                        const pie = document.getElementById('pieCurvaPortafolio');
+                                        const pastilla = document.getElementById('monedaCurvaPortafolio');
+                                        if (!lienzo || !pie) return;
+
+                                        ['mxn', 'usd'].forEach(m => {
+                                            const btn = document.getElementById(`btnCurva${m.toUpperCase()}`);
+                                            if (!btn) return;
+                                            const activo = m === monedaCurvaPortafolio;
+                                            btn.style.background = activo ? '#333' : 'none';
+                                            btn.style.color = activo ? '#ffffff' : '#888';
+                                        });
+
+                                        cargarClaveHistoricoGuardada();
+
+                                        const serie = historicoPreciosListo ? serieHistoricaPortafolio() : null;
+
+                                        if (miCurvaPortafolio) { miCurvaPortafolio.destroy(); miCurvaPortafolio = null; }
+
+                                        // Cada motivo dice qué falta y qué hacer: una gráfica vacía sin más deja
+                                        // pensando que se rompió algo.
+                                        if (!serie) {
+                                            lienzo.style.display = 'none';
+                                            if (pastilla) pastilla.style.display = 'none';
+                                            pie.innerHTML = !historicoPreciosListo
+                                                ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
+                                                : 'Todavía no hay compras de acciones que dibujar.';
+                                            return;
+                                        }
+
+                                        lienzo.style.display = 'block';
+                                        if (pastilla) pastilla.style.display = 'flex';
+
+                                        const simbolo = serie.enPesos ? 'MXN' : 'USD';
+                                        const ultimoValor = serie.valores[serie.valores.length - 1];
+                                        const ultimoCosto = serie.costos[serie.costos.length - 1];
+                                        const plus = ultimoValor - ultimoCosto;
+                                        const pct = ultimoCosto > 0 ? (plus / ultimoCosto) * 100 : 0;
+                                        const signo = plus >= 0 ? '+' : '-';
+                                        const color = plus >= 0 ? '#3ecf8e' : '#ff5c5c';
+
+                                        miCurvaPortafolio = new Chart(lienzo.getContext('2d'), {
+                                            type: 'line',
+                                            data: {
+                                                labels: serie.dias,
+                                                datasets: [
+                                                    {
+                                                        label: 'Valor',
+                                                        data: serie.valores,
+                                                        borderColor: color,
+                                                        borderWidth: 2,
+                                                        pointRadius: 0,
+                                                        tension: 0.15,
+                                                        // Se rellena hasta la línea de lo invertido: el área es la
+                                                        // plusvalía, que es lo que se viene a mirar.
+                                                        fill: { target: 1, above: 'rgba(62, 207, 142, 0.12)', below: 'rgba(255, 92, 92, 0.12)' }
+                                                    },
+                                                    {
+                                                        label: 'Invertido',
+                                                        data: serie.costos,
+                                                        borderColor: '#777',
+                                                        borderWidth: 1.5,
+                                                        borderDash: [4, 4],
+                                                        pointRadius: 0,
+                                                        // Es una escalera, no una curva: sube el día que compras y
+                                                        // baja el día que vendes, sin nada entre medias que suavizar.
+                                                        stepped: true,
+                                                        fill: false
+                                                    }
+                                                ]
+                                            },
+                                            options: {
+                                                animation: ANIMACION_GRAFICAS,
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                interaction: { mode: 'index', intersect: false },
+                                                plugins: {
+                                                    legend: { display: false },
+                                                    tooltip: {
+                                                        callbacks: {
+                                                            title: (items) => {
+                                                                const [anio, mes, dia] = items[0].label.split('-');
+                                                                return `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].toLowerCase()} ${anio}`;
+                                                            },
+                                                            label: (item) => `${item.dataset.label}: ${fMoneda(item.raw)} ${simbolo}`,
+                                                            // La plusvalía del día no es una línea más: es la
+                                                            // distancia entre las dos, y sale de la resta.
+                                                            afterBody: (items) => {
+                                                                if (items.length < 2) return '';
+                                                                const dif = items[0].raw - items[1].raw;
+                                                                const p = items[1].raw > 0 ? (dif / items[1].raw) * 100 : 0;
+                                                                const s = dif >= 0 ? '+' : '-';
+                                                                return `${s}${fMoneda(Math.abs(dif))} (${s}${Math.abs(p).toFixed(1)}%)`;
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                scales: {
+                                                    x: {
+                                                        // Mil etiquetas de día no caben ni se leen: el eje enseña
+                                                        // unas pocas fechas de referencia y el resto lo cuenta el
+                                                        // globo al tocar.
+                                                        ticks: {
+                                                            color: '#666', maxRotation: 0, autoSkip: true, maxTicksLimit: 5,
+                                                            callback: function (v) {
+                                                                const etiqueta = this.getLabelForValue(v);
+                                                                if (!etiqueta) return '';
+                                                                const [anio, mes] = etiqueta.split('-');
+                                                                return `${NOMBRES_MESES[parseInt(mes, 10) - 1].slice(0, 3).toLowerCase()} ${anio.slice(2)}`;
+                                                            }
+                                                        },
+                                                        grid: { display: false }
+                                                    },
+                                                    y: {
+                                                        ticks: { color: '#666', callback: (v) => montoCompactoTreemap(v) },
+                                                        grid: { color: '#222' }
+                                                    }
+                                                }
+                                            }
+                                        });
+
+                                        const desde = serie.dias[0].split('-');
+                                        const aviso = serie.sinPrecio.length > 0
+                                            ? `<br><span style="color:#f39c12;">⚠️ Sin cierres de ${serie.sinPrecio.join(', ')}: esos días valen lo que costaron.</span>`
+                                            : '';
+
+                                        pie.innerHTML = `
+                                            <strong style="color:#fff;">${fMoneda(ultimoValor)} ${simbolo}</strong>
+                                            <span style="color:#666;">sobre ${fMoneda(ultimoCosto)} invertidos</span>
+                                            <strong style="color:${color};"> ${signo}${fMoneda(Math.abs(plus))} (${signo}${Math.abs(pct).toFixed(1)}%)</strong>
+                                            <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
+                                    }
+
                 let idCuentaMasUsada = null; // <- Nueva variable global para recordar la cuenta frecuente
                 let idCuentaFiltrada = null;
 
@@ -3651,6 +4210,15 @@
                                                                 // La barra se llena con el dashboard ya pintado detrás: el último tramo
                                                                 // corre durante el fundido, así que se ve terminar y no cortarse.
                                                                 avanzarCarga(HITOS_CARGA.listo);
+
+                                                                // La curva del portafolio va detrás del arranque y sin retenerlo: vive en
+                                                                // Configuración, así que nadie la está mirando cuando la app se destapa, y
+                                                                // son dos viajes más a la base. Guarda de paso el cierre de hoy, que es lo
+                                                                // que hace crecer el histórico sin pedirle nada a nadie.
+                                                                cargarHistoricoPrecios()
+                                                                    .then(guardarCierresDeHoy)
+                                                                    .then(renderizarCurvaPortafolio)
+                                                                    .catch(e => console.error('No se pudo montar la curva del portafolio', e));
                                                             } catch (e) {
                                                                 // Si algo falla (sin red, por ejemplo) se destapa igual: más vale la app vacía
                                                                 // y usable que un spinner que no se va nunca.
@@ -15118,6 +15686,10 @@
 
                                 // 2. Volvemos a disparar el renderizado (esto hace las peticiones simultáneas)
                                 renderizarMatrizInversiones();
+
+                                // Con precios nuevos, el cierre de hoy que quedó guardado ya no es el bueno:
+                                // se reescribe y la curva se repinta con su último punto al día.
+                                setTimeout(() => { guardarCierresDeHoy().then(renderizarCurvaPortafolio).catch(() => {}); }, 1500);
                                 
                                 // 3. Actualizamos el texto del botón con la hora local actual
                                 if (btn) {
