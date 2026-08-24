@@ -2331,7 +2331,15 @@
                                     // La caja de dólares se queda fuera a propósito. Es dinero parado, no
                                     // portafolio: metida aquí, un retiro se leería como una caída y una
                                     // aportación como una subida, cuando el mercado no se movió.
-                                    let miCurvaPortafolio = null;
+                                    // La misma gráfica se dibuja en dos sitios: en Ajustes con todo el
+                                    // portafolio y en la ficha de una cuenta con lo suyo. Cada una tiene sus
+                                    // elementos y su instancia de Chart; lo que comparten es la moneda elegida,
+                                    // porque cambiarla en un sitio y encontrarla distinta en el otro sería una
+                                    // sorpresa sin ninguna ganancia.
+                                    const CURVAS = {
+                                        global: { lienzo: 'graficoCurvaPortafolio', pie: 'pieCurvaPortafolio', pastilla: 'monedaCurvaPortafolio', prefijo: 'btnCurva', cuenta: null, chart: null },
+                                        cuenta: { lienzo: 'graficoCurvaCuenta', pie: 'pieCurvaCuenta', pastilla: 'monedaCurvaCuenta', prefijo: 'btnCurvaCta', cuenta: null, chart: null }
+                                    };
                                     let monedaCurvaPortafolio = localStorage.getItem('monedaCurvaPortafolio') || 'mxn';
 
                                     // El cierre de un ticker en un día, o el último conocido antes de ese día.
@@ -2355,9 +2363,12 @@
                                     // costo promedio, no FIFO—, de modo que el último punto de la curva es
                                     // exactamente la cifra que ya enseña el resumen. Con otra convención, la
                                     // gráfica y el resumen dirían dos verdades distintas del mismo día.
-                                    function serieHistoricaPortafolio() {
+                                    // Con una cuenta puesta sólo entran sus empresas, y la curva pasa a ser
+                                    // la de esa cuenta. Sin ella, el portafolio entero.
+                                    function serieHistoricaPortafolio(idCuenta) {
                                         const enPesos = monedaCurvaPortafolio === 'mxn';
-                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
+                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
+                                            && (!idCuenta || String(c.cuenta_id) === String(idCuenta)));
                                         if (cats.length === 0) return null;
 
                                         const porId = {};
@@ -2498,20 +2509,31 @@
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
                                     }
 
+                                    // La moneda es una sola para las dos curvas, así que se repintan las dos:
+                                    // la que no esté en pantalla se sale sola por su propia guarda.
                                     function cambiarMonedaCurvaPortafolio(moneda) {
                                         monedaCurvaPortafolio = moneda === 'usd' ? 'usd' : 'mxn';
                                         localStorage.setItem('monedaCurvaPortafolio', monedaCurvaPortafolio);
-                                        renderizarCurvaPortafolio();
+                                        pintarCurva(CURVAS.global);
+                                        pintarCurva(CURVAS.cuenta);
                                     }
 
-                                    function renderizarCurvaPortafolio() {
-                                        const lienzo = document.getElementById('graficoCurvaPortafolio');
-                                        const pie = document.getElementById('pieCurvaPortafolio');
-                                        const pastilla = document.getElementById('monedaCurvaPortafolio');
+                                    function renderizarCurvaPortafolio() { pintarCurva(CURVAS.global); }
+
+                                    // La curva de una cuenta: la misma gráfica con sus empresas nada más.
+                                    function renderizarCurvaCuenta(idCuenta) {
+                                        CURVAS.cuenta.cuenta = idCuenta;
+                                        pintarCurva(CURVAS.cuenta);
+                                    }
+
+                                    function pintarCurva(destino) {
+                                        const lienzo = document.getElementById(destino.lienzo);
+                                        const pie = document.getElementById(destino.pie);
+                                        const pastilla = document.getElementById(destino.pastilla);
                                         if (!lienzo || !pie) return;
 
                                         ['mxn', 'usd'].forEach(m => {
-                                            const btn = document.getElementById(`btnCurva${m.toUpperCase()}`);
+                                            const btn = document.getElementById(`${destino.prefijo}${m.toUpperCase()}`);
                                             if (!btn) return;
                                             const activo = m === monedaCurvaPortafolio;
                                             btn.style.background = activo ? '#333' : 'none';
@@ -2520,9 +2542,9 @@
 
                                         cargarClaveHistoricoGuardada();
 
-                                        const serie = historicoPreciosListo ? serieHistoricaPortafolio() : null;
+                                        const serie = historicoPreciosListo ? serieHistoricaPortafolio(destino.cuenta) : null;
 
-                                        if (miCurvaPortafolio) { miCurvaPortafolio.destroy(); miCurvaPortafolio = null; }
+                                        if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
 
                                         // Cada motivo dice qué falta y qué hacer: una gráfica vacía sin más deja
                                         // pensando que se rompió algo.
@@ -2531,7 +2553,7 @@
                                             if (pastilla) pastilla.style.display = 'none';
                                             pie.innerHTML = !historicoPreciosListo
                                                 ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
-                                                : 'Todavía no hay compras de acciones que dibujar.';
+                                                : `Todavía no hay compras de acciones que dibujar${destino.cuenta ? ' en esta cuenta' : ''}.`;
                                             return;
                                         }
 
@@ -2546,7 +2568,7 @@
                                         const signo = plus >= 0 ? '+' : '-';
                                         const color = plus >= 0 ? '#3ecf8e' : '#ff5c5c';
 
-                                        miCurvaPortafolio = new Chart(lienzo.getContext('2d'), {
+                                        destino.chart = new Chart(lienzo.getContext('2d'), {
                                             type: 'line',
                                             data: {
                                                 labels: serie.dias,
@@ -11213,6 +11235,24 @@
                                                     // mirar después del resumen.
                                                     html += cuadriculaMovimientosCuenta(id);
 
+                                                    // Y la curva, sólo donde hay acciones: es la misma gráfica que enseña el
+                                                    // portafolio entero en Ajustes, acotada a las empresas de esta cuenta. Va
+                                                    // después de la cuadrícula porque aquélla dice qué compraste y cuándo, y ésta
+                                                    // qué ha pasado con ello desde entonces.
+                                                    if (r.tieneInversion) {
+                                                        html += bloqueDetalleCuenta('📈 Cómo ha ido', `
+                                                            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+                                                                <div id="monedaCurvaCuenta" class="pastilla-treemap">
+                                                                    <button id="btnCurvaCtaMXN" onclick="cambiarMonedaCurvaPortafolio('mxn')">MXN</button>
+                                                                    <button id="btnCurvaCtaUSD" onclick="cambiarMonedaCurvaPortafolio('usd')">USD</button>
+                                                                </div>
+                                                            </div>
+                                                            <div style="position: relative; width: 100%; height: 200px;">
+                                                                <canvas id="graficoCurvaCuenta"></canvas>
+                                                            </div>
+                                                            <div id="pieCurvaCuenta" style="color: #888; font-size: 0.8em; margin-top: 10px; line-height: 1.5;"></div>`);
+                                                    }
+
                                                     if (r.tieneInversion) {
                                                         // --- El recorrido del dinero, paso por paso ---
                                                         // Sólo los seis escalones y lo que ha pasado por cada uno. Dónde está parado
@@ -11341,6 +11381,10 @@
                                                     const tiraMovs = document.getElementById('tiraMovsCuenta');
                                                     if (tiraMovs) tiraMovs.scrollLeft = tiraMovs.scrollWidth;
 
+                                                    // El lienzo acaba de nacer con el innerHTML de arriba, así que la curva se
+                                                    // pinta aquí y no antes.
+                                                    if (r.tieneInversion) renderizarCurvaCuenta(id);
+
                                                     const btnEditarCta = document.getElementById('btnEditarCuentaModal');
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
 
@@ -11363,6 +11407,11 @@
 
                                                     function cerrarModalDetallesCuenta() {
                                                     if (miCuadrosCuenta) { miCuadrosCuenta.destroy(); miCuadrosCuenta = null; }
+                                                    // El lienzo de la curva desaparece con el innerHTML de la siguiente ficha:
+                                                    // sin soltar la instancia, Chart.js se queda con un lienzo huérfano y con
+                                                    // sus escuchas de tamaño puestas.
+                                                    if (CURVAS.cuenta.chart) { CURVAS.cuenta.chart.destroy(); CURVAS.cuenta.chart = null; }
+                                                    CURVAS.cuenta.cuenta = null;
                                                     mapaCuadrosActual = null;
                                                     capaCuadros = null;
                                                     document.getElementById('modalDetallesCuenta').classList.remove('activa');
