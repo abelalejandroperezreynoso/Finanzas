@@ -3250,6 +3250,11 @@
                             }
                             if (id === 'sec-ajustes') {
                             renderizarMatrizInversiones();
+                            // La curva ya está pintada desde el arranque —Chart.js se redimensiona
+                            // solo al destaparse la sección—, pero se rehace al entrar por lo mismo
+                            // que la matriz de arriba: recoge lo que haya llegado después, como un
+                            // precio que tardó o un histórico traído desde otra pestaña.
+                            renderizarCurvaPortafolio();
                             }
                             const menuGlobal = document.querySelector('.dashboard-menu');
                             if (menuGlobal) {
