@@ -1669,12 +1669,18 @@
             <summary style="color: #666; font-size: 0.78em; cursor: pointer;">Traer el histórico del pasado</summary>
             <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 10px 0;">
                 La curva crece sola: cada día que abras la app guarda el precio de ese día. Para
-                dibujar también lo de antes hace falta pedirle los cierres a alguien, una sola vez.
-                Consigue una clave gratuita en
-                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">alphavantage.co</a>
-                y pégala aquí.
+                dibujar también lo de antes hay que pedir los cierres, una sola vez. Se intenta
+                primero con <strong>Finnhub</strong>, que es de donde ya salen los precios de hoy y
+                no necesita nada de ti.
             </p>
-            <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage" autocomplete="off"
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 10px 0;">
+                La clave de abajo es el plan B: hace falta si Finnhub no sirve históricos con su
+                plan gratuito, y en cualquier caso para el <strong>tipo de cambio</strong>, que sólo
+                da Alpha Vantage. Sin ella la curva en dólares sale igual; la de pesos usaría el
+                cambio de hoy para todo el pasado. Es
+                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>.
+            </p>
+            <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
                    style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
             <button id="btnTraerHistorico" onclick="pedirHistoricoDesdeAjustes()"
                     style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
@@ -2056,6 +2062,11 @@
                                     const TICKER_TIPO_CAMBIO = 'USDMXN';
                                     const CLAVE_API_HISTORICO = 'claveApiHistorico';
 
+                                    // El mismo token con el que la app pregunta el precio de hoy. Vive aquí
+                                    // arriba y no dentro de una función porque ahora lo usan dos: la cotización
+                                    // del día y la traída del histórico.
+                                    const TOKEN_FINNHUB = 'd9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0';
+
                                     // { TICKER: [{ dia, cierre }] } ordenado por día. Se llena una vez al
                                     // arrancar y se mantiene en memoria: la curva se repinta muchas veces
                                     // —al cambiar de moneda, al girar el teléfono— y no puede volver a la base
@@ -2145,24 +2156,51 @@
 
                                     // --- Traer el pasado, una sola vez ---
                                     //
-                                    // Alpha Vantage da los cierres diarios gratis y responde a peticiones desde
-                                    // el navegador. Su plan gratuito cuenta las peticiones del día, así que se
-                                    // pide un ticker por vez, se guarda lo que llega antes de seguir con el
-                                    // siguiente, y si corta a mitad lo ya guardado se queda: la siguiente vez
-                                    // continúa por donde se quedó en lugar de empezar de cero.
-                                    function urlHistorico(ticker, clave) {
-                                        return ticker === TICKER_TIPO_CAMBIO
-                                            ? `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=USD&to_symbol=MXN&outputsize=full&apikey=${clave}`
-                                            : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=full&apikey=${clave}`;
+                                    // Se pide un ticker por vez y se guarda lo que llega antes de seguir con el
+                                    // siguiente: si la traída corta a mitad, lo ya guardado se queda y la
+                                    // siguiente vez continúa por donde se quedó en lugar de empezar de cero.
+
+                                    // Primera opción: Finnhub, que es de quien la app ya saca el precio de hoy.
+                                    // Si su plan gratuito sirve también las velas diarias, el histórico entero
+                                    // sale sin que haya que darse de alta en ningún sitio ni pegar ninguna clave.
+                                    //
+                                    // Finnhub contesta 403 cuando el endpoint es de pago y 200 con s:'no_data'
+                                    // cuando simplemente no tiene ese tramo. Los dos casos se distinguen en el
+                                    // mensaje porque llevan a sitios distintos: uno se arregla con una clave de
+                                    // otro proveedor y el otro no se arregla de ninguna forma.
+                                    async function historicoDesdeFinnhub(ticker, desde) {
+                                        const hasta = Math.floor(Date.now() / 1000);
+                                        const inicio = Math.floor(new Date(`${desde}T00:00:00`).getTime() / 1000);
+                                        const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${inicio}&to=${hasta}&token=${TOKEN_FINNHUB}`;
+
+                                        const res = await fetch(url);
+                                        if (res.status === 403) throw new Error('el plan gratuito de Finnhub no da históricos');
+                                        if (!res.ok) throw new Error(`Finnhub respondió ${res.status}`);
+
+                                        const data = await res.json();
+                                        if (!data || data.s !== 'ok' || !Array.isArray(data.c) || !Array.isArray(data.t)) {
+                                            throw new Error(data && data.s === 'no_data' ? 'Finnhub no tiene ese tramo' : 'Finnhub no devolvió velas');
+                                        }
+
+                                        // Las velas vienen como dos listas paralelas: cierres y sus momentos.
+                                        return data.t.map((t, i) => ({ dia: diaISO(new Date(t * 1000)), cierre: parseFloat(data.c[i]) }))
+                                            .filter(p => p.cierre > 0);
                                     }
 
-                                    // Devuelve [{dia, cierre}] o lanza con el motivo en claro. Alpha Vantage
-                                    // contesta 200 también cuando no puede servir: el error viene dentro del
-                                    // JSON, en 'Note' si se acabó la cuota o en 'Error Message' si el símbolo
-                                    // no existe. Leer sólo el código HTTP daría todo por bueno.
-                                    async function pedirHistoricoTicker(ticker, clave) {
-                                        const res = await fetch(urlHistorico(ticker, clave));
-                                        if (!res.ok) throw new Error(`el servidor respondió ${res.status}`);
+                                    // Segunda opción: Alpha Vantage, que pide una clave gratuita. Es además la
+                                    // única de las dos que sirve el tipo de cambio, así que la curva en pesos
+                                    // depende de ella aunque Finnhub cubra todas las empresas.
+                                    //
+                                    // Contesta 200 también cuando no puede servir: el error viene dentro del
+                                    // JSON, en 'Note' si se acabó la cuota del día o en 'Error Message' si el
+                                    // símbolo no existe. Leer sólo el código HTTP daría todo por bueno.
+                                    async function historicoDesdeAlphaVantage(ticker, clave) {
+                                        const url = ticker === TICKER_TIPO_CAMBIO
+                                            ? `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=USD&to_symbol=MXN&outputsize=full&apikey=${clave}`
+                                            : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=full&apikey=${clave}`;
+
+                                        const res = await fetch(url);
+                                        if (!res.ok) throw new Error(`Alpha Vantage respondió ${res.status}`);
 
                                         const data = await res.json();
                                         const aviso = data['Note'] || data['Information'] || data['Error Message'];
@@ -2175,6 +2213,30 @@
                                             dia,
                                             cierre: parseFloat(serie[dia]['4. close'])
                                         })).filter(p => p.cierre > 0);
+                                    }
+
+                                    // Devuelve [{dia, cierre}] o lanza con el motivo en claro, diciendo qué
+                                    // falló en cada puerta: "no sirvió" a secas no dice si hay que conseguir
+                                    // una clave, esperar a mañana o corregir el ticker.
+                                    async function pedirHistoricoTicker(ticker, clave, desde) {
+                                        // El tipo de cambio no está en Finnhub gratis ni de casualidad: va
+                                        // derecho a la segunda puerta.
+                                        let motivoFinnhub = 'no sirve tipos de cambio';
+                                        if (ticker !== TICKER_TIPO_CAMBIO) {
+                                            try {
+                                                return await historicoDesdeFinnhub(ticker, desde);
+                                            } catch (e) {
+                                                motivoFinnhub = e.message;
+                                            }
+                                        }
+
+                                        if (!clave) throw new Error(`Finnhub no lo dio (${motivoFinnhub}) y no hay clave de Alpha Vantage`);
+
+                                        try {
+                                            return await historicoDesdeAlphaVantage(ticker, clave);
+                                        } catch (e) {
+                                            throw new Error(`Finnhub: ${motivoFinnhub} · Alpha Vantage: ${e.message}`);
+                                        }
                                     }
 
                                     // Qué tickers hacen falta y desde cuándo. No se piden años que no vas a
@@ -2199,12 +2261,17 @@
                                     }
 
                                     async function traerHistoricoDePrecios(avisar) {
+                                        // La clave puede faltar: se intenta Finnhub de todas formas, y sólo si
+                                        // no sirve el aviso dirá que hace falta.
                                         const clave = (localStorage.getItem(CLAVE_API_HISTORICO) || '').trim();
-                                        if (!clave) { avisar('Falta la clave de Alpha Vantage', true); return; }
                                         if (!historicoPreciosListo) { avisar('Falta crear la tabla: ejecuta migracion_historico_precios.sql', true); return; }
 
                                         const desdePorTicker = tickersDelHistorico();
-                                        const tickers = Object.keys(desdePorTicker);
+                                        // Las empresas primero y el tipo de cambio al final: es el único que
+                                        // sólo puede venir de Alpha Vantage, así que si es el que falla, las
+                                        // empresas ya están guardadas y la curva se puede ver en dólares.
+                                        const tickers = Object.keys(desdePorTicker).sort((a, b) =>
+                                            (a === TICKER_TIPO_CAMBIO ? 1 : 0) - (b === TICKER_TIPO_CAMBIO ? 1 : 0));
                                         if (tickers.length === 0) { avisar('No hay compras de las que traer histórico', true); return; }
 
                                         let guardados = 0;
@@ -2214,8 +2281,19 @@
 
                                             let puntos;
                                             try {
-                                                puntos = await pedirHistoricoTicker(ticker, clave);
+                                                puntos = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
                                             } catch (e) {
+                                                // Que falle el tipo de cambio no es que falle la traída: va el
+                                                // último a propósito, así que las empresas ya están guardadas y
+                                                // la curva en dólares queda entera. Sólo la de pesos se queda
+                                                // con el cambio de hoy, y eso la propia curva lo dice en su pie.
+                                                if (ticker === TICKER_TIPO_CAMBIO && guardados > 0) {
+                                                    await cargarHistoricoPrecios();
+                                                    renderizarCurvaPortafolio();
+                                                    avisar(`Empresas listas · ${guardados.toLocaleString('es-MX')} cierres. Falta el tipo de cambio (${e.message}): la curva en USD está entera, la de MXN usa el cambio de hoy.`);
+                                                    return;
+                                                }
+
                                                 // Lo traído hasta aquí ya está guardado. Se para en el primer
                                                 // fallo en vez de seguir gastando cuota contra el mismo muro.
                                                 avisar(`${ticker}: ${e.message}${guardados > 0 ? ` · se guardaron ${guardados} cierres antes de parar` : ''}`, true);
@@ -2328,6 +2406,7 @@
 
                                         const dias = [], valores = [], costos = [];
                                         const sinPrecio = new Set();
+                                        let faltoTipoCambio = false;
                                         let iMov = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -2343,7 +2422,10 @@
                                             const tc = cierreHasta(serieDe(TICKER_TIPO_CAMBIO), dia, cursores[TICKER_TIPO_CAMBIO]);
                                             cursores[TICKER_TIPO_CAMBIO] = tc.cursor;
                                             // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con
-                                            // el peso plano al principio que ninguna curva.
+                                            // el peso plano al principio que ninguna curva. Pero se apunta, y el
+                                            // pie lo dice: en pesos, una curva con el cambio de hoy metido en
+                                            // todo el pasado no es la misma cifra y no puede parecerlo.
+                                            if (tc.valor === null) faltoTipoCambio = true;
                                             const cambio = tc.valor || globalUsdToMxn || 1;
 
                                             let valor = 0, costo = 0, medible = false;
@@ -2377,7 +2459,7 @@
                                         }
 
                                         if (dias.length === 0) return null;
-                                        return { dias, valores, costos, sinPrecio: [...sinPrecio], enPesos };
+                                        return { dias, valores, costos, sinPrecio: [...sinPrecio], faltoTipoCambio, enPesos };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -2545,9 +2627,12 @@
                                         });
 
                                         const desde = serie.dias[0].split('-');
-                                        const aviso = serie.sinPrecio.length > 0
+                                        let aviso = serie.sinPrecio.length > 0
                                             ? `<br><span style="color:#f39c12;">⚠️ Sin cierres de ${serie.sinPrecio.join(', ')}: esos días valen lo que costaron.</span>`
                                             : '';
+                                        if (serie.enPesos && serie.faltoTipoCambio) {
+                                            aviso += `<br><span style="color:#f39c12;">⚠️ Falta histórico del tipo de cambio: esos días usan el de hoy. En USD la curva no lo necesita.</span>`;
+                                        }
 
                                         pie.innerHTML = `
                                             <strong style="color:#fff;">${fMoneda(ultimoValor)} ${simbolo}</strong>
@@ -15705,7 +15790,7 @@
                             }
 
                                                     async function buscarPrecioFinnhub(ticker, elementId, totalAcciones = 0, totalInvertido = 0, totalInvertidoUsd = 0, tcPromedioExacto = 0, mesesPromedioExacto = 0) {
-                                                                                    const FinnhubToken = 'd9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0';
+                                                                                    const FinnhubToken = TOKEN_FINNHUB;
                                                                                     
                                                                                     const mostrarDatosMercado = (precioUsd, errorMsg = null) => {
                                                                                         const idCat = elementId.replace('precio-mercado-', '');
