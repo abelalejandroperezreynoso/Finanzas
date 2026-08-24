@@ -1643,41 +1643,36 @@
     <span id="userEmailDisplay" style="font-weight: bold; color: #ffffff; font-size: 1em;">...</span>
     </div>
 
-    <!-- INICIO CURVA DEL PORTAFOLIO -->
-    <!-- Va antes de la matriz porque contesta la pregunta más grande —cómo va el portafolio—
-         y la matriz contesta la siguiente: cuál de las empresas lo mueve. -->
+    <!-- INICIO PRECIOS DE MERCADO -->
+    <!-- Lo que queda aquí es lo que no es un dibujo: los dos botones que traen precios.
+         Las gráficas se fueron a la ficha de cuenta, que es donde se miran; Configuración
+         es donde se aprietan las tuercas, no donde se contempla nada. -->
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px;">
-            <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Tu portafolio</h3>
-            <div id="monedaCurvaPortafolio" class="pastilla-treemap">
-                <button id="btnCurvaMXN" onclick="cambiarMonedaCurvaPortafolio('mxn')">MXN</button>
-                <button id="btnCurvaUSD" onclick="cambiarMonedaCurvaPortafolio('usd')">USD</button>
-            </div>
+            <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Precios de mercado</h3>
+            <button id="btnRefrescarPrecios" onclick="forzarActualizacionPrecios()" style="width: auto; padding: 6px 12px; font-size: 0.75em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap;">
+                🔄 Precios
+            </button>
         </div>
 
-        <div style="position: relative; width: 100%; height: 220px;">
-            <canvas id="graficoCurvaPortafolio"></canvas>
-        </div>
+        <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
+            Las cotizaciones se piden solas al abrir la app. El botón de arriba las vuelve a
+            pedir si llevas rato con la app abierta y quieres el precio del momento.
+        </p>
 
-        <div id="pieCurvaPortafolio" style="color: #888; font-size: 0.8em; margin-top: 10px; line-height: 1.5;">
-            Cargando…
-        </div>
-
-        <!-- El histórico se trae una vez y luego crece solo. Los ajustes viven aquí abajo,
-             plegados: se tocan el primer día y ya no se vuelven a mirar. -->
-        <details style="margin-top: 12px; border-top: 1px dashed #333; padding-top: 10px;">
-            <summary style="color: #666; font-size: 0.78em; cursor: pointer;">Traer el histórico del pasado</summary>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 10px 0;">
-                La curva crece sola: cada día que abras la app guarda el precio de ese día. Para
-                dibujar también lo de antes hay que pedir los cierres, una sola vez. Se intenta
-                primero con <strong>Finnhub</strong>, que es de donde ya salen los precios de hoy y
-                no necesita nada de ti.
+        <div style="border-top: 1px dashed #333; padding-top: 14px;">
+            <h4 style="font-size: 0.75em; color: #888; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Histórico</h4>
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
+                Cada día que abras la app se guarda el precio de ese día, así que el histórico
+                crece solo. Para traer también lo de antes —una sola vez— se intenta primero con
+                <strong>Finnhub</strong>, que es de donde ya salen los precios de hoy y no
+                necesita nada de ti.
             </p>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 10px 0;">
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
                 La clave de abajo es el plan B: hace falta si Finnhub no sirve históricos con su
-                plan gratuito, y en cualquier caso para el <strong>tipo de cambio</strong>, que sólo
-                da Alpha Vantage. Sin ella la curva en dólares sale igual; la de pesos usaría el
-                cambio de hoy para todo el pasado. Es
+                plan gratuito, y en cualquier caso para el <strong>tipo de cambio</strong>, que
+                sólo da Alpha Vantage. Sin ella la curva en dólares sale igual; la de pesos usaría
+                el cambio de hoy para todo el pasado. Es
                 <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>.
             </p>
             <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
@@ -1687,62 +1682,9 @@
                 Traer histórico
             </button>
             <div id="avisoHistorico" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
-        </details>
-    </div>
-    <!-- FIN CURVA DEL PORTAFOLIO -->
-
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-    <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Matriz de Portafolio</h3>
-    <button id="btnRefrescarPrecios" onclick="forzarActualizacionPrecios()" style="width: auto; padding: 6px 12px; font-size: 0.75em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s;">
-        🔄 Precios
-        </button>
         </div>
-        <div id="matrizInversionesGrid" style="position: relative; width: 100%; height: 350px; margin-bottom: 20px;">
-            <canvas id="graficoTreemap"></canvas>
-        </div>
-        
-        <!-- NUEVA LEYENDA DEL MAPA DE CALOR DEL TREEMAP -->
-            <div style="border-top: 1px dashed #333; padding-top: 15px; margin-bottom: 15px;">
-                <h4 style="font-size: 0.75em; color: #888; margin: 0 0 10px 0; text-align: center; text-transform: uppercase;">Mapa de Calor (Plusvalía Global)</h4>
-                <div style="display: flex; justify-content: center; align-items: center; width: 100%; border: 1px solid #222; border-radius: 4px; overflow: hidden; font-size: 0.8em; font-weight: bold; color: white; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
-                    <div style="flex: 1; background: #F23645; padding: 6px 0;">-3%</div>
-                    <div style="flex: 1; background: #CC4B4D; padding: 6px 0; border-left: 1px solid #222;">-2%</div>
-                    <div style="flex: 1; background: #8E4A4D; padding: 6px 0; border-left: 1px solid #222;">-1%</div>
-                    <div style="flex: 1; background: #434651; padding: 6px 0; border-left: 1px solid #222;">0%</div>
-                    <div style="flex: 1; background: #418558; padding: 6px 0; border-left: 1px solid #222;">+1%</div>
-                    <div style="flex: 1; background: #36A456; padding: 6px 0; border-left: 1px solid #222;">+2%</div>
-                    <div style="flex: 1; background: #31C759; padding: 6px 0; border-left: 1px solid #222;">+3%</div>
-                </div>
-            </div>
-            <!-- FIN NUEVA LEYENDA -->
-
-        <div style="border-top: 1px dashed #333; padding-top: 15px;">
-        <h4 style="font-size: 0.75em; color: #888; margin: 0 0 10px 0; text-align: center; text-transform: uppercase;">Termómetro de Rendimiento Mensual</h4>
-    <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
-    <div style="display: flex; align-items: center; gap: 5px;">
-    <div style="width: 12px; height: 12px; border-radius: 50%; background: #9ca3af;"></div>
-    <span style="font-size: 0.75em; color: #aaa;">0%</span>
     </div>
-    <div style="display: flex; align-items: center; gap: 5px;">
-    <div style="width: 12px; height: 12px; border-radius: 50%; background: #ffea00;"></div>
-    <span style="font-size: 0.75em; color: #aaa;">> 0%</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 5px;">
-    <div style="width: 12px; height: 12px; border-radius: 50%; background: #a3e635;"></div>
-    <span style="font-size: 0.75em; color: #aaa;">> 0.5%</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 5px;">
-    <div style="width: 12px; height: 12px; border-radius: 50%; background: #22c55e;"></div>
-    <span style="font-size: 0.75em; color: #aaa;">> 1.0%</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 5px;">
-    <div style="width: 12px; height: 12px; border-radius: 50%; background: #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.9);"></div>
-    <span style="font-size: 0.75em; color: #aaa;">> 1.5%</span>
-    </div>
-    </div>
-    </div>
-    </div>
+    <!-- FIN PRECIOS DE MERCADO -->
 
     <button id="btnCerrarSesion" class="btn-logout">Cerrar Sesión</button>
     </div>
@@ -1987,7 +1929,7 @@
                                                     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
                                                     const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-                                                    let currentUser = null, editIdMov = null, editIdCuenta = null, editIdCat = null, miGrafico = null, miTreemap = null;
+                                                    let currentUser = null, editIdMov = null, editIdCuenta = null, editIdCat = null, miGrafico = null;
                                                     // Guarda cuenta/dirección cuando la categoría se crea desde la pantalla de registro
                                                     let contextoCatDesdeRegistro = null;
                                                     // Marcador de la última opción del select de categorías en el registro
@@ -2289,7 +2231,6 @@
                                                 // con el cambio de hoy, y eso la propia curva lo dice en su pie.
                                                 if (ticker === TICKER_TIPO_CAMBIO && guardados > 0) {
                                                     await cargarHistoricoPrecios();
-                                                    renderizarCurvaPortafolio();
                                                     avisar(`Empresas listas · ${guardados.toLocaleString('es-MX')} cierres. Falta el tipo de cambio (${e.message}): la curva en USD está entera, la de MXN usa el cambio de hoy.`);
                                                     return;
                                                 }
@@ -2316,9 +2257,10 @@
                                             guardados += filas.length;
                                         }
 
+                                        // Los cierres nuevos se quedan en memoria; la curva los recoge la próxima
+                                        // vez que se abra una ficha de cuenta, que es donde vive.
                                         await cargarHistoricoPrecios();
                                         avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series`);
-                                        renderizarCurvaPortafolio();
                                     }
 
                                     // =========================================================
@@ -2331,13 +2273,12 @@
                                     // La caja de dólares se queda fuera a propósito. Es dinero parado, no
                                     // portafolio: metida aquí, un retiro se leería como una caída y una
                                     // aportación como una subida, cuando el mercado no se movió.
-                                    // La misma gráfica se dibuja en dos sitios: en Ajustes con todo el
-                                    // portafolio y en la ficha de una cuenta con lo suyo. Cada una tiene sus
-                                    // elementos y su instancia de Chart; lo que comparten es la moneda elegida,
-                                    // porque cambiarla en un sitio y encontrarla distinta en el otro sería una
-                                    // sorpresa sin ninguna ganancia.
+                                    // La curva se dibuja en la ficha de una cuenta, con las empresas de esa
+                                    // cuenta. Sigue siendo un objeto con sus elementos y su instancia de Chart
+                                    // —y no cuatro variables sueltas— porque la función que pinta ya está
+                                    // escrita contra ese objeto y así vuelve a haber dos destinos el día que
+                                    // haga falta uno más.
                                     const CURVAS = {
-                                        global: { lienzo: 'graficoCurvaPortafolio', pie: 'pieCurvaPortafolio', pastilla: 'monedaCurvaPortafolio', prefijo: 'btnCurva', cuenta: null, chart: null },
                                         cuenta: { lienzo: 'graficoCurvaCuenta', pie: 'pieCurvaCuenta', pastilla: 'monedaCurvaCuenta', prefijo: 'btnCurvaCta', cuenta: null, chart: null }
                                     };
                                     let monedaCurvaPortafolio = localStorage.getItem('monedaCurvaPortafolio') || 'mxn';
@@ -2509,16 +2450,11 @@
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
                                     }
 
-                                    // La moneda es una sola para las dos curvas, así que se repintan las dos:
-                                    // la que no esté en pantalla se sale sola por su propia guarda.
                                     function cambiarMonedaCurvaPortafolio(moneda) {
                                         monedaCurvaPortafolio = moneda === 'usd' ? 'usd' : 'mxn';
                                         localStorage.setItem('monedaCurvaPortafolio', monedaCurvaPortafolio);
-                                        pintarCurva(CURVAS.global);
                                         pintarCurva(CURVAS.cuenta);
                                     }
-
-                                    function renderizarCurvaPortafolio() { pintarCurva(CURVAS.global); }
 
                                     // La curva de una cuenta: la misma gráfica con sus empresas nada más.
                                     function renderizarCurvaCuenta(idCuenta) {
@@ -2539,8 +2475,6 @@
                                             btn.style.background = activo ? '#333' : 'none';
                                             btn.style.color = activo ? '#ffffff' : '#888';
                                         });
-
-                                        cargarClaveHistoricoGuardada();
 
                                         const serie = historicoPreciosListo ? serieHistoricaPortafolio(destino.cuenta) : null;
 
@@ -3271,12 +3205,10 @@
                             sincronizarFechaRegistro();
                             }
                             if (id === 'sec-ajustes') {
-                            renderizarMatrizInversiones();
-                            // La curva ya está pintada desde el arranque —Chart.js se redimensiona
-                            // solo al destaparse la sección—, pero se rehace al entrar por lo mismo
-                            // que la matriz de arriba: recoge lo que haya llegado después, como un
-                            // precio que tardó o un histórico traído desde otra pestaña.
-                            renderizarCurvaPortafolio();
+                            // Al entrar se piden precios frescos y se rellena la clave guardada, que
+                            // es lo único que esta sección tiene que poner al día.
+                            refrescarPreciosDeMercado();
+                            cargarClaveHistoricoGuardada();
                             }
                             const menuGlobal = document.querySelector('.dashboard-menu');
                             if (menuGlobal) {
@@ -4112,172 +4044,36 @@
                                                                                 aplicarFiltrosYRenderizar();
                                                                             }
 
-                                                    function renderizarMatrizInversiones() {
-                                                                                                    const grid = document.getElementById('matrizInversionesGrid');
-                                                                                                    if (!grid) return;
+                                                    // Vuelve a pedir la cotización de cada empresa. Antes esto era la cola de
+                                                    // renderizarMatrizInversiones, que dibujaba el treemap del portafolio en
+                                                    // Configuración y de paso refrescaba los precios. El dibujo se fue —las
+                                                    // gráficas viven en la ficha de cuenta, que es donde se miran— y lo que hacía
+                                                    // falta de verdad era esto: el botón que trae precios frescos.
+                                                    function refrescarPreciosDeMercado() {
+                                                        const inversiones = datosCategorias.filter(cat => cat.tipo === 'inversion' && cat.ticker);
+                                                        if (inversiones.length === 0) return;
 
-                                                                                                    const inversiones = datosCategorias.filter(cat => cat.tipo === 'inversion' && cat.ticker);
+                                                        inversiones.forEach(inv => {
+                                                            buscarPrecioFinnhub(
+                                                                inv.ticker,
+                                                                `precio-mercado-${inv.id}`,
+                                                                inv.totalAcciones,
+                                                                inv.costoBaseInvertido,
+                                                                inv.costoBaseInvertidoUsd,
+                                                                inv.tcPromedioExacto,
+                                                                inv.mesesPromedioExacto
+                                                            );
+                                                        });
 
-                                                                                                    if (inversiones.length === 0) {
-                                                                                                        grid.innerHTML = '<p style="color: #888; font-size: 0.85em; text-align: center; width: 100%;">No hay empresas en tu portafolio aún.</p>';
-                                                                                                        return;
-                                                                                                    }
-
-                                                                                                    if (!document.getElementById('graficoTreemap')) {
-                                                                                                        grid.innerHTML = '<canvas id="graficoTreemap"></canvas>';
-                                                                                                    }
-
-                                                                                                    // Preparamos los datos base
-                                                                                                    const datosTreemap = inversiones.filter(inv => (inv.costoBaseInvertido || 0) > 0).map(inv => {
-                                                                                                        return {
-                                                                                                            ticker: inv.ticker,
-                                                                                                            inversion: inv.costoBaseInvertido || 0,
-                                                                                                            acciones: inv.totalAcciones || 0,
-                                                                                                            id: inv.id
-                                                                                                        };
-                                                                                                    });
-
-                                                                                                    if (datosTreemap.length === 0) {
-                                                                                                        grid.innerHTML = '<p style="color: #888; font-size: 0.85em; text-align: center; width: 100%;">Tus posiciones están en cero.</p>';
-                                                                                                        return;
-                                                                                                    }
-
-                                                                                                    const ctx = document.getElementById('graficoTreemap').getContext('2d');
-                                                                                                    
-                                                                                                    if (miTreemap) miTreemap.destroy();
-
-                                                                                                    miTreemap = new Chart(ctx, {
-                                                                                                                                                        type: 'treemap',
-                                                                                                                                                        data: {
-                                                                                                                                                            datasets: [{
-                                                                                                                                                                tree: datosTreemap,
-                                                                                                                                                                key: 'inversion',
-                                                                                                                                                                groups: ['ticker'],
-                                                                                                                                                                spacing: 2,
-                                                                                                                                                                borderWidth: 0,
-                                                                                                                                                                backgroundColor: (context) => {
-                                                                                                                                                                    if (context.type !== 'data') return 'transparent';
-                                                                                                                                                                    
-                                                                                                                                                                    // Extraemos el ticker real y buscamos su data original en tu arreglo
-                                                                                                                                                                    const t = context.raw.g || (context.raw._data && context.raw._data.ticker);
-                                                                                                                                                                    const invOrig = inversiones.find(i => i.ticker === t);
-                                                                                                                                                                    
-                                                                                                                                                                    if (invOrig && cachePreciosMercado[t]) {
-                                                                                                                                                                        const precioUsd = cachePreciosMercado[t];
-                                                                                                                                                                        const valorActualMxn = (invOrig.totalAcciones || 0) * precioUsd * globalUsdToMxn;
-                                                                                                                                                                        const inversionBase = invOrig.costoBaseInvertido || 0;
-                                                                                                                                                                        
-                                                                                                                                                                        if (inversionBase > 0) {
-                                                                                                                                                                            const rendimientoPct = ((valorActualMxn - inversionBase) / inversionBase) * 100;
-                                                                                                                                                                            
-                                                                                                                                                                            if (rendimientoPct >= 3) return '#31C759';  // +3% (Verde brillante)
-                                                                                                                                                                                                                                                    if (rendimientoPct >= 2) return '#36A456';  // +2% (Verde medio)
-                                                                                                                                                                                                                                                    if (rendimientoPct >= 1) return '#418558';  // +1% (Verde oscuro)
-                                                                                                                                                                                                                                                    if (rendimientoPct > -1) return '#434651';  // 0% (Neutro, entre -1 y 1)
-                                                                                                                                                                                                                                                    if (rendimientoPct > -2) return '#8E4A4D';  // -1% (Rojo oscuro)
-                                                                                                                                                                                                                                                    if (rendimientoPct > -3) return '#CC4B4D';  // -2% (Rojo medio)
-                                                                                                                                                                                                                                                    return '#F23645';                           // -3% o menos (Rojo brillante)
-                                                                                                                                                                        }
-                                                                                                                                                                    }
-                                                                                                                                                                    return '#444444';
-                                                                                                                                                                },
-                                                                                                                                                                labels: {
-                                                                                                                                                                                                                                display: true,
-                                                                                                                                                                                                                                align: 'center',
-                                                                                                                                                                                                                                position: 'middle',
-                                                                                                                                                                                                                                color: '#ffffff',
-                                                                                                                                                                                                                                font: (context) => {
-                                                                                                                                                                                                                                    // Validamos que sea un dato del gráfico
-                                                                                                                                                                                                                                    if (context.type !== 'data') return { size: 14, weight: 'bold' };
-                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                    // Obtenemos ancho y alto del nodo
-                                                                                                                                                                                                                                    const w = context.raw.w;
-                                                                                                                                                                                                                                    const h = context.raw.h;
-                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                    // Asignamos tamaño de fuente dinámico por escalones
-                                                                                                                                                                                                                                    let size = 14; // Tamaño estándar
-                                                                                                                                                                                                                                    if (w < 50 || h < 40) size = 10;        // Nodos muy pequeños
-                                                                                                                                                                                                                                    else if (w < 80 || h < 60) size = 12;   // Nodos chicos
-                                                                                                                                                                                                                                    else if (w > 200 && h > 150) size = 20; // Nodos muy grandes
-                                                                                                                                                                                                                                    else if (w > 120 && h > 90) size = 16;  // Nodos grandes
-                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                    return { size: size, weight: 'bold' };
-                                                                                                                                                                                                                                },
-                                                                                                                                                                                                                                formatter: (context) => {
-                                                                                                                                                                                                                                    if (context.type !== 'data') return [];
-                                                                                                                                                                                                                                    const t = context.raw.g || (context.raw._data && context.raw._data.ticker);
-                                                                                                                                                                                                                                    const invOrig = inversiones.find(i => i.ticker === t);
-                                                                                                                                                                                                                                    if (!invOrig) return [t];
-
-                                                                                                                                                                                                                                    const inv = invOrig.costoBaseInvertido || 0;
-                                                                                                                                                                                                                                    const totalInv = datosTreemap.reduce((a, b) => a + b.inversion, 0);
-                                                                                                                                                                                                                                    const porc = totalInv > 0 ? ((inv / totalInv) * 100).toFixed(1) : 0;
-                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                    let rendimientoTexto = "Cargando...";
-                                                                                                                                                                                                                                    if (cachePreciosMercado[t]) {
-                                                                                                                                                                                                                                        const valorMxn = (invOrig.totalAcciones || 0) * cachePreciosMercado[t] * globalUsdToMxn;
-                                                                                                                                                                                                                                        const rendimiento = valorMxn - inv;
-                                                                                                                                                                                                                                        const signo = rendimiento >= 0 ? '+' : '';
-                                                                                                                                                                                                                                        rendimientoTexto = `${signo}${fMoneda(rendimiento)}`;
-                                                                                                                                                                                                                                    }
-                                                                                                                                                                                                                                    
-                                                                                                                                                                                                                                    // Límites reducidos para aprovechar la nueva fuente pequeña de 10px
-                                                                                                                                                                                                                                    if (context.raw.h < 35 || context.raw.w < 50) return [t];
-                                                                                                                                                                                                                                    return [t, `${porc}%`, rendimientoTexto];
-                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                            }
-                                                                                                                                                            }]
-                                                                                                                                                        },
-                                                                                                                                                        options: {
-                                                                                                                                                            maintainAspectRatio: false,
-                                                                                                                                                            plugins: {
-                                                                                                                                                                legend: { display: false },
-                                                                                                                                                                tooltip: {
-                                                                                                                                                                    callbacks: {
-                                                                                                                                                                        title: (items) => items[0].raw.g || items[0].raw._data.ticker,
-                                                                                                                                                                        label: (item) => {
-                                                                                                                                                                            const t = item.raw.g || item.raw._data.ticker;
-                                                                                                                                                                            const invOrig = inversiones.find(i => i.ticker === t);
-                                                                                                                                                                            const inv = invOrig ? (invOrig.costoBaseInvertido || 0) : 0;
-                                                                                                                                                                            return `Inversión base: ${fMoneda(inv)} MXN`;
-                                                                                                                                                                        }
-                                                                                                                                                                    }
-                                                                                                                                                                }
-                                                                                                                                                            },
-                                                                                                                                                            onClick: (event, elements) => {
-                                                                                                                                                                if (elements && elements.length > 0) {
-                                                                                                                                                                    const index = elements[0].index;
-                                                                                                                                                                    const dataset = miTreemap.data.datasets[0];
-                                                                                                                                                                    const nodo = dataset.data[index];
-                                                                                                                                                                    const t = nodo.g || nodo._data.ticker;
-                                                                                                                                                                    const invOrig = inversiones.find(i => i.ticker === t);
-                                                                                                                                                                    if (invOrig) verDetallesCategoria(invOrig.id);
-                                                                                                                                                                }
-                                                                                                                                                            }
-                                                                                                                                                        }
-                                                                                                                                                    });
-
-                                                                                                                // LÓGICA DE OBTENCIÓN DE DATOS MOVIDA A LA CONFIGURACIÓN
-                                                                                                                    inversiones.forEach(inv => {
-                                                                                                                        buscarPrecioFinnhub(
-                                                                                                                            inv.ticker,
-                                                                                                                            `precio-mercado-${inv.id}`,
-                                                                                                                            inv.totalAcciones,
-                                                                                                                            inv.costoBaseInvertido,
-                                                                                                                            inv.costoBaseInvertidoUsd,
-                                                                                                                            inv.tcPromedioExacto,
-                                                                                                                            inv.mesesPromedioExacto
-                                                                                                                        );
-                                                                                                                    });
-                                                                                                                
-                                                                                                                // Actualizar el botón con la hora de la carga automática inicial
-                                                                                                                    const btnRefresh = document.getElementById('btnRefrescarPrecios');
-                                                                                                                    if (btnRefresh && !btnRefresh.innerHTML.includes('Actualizado')) {
-                                                                                                                        const ahora = new Date();
-                                                                                                                        const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                                                                                        btnRefresh.innerHTML = `🔄 Actualizado: ${horaStr}`;
-                                                                                                                    }
-                                                                                                            }
+                                                        // El botón dice la hora de la última traída. Sólo se pone la del arranque:
+                                                        // si ya dice "Actualizado", la puso el botón al pulsarse y esa manda.
+                                                        const btnRefresh = document.getElementById('btnRefrescarPrecios');
+                                                        if (btnRefresh && !btnRefresh.innerHTML.includes('Actualizado')) {
+                                                            const ahora = new Date();
+                                                            const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                                            btnRefresh.innerHTML = `🔄 Actualizado: ${horaStr}`;
+                                                        }
+                                                    }
 
                                             // --- INICIALIZACIÓN ---
                                             async function inicializar() {
@@ -4323,14 +4119,14 @@
                                                                 // corre durante el fundido, así que se ve terminar y no cortarse.
                                                                 avanzarCarga(HITOS_CARGA.listo);
 
-                                                                // La curva del portafolio va detrás del arranque y sin retenerlo: vive en
-                                                                // Configuración, así que nadie la está mirando cuando la app se destapa, y
-                                                                // son dos viajes más a la base. Guarda de paso el cierre de hoy, que es lo
-                                                                // que hace crecer el histórico sin pedirle nada a nadie.
+                                                                // El histórico de precios va detrás del arranque y sin retenerlo: son dos
+                                                                // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
+                                                                // guardado el cierre de hoy, que es lo que hace crecer el histórico sin
+                                                                // pedirle nada a nadie, y en memoria lo que la curva de una cuenta leerá
+                                                                // cuando se abra su ficha.
                                                                 cargarHistoricoPrecios()
                                                                     .then(guardarCierresDeHoy)
-                                                                    .then(renderizarCurvaPortafolio)
-                                                                    .catch(e => console.error('No se pudo montar la curva del portafolio', e));
+                                                                    .catch(e => console.error('No se pudo preparar el histórico de precios', e));
                                                             } catch (e) {
                                                                 // Si algo falla (sin red, por ejemplo) se destapa igual: más vale la app vacía
                                                                 // y usable que un spinner que no se va nunca.
@@ -15823,12 +15619,12 @@
                                     }
                                 }
 
-                                // 2. Volvemos a disparar el renderizado (esto hace las peticiones simultáneas)
-                                renderizarMatrizInversiones();
+                                // 2. Volvemos a pedirlos todos a la vez
+                                refrescarPreciosDeMercado();
 
                                 // Con precios nuevos, el cierre de hoy que quedó guardado ya no es el bueno:
-                                // se reescribe y la curva se repinta con su último punto al día.
-                                setTimeout(() => { guardarCierresDeHoy().then(renderizarCurvaPortafolio).catch(() => {}); }, 1500);
+                                // se reescribe para que el histórico se quede con el último.
+                                setTimeout(() => { guardarCierresDeHoy().catch(() => {}); }, 1500);
                                 
                                 // 3. Actualizamos el texto del botón con la hora local actual
                                 if (btn) {
@@ -15853,8 +15649,6 @@
                                                                                             elMatrizPrecio.textContent = errorMsg ? '⚠️ Error' : `${fMoneda(precioUsd)}`;
                                                                                         }
                                                                                         
-                                                                                        // Forzamos al Treemap a repintarse para aplicar colores (verde/rojo)
-                                                                                        if (miTreemap) miTreemap.update();
                                                                                     };
                                 
                                 if (cachePreciosMercado[ticker]) {
