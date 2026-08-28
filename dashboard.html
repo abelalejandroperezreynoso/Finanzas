@@ -9838,6 +9838,21 @@
                                             tree: datos,
                                             key: 'monto',
                                             groups: ['nombre'],
+                                            // En la capa de las compras los recuadros se colocan en el orden en
+                                            // que llegan —de la más vieja a la más nueva— y no de mayor a menor.
+                                            // Ahí cada recuadro es una fecha, y ordenarlos por tamaño repartía
+                                            // las compras por el mapa sin ningún criterio que se pueda seguir.
+                                            //
+                                            // Es lo que se puede: el mapa reparte el espacio en tiras, así que
+                                            // las fechas se leen seguidas dentro de cada tira y de una tira a la
+                                            // siguiente —por columnas o por filas, según cómo caiga el hueco—,
+                                            // no en una línea de tiempo perfecta. Los recuadros siguen midiendo
+                                            // lo que valen, que es lo que no se puede sacrificar.
+                                            //
+                                            // En las otras capas manda el tamaño: entre cuentas o entre empresas
+                                            // lo que se compara es cuánto pesa cada una, y no hay fecha que
+                                            // seguir.
+                                            unsorted: !!empresaAbierta,
                                             // Hilo apenas visible entre rectángulos: separa sin comerse área
                                             spacing: ESPACIO_TREEMAP,
                                             borderWidth: 0,
