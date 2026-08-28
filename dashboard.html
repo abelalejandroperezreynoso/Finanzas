@@ -14273,8 +14273,8 @@
                             function verDetallesMovimiento(id) {
     // La lista de movimientos sólo carga los más recientes, pero el mapa de inversiones abre
     // lotes de cualquier antigüedad: si no está ahí, se lee de la copia completa con la que se
-    // calculan las posiciones. Esa copia trae menos columnas, y de ahí sale enLista.
-    const enLista = datosRegistros.some(x => String(x.id) === String(id));
+    // calculan las posiciones. Esa copia trae menos columnas, así que la ficha enseña lo que
+    // tiene y lo que falte lo dice; editar sí necesita el registro entero y lo pide él mismo.
     const r = datosRegistros.find(x => String(x.id) === String(id))
         || (datosUsoCompleto || []).find(x => String(x.id) === String(id));
     if (r) {
@@ -14412,11 +14412,12 @@
         document.getElementById('contenidoDetallesMovimiento').innerHTML = htmlContenido;
         
         const btnEditar = document.getElementById('btnEditarMovimiento');
-        // Editar necesita el registro completo. De uno viejo sólo tenemos la copia ligera, así
-        // que el botón se apaga en lugar de abrir un formulario a medio llenar.
-        btnEditar.disabled = !enLista;
-        btnEditar.style.opacity = enLista ? '1' : '0.4';
-        btnEditar.onclick = !enLista ? null : () => {
+        // El botón ya no se apaga por estar el movimiento fuera del historial cargado: de eso se
+        // encarga prepEditMov, que pide a la base lo que le falte. Apagarlo dejaba sin editar
+        // justo lo que se abre desde el mapa, donde casi todo es más viejo que esa ventana.
+        btnEditar.disabled = false;
+        btnEditar.style.opacity = '1';
+        btnEditar.onclick = () => {
             cerrarModalDetallesMovimiento();
             prepEditMov(id);
         };
@@ -14634,9 +14635,25 @@
             }
         });
 
-                            function prepEditMov(id) {
-                                const r = datosRegistros.find(x => String(x.id) === String(id));
-                                if (!r) return;
+                            async function prepEditMov(id) {
+                                // El historial sólo sostiene los últimos movimientos, pero al mapa del portafolio
+                                // se llega a cualquier compra, por vieja que sea. La copia ligera con la que se
+                                // dibuja no sirve para editar —no trae la descripción ni la categoría—, así que
+                                // el registro que no esté cargado se pide entero antes de abrir el formulario.
+                                // Llenarlo con lo que hubiera guardaría encima de lo que no se ve.
+                                let r = datosRegistros.find(x => String(x.id) === String(id));
+                                if (!r) {
+                                    const { data, error } = await clienteSupabase
+                                        .from('registros')
+                                        .select('*, cantidad_acciones, categorias(nombre, tipo)')
+                                        .eq('id', id)
+                                        .limit(1);
+                                    if (error || !data || !data[0]) {
+                                        alert("⚠️ No se pudo cargar este movimiento para editarlo. Revisa tu conexión e inténtalo de nuevo.");
+                                        return;
+                                    }
+                                    r = data[0];
+                                }
                                 editIdMov = id;
                                 
                                 const cat = datosCategorias.find(c => String(c.id) === String(r.categoria_id));
