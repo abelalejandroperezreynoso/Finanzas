@@ -5459,23 +5459,32 @@
                             ? tcCercano
                             : (caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1));
                             mxnCompra = usdCompra * tcLote;
-                            // La caja no puede pagar más pesos de los que tiene: si la compra sale a un tipo
-                            // de cambio más alto del que costó lo que hay dentro, se cobra lo que hay.
-                            if (caja.mxnBase > 0.005 && mxnCompra > caja.mxnBase) mxnCompra = caja.mxnBase;
+                            // La caja no puede pagar más pesos de los que tiene, pero lo que no alcanza a
+                            // cubrir no abarata el lote: esos dólares costaron lo que costaron. Se le cobra a
+                            // la caja lo que le queda y el costo del lote se queda al tipo de cambio de su
+                            // aportación. Dejarlo en el remanente anotaba compras de 58 USD como 31 pesos y
+                            // sacaba plusvalías en pesos de miles por ciento.
+                            const mxnCobradoCaja = (caja.mxnBase > 0.005 && mxnCompra > caja.mxnBase)
+                            ? caja.mxnBase
+                            : mxnCompra;
+                            const mxnBaseAntesCompra = caja.mxnBase;
 
                             // La compra gasta primero los pesos recién aportados y sólo después los que
                             // devolvió una venta. Es el orden real: se aporta para comprar ese mismo día, y lo
                             // que vuelve de vender se queda esperando hasta que haya una compra sin aportación
                             // detrás. Repartirlo a prorrata entre las dos bolsas apuntaba dinero reinvertido a
                             // compras que se habían pagado con su propia aportación.
-                            const deLoAportado = Math.min(mxnCompra, caja.mxnAportado || 0);
-                            const deLasVentas = mxnCompra - deLoAportado;
+                            const deLoAportado = Math.min(mxnCobradoCaja, caja.mxnAportado || 0);
+                            const deLasVentas = mxnCobradoCaja - deLoAportado;
                             caja.mxnAportado = Math.max(0, (caja.mxnAportado || 0) - deLoAportado);
                             caja.mxnDeVentas = Math.max(0, (caja.mxnDeVentas || 0) - deLasVentas);
                             window.reinvertidoMxnLoteMap[u.id] = deLasVentas;
                             caja.mxnBase = (caja.mxnAportado || 0) + (caja.mxnDeVentas || 0);
 
-                            const parteComprada = caja.mxnBase > 0.00001 ? Math.min(1, mxnCompra / caja.mxnBase) : 0;
+                            // La parte que se lleva la compra se mide contra los pesos que había ANTES de
+                            // descontarla. Medirla contra lo que quedó hacía que gastar media caja contara como
+                            // gastarla entera y la antigüedad del resto se fuera a cero.
+                            const parteComprada = mxnBaseAntesCompra > 0.00001 ? Math.min(1, mxnCobradoCaja / mxnBaseAntesCompra) : 0;
                             caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteComprada));
                             caja.usd = Math.max(0, caja.usd - usdCompra);
                             // Cada compra se lleva sus pesos al tipo de cambio de su aportación, no al promedio
@@ -14264,6 +14273,12 @@
         
         const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
 
+        // Comprar o vender con la caja GBM no mueve pesos, así que esos registros van con monto 0.
+        // Sin decirlo, el $0.00 se lee como un movimiento que se guardó a medias.
+        const notaMonto = (montoAbsoluto < 0.005 && (tipoMovR === 'compra' || tipoMovR === 'venta'))
+            ? ` <span style="color:#4da6ff; font-size: 0.85em;">(no movió pesos: se pagó con la caja GBM)</span>`
+            : '';
+
         if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
             const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
             const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
@@ -14328,7 +14343,7 @@
                     
                     const signoMxn = rendimientoMxn >= 0 ? '+' : '';
                     
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><div style="text-align: right;"><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong><br><span style="color:#666; font-size:0.75em;">Precio título</span></div></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 8 })}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
                 } else if (window.cacheErroresMercado && window.cacheErroresMercado[cat.ticker] && accionesVivas > 0.00001) {
                     detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Invertido (Vivo): ${fMoneda(invertidoUsd)} USD<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
                 } else {
@@ -14371,7 +14386,7 @@
         const htmlContenido = `
         <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${nombreCat}</strong><br>
         <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${descripcionMov}</strong><br>
-        <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong><br>
+        <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong>${notaMonto}<br>
         <span style="color: #aaa;">Fecha:</span> <strong style="color: #fff;">${fechaLocal}</strong>
         ${infoTopInversion}
         ${detallesInversion}
