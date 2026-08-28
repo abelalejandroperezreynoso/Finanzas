@@ -8390,8 +8390,8 @@
                                 repintarTreemapCategorias();
                             }
 
-                            // Sube una capa, la que toque. Es la salida del título y también lo que hace un toque
-                            // en la capa más honda, donde ya no hay a dónde bajar.
+                            // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
+                            // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
                                 else if (cuentaTreemapInversiones) cuentaTreemapInversiones = null;
@@ -9914,9 +9914,10 @@
                                 });
 
                                 // El portafolio es el único mapa con capas, y por eso el único que necesita separar
-                                // los dos gestos. La regla es la misma en las tres: un toque baja una capa y, en
-                                // la más honda, sube; sostener el dedo abre la ficha de lo que hay debajo —la de
-                                // la cuenta, la de la categoría o la del lote, según dónde se esté—.
+                                // los dos gestos. La regla es la misma en las tres: un toque baja una capa y,
+                                // cuando ya no hay nada debajo, abre la ficha de lo que se tocó; sostener el dedo
+                                // abre esa ficha desde cualquier capa —la de la cuenta, la de la categoría o la
+                                // del lote, según dónde se esté—. Para volver está el título.
                                 const datoDelRecuadro = (indice) => {
                                     if (!miTreemapCategorias) return null;
                                     return buscarDato(miTreemapCategorias.data.datasets[0].data[indice]);
@@ -9926,7 +9927,10 @@
                                     conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
-                                        if (empresaAbierta) subirNivelTreemap();
+                                        // En la capa de las compras cada recuadro ya es un movimiento y no hay
+                                        // nada debajo: el toque abre su ficha. Para volver está el título, que es
+                                        // la salida de todas las capas.
+                                        if (empresaAbierta) verDetallesMovimiento(d.id);
                                         // La caja no tiene compras dentro: bajar a su capa dejaría el mapa vacío,
                                         // así que un toque abre su ficha, que es lo único que hay que ver de ella.
                                         else if (d.esCaja) verDetallesCategoria(d.id);
