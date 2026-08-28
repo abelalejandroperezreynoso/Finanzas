@@ -5297,7 +5297,21 @@
                             (catData || []).forEach(c => cuentaPorCategoria[c.id] = c.cuenta_id);
 
                             if (usoData) {
-                            const registrosAsc = [...usoData].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+                            // Con la misma fecha y hora el orden entre dos registros lo decidía la base de
+                            // datos, y aportar y comprar en el mismo minuto es lo normal: el dinero llega a la
+                            // caja para comprar, no para quedarse. Si la compra caía antes que su aportación,
+                            // pagaba con una caja que todavía estaba vacía. Primero lo que mete dólares en la
+                            // caja y después lo que los gasta: no se paga con dinero que aún no ha llegado.
+                            function ordenEnMismoInstante(r) {
+                            const t = tipoMovInversion(r);
+                            if (t === 'aportacion') return 0;
+                            if (t === 'venta') return 1;
+                            return 2;
+                            }
+                            const registrosAsc = [...usoData].sort((a, b) => {
+                            const diferencia = new Date(a.fecha) - new Date(b.fecha);
+                            return diferencia !== 0 ? diferencia : ordenEnMismoInstante(a) - ordenEnMismoInstante(b);
+                            });
 
                             // Una compra se paga con dólares que ya estaban en la caja, así que su registro no
                             // guarda tipo de cambio: dentro de la caja no se cambia moneda. El tipo de cambio de
