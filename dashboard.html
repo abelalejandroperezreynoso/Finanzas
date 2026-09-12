@@ -897,102 +897,6 @@
                     overflow: hidden;
                 }
 
-                /* --- ESTILOS TIRA DE OBJETIVOS (INICIO) --- */
-                /* Los objetivos van de lado y no en columna: así la tarjeta ocupa un alto fijo
-                   sin importar cuántas metas haya, y el resto del inicio no se va hasta abajo. */
-                .objetivos-tira {
-                    display: flex;
-                    gap: 10px;
-                    overflow-x: auto;
-                    overflow-y: hidden;
-                    -webkit-overflow-scrolling: touch;
-                    scroll-snap-type: x proximity;
-                    /* Sin esto el arrastre de lado al final de la tira se lo lleva la página
-                       —o el gesto de "atrás" del navegador— en lugar de quedarse aquí. */
-                    overscroll-behavior-x: contain;
-                    scrollbar-width: none;
-                    /* Hueco para que la última tarjeta no quede pegada a la orilla al final del
-                       recorrido, y para que la sombra del :active no se recorte arriba y abajo. */
-                    padding: 4px 0 6px 0;
-                    /* Sin touch-action propio, igual que la tira de días: que decida el navegador
-                       si el dedo mueve la tira o la página según hacia dónde arrastres. */
-                }
-
-                .objetivos-tira::-webkit-scrollbar { display: none; }
-
-                .objetivo-tarjeta {
-                    /* Tres columnas de pie —nombre, barra, cifra— así que el ancho lo marca el
-                       contenido y sale angostísima: caben cuatro en pantalla y la quinta asoma,
-                       que es lo que delata que la tira se desliza sin dibujar flechas ni puntos.
-                       El alto sí es fijo: es la medida contra la que se ajusta la letra. */
-                    flex: 0 0 auto;
-                    /* Ancho fijo y no al contenido: de otro modo la tarjeta cuyo nombre tuvo que
-                       encogerse saldría más angosta que sus vecinas y la tira quedaría dentada.
-                       Con space-between el sobrante se reparte a los lados de la barra, que así
-                       queda al centro en todas. */
-                    width: 80px;
-                    height: 104px;
-                    box-sizing: border-box;
-                    scroll-snap-align: start;
-                    background: #131313;
-                    border: 1px solid #2a2a2a;
-                    border-radius: 12px;
-                    padding: 10px 9px;
-                    cursor: pointer;
-                    transition: transform 0.15s ease-out;
-                    display: flex;
-                    flex-direction: row;
-                    align-items: stretch;
-                    justify-content: space-between;
-                    gap: 4px;
-                }
-
-                .objetivo-tarjeta:active { transform: scale(0.97); }
-
-                /* El nombre y la cifra van de pie, leyéndose de abajo hacia arriba. El giro de
-                   180° es lo que da ese sentido: vertical-rl a secas los deja de cabeza para
-                   quien ladea la vista a la izquierda.
-                   En vertical-rl el renglón corre a lo largo del alto, así que con nowrap el
-                   texto que no cabe desborda por abajo —de ahí que el recorte se mida contra
-                   el alto y no contra el ancho. */
-                .objetivo-tarjeta .objetivo-nombre,
-                .objetivo-tarjeta .objetivo-cifra {
-                    writing-mode: vertical-rl;
-                    transform: rotate(180deg);
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    line-height: 1;
-                    /* El tamaño de letra lo pone ajustarTextoDePie() al pintar; éste es el techo
-                       y el valor de respaldo si por lo que sea no llegara a correr. */
-                    font-size: 14px;
-                }
-
-                .objetivo-tarjeta .objetivo-cifra { font-size: 15px; }
-
-                /* La barra de pie. El relleno va en absoluto y no como caja de flujo porque un
-                   alto en porcentaje necesita un padre con alto definido, y el de la barra sale
-                   del estirón del renglón, no de un valor propio. */
-                .objetivo-tarjeta .objetivo-barra {
-                    position: relative;
-                    flex: 0 0 auto;
-                    width: 12px;
-                    background: #000000;
-                    border: 1px solid #444;
-                    border-radius: 50px;
-                    overflow: hidden;
-                }
-
-                .objetivo-tarjeta .objetivo-relleno {
-                    position: absolute;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    border-radius: 50px;
-                    transition: height 0.5s ease-out, background-color 0.5s ease-out;
-                }
-                /* --- FIN ESTILOS TIRA DE OBJETIVOS --- */
-
                 /* --- INICIO ESTILOS AVISO DE VERSIÓN --- */
                 /* Sale abajo cuando el service worker ya guardó una versión nueva y la app estaba en
                    uso: recargar sin avisar sería quitarle de las manos lo que está mirando. Durante el
@@ -1372,18 +1276,6 @@
         <div id="totalTreemapCategorias" style="padding: 10px 0 2px 0; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px;"></div>
     </div>
     <!-- FIN TARJETA DE MAPA DE CATEGORÍAS -->
-
-
-    <!-- INICIO NUEVA TARJETA DE OBJETIVOS -->
-    <div class="card" id="cardObjetivosInicio" style="display: none; padding: 1rem 0; margin-bottom: 15px; background: #000000;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-            <h3 style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; text-transform: uppercase; letter-spacing: 1px;">Objetivos</h3>
-        </div>
-        <div id="contenedorObjetivosInicio" class="objetivos-tira">
-            <!-- Las barras se inyectarán aquí por JS -->
-        </div>
-    </div>
-    <!-- FIN NUEVA TARJETA DE OBJETIVOS -->
 
             </div>
 
@@ -1767,30 +1659,6 @@
                         style="margin-top: 5px; background: none; border: none; color: #888; font-size: 0.85em; font-weight: normal; text-align: left; padding: 6px 0;">⚙️ Mostrar ajustes avanzados</button>
 
                     <div id="ajustesAvanzadosCat" style="display: none;">
-                        <!-- NUEVO CONTENEDOR DE META -->
-                        <div id="contenedorMeta" style="display: flex; margin-top: 10px; gap: 10px; background: #222; padding: 12px; border-radius: 8px; border: 1px dashed #444; flex-wrap: wrap;">
-                            <div style="flex: 1; min-width: 100%;">
-                                <label style="font-size: 0.75em; color: #aaa;">Límite Máximo ($)</label>
-                                <input type="number" id="catMetaMonto" placeholder="Ej: 1000" step="0.01" style="margin-bottom: 0;">
-                            </div>
-                            <div style="flex: 1; min-width: 45%;">
-                                <label style="font-size: 0.75em; color: #aaa;">Periodo</label>
-                                <select id="catMetaPeriodo" style="margin-bottom: 0;" onchange="document.getElementById('divMetaDias').style.display = this.value === 'dias' ? 'block' : 'none';">
-                                    <option value="dias">Cada X días</option>
-                                    <option value="semana">Esta Semana</option>
-                                    <option value="mes">Este Mes</option>
-                                    <option value="trimestre">Este Trimestre</option>
-                                    <option value="semestre">Este Semestre</option>
-                                    <option value="año">Este Año</option>
-                                </select>
-                            </div>
-                            <div id="divMetaDias" style="flex: 1; min-width: 45%;">
-                                <label style="font-size: 0.75em; color: #aaa;">Cant. Días</label>
-                                <input type="number" id="catMetaDias" placeholder="Ej: 4" step="1" style="margin-bottom: 0;">
-                            </div>
-                        </div>
-                        <!-- FIN NUEVO CONTENEDOR -->
-
                         <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 5px; background: #333; padding: 10px; border-radius: 6px;">
                                         <input type="checkbox" id="desactivarPrediccionCat" style="width: auto; margin: 0 10px 0 0; transform: scale(1.2); cursor: pointer;">
                                         <label for="desactivarPrediccionCat" style="margin: 0; cursor: pointer; color: #ccc;">Omitir 100% de predicciones</label>
@@ -2996,137 +2864,6 @@
                         return { monto: parseFloat(resultado.toFixed(2)), esEstimado: true };
                     }
 
-                                                    function obtenerDatosMeta(cat) {
-                                                        const hoy = new Date();
-                                                        const inicio = new Date(hoy);
-                                                        inicio.setHours(0, 0, 0, 0); // Media noche para cortes exactos
-                                                        
-                                                        let fin = new Date(hoy);
-                                                        fin.setHours(23, 59, 59, 999);
-                                                        
-                                                        let etiqueta = '';
-                                                        const periodo = cat.meta_periodo || 'dias';
-                                                        
-                                                        if (periodo === 'semana') {
-                                                            const diaSemana = inicio.getDay() || 7;
-                                                            inicio.setDate(inicio.getDate() - diaSemana + 1);
-                                                            fin = new Date(inicio);
-                                                            fin.setDate(fin.getDate() + 6);
-                                                            fin.setHours(23, 59, 59, 999);
-                                                            etiqueta = 'Esta Semana';
-                                                        } else if (periodo === 'mes') {
-                                                            inicio.setDate(1);
-                                                            fin = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0, 23, 59, 59, 999);
-                                                            etiqueta = 'Este Mes';
-                                                        } else if (periodo === 'trimestre') {
-                                                            const trimestreActual = Math.floor(inicio.getMonth() / 3);
-                                                            inicio.setMonth(trimestreActual * 3);
-                                                            inicio.setDate(1);
-                                                            fin = new Date(inicio.getFullYear(), inicio.getMonth() + 3, 0, 23, 59, 59, 999);
-                                                            etiqueta = 'Este Trimestre';
-                                                        } else if (periodo === 'semestre') {
-                                                            const semestreActual = Math.floor(inicio.getMonth() / 6);
-                                                            inicio.setMonth(semestreActual * 6);
-                                                            inicio.setDate(1);
-                                                            fin = new Date(inicio.getFullYear(), inicio.getMonth() + 6, 0, 23, 59, 59, 999);
-                                                            etiqueta = 'Este Semestre';
-                                                        } else if (periodo === 'año') {
-                                                            inicio.setMonth(0);
-                                                            inicio.setDate(1);
-                                                            fin = new Date(inicio.getFullYear(), 11, 31, 23, 59, 59, 999);
-                                                            etiqueta = 'Este Año';
-                                                        } else {
-                                                            inicio.setHours(new Date().getHours()); // Conserva hora exacta
-                                                            inicio.setDate(inicio.getDate() - (cat.meta_dias || 0));
-                                                            fin = new Date(hoy);
-                                                            etiqueta = `Últimos ${cat.meta_dias || 0}d`;
-                                                        }
-                                                        
-                                                        // Generar texto amigable (ej: "20 may al 26 may")
-                                                        const formatear = (d) => d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }).replace('.', '');
-                                                        const rangoFechas = `${formatear(inicio)} al ${formatear(fin)}`;
-                                                        
-                                                        return { inicio, etiqueta, rangoFechas };
-                                                    }
-
-                                                                                // NUEVA FUNCIÓN: Dibuja las metas en la pantalla de inicio
-                                                                                function renderizarObjetivosInicio() {
-                                                                                    const contenedor = document.getElementById('contenedorObjetivosInicio');
-                                                                                    const card = document.getElementById('cardObjetivosInicio');
-                                                                                    if (!contenedor || !card) return;
-
-                                                                                    const categoriasConMeta = datosCategorias.filter(cat => cat.tipo === 'gasto' && cat.meta_monto > 0 && (cat.meta_periodo !== 'dias' || cat.meta_dias > 0));
-
-                                                                                    if (categoriasConMeta.length === 0) {
-                                                                                        card.style.display = 'none';
-                                                                                        return;
-                                                                                    }
-
-                                                                                    card.style.display = 'block';
-                                                                                    let html = '';
-
-                                                                                    categoriasConMeta.forEach(cat => {
-                                                                                        // Sólo el arranque del periodo, para saber qué gastos contar. El monto de la meta
-                                                                                        // y el rango de fechas no se pintan en la tira: lo que se quiere de un vistazo es
-                                                                                        // cuánto queda, y el detalle está a un toque en la categoría.
-                                                                                        const { inicio: limiteDias } = obtenerDatosMeta(cat);
-                                                                                        
-                                                                                        const gastadoEnPeriodo = datosUsoCompleto
-                                                                                            .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && new Date(u.fecha) >= limiteDias)
-                                                                                            .reduce((acc, u) => acc + Math.abs(parseFloat(u.monto)), 0);
-
-                                                                                        // Calculamos cuánto "combustible" le queda a la barra
-                                                                                        const restante = cat.meta_monto - gastadoEnPeriodo;
-                                                                                        // Evitamos que el porcentaje baje de 0
-                                                                                        const porcentajeRestante = Math.max(0, Math.min((restante / cat.meta_monto) * 100, 100));
-                                                                                        
-                                                                                        // La barra cambia de color según se va vaciando
-                                                                                        let colorBarra = '#3ecf8e'; // Verde
-                                                                                        if (porcentajeRestante <= 25) colorBarra = '#ff5c5c'; // Rojo (Cuidado)
-                                                                                        else if (porcentajeRestante <= 50) colorBarra = '#f39c12'; // Naranja (Mitad)
-                                                                                        
-                                                                                        // De pie no cabe el rótulo "Quedan"/"Excedido" al lado de la cifra, así que
-                                                                                        // lo excedido se dice con el signo y el rojo, como un saldo en contra.
-                                                                                        const cifraRestante = (restante < 0 ? '-' : '') + fMoneda(Math.abs(restante));
-                                                                                        const colorTexto = restante >= 0 ? '#ffffff' : '#ff5c5c';
-
-                                                                                        html += `
-                                                                                                    <div onclick="registrarDesdeCategoria('${cat.id}')" class="objetivo-tarjeta">
-                                                                                                        <strong class="objetivo-nombre" style="color: ${obtenerColorCategoria(cat.tipo)};">${cat.nombre}</strong>
-                                                                                                        <div class="objetivo-barra">
-                                                                                                            <div class="objetivo-relleno" style="height: ${porcentajeRestante}%; background: ${colorBarra};"></div>
-                                                                                                        </div>
-                                                                                                        <strong class="objetivo-cifra" style="color: ${colorTexto};">${cifraRestante}</strong>
-                                                                                                    </div>
-                                                                                                    `;
-                                                                                    });
-
-                                                                                    contenedor.innerHTML = html;
-                                                                                    ajustarTextoDePie(contenedor);
-                                                                                }
-
-                                                                                // Encoge el nombre y la cifra de pie hasta que quepan en el alto de la tarjeta,
-                                                                                // que es el mismo de la barra. Se mide en lugar de calcularse por número de
-                                                                                // letras porque una "Ñ" y una "i" no ocupan igual, y un nombre de ocho letras
-                                                                                // anchas desborda donde uno de diez angostas entra.
-                                                                                function ajustarTextoDePie(contenedor) {
-                                                                                    // Piso de legibilidad: por debajo de esto el nombre no se lee, y encogerlo más
-                                                                                    // tampoco alcanzaría para los nombres largos de verdad. Al llegar aquí se deja
-                                                                                    // que corte con puntos suspensivos, que se entiende mejor que la letra diminuta.
-                                                                                    const TAMANO_MINIMO = 10;
-                                                                                    contenedor.querySelectorAll('.objetivo-nombre, .objetivo-cifra').forEach(el => {
-                                                                                        // El tope es el de la hoja de estilos: la letra sólo baja de ahí, nunca sube,
-                                                                                        // para que dos tarjetas vecinas no salgan con tamaños dispares.
-                                                                                        let tamano = parseFloat(getComputedStyle(el).fontSize);
-                                                                                        // scrollHeight contra clientHeight y no anchos: de pie el renglón corre a lo
-                                                                                        // largo del alto, así que lo que sobra desborda por abajo.
-                                                                                        while (tamano > TAMANO_MINIMO && el.scrollHeight > el.clientHeight) {
-                                                                                            tamano -= 0.5;
-                                                                                            el.style.fontSize = tamano + 'px';
-                                                                                        }
-                                                                                    });
-                                                                                }
-
                                                                                 function cambiarSeccion(id, btn) {
                             window.scrollTo(0, 0);
                             document.querySelectorAll('.seccion').forEach(s => s.classList.remove('activa'));
@@ -3138,11 +2875,6 @@
                             if (id === 'sec-inicio') {
                             // La tarjeta ya tiene medidas: si quedó un mapa por dibujar, es el momento
                             reintentarTreemapPendiente();
-                            // Y por lo mismo: escondida, la tira mide cero y el texto de pie no se
-                            // pudo ajustar al pintarse. Volver a llamar no encoge de más, sólo
-                            // recorta lo que siga desbordando.
-                            const tiraObjetivos = document.getElementById('contenedorObjetivosInicio');
-                            if (tiraObjetivos) ajustarTextoDePie(tiraObjetivos);
                             }
                             if (id === 'sec-lista' && filtroPorDefectoPuesto && hayFiltroDeTiempoActivo()) {
                             // Gestión de Datos es para repasar y tocar los movimientos, y ahí el recorte de
@@ -3573,10 +3305,6 @@
                                                         document.getElementById('catNombre').value = '';
                                                         document.getElementById('catTipo').value = 'gasto';
                                                         document.getElementById('catTicker').value = '';
-                                                        document.getElementById('catMetaMonto').value = '';
-                                                        document.getElementById('catMetaPeriodo').value = 'dias';
-                                                        document.getElementById('catMetaDias').value = '';
-                                                        document.getElementById('divMetaDias').style.display = 'block';
                                                         document.getElementById('desactivarPrediccionCat').checked = false;
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
@@ -6197,13 +5925,9 @@
                                                     function mostrarOcultarTicker() {
                                                         const tipo = document.getElementById('catTipo').value;
                                                         const inputTicker = document.getElementById('catTicker');
-                                                        const metaContainer = document.getElementById('contenedorMeta');
                                                         
                                                         if (inputTicker) {
                                                             inputTicker.style.display = tipo === 'inversion' ? 'block' : 'none';
-                                                        }
-                                                        if (metaContainer) {
-                                                            metaContainer.style.display = tipo === 'gasto' ? 'flex' : 'none';
                                                         }
                                                     }
 
@@ -6234,9 +5958,6 @@
 
                                     const desactivar_prediccion = document.getElementById('desactivarPrediccionCat').checked;
                                     const tickerValor = tipo === 'inversion' ? document.getElementById('catTicker').value.trim().toUpperCase() : null;
-                                    const metaMonto = parseFloat(document.getElementById('catMetaMonto').value) || null;
-                                    const metaPeriodo = document.getElementById('catMetaPeriodo').value;
-                                    const metaDias = parseInt(document.getElementById('catMetaDias').value) || null;
 
                                     const body = {
                                         cuenta_id: c_id,
@@ -6244,9 +5965,6 @@
                                         tipo: tipo,
                                         ticker: tickerValor,
                                         desactivar_prediccion: desactivar_prediccion,
-                                        meta_monto: tipo === 'gasto' ? metaMonto : null,
-                                        meta_periodo: tipo === 'gasto' ? metaPeriodo : null,
-                                        meta_dias: (tipo === 'gasto' && metaPeriodo === 'dias') ? metaDias : null,
                                         user_id: currentUser.id
                                     };
                                             
@@ -6296,14 +6014,10 @@
                                                                     document.getElementById('catNombre').value = cat.nombre;
                                                                     document.getElementById('catTipo').value = cat.tipo;
                                                                     document.getElementById('catTicker').value = cat.ticker || '';
-                                                                    document.getElementById('catMetaMonto').value = cat.meta_monto || '';
-                                                                    document.getElementById('catMetaPeriodo').value = cat.meta_periodo || 'dias';
-                                                                    document.getElementById('catMetaDias').value = cat.meta_dias || '';
-                                                                    document.getElementById('divMetaDias').style.display = (cat.meta_periodo === 'dias' || !cat.meta_periodo) ? 'block' : 'none';
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
-                                                                    toggleAjustesAvanzadosCat(!!cat.meta_monto || cat.desactivar_prediccion === true);
+                                                                    toggleAjustesAvanzadosCat(cat.desactivar_prediccion === true);
                                                                     document.getElementById('tituloCat').textContent = 'Editando Categoría';
                                         document.getElementById('btnGuardarCat').textContent = 'Actualizar';
                                         abrirModalCategoria();
@@ -6820,9 +6534,6 @@
 
                                         // NUEVO: Recalculamos los porcentajes de los botones del simulador
                                                                                 renderizarBotonesSimulador();
-                                                                                
-                                                                                // Inyectamos las barras de objetivos
-                                                                                renderizarObjetivosInicio();
                                                                                 
                                                                                 cerrarModalFiltros();
                                                                             }
@@ -10859,179 +10570,12 @@
                             }
                             }
 
-                            let metaHtml = '';
-                            if (cat.tipo === 'gasto' && cat.meta_monto > 0 && (cat.meta_periodo !== 'dias' || cat.meta_dias > 0)) {
-                                const { inicio: limiteDias, etiqueta, rangoFechas } = obtenerDatosMeta(cat);
-                                
-                                // 1. Cálculo del periodo actual
-                                const gastadoEnPeriodo = datosUsoCompleto
-                                    .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && new Date(u.fecha) >= limiteDias)
-                                    .reduce((acc, u) => acc + Math.abs(parseFloat(u.monto)), 0);
-
-                                const porcentaje = Math.min((gastadoEnPeriodo / cat.meta_monto) * 100, 100);
-                                const colorMeta = gastadoEnPeriodo > cat.meta_monto ? '#ff5c5c' : '#3ecf8e';
-                                const warning = gastadoEnPeriodo > cat.meta_monto ? '⚠️ Límite superado' : '✅ Dentro del límite';
-
-                                // Barra principal
-                                metaHtml = `
-                                <br><br><strong style="color:#fff; display: block; margin-bottom: 8px;">🎯 OBJETIVO DE GASTO</strong>
-                                <span style="color: #aaa;">Límite:</span> <strong style="color: #fff;">${fMoneda(cat.meta_monto)} / ${etiqueta}</strong> <span style="color: #888; font-size: 0.85em; margin-left: 5px;">(${rangoFechas})</span><br>
-                                <span style="color: #aaa;">Gastado:</span> <strong style="color: ${colorMeta};">${fMoneda(gastadoEnPeriodo)}</strong> <span style="font-size:0.8em; color:${colorMeta};">(${warning})</span>
-                                <div style="width: 100%; background: #333; border-radius: 6px; height: 12px; margin-top: 8px; overflow: hidden;">
-                                    <div style="width: ${porcentaje}%; background: ${colorMeta}; height: 100%; transition: width 0.3s;"></div>
-                                </div>
-                                `;
-
-                                // --- INICIO NUEVO: MINI-GRÁFICO HISTÓRICO DINÁMICO AUTO-AJUSTABLE ---
-                                    let historialDatos = [];
-                                    let iterInicio = new Date(limiteDias);
-                                    
-                                    // 1. Buscamos la fecha del gasto más antiguo de esta categoría
-                                    const registrosGastos = datosUsoCompleto.filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0);
-                                    let fechaMasAntigua = new Date(limiteDias);
-                                    if (registrosGastos.length > 0) {
-                                        fechaMasAntigua = new Date(Math.min(...registrosGastos.map(u => new Date(u.fecha))));
-                                    }
-
-                                    let pFinEval = new Date(iterInicio);
-                                    pFinEval.setMilliseconds(-1);
-
-                                    // 2. Iteramos para recopilar SOLO los datos históricos (sin dibujar aún)
-                                    while (pFinEval >= fechaMasAntigua) {
-                                        let pInicio = new Date(iterInicio);
-                                        
-                                        if (cat.meta_periodo === 'semana') pInicio.setDate(pInicio.getDate() - 7);
-                                        else if (cat.meta_periodo === 'mes') pInicio.setMonth(pInicio.getMonth() - 1);
-                                        else if (cat.meta_periodo === 'trimestre') pInicio.setMonth(pInicio.getMonth() - 3);
-                                        else if (cat.meta_periodo === 'semestre') pInicio.setMonth(pInicio.getMonth() - 6);
-                                        else if (cat.meta_periodo === 'año') pInicio.setFullYear(pInicio.getFullYear() - 1);
-                                        else pInicio.setDate(pInicio.getDate() - (cat.meta_dias || 0));
-                                        
-                                        let pFin = new Date(iterInicio);
-                                        pFin.setMilliseconds(-1);
-                                        
-                                        const gastadoHist = datosUsoCompleto
-                                            .filter(u => String(u.categoria_id) === String(cat.id) && parseFloat(u.monto) < 0 && new Date(u.fecha) >= pInicio && new Date(u.fecha) <= pFin)
-                                            .reduce((acc, u) => acc + Math.abs(parseFloat(u.monto)), 0);
-                                            
-                                        historialDatos.unshift({ pInicio, gastadoHist });
-                                        
-                                        iterInicio = new Date(pInicio);
-                                        pFinEval = new Date(iterInicio);
-                                        pFinEval.setMilliseconds(-1);
-                                        
-                                        if (historialDatos.length >= 200) break;
-                                    }
-                                    
-                                    // 3. Cálculos dinámicos para que todo quepa en el contenedor
-                                    const totalBarras = historialDatos.length + 1; // Barras pasadas + 1 Barra Actual
-                                    const espacioDisponible = 300; // Asumimos un contenedor estándar de móvil (~300px)
-                                    const espacioPorBarra = espacioDisponible / totalBarras;
-                                    
-                                    let gapPx = 15;
-                                    let anchoBarraPx = 14;
-                                    let mostrarTextos = true;
-                                    
-                                    // Si hay muchas barras y el espacio se vuelve reducido, las comprimimos
-                                    if (espacioPorBarra < 40) {
-                                        gapPx = Math.max(1, espacioPorBarra * 0.15);
-                                        anchoBarraPx = Math.max(2, espacioPorBarra * 0.4);
-                                        
-                                        // Si están muy apretadas, ocultamos los textos para mantener la gráfica limpia
-                                        if (espacioPorBarra < 25) {
-                                            mostrarTextos = false;
-                                        }
-                                    }
-
-                                    // 4. Dibujar las barras históricas con la zona de exceso hacia abajo
-                                        let barrasArray = historialDatos.map(dato => {
-                                            // Separamos el porcentaje dentro del límite vs el exceso
-                                            const porcentajeNormal = Math.min((dato.gastadoHist / cat.meta_monto) * 100, 100);
-                                            const porcentajeExceso = dato.gastadoHist > cat.meta_monto ? ((dato.gastadoHist - cat.meta_monto) / cat.meta_monto) * 100 : 0;
-                                            
-                                            // 40px para la zona límite, 25px máximo para la zona que cuelga
-                                            const heightNormalPx = Math.max((porcentajeNormal / 100) * 40, 4);
-                                            const heightExcesoPx = Math.min((porcentajeExceso / 100) * 25, 25);
-                                            
-                                            const colorHist = dato.gastadoHist > cat.meta_monto ? '#ff5c5c' : '#3ecf8e';
-                                            
-                                            let label = '';
-                                            const fmt = (d) => d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }).replace('.','');
-                                            const fmtMes = (d) => d.toLocaleDateString('es-MX', { month: 'short' }).replace('.','').toUpperCase();
-                                            
-                                            if (cat.meta_periodo === 'semana') label = fmt(dato.pInicio);
-                                            else if (cat.meta_periodo === 'mes') label = fmtMes(dato.pInicio);
-                                            else if (cat.meta_periodo === 'año') label = dato.pInicio.getFullYear();
-                                            else label = fmt(dato.pInicio);
-                                            
-                                            const txtMonto = dato.gastadoHist >= 1000 ? (dato.gastadoHist/1000).toFixed(1)+'k' : Math.round(dato.gastadoHist);
-
-                                            const htmlMonto = mostrarTextos ? `<span style="font-size: 0.6em; color: #aaa; margin-bottom: 4px;">$${txtMonto}</span>` : '';
-                                            const htmlLabel = mostrarTextos ? `<span style="font-size: 0.6em; color: #888; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center;">${label}</span>` : '';
-
-                                            return `
-                                                <div style="display: flex; flex-direction: column; justify-content: flex-end; align-items: center; flex: 1; min-width: 0;">
-                                                    ${htmlMonto}
-                                                    <div style="height: 65px; width: ${anchoBarraPx}px; display: flex; flex-direction: column;">
-                                                        <div style="height: 40px; width: 100%; display: flex; align-items: flex-end;">
-                                                            <div style="width: 100%; height: ${heightNormalPx}px; background: ${colorHist}; border-radius: ${heightExcesoPx > 0 ? '4px 4px 0 0' : '4px'}; opacity: 0.7;"></div>
-                                                        </div>
-                                                        <div style="height: 25px; width: 100%; display: flex; align-items: flex-start; ${heightExcesoPx > 0 ? 'border-top: 1px solid rgba(255,255,255,0.3);' : ''}">
-                                                            ${heightExcesoPx > 0 ? `<div style="width: 100%; height: ${heightExcesoPx}px; background: #ff4747; border-radius: 0 0 4px 4px; opacity: 0.9;"></div>` : ''}
-                                                        </div>
-                                                    </div>
-                                                    ${htmlLabel}
-                                                </div>
-                                            `;
-                                        });
-                                        
-                                        // 5. Dibujar la barra del periodo ACTUAL al final con su zona de exceso
-                                        const porcentajeNormalAct = Math.min((gastadoEnPeriodo / cat.meta_monto) * 100, 100);
-                                        const porcentajeExcesoAct = gastadoEnPeriodo > cat.meta_monto ? ((gastadoEnPeriodo - cat.meta_monto) / cat.meta_monto) * 100 : 0;
-                                        
-                                        const heightNormalActPx = Math.max((porcentajeNormalAct / 100) * 40, 4);
-                                        const heightExcesoActPx = Math.min((porcentajeExcesoAct / 100) * 25, 25);
-                                        
-                                        const txtMontoAct = gastadoEnPeriodo >= 1000 ? (gastadoEnPeriodo/1000).toFixed(1)+'k' : Math.round(gastadoEnPeriodo);
-                                        
-                                        const htmlMontoAct = mostrarTextos ? `<span style="font-size: 0.65em; color: #fff; font-weight: bold; margin-bottom: 4px;">$${txtMontoAct}</span>` : '';
-                                        const htmlLabelAct = mostrarTextos ? `<span style="font-size: 0.65em; color: #fff; font-weight: bold; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center;">Actual</span>` : '';
-                                        const anchoActualPx = mostrarTextos ? 16 : anchoBarraPx + 2;
-
-                                        barrasArray.push(`
-                                            <div style="display: flex; flex-direction: column; justify-content: flex-end; align-items: center; flex: 1; min-width: 0; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                                                ${htmlMontoAct}
-                                                <div style="height: 65px; width: ${anchoActualPx}px; display: flex; flex-direction: column;">
-                                                    <div style="height: 40px; width: 100%; display: flex; align-items: flex-end;">
-                                                        <div style="width: 100%; height: ${heightNormalActPx}px; background: ${colorMeta}; border-radius: ${heightExcesoActPx > 0 ? '4px 4px 0 0' : '4px'}; box-shadow: 0 0 5px ${colorMeta};"></div>
-                                                    </div>
-                                                    <div style="height: 25px; width: 100%; display: flex; align-items: flex-start; ${heightExcesoActPx > 0 ? 'border-top: 1px solid rgba(255,255,255,0.4);' : ''}">
-                                                        ${heightExcesoActPx > 0 ? `<div style="width: 100%; height: ${heightExcesoActPx}px; background: #ff4747; border-radius: 0 0 4px 4px; box-shadow: 0 0 5px #ff4747;"></div>` : ''}
-                                                    </div>
-                                                </div>
-                                                ${htmlLabelAct}
-                                            </div>
-                                        `);
-                                        
-                                        // 6. Envolver todo en el contenedor auto-ajustable (Altura aumentada a 110px para dar espacio al exceso)
-                                        metaHtml += `
-                                            <div style="margin-top: 20px; background: #222; padding: 15px 12px; border-radius: 8px; border: 1px dashed #444; overflow: hidden; width: 100%; box-sizing: border-box;">
-                                                <span style="color: #aaa; font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 12px;">Historial de Desempeño</span>
-                                                <div style="display: flex; gap: ${gapPx}px; justify-content: flex-end; align-items: flex-end; height: 110px; width: 100%;">
-                                                    ${barrasArray.join('')}
-                                                </div>
-                                            </div>
-                                        `;
-                                    // --- FIN NUEVO: MINI-GRÁFICO HISTÓRICO DINÁMICO AUTO-AJUSTABLE ---
-                            }
-
                             const htmlContenido = `
                             <span style="color: #aaa;">Nombre:</span> <strong style="color: #fff;">${cat.nombre}</strong><br>
                             <span style="color: #aaa;">Tipo:</span> <strong style="color: #fff;">${cat.tipo.toUpperCase()}</strong><br>
                             <span style="color: #aaa;">Uso Histórico:</span> <strong style="color: #fff;">${cat.vecesUsada || 0} veces</strong><br>
                             <span style="color: #aaa;">Balance:</span> <strong style="color: #fff;">${fMoneda(Math.abs(cat.balanceReal))}</strong>
                             ${detallesInversion}
-                            ${metaHtml}
                             `;
 
                             document.getElementById('contenidoDetallesCategoria').innerHTML = htmlContenido;
