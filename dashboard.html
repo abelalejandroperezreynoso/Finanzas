@@ -5305,9 +5305,17 @@
                             if (historialMontos.length > 12) historialMontos.shift();
                             }
 
-                            if (!registrosPorCat[u.categoria_id]) registrosPorCat[u.categoria_id] = [];
                             const fechaRegistro = new Date(u.fecha);
-                            registrosPorCat[u.categoria_id].push(fechaRegistro);
+
+                            // Comprar acciones con los dólares de la caja no es un compromiso con fecha:
+                            // se compra cuando hay dólares y el precio convence, no cada quincena. Que el
+                            // detector las leyera como patrón acababa anunciando compras que nadie tiene
+                            // pensado hacer. Fuera del estimador de recurrencia; el resto de la app las
+                            // sigue viendo igual, incluido el monto sugerido y la última vez que se usó.
+                            if (!esCompraInversion(u)) {
+                                if (!registrosPorCat[u.categoria_id]) registrosPorCat[u.categoria_id] = [];
+                                registrosPorCat[u.categoria_id].push(fechaRegistro);
+                            }
 
                             // La última vez que se usó cada categoría. La detección de recurrencias ya
                             // saca algo parecido, pero sólo para las que tienen patrón y no están
