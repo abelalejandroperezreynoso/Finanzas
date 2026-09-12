@@ -2614,6 +2614,181 @@
                     return ajustada;
                 }
 
+                // --- PREDICCIÓN ANCLADA AL DÍA DEL MES ---
+                // Un sueldo quincenal o una renta no ocurren "cada N días": ocurren el 15 y
+                // fin de mes, y los meses no miden lo mismo. Contando días corridos la fecha
+                // se va desfasando del calendario real. Cuando el historial delata un día del
+                // mes fijo, se predice desde ahí.
+
+                // Cuántas anclas tiene el patrón según su ritmo: una al mes, o dos.
+                function anclasSegunPaso(paso) {
+                    if (paso >= 26 && paso <= 34) return 1;
+                    if (paso >= 13 && paso <= 17) return 2;
+                    return 0;
+                }
+
+                // Cuántas predicciones de la propia historia se usan para comparar modelos.
+                const VENTANA_COMPARACION_MODELOS = 12;
+                // El ancla sólo releva al modelo de días si se equivoca bastante menos. Empatados
+                // gana el de días: se reancla en cada cobro real, así que absorbe los cambios.
+                const MARGEN_MODELO_ANCLADO = 0.6;
+
+                // El día del mes pedido, recortado a los meses que no llegan (un 31 en febrero).
+                function materializarAncla(anio, mes, ancla) {
+                    const ultimo = new Date(anio, mes + 1, 0).getDate();
+                    return new Date(anio, mes, Math.min(ancla, ultimo));
+                }
+
+                function aMedianoche(fecha) {
+                    const d = new Date(fecha);
+                    d.setHours(0, 0, 0, 0);
+                    return d;
+                }
+
+                const diasDeDiferencia = (a, b) => Math.round((aMedianoche(a) - aMedianoche(b)) / 86400000);
+
+                // Reparte los días del mes observados en n racimos, cortando por los n huecos
+                // más grandes. El mes da la vuelta: el día 31 y el día 1 son vecinos, así que
+                // un pago de fin de mes corrido al viernes sigue en el mismo racimo.
+                function racimosDelMes(fechas, n) {
+                    const dias = [...new Set(fechas.map(f => f.getDate()))].sort((a, b) => a - b);
+                    if (dias.length < n) return null;
+
+                    const huecos = dias
+                        .map((d, i) => ({ d, hueco: i === dias.length - 1 ? dias[0] + 31 - d : dias[i + 1] - d }))
+                        .sort((a, b) => b.hueco - a.hueco);
+                    const cortes = new Set(huecos.slice(0, n).map(h => h.d));
+
+                    const grupos = [];
+                    let actual = [];
+                    dias.forEach(d => {
+                        actual.push(d);
+                        if (cortes.has(d)) { grupos.push(actual); actual = []; }
+                    });
+                    // Lo que quede sin cortar viene de antes de dar la vuelta: pertenece al primero.
+                    if (actual.length) {
+                        if (grupos.length) grupos[0] = actual.concat(grupos[0]);
+                        else grupos.push(actual);
+                    }
+                    return grupos.filter(g => g.length).map(g => new Set(g));
+                }
+
+                // A cuántos días quedó un registro de su ancla. Se miran también los meses
+                // vecinos: un cobro del día 1 corrido al viernes cae en el mes anterior, y
+                // medirlo contra el día 1 de su propio mes lo daría por un mes entero de error.
+                function distanciaAlAncla(registro, ancla, perfil) {
+                    let menor = Infinity;
+                    for (let k = -1; k <= 1; k++) {
+                        const mes = new Date(registro.getFullYear(), registro.getMonth() + k, 1);
+                        const ideal = ajustarADiaHabil(materializarAncla(mes.getFullYear(), mes.getMonth(), ancla), perfil);
+                        menor = Math.min(menor, Math.abs(diasDeDiferencia(ideal, registro)));
+                    }
+                    return menor;
+                }
+
+                // Busca el día del mes que mejor explica un racimo de registros. Sólo se
+                // prueban los días alrededor de los ya observados: el ancla de un cobro que
+                // siempre cae entre el 10 y el 15 no va a estar en el 22. Se toma el entorno
+                // de cada día suelto y no un rango corrido, para que un racimo que da la
+                // vuelta al mes (el 30, el 31 y el 1) no acabe probando el mes entero.
+                function candidatosDeAncla(registros) {
+                    const dias = new Set();
+                    registros.forEach(r => {
+                        for (let d = r.getDate() - 3; d <= r.getDate() + 3; d++) {
+                            // El mes da la vuelta: tres días antes del 2 es el 30 del anterior.
+                            dias.add(((d - 1 + 31) % 31) + 1);
+                        }
+                    });
+                    return [...dias];
+                }
+
+                function ajustarAncla(registros, perfil) {
+                    let mejor = null;
+                    for (const dia of candidatosDeAncla(registros)) {
+                        let error = 0;
+                        registros.forEach(r => { error += distanciaAlAncla(r, dia, perfil); });
+                        if (!mejor || error < mejor.error) mejor = { dia, error };
+                    }
+                    return mejor ? mejor.dia : null;
+                }
+
+                function ajustarAnclasDelMes(fechas, n, perfil) {
+                    const grupos = racimosDelMes(fechas, n);
+                    if (!grupos || grupos.length !== n) return null;
+
+                    const anclas = [];
+                    for (const grupo of grupos) {
+                        const registros = fechas.filter(f => grupo.has(f.getDate()));
+                        // Con menos de tres cobros el racimo no sostiene un ancla.
+                        if (registros.length < 3) return null;
+                        const dia = ajustarAncla(registros, perfil);
+                        if (dia === null) return null;
+                        anclas.push(dia);
+                    }
+                    return anclas.sort((a, b) => a - b);
+                }
+
+                // La siguiente ocurrencia anclada después de una fecha dada.
+                function siguienteAnclada(desde, anclas, perfil, paso) {
+                    const base = aMedianoche(desde);
+                    // Si el último cobro llegó antes que su ancla, esa ranura todavía queda por
+                    // delante y devolverla sería repetir un cobro que ya ocurrió. Se descarta
+                    // todo lo que caiga a menos de medio periodo del último registro.
+                    const tolerancia = Math.max(1, Math.round((paso || 15) / 2));
+
+                    const candidatas = [];
+                    for (let k = 0; k <= 4; k++) {
+                        const mes = new Date(base.getFullYear(), base.getMonth() + k, 1);
+                        anclas.forEach(a => candidatas.push(
+                            ajustarADiaHabil(materializarAncla(mes.getFullYear(), mes.getMonth(), a), perfil)
+                        ));
+                    }
+                    candidatas.sort((a, b) => a - b);
+                    return candidatas.find(c => diasDeDiferencia(c, base) >= tolerancia) || null;
+                }
+
+                // Pone a competir los dos modelos con la misma vara: se les da la historia
+                // recortada y se les pide el siguiente cobro, que ya se conoce. Devuelve las
+                // anclas sólo si ganan con holgura; si no, null y manda el modelo de días.
+                function elegirAnclasRecurrencia(fechas, paso, perfil) {
+                    const n = anclasSegunPaso(paso);
+                    if (!n) return null;
+
+                    const ordenadas = fechas.map(aMedianoche).sort((a, b) => a - b);
+                    const anclas = ajustarAnclasDelMes(ordenadas, n, perfil);
+                    if (!anclas) return null;
+
+                    let errorDias = 0, errorAncla = 0, cuenta = 0;
+                    for (let i = Math.max(3, ordenadas.length - VENTANA_COMPARACION_MODELOS); i < ordenadas.length; i++) {
+                        const base = ordenadas[i - 1];
+                        const porDias = new Date(base);
+                        porDias.setDate(porDias.getDate() + paso);
+
+                        const porAncla = siguienteAnclada(base, anclas, perfil, paso);
+                        if (!porAncla) return null;
+
+                        errorDias += Math.abs(diasDeDiferencia(ajustarADiaHabil(porDias, perfil), ordenadas[i]));
+                        errorAncla += Math.abs(diasDeDiferencia(porAncla, ordenadas[i]));
+                        cuenta++;
+                    }
+                    if (!cuenta) return null;
+
+                    return errorAncla <= errorDias * MARGEN_MODELO_ANCLADO ? anclas : null;
+                }
+
+                // La siguiente ocurrencia de una categoría, con el modelo que le tocó y ya
+                // recorrida al día hábil. Encadenarla acumula el recorrido, así que los bucles
+                // que recorren muchas repeticiones seguidas del modelo de días llevan su propio
+                // cursor sin recorrer; ésta es para cuando se quiere la fecha de una sola.
+                function siguienteOcurrencia(cat, desde) {
+                    if (cat.anclasRecurrencia) {
+                        return siguienteAnclada(desde, cat.anclasRecurrencia, cat.perfilDiasHabiles, cat.diasRecurrencia);
+                    }
+                    const d = new Date(desde);
+                    d.setDate(d.getDate() + cat.diasRecurrencia);
+                    return ajustarADiaHabil(d, cat.perfilDiasHabiles);
+                }
+
                 // Nombre y racha de un patrón. Estaba escrito dos veces —lista y detalle— y las
                 // dos copias arrastraban el mismo plural de más: al número se le pegaba la
                 // terminación entera en vez de la "s", y salía "37 quincenaas seguidaas".
@@ -2725,7 +2900,9 @@
                             if (fechaIteracion >= hoy) {
                             gastado += parseFloat(cat.montoSugerido || 0);
                             }
-                            fechaIteracion.setDate(fechaIteracion.getDate() + cat.diasRecurrencia);
+                            const sig = siguienteOcurrencia(cat, fechaIteracion);
+                            if (!sig || sig <= fechaIteracion) break;
+                            fechaIteracion = sig;
                             }
                             }
                             } else {
@@ -5376,6 +5553,7 @@
                             const variacionMaxMap = {}; // NUEVO: Para guardar los días de diferencia
                             const siguienteFechaMap = {}; // Para guardar la predicción de fecha
                             const perfilDiasHabilesMap = {}; // Si sólo se mueve entre semana, y hacia dónde recorre
+                            const anclasMap = {}; // Días del mes del patrón, cuando predicen mejor que los días corridos
                             for (const catId in registrosPorCat) {
 
                             // --- NUEVA CONDICIONAL DE EXCLUSIÓN TOTAL ---
@@ -5438,24 +5616,45 @@
                             const perfil = perfilDiasHabiles(registrosPorCat[catId]);
                             perfilDiasHabilesMap[catId] = perfil;
 
-                            const proxFecha = new Date(ultimaFecha);
-                            proxFecha.setDate(proxFecha.getDate() + Math.round(avgIntervalReal));
+                            // Los días corridos se desfasan del calendario: una quincena de 15 días acaba
+                            // adelantándose al 15 y al fin de mes. Si el historial sostiene un día del mes
+                            // fijo y predice mejor que los días, manda el ancla.
+                            const paso = Math.round(avgIntervalReal);
+                            const anclas = elegirAnclasRecurrencia(registrosPorCat[catId], paso, perfil);
+                            anclasMap[catId] = anclas;
+
+                            // El avance de una repetición a la siguiente depende del modelo que ganó. En el
+                            // de días el paso se cuenta siempre sobre la fecha sin recorrer, para que el
+                            // ajuste de fin de semana no se vaya acumulando al encadenar varias.
+                            let cursor = new Date(ultimaFecha);
+                            const avanzar = () => {
+                                if (anclas) {
+                                    const sig = siguienteAnclada(cursor, anclas, perfil, paso);
+                                    if (!sig) return null;
+                                    cursor = sig;
+                                    return sig;
+                                }
+                                cursor.setDate(cursor.getDate() + paso);
+                                return ajustarADiaHabil(cursor, perfil);
+                            };
+
+                            let proxFecha = avanzar();
 
                             // --- NUEVA LÓGICA DE OMISIÓN ---
                             const catActual = catData.find(c => String(c.id) === String(catId));
-                            if (catActual && catActual.ignorar_hasta) {
-                            // Agregamos 'T00:00:00' para forzar que sea la fecha local exacta sin desfases de zona horaria
-                            const limiteIgnorar = new Date(catActual.ignorar_hasta + 'T00:00:00');
+                            if (catActual && catActual.ignorar_hasta && proxFecha) {
+                                // Agregamos 'T00:00:00' para forzar que sea la fecha local exacta sin desfases de zona horaria
+                                const limiteIgnorar = new Date(catActual.ignorar_hasta + 'T00:00:00');
 
-                            // Empujamos la fecha hacia adelante hasta que supere el límite que el usuario ignoró.
-                            // Se compara ya recorrida al día hábil, que es la fecha que se verá: si no, el
-                            // recorrido podría devolverla dentro del tramo que se pidió omitir.
-                            while (ajustarADiaHabil(proxFecha, perfil) <= limiteIgnorar) {
-                            proxFecha.setDate(proxFecha.getDate() + Math.round(avgIntervalReal));
-                            }
+                                // Empujamos la fecha hacia adelante hasta que supere el límite que el usuario ignoró.
+                                // El tope corta un tramo omitido absurdamente largo antes de colgar la pantalla.
+                                let vueltas = 0;
+                                while (proxFecha && proxFecha <= limiteIgnorar && vueltas++ < 500) {
+                                    proxFecha = avanzar();
+                                }
                             }
                             // -------------------------------
-                            siguienteFechaMap[catId] = ajustarADiaHabil(proxFecha, perfil);
+                            siguienteFechaMap[catId] = proxFecha;
                             }
                             }
                             }
@@ -5534,7 +5733,8 @@
                             esExactoRecurrencia: exactitudMap[cat.id] || false,
                             variacionMaxRecurrencia: variacionMaxMap[cat.id] || 0,
                             siguienteFechaRecurrencia: siguienteFechaMap[cat.id] || null,
-                            perfilDiasHabiles: perfilDiasHabilesMap[cat.id] || null
+                            perfilDiasHabiles: perfilDiasHabilesMap[cat.id] || null,
+                            anclasRecurrencia: anclasMap[cat.id] || null
                             };
                             });
 
@@ -6463,9 +6663,12 @@
                                                                                                 fechaIteracion.setHours(0, 0, 0, 0);
 
                                                                                                 while (fechaIteracion <= fechaLimiteProyeccion) {
-                                                                                                    // Cada repetición se recorre al día hábil sólo para mostrarse; el paso se sigue
-                                                                                                    // contando sobre la fecha sin recorrer, para que el ajuste no se acumule.
-                                                                                                    const fechaMostrada = ajustarADiaHabil(fechaIteracion, cat.perfilDiasHabiles);
+                                                                                                    // En el modelo de días la repetición se recorre al día hábil sólo para mostrarse,
+                                                                                                    // contando el paso sobre la fecha cruda para que el ajuste no se acumule. Las
+                                                                                                    // ancladas ya vienen recorridas de fábrica.
+                                                                                                    const fechaMostrada = cat.anclasRecurrencia
+                                                                                                        ? new Date(fechaIteracion)
+                                                                                                        : ajustarADiaHabil(fechaIteracion, cat.perfilDiasHabiles);
                                                                                                     const fString = fechaMostrada.toISOString().slice(0, 10);
                                                                                                     
                                                                                                     if (fechaMostrada > hoyProyeccion && (!inicio || fString >= inicio)) {
@@ -6490,7 +6693,15 @@
                                                             tipo: cat.tipo
                                                         });
                                                     }
-                                                    fechaIteracion.setDate(fechaIteracion.getDate() + cat.diasRecurrencia);
+                                                    // En el modelo anclado cada repetición se recalcula desde el mes, así que el
+                                                    // cursor avanza sobre la fecha ya recorrida; en el de días, sobre la cruda.
+                                                    if (cat.anclasRecurrencia) {
+                                                        const sig = siguienteOcurrencia(cat, fechaIteracion);
+                                                        if (!sig) break;
+                                                        fechaIteracion = sig;
+                                                    } else {
+                                                        fechaIteracion.setDate(fechaIteracion.getDate() + cat.diasRecurrencia);
+                                                    }
                                                     if (cat.diasRecurrencia <= 0) break;
                                                 }
                                             }
