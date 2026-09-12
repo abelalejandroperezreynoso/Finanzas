@@ -2553,6 +2553,90 @@
                     return fecha.toISOString().slice(0, 10);
                 }
 
+                // --- PREDICCIÓN EN DÍAS HÁBILES ---
+                // El patrón se mide en días corridos, así que una quincena de 15 días puede
+                // caer en sábado. Un sueldo o una renta no llegan en fin de semana: el pagador
+                // los recorre al viernes o al lunes, y el historial lo demuestra. Cuando una
+                // categoría nunca ha caído en fin de semana, su predicción tampoco debe hacerlo.
+
+                // Mínimo de registros para fiarse de que el hueco del fin de semana es del
+                // patrón y no de la casualidad: con menos, no caer en sábado siete veces
+                // seguidas es perfectamente posible por azar.
+                const MIN_REGISTROS_DIAS_HABILES = 8;
+                // Se tolera algún registro suelto en fin de semana —una fecha capturada a mano,
+                // un adelanto— sin perder la lectura de que el patrón es entre semana.
+                const MAX_PROPORCION_FIN_DE_SEMANA = 0.15;
+
+                // Lee del historial si la categoría se mueve sólo entre semana y, cuando toca
+                // recorrer una fecha, hacia qué lado suele hacerlo el que paga.
+                function perfilDiasHabiles(fechas) {
+                    const validas = (fechas || []).filter(f => f instanceof Date && !isNaN(f));
+                    if (validas.length < MIN_REGISTROS_DIAS_HABILES) return null;
+
+                    let finDeSemana = 0, viernes = 0, lunes = 0;
+                    validas.forEach(f => {
+                        const dia = f.getDay();
+                        if (dia === 0 || dia === 6) finDeSemana++;
+                        else if (dia === 5) viernes++;
+                        else if (dia === 1) lunes++;
+                    });
+
+                    if (finDeSemana / validas.length > MAX_PROPORCION_FIN_DE_SEMANA) return null;
+                    // Si el historial se acumula en viernes, este pagador adelanta; si se acumula
+                    // en lunes, atrasa. Empatados, se recorre al día hábil más cercano.
+                    return { prefiereAtras: viernes > lunes };
+                }
+
+                // Recorre la fecha al día hábil que le toca.
+                function ajustarADiaHabil(fecha, perfil) {
+                    if (!perfil) return new Date(fecha);
+
+                    const ajustada = new Date(fecha);
+                    const dia = ajustada.getDay();
+                    if (dia !== 0 && dia !== 6) return ajustada;
+
+                    // Sin preferencia marcada se va al día hábil más cercano: el sábado mira
+                    // al viernes y el domingo al lunes.
+                    const atrasPasos = dia === 6 ? -1 : -2;
+                    const adelantePasos = dia === 6 ? 2 : 1;
+                    let atras = perfil.prefiereAtras || dia === 6;
+
+                    if (atras) {
+                        const candidato = new Date(ajustada);
+                        candidato.setDate(candidato.getDate() + atrasPasos);
+                        // Retroceder sólo mientras no cruce al pasado: una predicción que aún
+                        // no vencía se leería como un cobro que se dejó pasar. Si la fecha ya
+                        // venía vencida de origen, no hay nada que proteger y manda el patrón.
+                        if (esAnteriorAHoy(candidato) && !esAnteriorAHoy(ajustada)) atras = false;
+                    }
+
+                    ajustada.setDate(ajustada.getDate() + (atras ? atrasPasos : adelantePasos));
+                    return ajustada;
+                }
+
+                // Nombre y racha de un patrón. Estaba escrito dos veces —lista y detalle— y las
+                // dos copias arrastraban el mismo plural de más: al número se le pegaba la
+                // terminación entera en vez de la "s", y salía "37 quincenaas seguidaas".
+                function describirRecurrencia(cat) {
+                    const dias = cat.diasRecurrencia;
+                    const n = cat.periodosRecurrencia;
+                    const s = n !== 1 ? 's' : '';
+
+                    if (dias >= 6 && dias <= 8) return { frecuencia: 'Semanal', racha: `${n} semana${s} seguida${s}` };
+                    if (dias >= 14 && dias <= 16) return { frecuencia: 'Quincenal', racha: `${n} quincena${s} seguida${s}` };
+                    if (dias >= 28 && dias <= 32) return { frecuencia: 'Mensual', racha: `${n} ${n !== 1 ? 'meses' : 'mes'} seguido${s}` };
+                    if (dias >= 360) return { frecuencia: 'Anual', racha: `${n} año${s} seguido${s}` };
+                    return { frecuencia: `Cada ~${dias} días`, racha: `${n} periodo${s} seguido${s}` };
+                }
+
+                function esAnteriorAHoy(fecha) {
+                    const hoy = new Date();
+                    hoy.setHours(0, 0, 0, 0);
+                    const sinHora = new Date(fecha);
+                    sinHora.setHours(0, 0, 0, 0);
+                    return sinHora < hoy;
+                }
+
                 function toggleSimulacionCategoria(idCat) {
                                 if (categoriasExcluidasSimulacion.has(String(idCat))) {
                                     categoriasExcluidasSimulacion.delete(String(idCat));
@@ -3006,22 +3090,7 @@
                         const colorTipo = obtenerColorCategoria(cat.tipo);
 
                         // Convertir la matemática en texto amigable y calcular racha adaptativa
-                        let frecuenciaTexto = `Cada ~${cat.diasRecurrencia} días`;
-                        let rachaTexto = `${cat.periodosRecurrencia} periodo${cat.periodosRecurrencia !== 1 ? 'os' : ''} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-
-                        if (cat.diasRecurrencia >= 6 && cat.diasRecurrencia <= 8) {
-                        frecuenciaTexto = "Semanal";
-                        rachaTexto = `${cat.periodosRecurrencia} semana${cat.periodosRecurrencia !== 1 ? 'as' : ''} seguida${cat.periodosRecurrencia !== 1 ? 'as' : ''}`;
-                        } else if (cat.diasRecurrencia >= 14 && cat.diasRecurrencia <= 16) {
-                        frecuenciaTexto = "Quincenal";
-                        rachaTexto = `${cat.periodosRecurrencia} quincena${cat.periodosRecurrencia !== 1 ? 'as' : ''} seguida${cat.periodosRecurrencia !== 1 ? 'as' : ''}`;
-                        } else if (cat.diasRecurrencia >= 28 && cat.diasRecurrencia <= 32) {
-                        frecuenciaTexto = "Mensual";
-                        rachaTexto = `${cat.periodosRecurrencia} ${cat.periodosRecurrencia !== 1 ? 'meses' : 'mes'} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-                        } else if (cat.diasRecurrencia >= 360) {
-                        frecuenciaTexto = "Anual";
-                        rachaTexto = `${cat.periodosRecurrencia} año${cat.periodosRecurrencia !== 1 ? 'os' : ''} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-                        }
+                        const { frecuencia: frecuenciaTexto, racha: rachaTexto } = describirRecurrencia(cat);
 
                         // Definimos el texto y el color del indicador de exactitud
                         const exactitudTexto = cat.esExactoRecurrencia ? "🎯 Exacto" : "〰️ Aproximado";
@@ -3397,11 +3466,7 @@
                             const colorTipo = obtenerColorCategoria(cat.tipo);
                             
                             // Recreamos los textos
-                            let frecuenciaTexto = `Cada ~${cat.diasRecurrencia} días`;
-                            if (cat.diasRecurrencia >= 6 && cat.diasRecurrencia <= 8) frecuenciaTexto = "Semanal";
-                            else if (cat.diasRecurrencia >= 14 && cat.diasRecurrencia <= 16) frecuenciaTexto = "Quincenal";
-                            else if (cat.diasRecurrencia >= 28 && cat.diasRecurrencia <= 32) frecuenciaTexto = "Mensual";
-                            else if (cat.diasRecurrencia >= 360) frecuenciaTexto = "Anual";
+                            const { frecuencia: frecuenciaTexto, racha: rachaTextoModal } = describirRecurrencia(cat);
 
                             const exactitudTexto = cat.esExactoRecurrencia ? "🎯 Exacto" : "〰️ Aproximado";
                             const exactitudColor = cat.esExactoRecurrencia ? "#3ecf8e" : "#f39c12";
@@ -3411,17 +3476,6 @@
                             document.getElementById('infoRecNombre').style.color = colorTipo;
                             document.getElementById('infoRecTipo').textContent = `Tipo: ${cat.tipo}`;
                             
-                            // NUEVO: Calcular la racha con el formato adaptativo también para el modal
-                                        let rachaTextoModal = `${cat.periodosRecurrencia} periodo${cat.periodosRecurrencia !== 1 ? 'os' : ''} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-                                        if (cat.diasRecurrencia >= 6 && cat.diasRecurrencia <= 8) {
-                                            rachaTextoModal = `${cat.periodosRecurrencia} semana${cat.periodosRecurrencia !== 1 ? 'as' : ''} seguida${cat.periodosRecurrencia !== 1 ? 'as' : ''}`;
-                                        } else if (cat.diasRecurrencia >= 14 && cat.diasRecurrencia <= 16) {
-                                            rachaTextoModal = `${cat.periodosRecurrencia} quincena${cat.periodosRecurrencia !== 1 ? 'as' : ''} seguida${cat.periodosRecurrencia !== 1 ? 'as' : ''}`;
-                                        } else if (cat.diasRecurrencia >= 28 && cat.diasRecurrencia <= 32) {
-                                            rachaTextoModal = `${cat.periodosRecurrencia} ${cat.periodosRecurrencia !== 1 ? 'meses' : 'mes'} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-                                        } else if (cat.diasRecurrencia >= 360) {
-                                            rachaTextoModal = `${cat.periodosRecurrencia} año${cat.periodosRecurrencia !== 1 ? 'os' : ''} seguido${cat.periodosRecurrencia !== 1 ? 'os' : ''}`;
-                                        }
 
                                         document.getElementById('infoRecFrecuencia').textContent = `⏱️ ${frecuenciaTexto} (~${cat.diasRecurrencia} días)`;
                                         document.getElementById('infoRecExactitud').textContent = exactitudTexto;
@@ -5321,6 +5375,7 @@
                             const exactitudMap = {}; // Para guardar si es exacto o aproximado
                             const variacionMaxMap = {}; // NUEVO: Para guardar los días de diferencia
                             const siguienteFechaMap = {}; // Para guardar la predicción de fecha
+                            const perfilDiasHabilesMap = {}; // Si sólo se mueve entre semana, y hacia dónde recorre
                             for (const catId in registrosPorCat) {
 
                             // --- NUEVA CONDICIONAL DE EXCLUSIÓN TOTAL ---
@@ -5378,6 +5433,11 @@
                             exactitudMap[catId] = variacionMax <= 4;
                             variacionMaxMap[catId] = variacionMax;
 
+                            // El patrón cuenta días corridos; el calendario del que paga, no. Si esta
+                            // categoría nunca ha caído en fin de semana, su predicción tampoco debe.
+                            const perfil = perfilDiasHabiles(registrosPorCat[catId]);
+                            perfilDiasHabilesMap[catId] = perfil;
+
                             const proxFecha = new Date(ultimaFecha);
                             proxFecha.setDate(proxFecha.getDate() + Math.round(avgIntervalReal));
 
@@ -5387,13 +5447,15 @@
                             // Agregamos 'T00:00:00' para forzar que sea la fecha local exacta sin desfases de zona horaria
                             const limiteIgnorar = new Date(catActual.ignorar_hasta + 'T00:00:00');
 
-                            // Empujamos la fecha hacia adelante hasta que supere el límite que el usuario ignoró
-                            while (proxFecha <= limiteIgnorar) {
+                            // Empujamos la fecha hacia adelante hasta que supere el límite que el usuario ignoró.
+                            // Se compara ya recorrida al día hábil, que es la fecha que se verá: si no, el
+                            // recorrido podría devolverla dentro del tramo que se pidió omitir.
+                            while (ajustarADiaHabil(proxFecha, perfil) <= limiteIgnorar) {
                             proxFecha.setDate(proxFecha.getDate() + Math.round(avgIntervalReal));
                             }
                             }
                             // -------------------------------
-                            siguienteFechaMap[catId] = proxFecha;
+                            siguienteFechaMap[catId] = ajustarADiaHabil(proxFecha, perfil);
                             }
                             }
                             }
@@ -5471,7 +5533,8 @@
                             periodosRecurrencia: periodosMap[cat.id] || 0,
                             esExactoRecurrencia: exactitudMap[cat.id] || false,
                             variacionMaxRecurrencia: variacionMaxMap[cat.id] || 0,
-                            siguienteFechaRecurrencia: siguienteFechaMap[cat.id] || null
+                            siguienteFechaRecurrencia: siguienteFechaMap[cat.id] || null,
+                            perfilDiasHabiles: perfilDiasHabilesMap[cat.id] || null
                             };
                             });
 
@@ -6400,9 +6463,12 @@
                                                                                                 fechaIteracion.setHours(0, 0, 0, 0);
 
                                                                                                 while (fechaIteracion <= fechaLimiteProyeccion) {
-                                                                                                    const fString = fechaIteracion.toISOString().slice(0, 10);
+                                                                                                    // Cada repetición se recorre al día hábil sólo para mostrarse; el paso se sigue
+                                                                                                    // contando sobre la fecha sin recorrer, para que el ajuste no se acumule.
+                                                                                                    const fechaMostrada = ajustarADiaHabil(fechaIteracion, cat.perfilDiasHabiles);
+                                                                                                    const fString = fechaMostrada.toISOString().slice(0, 10);
                                                                                                     
-                                                                                                    if (fechaIteracion > hoyProyeccion && (!inicio || fString >= inicio)) {
+                                                                                                    if (fechaMostrada > hoyProyeccion && (!inicio || fString >= inicio)) {
 
                                                                                                         if (!mapaFuturo[fString]) {
                                                                                                             mapaFuturo[fString] = { fecha: fString, ingresos: 0, gastos: 0, esFuturo: true, movimientos: [] };
