@@ -208,12 +208,6 @@
             .lista-items li.mov-nuevo { animation: none; }
         }
 
-        /* Animaciones de la tarjeta de análisis */
-        @keyframes aparecerAnalisis { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes puntosPensando { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
-        .puntos-pensando::after { content: '...'; animation: puntosPensando 1.2s steps(1) infinite; }
-        #contenidoAnalisisIA p:last-child { margin-bottom: 0 !important; }
-
         .dashboard-menu {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -1390,21 +1384,6 @@
         </div>
     </div>
     <!-- FIN NUEVA TARJETA DE OBJETIVOS -->
-
-    <!-- INICIO TARJETA DE ANÁLISIS -->
-    <!-- Va plegada: es un texto largo y va al final, después de los objetivos, para que
-         lo primero que se vea al abrir la app sigan siendo las cifras y las gráficas. -->
-    <div class="card" id="cardAnalisisIA" style="display: none; padding: 0; margin-bottom: 15px; background: #000000;">
-        <div style="background: #131313; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px;">
-            <button id="btnToggleAnalisisIA" onclick="toggleAnalisisIA()" style="width: 100%; margin: 0; padding: 0; background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 9px; text-align: left;">
-                <div style="width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #3ecf8e, #3abff8); display: flex; align-items: center; justify-content: center; font-size: 0.8em; flex-shrink: 0;">✨</div>
-                <strong style="color: #e8e8e8; font-size: 0.85em; flex: 1;">Análisis de tus finanzas</strong>
-                <span id="flechaAnalisisIA" style="color: #888; font-size: 1.1em; line-height: 1;">▼</span>
-            </button>
-            <div id="contenidoAnalisisIA" style="display: none; font-size: 0.88em; color: #c8c8c8; line-height: 1.65; margin-top: 10px;"></div>
-        </div>
-    </div>
-    <!-- FIN TARJETA DE ANÁLISIS -->
 
             </div>
 
@@ -2602,12 +2581,6 @@
 
                 // Modo de visualización de la gráfica principal: 'balance' (diario) o 'mensual' (barras por mes)
                 let modoGrafica = localStorage.getItem('modoGrafica') || 'balance';
-
-                // Porcentaje del ingreso que se aspira a dejar libre. Es el listón contra el que el
-                // análisis mide el periodo, así que lo elige el usuario y se recuerda entre sesiones.
-                const MARGENES_OBJETIVO = [10, 20, 30, 40, 50, 60];
-                let margenObjetivo = parseInt(localStorage.getItem('margenObjetivo'), 10);
-                if (!MARGENES_OBJETIVO.includes(margenObjetivo)) margenObjetivo = 20;
 
                 // Los gastos recurrentes no son un tipo de categoría sino un patrón detectado, así que llevan
                 // su propio color: un rojo apagado que los emparenta con el gasto sin confundirse con él.
@@ -7348,8 +7321,6 @@
                                     const registro = {
                                         ym, ingresos: 0, gastos: 0, destacados: {},
                                         gastosPorCategoria: {}, ingresosPorCategoria: {},
-                                        // Qué categorías con patrón participaron realmente en el mes
-                                        catsIngresoRecurrente: new Set(), catsGastoRecurrente: new Set(),
                                         // Espejo de los acumuladores anteriores con sólo la parte que aún no ocurre
                                         gastoRecurrenteProyectado: 0, ingresosProyectados: 0, destacadosProyectados: {}
                                     };
@@ -7365,7 +7336,6 @@
                                     .filter(c => c.tipo === tipo && c.diasRecurrencia > 0)
                                     .map(c => String(c.id)));
                                 const gastosRecurrentes = conPatron('gasto');
-                                const ingresosRecurrentes = conPatron('ingreso');
 
                                 // 1. Agrupar los datos diarios por mes (clave 'YYYY-MM')
                                 const mapaMeses = {};
@@ -7486,7 +7456,6 @@
                                     Object.keys(m.gastosPorCategoria).forEach(id => {
                                         if (gastosRecurrentes.has(id)) {
                                             recurrenteHistorico += m.gastosPorCategoria[id];
-                                            m.catsGastoRecurrente.add(id);
                                         }
                                     });
 
@@ -7502,477 +7471,9 @@
                                         m.corrienteIngreso
                                     ));
                                     m.gastoRecurrentePorOcurrir = Math.min(m.gastoRecurrenteProyectado, m.gastoRecurrente);
-
-                                    // Mismo reparto del lado del ingreso, para poder hablar del mes que se está
-                                    // viendo en lugar de un ritmo mensual teórico
-                                    let ingresoRecurrenteHistorico = 0;
-                                    Object.keys(m.ingresosPorCategoria).forEach(id => {
-                                        if (ingresosRecurrentes.has(id)) {
-                                            ingresoRecurrenteHistorico += m.ingresosPorCategoria[id];
-                                            m.catsIngresoRecurrente.add(id);
-                                        }
-                                    });
-
-                                    // Lo que ya pasó de verdad en el mes. El mes en curso mezcla movimientos
-                                    // registrados con proyección, y hay lecturas —el análisis escrito— que sólo
-                                    // deben apoyarse en lo primero.
-                                    const ocurrido = (t, direccion) => m.destacados[t.tipo][direccion] - m.destacadosProyectados[t.tipo][direccion];
-                                    const entradasDestacadasOcurridas = TIPOS_DESTACADOS_GRAFICA.reduce((acc, t) => acc + ocurrido(t, 'entradas'), 0);
-                                    const salidasDestacadasOcurridas = TIPOS_DESTACADOS_GRAFICA.reduce((acc, t) => acc + ocurrido(t, 'salidas'), 0);
-
-                                    m.ingresoRecurrenteOcurrido = Math.min(
-                                        ingresoRecurrenteHistorico,
-                                        m.corrienteIngreso - m.corrienteIngresoProyectado
-                                    );
-                                    m.gastoRecurrenteOcurrido = m.gastoRecurrente - m.gastoRecurrentePorOcurrir;
-
-                                    m.ingresosOcurridos = (m.corrienteIngreso - m.corrienteIngresoProyectado) + entradasDestacadasOcurridas;
-                                    m.gastosOcurridos = m.gastoRecurrenteOcurrido + m.gastoVariable + salidasDestacadasOcurridas;
                                 });
 
                                 return meses;
-                            }
-
-                            // Redacta en lenguaje natural un análisis de los meses que alimentan la gráfica.
-                            // Devuelve un arreglo de párrafos ya con formato, o null si no hay nada que contar.
-                            function generarResumenFinanciero(meses) {
-                                // Todo el análisis se apoya en lo que ya ocurrió: el mes en curso trae proyección
-                                // y contarla sería afirmar que ya recibiste o gastaste algo que no ha pasado.
-                                const historicos = (meses || []).filter(m => !m.esFuturo && (m.ingresosOcurridos > 0 || m.gastosOcurridos > 0));
-                                if (historicos.length === 0) return null;
-
-                                const VERDE = '#3ecf8e', ROJO = '#ff5c5c', AMBAR = '#f39c12', CLARO = '#ffffff';
-                                const destacar = (texto, color) => `<strong style="color: ${color};">${texto}</strong>`;
-                                const dinero = (monto) => `${fMoneda(Math.abs(monto))}`;
-                                const sumar = (lista, obtener) => lista.reduce((acc, m) => acc + obtener(m), 0);
-                                const nombreMes = (m) => {
-                                    const [a, mm] = m.ym.split('-');
-                                    return `${NOMBRES_MESES[parseInt(mm, 10) - 1].toLowerCase()} de ${a}`;
-                                };
-                                const nombreCategoria = (id) => {
-                                    const cat = datosCategorias.find(c => String(c.id) === String(id));
-                                    return cat ? cat.nombre : 'Sin categoría';
-                                };
-                                // Suma el gasto de cada categoría a lo largo de varios meses
-                                const gastoPorCategoria = (lista) => {
-                                    const acumulado = {};
-                                    lista.forEach(m => {
-                                        Object.keys(m.gastosPorCategoria || {}).forEach(id => {
-                                            acumulado[id] = (acumulado[id] || 0) + m.gastosPorCategoria[id];
-                                        });
-                                    });
-                                    return acumulado;
-                                };
-                                const mayoresGastos = (acumulado, cantidad) => Object.keys(acumulado)
-                                    .map(id => ({ id, monto: acumulado[id] }))
-                                    .filter(x => x.monto > 0)
-                                    .sort((a, b) => b.monto - a.monto)
-                                    .slice(0, cantidad);
-
-                                // Reparto de un tipo destacado descontando su parte proyectada
-                                const destacadoOcurrido = (m, tipo, direccion) =>
-                                    m.destacados[tipo][direccion] - m.destacadosProyectados[tipo][direccion];
-
-                                const totalIngresos = sumar(historicos, m => m.ingresosOcurridos);
-                                const totalGastos = sumar(historicos, m => m.gastosOcurridos);
-                                const flujo = totalIngresos - totalGastos;
-                                const tasaAhorro = totalIngresos > 0 ? (flujo / totalIngresos) * 100 : 0;
-
-                                // Cada bloque va con un título corto para poder hojear la tarjeta
-                                const parrafos = [];
-                                const agregar = (titulo, texto, extra) => parrafos.push(Object.assign({ titulo, texto }, extra));
-
-                                // 1. Panorama del periodo
-                                const periodo = historicos.length === 1
-                                    ? `En ${nombreMes(historicos[0])}`
-                                    : `Entre ${nombreMes(historicos[0])} y ${nombreMes(historicos[historicos.length - 1])}`;
-                                agregar('Resumen', `${periodo} recibiste ${destacar(dinero(totalIngresos), VERDE)} y gastaste ${destacar(dinero(totalGastos), ROJO)}, con un flujo neto de ${destacar((flujo >= 0 ? '+' : '−') + dinero(flujo), flujo >= 0 ? VERDE : ROJO)}.`);
-
-                                // 2. Qué tan holgado es ese margen
-                                if (totalIngresos > 0) {
-                                    const pct = tasaAhorro.toFixed(1) + '%';
-                                    if (tasaAhorro >= 30) {
-                                        agregar('Margen', `Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen amplio que te deja bastante holgura para imprevistos.`);
-                                    } else if (tasaAhorro >= 15) {
-                                        agregar('Margen', `Conservas el ${destacar(pct, VERDE)} de lo que ingresa, un margen sano.`);
-                                    } else if (tasaAhorro >= 5) {
-                                        agregar('Margen', `Conservas el ${destacar(pct, AMBAR)} de lo que ingresa. Es positivo, aunque un gasto inesperado se llevaría buena parte de ese colchón.`);
-                                    } else if (tasaAhorro >= 0) {
-                                        agregar('Margen', `Apenas conservas el ${destacar(pct, AMBAR)} de lo que ingresa: prácticamente gastas todo lo que entra.`);
-                                    } else {
-                                        agregar('Margen', `Gastaste un ${destacar(Math.abs(tasaAhorro).toFixed(1) + '%', ROJO)} más de lo que ingresó, así que en este periodo estuviste consumiendo saldo previo.`);
-                                    }
-                                }
-
-                                // 3. Lo recurrente del periodo que se está viendo: cuánto entró con patrón y
-                                // cuánto ya estaba comprometido. Son las cifras reales de esos meses, no un
-                                // ritmo teórico del catálogo, que contradiría a la propia gráfica.
-                                const unSoloMes = historicos.length === 1;
-
-                                // Para hablar de un ritmo mensual descartamos el mes en curso, que va a medias
-                                // y hundiría el promedio. Si es lo único que hay, describimos ese mes tal cual.
-                                const ymEnCurso = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
-                                const mesesCerrados = historicos.filter(m => m.ym !== ymEnCurso);
-                                const baseRitmo = (historicos.length > 1 && mesesCerrados.length > 0) ? mesesCerrados : historicos;
-
-                                const promedioMensual = (obtener) => sumar(baseRitmo, obtener) / baseRitmo.length;
-                                const unirCategorias = (obtener) => {
-                                    const juntas = new Set();
-                                    baseRitmo.forEach(m => (obtener(m) || new Set()).forEach(id => juntas.add(id)));
-                                    return [...juntas];
-                                };
-
-                                const ingresoRecurrente = {
-                                    total: promedioMensual(m => m.ingresoRecurrenteOcurrido || 0),
-                                    categorias: unirCategorias(m => m.catsIngresoRecurrente).map(nombreCategoria)
-                                };
-                                ingresoRecurrente.cantidad = ingresoRecurrente.categorias.length;
-
-                                const recurrente = {
-                                    total: promedioMensual(m => m.gastoRecurrenteOcurrido || 0),
-                                    categorias: unirCategorias(m => m.catsGastoRecurrente).map(nombreCategoria)
-                                };
-                                recurrente.cantidad = recurrente.categorias.length;
-
-                                // Con un mes a la vista hablamos de ese mes; con varios, del promedio
-                                const alMes = unSoloMes ? '' : ' al mes';
-
-                                // El ingreso con patrón detectado describe mejor el mes típico que un promedio, que
-                                // se distorsiona con aguinaldos o bonos. El promedio queda solo como respaldo para
-                                // quien no tenga ingresos regulares.
-                                let ingresoMensual = ingresoRecurrente.total;
-                                let textoIngreso = '';
-
-                                if (ingresoMensual > 0) {
-                                    const fuente = ingresoRecurrente.cantidad <= 2
-                                        ? ` (${ingresoRecurrente.categorias.join(' y ')})`
-                                        : ` repartidos en ${ingresoRecurrente.cantidad} fuentes`;
-                                    textoIngreso = unSoloMes
-                                        ? `Ese mes, tus ingresos recurrentes sumaron ${destacar(dinero(ingresoMensual), VERDE)}${fuente}.`
-                                        : `Tus ingresos recurrentes promedian ${destacar(dinero(ingresoMensual), VERDE)} al mes${fuente}.`;
-                                } else {
-                                    // Sin patrón fijo caemos al promedio, con el mismo criterio sobre el mes en curso
-                                    const baseIngreso = baseRitmo;
-                                    ingresoMensual = sumar(baseIngreso, m => m.corrienteIngreso - m.corrienteIngresoProyectado) / baseIngreso.length;
-
-                                    if (ingresoMensual > 0) {
-                                        const aclaracion = baseIngreso.length < historicos.length ? ', sin contar el mes en curso' : '';
-                                        textoIngreso = unSoloMes
-                                            ? `No detecté un ingreso con patrón fijo: los ${destacar(dinero(ingresoMensual), VERDE)} de ese mes entraron sin repetirse.`
-                                            : `No detecté un ingreso con patrón fijo, así que voy por el promedio${aclaracion}: ${destacar(dinero(ingresoMensual), VERDE)} al mes.`;
-                                    }
-                                }
-
-                                if (ingresoMensual > 0 || recurrente.total > 0) {
-                                    const piezas = [];
-                                    if (textoIngreso) piezas.push(textoIngreso);
-
-                                    if (recurrente.total > 0) {
-                                        const plural = recurrente.cantidad === 1 ? '' : 's';
-                                        let frase = unSoloMes
-                                            ? `De salida, ${destacar(dinero(recurrente.total), ROJO)} se fueron en ${recurrente.cantidad} gasto${plural} recurrente${plural}`
-                                            : `De salida, ${destacar(dinero(recurrente.total), ROJO)} al mes ya están comprometidos en ${recurrente.cantidad} gasto${plural} recurrente${plural} detectado${plural}`;
-
-                                        if (ingresoMensual > 0) {
-                                            const porcentaje = (recurrente.total / ingresoMensual) * 100;
-                                            const libre = ingresoMensual - recurrente.total;
-                                            frase += `: el ${destacar(porcentaje.toFixed(0) + '%', porcentaje >= 70 ? ROJO : (porcentaje >= 50 ? AMBAR : VERDE))} de lo que entra.`;
-                                            frase += libre >= 0
-                                                ? ` Te quedan ${destacar(dinero(libre), VERDE)}${alMes} para todo lo demás.`
-                                                : ` Eso ya supera tu ingreso en ${destacar(dinero(libre), ROJO)} antes de cualquier otro gasto.`;
-                                        } else {
-                                            frase += '.';
-                                        }
-                                        piezas.push(frase);
-                                    }
-
-                                    agregar('Lo recurrente', piezas.join(' '));
-                                }
-
-                                // 4. Hacia dónde va el gasto: comparamos los meses recientes contra los anteriores
-                                if (historicos.length >= 4) {
-                                    const ventana = historicos.length >= 6 ? 3 : 2;
-                                    const recientes = historicos.slice(-ventana);
-                                    const previos = historicos.slice(-ventana * 2, -ventana);
-                                    const promedioReciente = sumar(recientes, m => m.gastosOcurridos) / recientes.length;
-                                    const promedioPrevio = sumar(previos, m => m.gastosOcurridos) / previos.length;
-
-                                    if (promedioPrevio > 0) {
-                                        const cambio = ((promedioReciente - promedioPrevio) / promedioPrevio) * 100;
-                                        if (Math.abs(cambio) < 5) {
-                                            agregar('Tendencia del gasto', `Tu gasto mensual se mantiene estable, rondando ${destacar(dinero(promedioReciente), CLARO)} al mes.`);
-                                        } else if (cambio > 0) {
-                                            const extraAnual = (promedioReciente - promedioPrevio) * 12;
-
-                                            // Qué categoría explica mejor el alza, comparando su gasto medio mensual
-                                            const medioPorCategoria = (lista) => {
-                                                const acumulado = gastoPorCategoria(lista);
-                                                Object.keys(acumulado).forEach(id => { acumulado[id] = acumulado[id] / lista.length; });
-                                                return acumulado;
-                                            };
-                                            const mediaReciente = medioPorCategoria(recientes);
-                                            const mediaPrevia = medioPorCategoria(previos);
-
-                                            let mayorAlza = null;
-                                            Object.keys(mediaReciente).forEach(id => {
-                                                const delta = mediaReciente[id] - (mediaPrevia[id] || 0);
-                                                if (!mayorAlza || delta > mayorAlza.delta) mayorAlza = { id, delta };
-                                            });
-
-                                            const detalleAlza = (mayorAlza && mayorAlza.delta > 0)
-                                                ? ` El mayor aumento viene de ${destacar(nombreCategoria(mayorAlza.id), CLARO)}: ${destacar('+' + dinero(mayorAlza.delta), ROJO)} más al mes.`
-                                                : '';
-
-                                            // Un salto enorme casi siempre es un movimiento puntual, y proyectarlo a
-                                            // doce meses daría una cifra alarmista que no significa nada.
-                                            const proyeccion = cambio < 100
-                                                ? ` De sostenerse ese ritmo, son unos ${destacar(dinero(extraAnual), ROJO)} adicionales al año.`
-                                                : ` Es un salto muy grande, así que conviene confirmar si fue algo puntual antes de darlo por tendencia.`;
-
-                                            agregar('Tendencia del gasto', `⚠️ Tus gastos vienen subiendo: los últimos ${ventana} meses promedian ${destacar(dinero(promedioReciente), ROJO)} al mes, un ${destacar('+' + cambio.toFixed(1) + '%', ROJO)} frente a los ${ventana} anteriores.${detalleAlza}${proyeccion}`);
-                                        } else {
-                                            agregar('Tendencia del gasto', `Vas en buena dirección: tu gasto mensual bajó un ${destacar(Math.abs(cambio).toFixed(1) + '%', VERDE)}, de ${dinero(promedioPrevio)} a ${destacar(dinero(promedioReciente), VERDE)} al mes.`);
-                                        }
-                                    }
-                                }
-
-                                // 5. Meses que se salen de la norma
-                                if (historicos.length >= 3) {
-                                    const promedioGasto = totalGastos / historicos.length;
-                                    const mesCaro = historicos.reduce((a, b) => b.gastosOcurridos > a.gastosOcurridos ? b : a);
-                                    if (promedioGasto > 0 && mesCaro.gastosOcurridos > promedioGasto * 1.3) {
-                                        const exceso = ((mesCaro.gastosOcurridos / promedioGasto) - 1) * 100;
-                                        const culpables = mayoresGastos(mesCaro.gastosPorCategoria || {}, 3);
-
-                                        let explicacion = ' No hay movimientos con categoría que expliquen el salto.';
-                                        if (culpables.length > 0) {
-                                            const pesoPrimero = mesCaro.gastosOcurridos > 0 ? (culpables[0].monto / mesCaro.gastosOcurridos) * 100 : 0;
-                                            // Si una sola categoría se lleva la mayoría, la señalamos sin diluirla entre otras
-                                            if (culpables.length === 1 || pesoPrimero >= 55) {
-                                                explicacion = ` Lo disparó ${destacar(nombreCategoria(culpables[0].id), CLARO)}, con ${destacar(dinero(culpables[0].monto), ROJO)}: el ${pesoPrimero.toFixed(0)}% del gasto de ese mes.`;
-                                            } else {
-                                                const listado = culpables.map(c => `${destacar(nombreCategoria(c.id), CLARO)} (${dinero(c.monto)})`);
-                                                const ultimo = listado.pop();
-                                                explicacion = ` Lo que más pesó fue ${listado.join(', ')} y ${ultimo}.`;
-                                            }
-                                        }
-
-                                        agregar('Mes más caro', `El mes más caro fue ${nombreMes(mesCaro)}, con ${destacar(dinero(mesCaro.gastosOcurridos), ROJO)}: un ${exceso.toFixed(0)}% por encima de tu promedio.${explicacion}`);
-                                    }
-                                }
-
-                                // 6. Inversión y deuda, que no son gasto corriente
-                                const netoInversion = sumar(historicos, m => destacadoOcurrido(m, 'inversion', 'salidas') - destacadoOcurrido(m, 'inversion', 'entradas'));
-                                if (netoInversion > 0) {
-                                    const pctInversion = totalIngresos > 0 ? ` (el ${((netoInversion / totalIngresos) * 100).toFixed(1)}% de lo que ingresó)` : '';
-                                    agregar('Inversión', `Destinaste ${destacar(dinero(netoInversion), CLARO)} netos a inversión${pctInversion}. Ese dinero salió de tus cuentas, pero sigue siendo tuyo.`);
-                                } else if (netoInversion < 0) {
-                                    agregar('Inversión', `Retiraste ${destacar(dinero(netoInversion), CLARO)} netos de tus inversiones durante el periodo.`);
-                                }
-
-                                const deudaAdquirida = sumar(historicos, m => destacadoOcurrido(m, 'deuda', 'entradas'));
-                                const deudaPagada = sumar(historicos, m => destacadoOcurrido(m, 'deuda', 'salidas'));
-                                if (deudaAdquirida > 0 || deudaPagada > 0) {
-                                    const netoDeuda = deudaPagada - deudaAdquirida;
-                                    if (netoDeuda > 0) {
-                                        agregar('Deuda', `En deudas pagaste ${destacar(dinero(deudaPagada), AMBAR)} y adquiriste ${dinero(deudaAdquirida)}, así que la redujiste en ${destacar(dinero(netoDeuda), VERDE)}.`);
-                                    } else if (netoDeuda < 0) {
-                                        agregar('Deuda', `Tu deuda creció ${destacar(dinero(netoDeuda), ROJO)} en el periodo: adquiriste ${dinero(deudaAdquirida)} y pagaste ${dinero(deudaPagada)}.`);
-                                    }
-                                }
-
-                                // 7. Lo que ya viene en camino. Incluye lo que le queda por ocurrir al mes en
-                                // curso, que los párrafos anteriores dejaron deliberadamente fuera.
-                                const porOcurrir = (meses || []).reduce((acc, m) =>
-                                    acc + (m.esFuturo ? m.gastos : (m.gastos - m.gastosOcurridos)), 0);
-
-                                if (porOcurrir > 0) {
-                                    agregar('Por venir', `Hacia adelante tienes ${destacar(dinero(porOcurrir), AMBAR)} en cargos recurrentes ya previstos.`);
-                                }
-
-                                // 8. Qué mover el próximo periodo. Se razona sobre el flujo corriente —lo que
-                                // entra menos el gasto recurrente y el variable—, dejando fuera inversión,
-                                // deuda y préstamos: no son dinero consumido sino cambios de bolsillo, y
-                                // meterlos aquí pediría recortes para compensar algo que no es un gasto.
-                                // Aconsejar sobre un periodo cerrado hace tiempo no sirve de nada, pero el mes
-                                // o el trimestre recién terminados sí son terreno para decidir el siguiente.
-                                // Un mes de desfase cubre esos casos y deja fuera el historial antiguo.
-                                const distanciaEnMeses = (ymDesde, ymHasta) => {
-                                    const [a1, m1] = ymDesde.split('-').map(Number);
-                                    const [a2, m2] = ymHasta.split('-').map(Number);
-                                    return (a2 * 12 + m2) - (a1 * 12 + m1);
-                                };
-                                const periodoVigente = meses.length > 0 &&
-                                    distanciaEnMeses(meses[meses.length - 1].ym, ymEnCurso) <= 1;
-                                const MARGEN_OBJETIVO = margenObjetivo / 100;
-                                const gastoVariableMes = promedioMensual(m => m.gastoVariable || 0);
-                                const gastoCorrienteMes = recurrente.total + gastoVariableMes;
-
-                                if (periodoVigente && ingresoMensual > 0 && gastoCorrienteMes > 0) {
-                                    const flujoCorriente = ingresoMensual - gastoCorrienteMes;
-                                    const margenCorriente = flujoCorriente / ingresoMensual;
-                                    const cadaMes = unSoloMes ? '' : ' al mes';
-
-                                    // Un porcentaje sobre "lo recurrente" no se puede ejecutar: nadie recorta
-                                    // un agregado. Bajamos a categorías concretas con su media mensual, que
-                                    // sí se pueden mirar una por una. Sólo las de tipo gasto: recortar una
-                                    // inversión o un pago de deuda no mejora nada, sólo mueve el dinero.
-                                    const idsDeGasto = new Set(datosCategorias.filter(c => c.tipo === 'gasto').map(c => String(c.id)));
-                                    const medioPorCategoria = {};
-                                    baseRitmo.forEach(m => {
-                                        Object.keys(m.gastosPorCategoria || {}).forEach(id => {
-                                            if (!idsDeGasto.has(id)) return;
-                                            medioPorCategoria[id] = (medioPorCategoria[id] || 0) + m.gastosPorCategoria[id] / baseRitmo.length;
-                                        });
-                                    });
-
-                                    const candidatos = Object.keys(medioPorCategoria)
-                                        .map(id => ({
-                                            id,
-                                            monto: medioPorCategoria[id],
-                                            fijo: baseRitmo.some(m => m.catsGastoRecurrente.has(id))
-                                        }))
-                                        .filter(c => c.monto > 0)
-                                        .sort((a, b) => b.monto - a.monto);
-
-                                    const listar = (nombres) => nombres.length === 1
-                                        ? nombres[0]
-                                        : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
-
-                                    // El grueso del gasto no está en una sola categoría, así que enseñamos las
-                                    // que más pesan —fijas y variables mezcladas, ordenadas por importe— en vez
-                                    // de señalar sólo la mayor. Es la lista por donde se empieza a mirar.
-                                    const frente = candidatos.slice(0, 3);
-                                    const sumaFrente = frente.reduce((acc, c) => acc + c.monto, 0);
-                                    const dondeSeVa = frente.length > 0
-                                        ? ` Donde más se va: ${listar(frente.map(c => `${destacar(nombreCategoria(c.id), CLARO)} ${dinero(c.monto)}`))}.`
-                                        : '';
-                                    // Con una sola categoría el "a las dos/tres" sobra, y ya va nombrada arriba
-                                    const aCuantas = frente.length === 1 ? '' : ` a ${frente.length === 2 ? 'las dos' : 'las tres'}`;
-
-                                    // El margen mide sólo el gasto corriente, así que no cuadra con el flujo
-                                    // del mes que se ve justo encima cuando hubo inversión, deuda o préstamos.
-                                    // Nombramos los que aparecieron para que la diferencia no parezca un error.
-                                    const NOMBRE_CORTO_TIPO = { inversion: 'inversión', deuda: 'deuda', prestamo: 'préstamos' };
-                                    const noCorrientes = TIPOS_DESTACADOS_GRAFICA
-                                        .filter(t => historicos.some(m =>
-                                            destacadoOcurrido(m, t.tipo, 'entradas') > 0 || destacadoOcurrido(m, t.tipo, 'salidas') > 0))
-                                        .map(t => NOMBRE_CORTO_TIPO[t.tipo]);
-                                    const salvedad = noCorrientes.length > 0 ? ` corriente (sin contar ${listar(noCorrientes)})` : '';
-
-                                    // Un margen negativo como "-140%" no se lee; se dice con palabras
-                                    const posicion = margenCorriente < 0
-                                        ? `Tu gasto corriente se come todo lo que entra`
-                                        : `Estás en el ${destacar((margenCorriente * 100).toFixed(0) + '%', margenCorriente >= MARGEN_OBJETIVO ? VERDE : AMBAR)} de margen${salvedad}`;
-                                    const objetivoPct = destacar((MARGEN_OBJETIVO * 100).toFixed(0) + '%', VERDE);
-
-                                    if (margenCorriente < MARGEN_OBJETIVO) {
-                                        const falta = ingresoMensual * MARGEN_OBJETIVO - flujoCorriente;
-
-                                        // Proponer que una categoría baje a casi cero no es un consejo: nadie
-                                        // deja la renta en nada. Sólo la damos por suficiente si el recorte
-                                        // le deja la mayor parte en pie.
-                                        const RECORTE_PLAUSIBLE = 0.6;
-                                        // Entre las que dan de sí, la variable pesa menos en la vida diaria
-                                        // que renegociar un contrato, así que va primero.
-                                        const puedenSolas = candidatos.filter(c => falta <= c.monto * RECORTE_PLAUSIBLE);
-                                        const elegida = puedenSolas.find(c => !c.fijo) || puedenSolas[0];
-
-                                        let accion;
-                                        if (elegida) {
-                                            const nuevoTope = elegida.monto - falta;
-                                            const facilidad = elegida.fijo
-                                                ? ' Es un gasto fijo, así que toca renegociarlo o darlo de baja.'
-                                                : ' Es gasto variable: se decide día a día, no en un contrato.';
-                                            accion = ` Con bajar ${destacar(nombreCategoria(elegida.id), CLARO)} a ${destacar(dinero(nuevoTope), VERDE)}${cadaMes} lo cubres entero.${facilidad}`;
-                                        } else if (frente.length > 0 && falta <= sumaFrente) {
-                                            accion = ` Ninguna lo cubre sola sin quedarse en nada: ${frente.length === 1 ? 'bajándole' : 'bajándoles'} un ${destacar((falta / sumaFrente * 100).toFixed(0) + '%', AMBAR)}${aCuantas} llegas.`;
-                                        } else if (frente.length > 0) {
-                                            accion = ` Ni vaciando esas ${frente.length === 1 ? 'categoría' : 'categorías'} llegarías: el resto tendría que venir de más ingreso.`;
-                                        } else {
-                                            accion = ` No hay categorías de gasto en el periodo, así que la única vía es subir el ingreso.`;
-                                        }
-
-                                        const apertura = margenCorriente < 0
-                                            ? `${posicion}: para dejar libre el ${objetivoPct} te faltan ${destacar(dinero(falta), AMBAR)}${cadaMes}.`
-                                            : `${posicion} y buscas el ${objetivoPct}: te faltan ${destacar(dinero(falta), AMBAR)}${cadaMes}.`;
-
-                                        agregar('Cómo mejorar', `${apertura}${dondeSeVa}${accion}`, { objetivo: true });
-                                    } else if (frente.length > 0) {
-                                        // Ya cumple el listón, así que la cifra útil no es el sobrante sino
-                                        // cuánto movería el margen un recorte razonable sobre lo que más pesa.
-                                        const ahorro = sumaFrente * 0.10;
-                                        const margenConRecorte = ((flujoCorriente + ahorro) / ingresoMensual) * 100;
-
-                                        agregar('Cómo mejorar', `${posicion}, por encima del ${objetivoPct} que buscas.${dondeSeVa} ${frente.length === 1 ? 'Recortarle' : 'Recortarles'} un ${destacar('10%', VERDE)}${aCuantas} son ${destacar(dinero(ahorro), VERDE)}${cadaMes} más y te dejaría en el ${destacar(margenConRecorte.toFixed(0) + '%', VERDE)}.`, { objetivo: true });
-                                    } else {
-                                        agregar('Cómo mejorar', `${posicion}, por encima del ${objetivoPct} que buscas. No hay categorías de gasto que recortar, así que el paso siguiente es decidir dónde poner ese excedente.`, { objetivo: true });
-                                    }
-                                }
-
-                                return parrafos;
-                            }
-
-                            let temporizadorResumenIA = null;
-                            let mesesUltimoAnalisis = null;
-
-                            // Cambiar el listón rehace sólo el texto: los datos del periodo no se tocan
-                            function cambiarMargenObjetivo(valor) {
-                                const elegido = parseInt(valor, 10);
-                                if (!MARGENES_OBJETIVO.includes(elegido)) return;
-
-                                margenObjetivo = elegido;
-                                localStorage.setItem('margenObjetivo', margenObjetivo);
-                                if (mesesUltimoAnalisis) actualizarResumenIA(mesesUltimoAnalisis, true);
-                            }
-
-                            function actualizarResumenIA(meses, sinEspera = false) {
-                                const tarjeta = document.getElementById('cardAnalisisIA');
-                                const contenedor = document.getElementById('contenidoAnalisisIA');
-                                if (!tarjeta || !contenedor) return;
-
-                                mesesUltimoAnalisis = meses;
-                                if (temporizadorResumenIA) clearTimeout(temporizadorResumenIA);
-
-                                const parrafos = generarResumenFinanciero(meses);
-                                if (!parrafos || parrafos.length === 0) {
-                                    tarjeta.style.display = 'none';
-                                    return;
-                                }
-
-                                // El bloque marcado lleva debajo el selector del listón que él mismo usa,
-                                // para poder moverlo donde se lee su efecto y no en una pantalla aparte.
-                                const selectorObjetivo = () => `
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-                                        <span style="color: #777; font-size: 0.85em;">Margen objetivo</span>
-                                        <select onchange="cambiarMargenObjetivo(this.value)"
-                                                style="width: auto; margin: 0; padding: 4px 8px; font-size: 0.85em; background: #222; border: 1px solid #3a3a3a;">
-                                            ${MARGENES_OBJETIVO.map(v => `<option value="${v}" ${v === margenObjetivo ? 'selected' : ''}>${v}%</option>`).join('')}
-                                        </select>
-                                    </div>`;
-
-                                const pintar = () => {
-                                    contenedor.innerHTML = parrafos
-                                        .map((p, i) => `
-                                            <div style="margin: 0 0 14px 0; animation: aparecerAnalisis 0.35s ease-out ${i * 0.07}s both;">
-                                                <h4 style="margin: 0 0 3px 0; font-size: 0.7em; color: #777; text-transform: uppercase; letter-spacing: 1px; text-align: left; font-weight: bold;">${p.titulo}</h4>
-                                                <p style="margin: 0;">${p.texto}</p>
-                                                ${p.objetivo ? selectorObjetivo() : ''}
-                                            </div>`)
-                                        .join('');
-                                };
-
-                                tarjeta.style.display = 'block';
-
-                                // Al mover el selector el texto se rehace al vuelo; el estado de "pensando"
-                                // sólo tiene sentido la primera vez, cuando de verdad se están leyendo datos.
-                                if (sinEspera) {
-                                    pintar();
-                                    return;
-                                }
-
-                                contenedor.innerHTML = '<span style="color: #777;">Analizando tus movimientos<span class="puntos-pensando"></span></span>';
-                                temporizadorResumenIA = setTimeout(pintar, 450);
                             }
 
                             // Vista alternativa de la gráfica principal: barras de Ingresos vs Gastos agrupadas por mes,
@@ -7991,7 +7492,6 @@
                                 if (miGrafico) miGrafico.destroy();
 
                                 const meses = construirMesesDesglosados(datosGraf);
-                                actualizarResumenIA(meses);
 
                                 if (meses.length === 0) {
                                     if (balanceEl) balanceEl.textContent = '';
@@ -10046,10 +9546,9 @@
                                     return;
                                 }
 
-                                // El análisis y el mapa de categorías acompañan a la gráfica en ambos modos.
-                                // En la vista diaria no hay un mes señalado, así que el mapa abarca todo el periodo.
+                                // El mapa de categorías acompaña a la gráfica en ambos modos. En la vista
+                                // diaria no hay un mes señalado, así que el mapa abarca todo el periodo.
                                 const mesesDelPeriodo = construirMesesDesglosados(datosGraf);
-                                actualizarResumenIA(mesesDelPeriodo);
                                 renderizarTreemapCategorias(mesesDelPeriodo, null);
 
                                 if (datosGraf.length > 0) {
@@ -15282,21 +14781,6 @@
                             btn.innerHTML = '▼';
                             btn.style.color = '#888';
                             }
-                            }
-
-                            // El análisis nace plegado y sólo se abre a petición. Una vez abierto se queda así:
-                            // refrescar los datos reescribe el texto de dentro, no el estado del panel.
-                            function toggleAnalisisIA() {
-                                const contenedor = document.getElementById('contenidoAnalisisIA');
-                                const flecha = document.getElementById('flechaAnalisisIA');
-                                if (!contenedor) return;
-
-                                const abierto = contenedor.style.display !== 'none';
-                                contenedor.style.display = abierto ? 'none' : 'block';
-                                if (flecha) {
-                                    flecha.innerHTML = abierto ? '▼' : '▲';
-                                    flecha.style.color = abierto ? '#888' : '#ccc';
-                                }
                             }
 
                                                                                                                                                     // En los modales que caben en pantalla se bloquea el touchmove para que el
