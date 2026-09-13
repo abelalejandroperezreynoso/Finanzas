@@ -2159,16 +2159,27 @@
                                         return { valor: serie[i].cierre, cursor: i };
                                     }
 
-                                    // El estado del portafolio día a día, desde la primera compra hasta hoy.
+                                    // La ganancia accesible del portafolio, día a día, desde la primera compra.
                                     //
-                                    // Las posiciones se rehacen recorriendo tus movimientos en orden con las
-                                    // mismas reglas que usa la app para el saldo de hoy —las ventas salen a
-                                    // costo promedio, no FIFO—, de modo que el último punto de la curva es
-                                    // exactamente la cifra que ya enseña el resumen. Con otra convención, la
-                                    // gráfica y el resumen dirían dos verdades distintas del mismo día.
-                                    // Con una cuenta puesta sólo entran sus empresas, y la curva pasa a ser
-                                    // la de esa cuenta. Sin ella, el portafolio entero.
-                                    function serieHistoricaPortafolio(idCuenta) {
+                                    // Accesible es lo que podrías vender hoy sin realizar una pérdida. Las compras
+                                    // se recorren de la más vieja a la más nueva y se van sumando mientras cada una
+                                    // vaya en ganancia; la primera que vaya en pérdida corta la cuenta, porque el
+                                    // broker saca las acciones por orden de compra y vender más allá de ella
+                                    // obligaría a realizarla. Es la misma regla que la vista "Accesible" del mapa y
+                                    // que el "Total accesible" de la ficha, sólo que rehecha para cada día.
+                                    //
+                                    // Lo que se dibuja es la diferencia —valor menos costo— de esas compras: lo que
+                                    // ese día te habrías podido embolsar sin perder. Por construcción nunca baja de
+                                    // cero: el día que ninguna compra sale en ganancia, no hay nada que sacar.
+                                    //
+                                    // La caja de dólares se queda fuera a propósito. Es dinero parado, no
+                                    // portafolio: metida aquí, un retiro se leería como una caída y una aportación
+                                    // como una subida, cuando el mercado no se movió.
+                                    //
+                                    // Las ventas salen de las compras más viejas, y no a costo promedio como la
+                                    // curva de valor que había antes: para saber qué queda accesible hace falta
+                                    // seguir cada compra por separado, que es de lo que va la regla.
+                                    function serieHistoricaAccesible(idCuenta) {
                                         const enPesos = monedaCurvaPortafolio === 'mxn';
                                         const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                             && (!idCuenta || String(c.cuenta_id) === String(idCuenta)));
@@ -2186,30 +2197,27 @@
 
                                         if (movs.length === 0) return null;
 
-                                        // Estado vivo por categoría: cuántas acciones quedan y lo que costaron.
-                                        const pos = {};
-                                        cats.forEach(c => { pos[String(c.id)] = { acciones: 0, costoMxn: 0, costoUsd: 0 }; });
+                                        // Las compras vivas de cada empresa, en el orden en que se hicieron
+                                        const lotes = {};
+                                        cats.forEach(c => { lotes[String(c.id)] = []; });
 
                                         const aplicar = (m) => {
-                                            const p = pos[String(m.cat.id)];
+                                            const lista = lotes[String(m.cat.id)];
                                             const acciones = parseFloat(m.u.cantidad_acciones) || 0;
 
                                             if (esCompraInversion(m.u)) {
-                                                p.acciones += acciones;
-                                                p.costoMxn += costoMxnDeLote(m.u);
-                                                p.costoUsd += costoUsdDeLote(m.u);
+                                                lista.push({ compradas: acciones, vivas: acciones, costoMxn: costoMxnDeLote(m.u) });
                                                 return;
                                             }
 
-                                            // Venta: se va la parte proporcional del costo, que es lo que hace
-                                            // la app en su cuenta principal.
-                                            const promedioMxn = p.acciones > 0 ? p.costoMxn / p.acciones : 0;
-                                            const promedioUsd = p.acciones > 0 ? p.costoUsd / p.acciones : 0;
-                                            const salen = Math.min(acciones, p.acciones);
-                                            p.acciones -= salen;
-                                            p.costoMxn -= salen * promedioMxn;
-                                            p.costoUsd -= salen * promedioUsd;
-                                            if (p.acciones <= 0.00001) { p.acciones = 0; p.costoMxn = 0; p.costoUsd = 0; }
+                                            // Venta: las acciones salen de las compras más viejas primero
+                                            let porVender = acciones;
+                                            for (const lote of lista) {
+                                                if (porVender <= 0.00001) break;
+                                                const salen = Math.min(lote.vivas, porVender);
+                                                lote.vivas -= salen;
+                                                porVender -= salen;
+                                            }
                                         };
 
                                         // Un cursor por serie de precios, y el día del que se parte.
@@ -2218,10 +2226,11 @@
                                         cats.forEach(c => { cursores[c.ticker] = 0; });
                                         cursores[TICKER_TIPO_CAMBIO] = 0;
 
-                                        const dias = [], valores = [], costos = [];
+                                        const dias = [], ganancias = [], costosAccesibles = [];
                                         const sinPrecio = new Set();
                                         let faltoTipoCambio = false;
                                         let iMov = 0;
+                                        let accesiblesHoy = 0, vivasHoy = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
                                         const cursor = new Date(`${movs[0].dia}T12:00:00`);
@@ -2235,45 +2244,68 @@
 
                                             const tc = cierreHasta(serieDe(TICKER_TIPO_CAMBIO), dia, cursores[TICKER_TIPO_CAMBIO]);
                                             cursores[TICKER_TIPO_CAMBIO] = tc.cursor;
-                                            // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con
-                                            // el peso plano al principio que ninguna curva. Pero se apunta, y el
-                                            // pie lo dice: en pesos, una curva con el cambio de hoy metido en
-                                            // todo el pasado no es la misma cifra y no puede parecerlo.
+                                            // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con el
+                                            // peso plano al principio que ninguna curva. Pero se apunta, y el pie
+                                            // lo dice.
                                             if (tc.valor === null) faltoTipoCambio = true;
                                             const cambio = tc.valor || globalUsdToMxn || 1;
 
-                                            let valor = 0, costo = 0, medible = false;
+                                            // Lo accesible se decide en pesos, como la ficha y el mapa: la pregunta
+                                            // es cuánto puedo sacar sin perder, y sacar es sacar pesos, así que el
+                                            // tipo de cambio al que compraste cuenta. Para leerlo en dólares hay que
+                                            // deshacer esa conversión al final, no aplicarla.
+                                            let ganancia = 0, costoAccesible = 0, costoVivo = 0;
+                                            let cuantasAccesibles = 0, cuantasVivas = 0;
+
                                             cats.forEach(c => {
-                                                const p = pos[String(c.id)];
-                                                if (!(p.acciones > 0.00001)) return;
-
-                                                costo += enPesos ? p.costoMxn : p.costoUsd;
-
+                                                const lista = lotes[String(c.id)];
                                                 const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
                                                 cursores[c.ticker] = cierre.cursor;
 
-                                                if (cierre.valor === null) {
-                                                    // Sin precio de ese día, esa posición vale lo que costó: la
-                                                    // curva no inventa un movimiento que no se puede saber.
-                                                    valor += enPesos ? p.costoMxn : p.costoUsd;
-                                                    sinPrecio.add(c.ticker);
-                                                } else {
-                                                    valor += p.acciones * cierre.valor * (enPesos ? cambio : 1);
-                                                    medible = true;
+                                                let cortada = cierre.valor === null;
+                                                if (cortada) sinPrecio.add(c.ticker);
+
+                                                for (const lote of lista) {
+                                                    // Una compra ya vendida del todo no estorba: no hay nada suyo
+                                                    // que sacar, y tampoco puede cortar la cuenta.
+                                                    if (!(lote.vivas > 0.00001)) continue;
+
+                                                    const costo = lote.compradas > 0 ? lote.costoMxn * (lote.vivas / lote.compradas) : lote.costoMxn;
+                                                    costoVivo += costo;
+                                                    cuantasVivas++;
+
+                                                    // Sin precio de ese día no se puede saber si salía sin pérdida,
+                                                    // y la app no inventa lo que no se puede saber: esa empresa no
+                                                    // aporta nada accesible ese día.
+                                                    if (cortada) continue;
+
+                                                    const valor = lote.vivas * cierre.valor * cambio;
+                                                    if (valor < costo) { cortada = true; continue; }
+
+                                                    ganancia += valor - costo;
+                                                    costoAccesible += costo;
+                                                    cuantasAccesibles++;
                                                 }
                                             });
 
-                                            if (costo > 0.005) {
+                                            if (costoVivo > 0.005) {
+                                                const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
-                                                valores.push(valor);
-                                                costos.push(costo);
+                                                ganancias.push(ganancia * factor);
+                                                costosAccesibles.push(costoAccesible * factor);
+                                                accesiblesHoy = cuantasAccesibles;
+                                                vivasHoy = cuantasVivas;
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
                                         }
 
                                         if (dias.length === 0) return null;
-                                        return { dias, valores, costos, sinPrecio: [...sinPrecio], faltoTipoCambio, enPesos };
+                                        return {
+                                            dias, ganancias, costosAccesibles,
+                                            accesiblesHoy, vivasHoy,
+                                            sinPrecio: [...sinPrecio], faltoTipoCambio, enPesos
+                                        };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -2338,7 +2370,7 @@
                                             btn.style.color = activo ? '#ffffff' : '#888';
                                         });
 
-                                        const serie = historicoPreciosListo ? serieHistoricaPortafolio(destino.cuenta) : null;
+                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(destino.cuenta) : null;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
 
@@ -2357,12 +2389,12 @@
                                         if (pastilla) pastilla.style.display = 'flex';
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
-                                        const ultimoValor = serie.valores[serie.valores.length - 1];
-                                        const ultimoCosto = serie.costos[serie.costos.length - 1];
-                                        const plus = ultimoValor - ultimoCosto;
-                                        const pct = ultimoCosto > 0 ? (plus / ultimoCosto) * 100 : 0;
-                                        const signo = plus >= 0 ? '+' : '-';
-                                        const color = plus >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                        const ultimaGanancia = serie.ganancias[serie.ganancias.length - 1];
+                                        const ultimoCosto = serie.costosAccesibles[serie.costosAccesibles.length - 1];
+                                        const pct = ultimoCosto > 0 ? (ultimaGanancia / ultimoCosto) * 100 : 0;
+                                        // Nunca es negativa: sólo suma las compras que salen sin pérdida. El día
+                                        // que no hay ninguna vale cero, y entonces el verde no dice nada.
+                                        const color = ultimaGanancia > 0.005 ? '#3ecf8e' : '#777';
 
                                         destino.chart = new Chart(lienzo.getContext('2d'), {
                                             type: 'line',
@@ -2370,27 +2402,15 @@
                                                 labels: serie.dias,
                                                 datasets: [
                                                     {
-                                                        label: 'Valor',
-                                                        data: serie.valores,
-                                                        borderColor: color,
+                                                        label: 'Accesible',
+                                                        data: serie.ganancias,
+                                                        borderColor: '#3ecf8e',
                                                         borderWidth: 2,
                                                         pointRadius: 0,
                                                         tension: 0.15,
-                                                        // Se rellena hasta la línea de lo invertido: el área es la
-                                                        // plusvalía, que es lo que se viene a mirar.
-                                                        fill: { target: 1, above: 'rgba(62, 207, 142, 0.12)', below: 'rgba(255, 92, 92, 0.12)' }
-                                                    },
-                                                    {
-                                                        label: 'Invertido',
-                                                        data: serie.costos,
-                                                        borderColor: '#777',
-                                                        borderWidth: 1.5,
-                                                        borderDash: [4, 4],
-                                                        pointRadius: 0,
-                                                        // Es una escalera, no una curva: sube el día que compras y
-                                                        // baja el día que vendes, sin nada entre medias que suavizar.
-                                                        stepped: true,
-                                                        fill: false
+                                                        // Se rellena hasta el cero, que aquí es el suelo de verdad:
+                                                        // el área es lo que podrías haberte llevado sin perder.
+                                                        fill: { target: 'origin', above: 'rgba(62, 207, 142, 0.12)' }
                                                     }
                                                 ]
                                             },
@@ -2407,15 +2427,15 @@
                                                                 const [anio, mes, dia] = items[0].label.split('-');
                                                                 return `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].toLowerCase()} ${anio}`;
                                                             },
-                                                            label: (item) => `${item.dataset.label}: ${fMoneda(item.raw)} ${simbolo}`,
-                                                            // La plusvalía del día no es una línea más: es la
-                                                            // distancia entre las dos, y sale de la resta.
+                                                            label: (item) => `+${fMoneda(item.raw)} ${simbolo} sin perder`,
+                                                            // Sobre cuánto se sacó esa ganancia: sin el costo de
+                                                            // las compras que estaban accesibles, la cifra no dice
+                                                            // si es mucho o poco.
                                                             afterBody: (items) => {
-                                                                if (items.length < 2) return '';
-                                                                const dif = items[0].raw - items[1].raw;
-                                                                const p = items[1].raw > 0 ? (dif / items[1].raw) * 100 : 0;
-                                                                const s = dif >= 0 ? '+' : '-';
-                                                                return `${s}${fMoneda(Math.abs(dif))} (${s}${Math.abs(p).toFixed(1)}%)`;
+                                                                const costo = serie.costosAccesibles[items[0].dataIndex] || 0;
+                                                                if (!(costo > 0.005)) return 'Nada accesible ese día';
+                                                                const p = (items[0].raw / costo) * 100;
+                                                                return `sobre ${fMoneda(costo)} accesibles (+${p.toFixed(1)}%)`;
                                                             }
                                                         }
                                                     }
@@ -2446,16 +2466,21 @@
 
                                         const desde = serie.dias[0].split('-');
                                         let aviso = serie.sinPrecio.length > 0
-                                            ? `<br><span style="color:#f39c12;">⚠️ Sin cierres de ${serie.sinPrecio.join(', ')}: esos días valen lo que costaron.</span>`
+                                            ? `<br><span style="color:#f39c12;">⚠️ Sin cierres de ${serie.sinPrecio.join(', ')}: esos días no se sabe si salían sin pérdida, así que no suman.</span>`
                                             : '';
                                         if (serie.enPesos && serie.faltoTipoCambio) {
                                             aviso += `<br><span style="color:#f39c12;">⚠️ Falta histórico del tipo de cambio: esos días usan el de hoy. En USD la curva no lo necesita.</span>`;
                                         }
 
+                                        const cuantas = serie.vivasHoy > 0
+                                            ? `${serie.accesiblesHoy} de ${serie.vivasHoy} compra${serie.vivasHoy !== 1 ? 's' : ''} sale${serie.accesiblesHoy !== 1 ? 'n' : ''} sin pérdida`
+                                            : '';
+
                                         pie.innerHTML = `
-                                            <strong style="color:#fff;">${fMoneda(ultimoValor)} ${simbolo}</strong>
-                                            <span style="color:#666;">sobre ${fMoneda(ultimoCosto)} invertidos</span>
-                                            <strong style="color:${color};"> ${signo}${fMoneda(Math.abs(plus))} (${signo}${Math.abs(pct).toFixed(1)}%)</strong>
+                                            <strong style="color:${color};">+${fMoneda(ultimaGanancia)} ${simbolo}</strong>
+                                            <span style="color:#666;">sobre ${fMoneda(ultimoCosto)} accesibles</span>
+                                            <strong style="color:${color};"> (+${pct.toFixed(1)}%)</strong>
+                                            ${cuantas ? `<br><span style="color:#666;">${cuantas}; lo demás se realizaría en pérdida</span>` : ''}
                                             <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
                                     }
 
@@ -10642,12 +10667,12 @@
                                                     // mirar después del resumen.
                                                     html += cuadriculaMovimientosCuenta(id);
 
-                                                    // Y la curva, sólo donde hay acciones: es la misma gráfica que enseña el
-                                                    // portafolio entero en Ajustes, acotada a las empresas de esta cuenta. Va
-                                                    // después de la cuadrícula porque aquélla dice qué compraste y cuándo, y ésta
-                                                    // qué ha pasado con ello desde entonces.
+                                                    // Y la curva, sólo donde hay acciones: cuánto habrías podido sacar cada día
+                                                    // sin realizar una pérdida, con las empresas de esta cuenta. Va después de la
+                                                    // cuadrícula porque aquélla dice qué compraste y cuándo, y ésta qué parte de
+                                                    // ello ha estado disponible desde entonces.
                                                     if (r.tieneInversion) {
-                                                        html += bloqueDetalleCuenta('📈 Cómo ha ido', `
+                                                        html += bloqueDetalleCuenta('📈 Lo que sale sin pérdida', `
                                                             <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
                                                                 <div id="monedaCurvaCuenta" class="pastilla-treemap">
                                                                     <button id="btnCurvaCtaMXN" onclick="cambiarMonedaCurvaPortafolio('mxn')">MXN</button>
