@@ -1152,9 +1152,6 @@
                     <button onclick="cambiarSeccion('sec-lista')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
             </button>
-            <button onclick="window.location.href='calendario.html'" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            </button>
             <button onclick="cambiarSeccion('sec-ajustes')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             </button>
@@ -1513,6 +1510,24 @@
     <label style="margin-bottom: 4px;">Sesión iniciada como:</label>
     <span id="userEmailDisplay" style="font-weight: bold; color: #ffffff; font-size: 1em;">...</span>
     </div>
+
+    <!-- INICIO CALENDARIO -->
+    <!-- Vivía en la cabecera del inicio, entre el filtro y el engrane. Ahí competía por
+         el ancho con los mandos que sí se usan a diario, y el calendario es una pantalla
+         a la que se entra de vez en cuando, no un mando. Aquí tiene sitio para decir qué
+         es sin robárselo a nadie. -->
+    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Calendario</h3>
+        <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
+            Los movimientos del mes repartidos por día, con lo previsto por delante.
+        </p>
+        <button onclick="window.location.href='calendario.html'" aria-label="Abrir el calendario"
+                style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            Abrir el calendario
+        </button>
+    </div>
+    <!-- FIN CALENDARIO -->
 
     <!-- INICIO PRECIOS DE MERCADO -->
     <!-- Lo que queda aquí es lo que no es un dibujo: los dos botones que traen precios.
