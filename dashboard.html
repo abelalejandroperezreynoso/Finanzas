@@ -8037,6 +8037,11 @@
                             // objetivo sin competir con la parte ya cubierta.
                             const ALPHA_PENDIENTE_TREEMAP = 0.22;
 
+                            // Contraste mínimo entre la tinta de la etiqueta y lo que tenga debajo. El texto del
+                            // mapa es grande y en negrita, pero la cifra pequeña de los recuadros apretados no,
+                            // así que se pide el 4.5:1 del texto normal y no el 3:1 de los titulares.
+                            const CONTRASTE_MINIMO_TREEMAP = 4.5;
+
                             // La junta entre las dos partes de un recuadro, del color del fondo de la tarjeta: se
                             // lee como el mismo hilo que separa un recuadro de otro. Antes era blanca y con dos
                             // píxeles de cuerpo, que sobre un recuadro blanco —las inversiones— desaparecía.
@@ -8115,6 +8120,57 @@
                                     return (cat.tipo === 'gasto' && cat.diasRecurrencia > 0) ? COLOR_GASTO_RECURRENTE : '#ff5c5c';
                                 }
                                 return obtenerColorCategoria(cat.tipo);
+                            }
+
+                            // Brillo relativo de un color, como lo define WCAG. Sirve para medir de verdad si un
+                            // texto se va a leer encima, en vez de suponerlo por el tono.
+                            function luminanciaRelativa([r, g, b]) {
+                                const canal = (v) => {
+                                    const x = v / 255;
+                                    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+                                };
+                                return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
+                            }
+
+                            function componentesRgb(hex) {
+                                const limpio = String(hex).replace('#', '');
+                                return [0, 2, 4].map(i => parseInt(limpio.slice(i, i + 2), 16));
+                            }
+
+                            function contrasteEntre(rgbA, rgbB) {
+                                const a = luminanciaRelativa(rgbA);
+                                const b = luminanciaRelativa(rgbB);
+                                const claro = Math.max(a, b), oscuro = Math.min(a, b);
+                                return (claro + 0.05) / (oscuro + 0.05);
+                            }
+
+                            // Hasta dónde se puede apagar la parte pendiente de un recuadro sin que el texto se
+                            // pierda encima. El recuadro se parte en dos tonos y la etiqueta va centrada, así que
+                            // la junta la cruza a media altura: con un color por mitad no hay tinta que sirva para
+                            // las dos, y la mitad que no le tocaba se volvía invisible. Como la tinta la manda el
+                            // color pleno, es lo pendiente lo que tiene que ceder.
+                            //
+                            // Sobre un color oscuro la tinta es blanca y apagarlo sólo la hace resaltar más, así
+                            // que ahí se apaga todo lo que se pueda. Sobre uno claro la tinta es negra, y apagar
+                            // de más la borra: se busca el tono más apagado que todavía la sostiene. El tope sale
+                            // de la cuenta y no de un número elegido a ojo, así que cada color cede lo justo: el
+                            // blanco de una inversión aguanta mucho más apagado que el verde de un ingreso.
+                            const cacheAlphaPendiente = {};
+                            function alphaPendienteTreemap(base) {
+                                if (cacheAlphaPendiente[base] !== undefined) return cacheAlphaPendiente[base];
+
+                                const rgb = componentesRgb(base);
+                                const tinta = componentesRgb(colorEtiquetaTreemap(base));
+                                let alpha = ALPHA_PENDIENTE_TREEMAP;
+
+                                // El tono apagado es el color sobre el negro de la tarjeta, que es multiplicarlo.
+                                const apagado = (a) => rgb.map(v => Math.round(v * a));
+                                while (alpha < 1 && contrasteEntre(tinta, apagado(alpha)) < CONTRASTE_MINIMO_TREEMAP) {
+                                    alpha = Math.round((alpha + 0.01) * 100) / 100;
+                                }
+
+                                cacheAlphaPendiente[base] = alpha;
+                                return alpha;
                             }
 
                             // Sobre el blanco de una inversión o el verde de un ingreso, el texto blanco desaparece.
@@ -9249,7 +9305,7 @@
                                     // Sin altura no hay degradado que construir. Antes de dar por lleno
                                     // un recuadro que no lo está, se pinta apagado: si algo va a fallar,
                                     // que sea por defecto y no anunciando un gasto que no ocurrió.
-                                    if (!(h > 0)) return colorTenue(base, ALPHA_PENDIENTE_TREEMAP);
+                                    if (!(h > 0)) return colorTenue(base, alphaPendienteTreemap(base));
 
                                     // Dos partes con un corte duro entre ellas: abajo el color de la categoría
                                     // —lo invertido, lo gastado— y arriba lo que sobra del recuadro.
@@ -9260,7 +9316,7 @@
                                     // propio: verde si la posición subió, rojo si bajó.
                                     const arriba = esPortafolio
                                         ? (f < 1 ? ROJO_PERDIDA_TREEMAP : VERDE_GANANCIA_TREEMAP)
-                                        : (f < 1 ? colorTenue(base, ALPHA_PENDIENTE_TREEMAP) : base);
+                                        : (f < 1 ? colorTenue(base, alphaPendienteTreemap(base)) : base);
 
                                     // Dónde está ese corte: si la posición subió —o el gasto se pasó—, el recuadro
                                     // creció con lo real y el corte queda en la marca de lo esperado; si se quedó
@@ -9374,10 +9430,13 @@
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
                                                     // En los otros mapas el recuadro es del color de la categoría y
-                                                    // lo que sobra es ese mismo tono apagado sobre negro. El texto
-                                                    // va centrado: sólo cae sobre el color pleno si el relleno pasa
-                                                    // de la mitad, y sobre el apagado siempre gana el blanco.
-                                                    if (fraccionLlenado(d) < 0.55) return '#ffffff';
+                                                    // lo que sobra es ese mismo tono apagado. Una sola tinta para
+                                                    // todo el recuadro: antes se elegía por la mitad más grande
+                                                    // —blanca por debajo del 55% de relleno, la del color por
+                                                    // encima— y el texto va centrado, justo donde cae la junta, así
+                                                    // que a media escala los renglones del otro lado desaparecían.
+                                                    // Ahora manda el color pleno y es lo pendiente lo que se apaga
+                                                    // sólo hasta donde esa misma tinta se sigue leyendo.
                                                     return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas));
                                                 },
                                                 padding: PADDING_ETIQUETA_TREEMAP,
