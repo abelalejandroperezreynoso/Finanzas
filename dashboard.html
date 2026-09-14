@@ -1249,6 +1249,9 @@
     </div>
 
     <div class="card" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
+    <!-- La cara de siempre: el balance día a día, o los meses en barras. Se va entera —título,
+         lienzo y desglose— cuando el mapa de abajo se pone en Inversiones. -->
+    <div id="caraTendencia">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem;">
     <h3 id="tituloTendencia" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left;">Tendencia de Balance</h3>
     <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; flex: 1;"></span>
@@ -1262,6 +1265,28 @@
 
             </div>
             </div>
+
+    <!-- Y la otra: cuánto habrías podido sacar cada día sin realizar una pérdida. Ocupa el mismo
+         sitio que el balance porque responde a la misma pregunta —cómo ha ido llegando hasta hoy lo
+         que tengo— sobre el dinero que está en la bolsa, y las dos tarjetas pasan entonces a contar
+         la misma historia: aquí el recorrido, en el mapa de abajo cómo está repartido.
+
+         Sigue al mapa en todo: en la moneda que tenga puesta y en la capa en la que esté metido, así
+         que dentro de una cuenta, de un sector o de una empresa la curva es la de eso mismo. Por eso
+         no lleva sus propios botones: los del mapa mandan sobre las dos. -->
+    <div id="caraCurvaInversiones" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem; gap: 10px;">
+    <h3 id="tituloCurvaPrincipal" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Lo que sale sin pérdida</h3>
+    <span id="cifraCurvaPrincipal" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; white-space: nowrap;"></span>
+    </div>
+
+    <div id="cajaCurvaPrincipal" style="position: relative; height: 140px; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
+    <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
+    </div>
+
+    <div id="pieCurvaPrincipal" style="padding: 12px 1rem 5px 1rem; font-size: 0.8em; color: #888; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;"></div>
+    </div>
+    </div>
 
     <!-- INICIO TARJETA DE MAPA DE CATEGORÍAS -->
     <div class="card" id="cardTreemapCategorias" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
@@ -1950,6 +1975,10 @@
                                     // cada vez.
                                     let cacheHistoricoPrecios = {};
                                     let historicoPreciosListo = false;
+                                    // Si ya se fue a buscar. Sin esto, "no hay histórico" y "todavía no ha
+                                    // llegado" se ven igual, y la curva acusaba de no haber hecho la migración
+                                    // durante los segundos que tarda la consulta en volver.
+                                    let historicoPreciosIntentado = false;
 
                                     const diaISO = (fecha) => {
                                         const d = fecha instanceof Date ? fecha : new Date(fecha);
@@ -1975,7 +2004,7 @@
 
                                             // Sin la tabla creada, la app sigue funcionando entera: lo único que
                                             // desaparece es la curva, que dirá por qué en su propio sitio.
-                                            if (error) { historicoPreciosListo = false; return; }
+                                            if (error) { historicoPreciosListo = false; historicoPreciosIntentado = true; return; }
 
                                             filas.push(...(data || []));
                                             if (!data || data.length < TANDA) break;
@@ -1987,6 +2016,7 @@
                                                 .push({ dia: p.dia, cierre: parseFloat(p.cierre) });
                                         });
                                         historicoPreciosListo = true;
+                                        historicoPreciosIntentado = true;
                                     }
 
                                     // El cierre de hoy de todo lo que tienes, guardado para mañana. Es lo que
@@ -2192,9 +2222,12 @@
                                             guardados += filas.length;
                                         }
 
-                                        // Los cierres nuevos se quedan en memoria; la curva los recoge la próxima
-                                        // vez que se abra una ficha de cuenta, que es donde vive.
+                                        // Los cierres nuevos se quedan en memoria y la curva de la pantalla
+                                        // principal se rehace con ellos: es media hora de historia que acaba de
+                                        // aparecer, y dejarla para la próxima recarga sería no enseñar lo que se
+                                        // acaba de traer.
                                         await cargarHistoricoPrecios();
+                                        refrescarCurvaInversiones();
                                         avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series`);
                                     }
 
@@ -2208,15 +2241,22 @@
                                     // La caja de dólares se queda fuera a propósito. Es dinero parado, no
                                     // portafolio: metida aquí, un retiro se leería como una caída y una
                                     // aportación como una subida, cuando el mercado no se movió.
-                                    // La curva se dibuja en la ficha de una cuenta, con las empresas de esa
-                                    // cuenta. Sigue siendo un objeto con sus elementos y su instancia de Chart
-                                    // —y no cuatro variables sueltas— porque la función que pinta ya está
-                                    // escrita contra ese objeto y así vuelve a haber dos destinos el día que
-                                    // haga falta uno más.
+                                    //
+                                    // La curva vive en la tarjeta de la gráfica principal y sale cuando el mapa
+                                    // de abajo se pone en Inversiones. Antes estaba dentro de la ficha de una
+                                    // cuenta, donde había que ir a buscarla y sólo contaba esa cuenta; aquí se
+                                    // ve de entrada y cuenta lo que el mapa tenga abierto, que incluye la cuenta
+                                    // sola. Se sigue guardando en un objeto —y no en cuatro variables sueltas—
+                                    // para que un segundo destino, el día que haga falta, no cueste nada.
                                     const CURVAS = {
-                                        cuenta: { lienzo: 'graficoCurvaCuenta', pie: 'pieCurvaCuenta', pastilla: 'monedaCurvaCuenta', prefijo: 'btnCurvaCta', cuenta: null, chart: null }
+                                        principal: {
+                                            lienzo: 'graficoCurvaPrincipal', caja: 'cajaCurvaPrincipal',
+                                            pie: 'pieCurvaPrincipal', cifra: 'cifraCurvaPrincipal', titulo: 'tituloCurvaPrincipal',
+                                            // Lo que se está mirando y con qué se dibujó: mientras no cambie
+                                            // ninguna de las dos cosas, la curva ya pintada sirve.
+                                            ambito: null, entradas: null, chart: null
+                                        }
                                     };
-                                    let monedaCurvaPortafolio = localStorage.getItem('monedaCurvaPortafolio') || 'mxn';
 
                                     // El cierre de un ticker en un día, o el último conocido antes de ese día.
                                     // Los mercados cierran fines de semana y festivos: sin arrastrar el último
@@ -2252,10 +2292,20 @@
                                     // Las ventas salen de las compras más viejas, y no a costo promedio como la
                                     // curva de valor que había antes: para saber qué queda accesible hace falta
                                     // seguir cada compra por separado, que es de lo que va la regla.
-                                    function serieHistoricaAccesible(idCuenta) {
-                                        const enPesos = monedaCurvaPortafolio === 'mxn';
+                                    // El ámbito es el trozo del portafolio que se está mirando, y es el mismo que
+                                    // el mapa tiene abierto: todo, una cuenta, un sector o una empresa. Vacío
+                                    // significa el portafolio entero.
+                                    //
+                                    // La moneda la manda el mapa también. Tener aquí otro botón de moneda dejaba
+                                    // dos mandos para lo mismo en la misma pantalla, y con ellos puestos en
+                                    // distinto sitio las dos tarjetas contaban el mismo dinero en dos monedas.
+                                    function serieHistoricaAccesible(ambito) {
+                                        const donde = ambito || {};
+                                        const enPesos = monedaTreemapInversiones === 'mxn';
                                         const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
-                                            && (!idCuenta || String(c.cuenta_id) === String(idCuenta)));
+                                            && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
+                                            && (!donde.categoria || String(c.id) === String(donde.categoria))
+                                            && (!donde.sector || sectorDeCategoriaTreemap(c) === donde.sector));
                                         if (cats.length === 0) return null;
 
                                         const porId = {};
@@ -2648,49 +2698,108 @@
                                         return `<span class="badge-sector">${escaparHtml(sector)}</span>`;
                                     }
 
-                                    function cambiarMonedaCurvaPortafolio(moneda) {
-                                        monedaCurvaPortafolio = moneda === 'usd' ? 'usd' : 'mxn';
-                                        localStorage.setItem('monedaCurvaPortafolio', monedaCurvaPortafolio);
-                                        pintarCurva(CURVAS.cuenta);
+                                    // Con qué se dibujó la curva que hay en pantalla. Mientras nada de esto
+                                    // cambie, la que ya está sirve: el mapa se repinta en cada refresco y cada
+                                    // vez que el dedo señala otro mes, y rehacer en cada uno una curva que
+                                    // recorre día a día todo el historial dejaría la pantalla pegada.
+                                    function entradasDeLaCurva(ambito) {
+                                        const donde = ambito || {};
+                                        return {
+                                            cuenta: donde.cuenta || null,
+                                            sector: donde.sector || null,
+                                            categoria: donde.categoria || null,
+                                            moneda: monedaTreemapInversiones,
+                                            // Por referencia a propósito: cada recarga rehace estos arreglos, así
+                                            // que comparar referencias es preguntar "¿son los mismos datos?" sin
+                                            // recorrer nada.
+                                            usos: datosUsoCompleto,
+                                            cats: datosCategorias,
+                                            precios: cacheHistoricoPrecios,
+                                            listo: historicoPreciosListo
+                                        };
                                     }
 
-                                    // La curva de una cuenta: la misma gráfica con sus empresas nada más.
-                                    function renderizarCurvaCuenta(idCuenta) {
-                                        CURVAS.cuenta.cuenta = idCuenta;
-                                        pintarCurva(CURVAS.cuenta);
+                                    function mismasEntradasCurva(a, b) {
+                                        return !!a && !!b && Object.keys(a).every(k => a[k] === b[k]);
                                     }
 
-                                    function pintarCurva(destino) {
+                                    // Las dos caras de la tarjeta de arriba. Recibe el trozo del portafolio que el
+                                    // mapa tiene abierto, o null cuando el mapa no está en Inversiones y la
+                                    // tarjeta vuelve a ser la del balance.
+                                    function sincronizarCaraInversiones(ambito) {
+                                        const caraTendencia = document.getElementById('caraTendencia');
+                                        const caraCurva = document.getElementById('caraCurvaInversiones');
+                                        if (!caraTendencia || !caraCurva) return;
+
+                                        const destino = CURVAS.principal;
+                                        const seVeLaCurva = caraCurva.style.display !== 'none';
+
+                                        if (!ambito) {
+                                            if (!seVeLaCurva) return;
+                                            caraCurva.style.display = 'none';
+                                            caraTendencia.style.display = '';
+                                            if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
+                                            destino.ambito = null;
+                                            destino.entradas = null;
+                                            // La gráfica del balance se siguió rehaciendo mientras estaba
+                                            // escondida, y un lienzo sin altura da una gráfica sin altura: al
+                                            // volver a enseñarla hay que devolverle su tamaño.
+                                            if (miGrafico) miGrafico.resize();
+                                            return;
+                                        }
+
+                                        const entradas = entradasDeLaCurva(ambito);
+                                        caraTendencia.style.display = 'none';
+                                        caraCurva.style.display = '';
+                                        if (seVeLaCurva && mismasEntradasCurva(entradas, destino.entradas)) return;
+
+                                        destino.ambito = ambito;
+                                        destino.entradas = entradas;
+                                        pintarCurva(destino, ambito);
+                                    }
+
+                                    // El histórico de precios llega después del arranque, así que la curva puede
+                                    // haberse dibujado ya diciendo que todavía no hay con qué. Cuando llega, se
+                                    // rehace sola en vez de esperar a que el usuario toque algo.
+                                    function refrescarCurvaInversiones() {
+                                        if (!CURVAS.principal.ambito) return;
+                                        CURVAS.principal.entradas = null;
+                                        sincronizarCaraInversiones(CURVAS.principal.ambito);
+                                    }
+
+                                    function pintarCurva(destino, ambito) {
                                         const lienzo = document.getElementById(destino.lienzo);
+                                        const caja = document.getElementById(destino.caja);
                                         const pie = document.getElementById(destino.pie);
-                                        const pastilla = document.getElementById(destino.pastilla);
+                                        const cifraEl = document.getElementById(destino.cifra);
+                                        const tituloEl = document.getElementById(destino.titulo);
                                         if (!lienzo || !pie) return;
 
-                                        ['mxn', 'usd'].forEach(m => {
-                                            const btn = document.getElementById(`${destino.prefijo}${m.toUpperCase()}`);
-                                            if (!btn) return;
-                                            const activo = m === monedaCurvaPortafolio;
-                                            btn.style.background = activo ? '#333' : 'none';
-                                            btn.style.color = activo ? '#ffffff' : '#888';
-                                        });
+                                        // El título dice de qué es la curva. Dentro de una capa del mapa es de esa
+                                        // cuenta, de ese sector o de esa empresa, y sin decirlo se leería como si
+                                        // fuera del portafolio entero.
+                                        const nombre = (ambito && ambito.nombre) ? ambito.nombre : '';
+                                        if (tituloEl) tituloEl.textContent = nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida';
 
-                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(destino.cuenta) : null;
+                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito) : null;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
 
                                         // Cada motivo dice qué falta y qué hacer: una gráfica vacía sin más deja
-                                        // pensando que se rompió algo.
+                                        // pensando que se rompió algo. Y mientras el histórico viene de camino no
+                                        // se acusa a nadie de no haber hecho la migración.
                                         if (!serie) {
-                                            lienzo.style.display = 'none';
-                                            if (pastilla) pastilla.style.display = 'none';
+                                            if (caja) caja.style.display = 'none';
+                                            if (cifraEl) cifraEl.textContent = '';
                                             pie.innerHTML = !historicoPreciosListo
-                                                ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
-                                                : `Todavía no hay compras de acciones que dibujar${destino.cuenta ? ' en esta cuenta' : ''}.`;
+                                                ? (historicoPreciosIntentado
+                                                    ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
+                                                    : 'Buscando el histórico de precios…')
+                                                : `Todavía no hay compras de acciones que dibujar${nombre ? ` en ${nombre}` : ''}.`;
                                             return;
                                         }
 
-                                        lienzo.style.display = 'block';
-                                        if (pastilla) pastilla.style.display = 'flex';
+                                        if (caja) caja.style.display = 'block';
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimaGanancia = serie.ganancias[serie.ganancias.length - 1];
@@ -2777,14 +2886,19 @@
                                         }
 
                                         const cuantas = serie.vivasHoy > 0
-                                            ? `${serie.accesiblesHoy} de ${serie.vivasHoy} compra${serie.vivasHoy !== 1 ? 's' : ''} sale${serie.accesiblesHoy !== 1 ? 'n' : ''} sin pérdida`
+                                            ? `${serie.accesiblesHoy} de ${serie.vivasHoy} compra${serie.vivasHoy !== 1 ? 's' : ''} sale${serie.accesiblesHoy !== 1 ? 'n' : ''} sin pérdida; lo demás se realizaría en pérdida`
                                             : '';
 
+                                        // La cifra de hoy va arriba, donde la tarjeta pone siempre su número, y el
+                                        // pie se queda con lo que la explica. Repetirla en los dos sitios era leer
+                                        // dos veces lo mismo antes de llegar a lo que el pie aporta.
+                                        if (cifraEl) {
+                                            cifraEl.style.color = color;
+                                            cifraEl.textContent = `+${fMoneda(ultimaGanancia)} ${simbolo} (+${pct.toFixed(1)}%)`;
+                                        }
+
                                         pie.innerHTML = `
-                                            <strong style="color:${color};">+${fMoneda(ultimaGanancia)} ${simbolo}</strong>
-                                            <span style="color:#666;">sobre ${fMoneda(ultimoCosto)} accesibles</span>
-                                            <strong style="color:${color};"> (+${pct.toFixed(1)}%)</strong>
-                                            ${cuantas ? `<br><span style="color:#666;">${cuantas}; lo demás se realizaría en pérdida</span>` : ''}
+                                            <span style="color:#888;">sobre ${fMoneda(ultimoCosto)} accesibles${cuantas ? ` · ${cuantas}` : ''}</span>
                                             <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
                                     }
 
@@ -4408,11 +4522,15 @@
                                                                 // El histórico de precios va detrás del arranque y sin retenerlo: son dos
                                                                 // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
                                                                 // guardado el cierre de hoy, que es lo que hace crecer el histórico sin
-                                                                // pedirle nada a nadie, y en memoria lo que la curva de una cuenta leerá
-                                                                // cuando se abra su ficha.
+                                                                // pedirle nada a nadie, y en memoria lo que dibuja la curva del portafolio.
+                                                                //
+                                                                // Al llegar se rehace la curva, que a estas alturas puede estar en pantalla
+                                                                // diciendo que todavía no hay con qué: es lo que pasa si la app abre con el
+                                                                // mapa puesto en Inversiones, que es justo donde se quedó la última vez.
                                                                 cargarHistoricoPrecios()
                                                                     .then(guardarCierresDeHoy)
-                                                                    .catch(e => console.error('No se pudo preparar el histórico de precios', e));
+                                                                    .catch(e => console.error('No se pudo preparar el histórico de precios', e))
+                                                                    .then(refrescarCurvaInversiones);
 
                                                                 // Las empresas que todavía no tienen perfil se preguntan aquí, con la app
                                                                 // ya en pie y sin retener nada: son viajes a Finnhub que sólo hacen falta
@@ -9287,6 +9405,21 @@
                                     : null;
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
+                                // La tarjeta de arriba sigue al mapa: con Inversiones puesto cambia la línea del
+                                // balance por la curva de lo que sale sin pérdida, y la dibuja de lo que el mapa
+                                // tenga abierto. Se avisa aquí, con las capas ya resueltas y antes de que el mapa
+                                // pueda irse por un vacío: también un portafolio sin nada tiene que cambiar de
+                                // cara, o la tarjeta de arriba se quedaría contando otra cosa.
+                                sincronizarCaraInversiones(!esPortafolio ? null : {
+                                    cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
+                                    sector: sectorAbierto || null,
+                                    categoria: empresaAbierta ? String(empresaAbierta.id) : null,
+                                    nombre: empresaAbierta ? (empresaAbierta.ticker || empresaAbierta.nombre)
+                                        : sectorAbierto ? sectorAbierto
+                                        : cuentaAbierta ? cuentaAbierta.nombre
+                                        : ''
+                                });
+
                                 // Cada pastilla dice cuál de sus mitades está puesta. El texto y lo que hace cada
                                 // botón viven en el HTML: aquí sólo se enciende el elegido.
                                 const encenderPastilla = (opciones, elegido) => {
@@ -11134,24 +11267,6 @@
                                                     // mirar después del resumen.
                                                     html += cuadriculaMovimientosCuenta(id);
 
-                                                    // Y la curva, sólo donde hay acciones: cuánto habrías podido sacar cada día
-                                                    // sin realizar una pérdida, con las empresas de esta cuenta. Va después de la
-                                                    // cuadrícula porque aquélla dice qué compraste y cuándo, y ésta qué parte de
-                                                    // ello ha estado disponible desde entonces.
-                                                    if (r.tieneInversion) {
-                                                        html += bloqueDetalleCuenta('📈 Lo que sale sin pérdida', `
-                                                            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-                                                                <div id="monedaCurvaCuenta" class="pastilla-treemap">
-                                                                    <button id="btnCurvaCtaMXN" onclick="cambiarMonedaCurvaPortafolio('mxn')">MXN</button>
-                                                                    <button id="btnCurvaCtaUSD" onclick="cambiarMonedaCurvaPortafolio('usd')">USD</button>
-                                                                </div>
-                                                            </div>
-                                                            <div style="position: relative; width: 100%; height: 200px;">
-                                                                <canvas id="graficoCurvaCuenta"></canvas>
-                                                            </div>
-                                                            <div id="pieCurvaCuenta" style="color: #888; font-size: 0.8em; margin-top: 10px; line-height: 1.5;"></div>`);
-                                                    }
-
                                                     if (r.tieneInversion) {
                                                         // --- El recorrido del dinero, paso por paso ---
                                                         // Sólo los seis escalones y lo que ha pasado por cada uno. Dónde está parado
@@ -11280,10 +11395,6 @@
                                                     const tiraMovs = document.getElementById('tiraMovsCuenta');
                                                     if (tiraMovs) tiraMovs.scrollLeft = tiraMovs.scrollWidth;
 
-                                                    // El lienzo acaba de nacer con el innerHTML de arriba, así que la curva se
-                                                    // pinta aquí y no antes.
-                                                    if (r.tieneInversion) renderizarCurvaCuenta(id);
-
                                                     const btnEditarCta = document.getElementById('btnEditarCuentaModal');
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
 
@@ -11306,11 +11417,6 @@
 
                                                     function cerrarModalDetallesCuenta() {
                                                     if (miCuadrosCuenta) { miCuadrosCuenta.destroy(); miCuadrosCuenta = null; }
-                                                    // El lienzo de la curva desaparece con el innerHTML de la siguiente ficha:
-                                                    // sin soltar la instancia, Chart.js se queda con un lienzo huérfano y con
-                                                    // sus escuchas de tamaño puestas.
-                                                    if (CURVAS.cuenta.chart) { CURVAS.cuenta.chart.destroy(); CURVAS.cuenta.chart = null; }
-                                                    CURVAS.cuenta.cuenta = null;
                                                     mapaCuadrosActual = null;
                                                     capaCuadros = null;
                                                     document.getElementById('modalDetallesCuenta').classList.remove('activa');
