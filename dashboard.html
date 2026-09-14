@@ -2299,8 +2299,16 @@
                                     // La moneda la manda el mapa también. Tener aquí otro botón de moneda dejaba
                                     // dos mandos para lo mismo en la misma pantalla, y con ellos puestos en
                                     // distinto sitio las dos tarjetas contaban el mismo dinero en dos monedas.
-                                    function serieHistoricaAccesible(ambito) {
+                                    // El periodo es el mismo recorte de fechas con el que se dibuja el balance:
+                                    // el de la barra de arriba. La cuenta se hace igual desde la primera compra
+                                    // —para saber qué queda vivo de cada lote hay que recorrerlo todo—, pero sólo
+                                    // se dibujan los días que caen dentro. Sin esto la curva contaba su propia
+                                    // historia mientras la tarjeta de al lado contaba la del mes elegido.
+                                    function serieHistoricaAccesible(ambito, periodo) {
                                         const donde = ambito || {};
+                                        const recorte = periodo || {};
+                                        const desdeFiltro = recorte.desde || '';
+                                        const hastaFiltro = recorte.hasta || '';
                                         const enPesos = monedaTreemapInversiones === 'mxn';
                                         const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                             && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
@@ -2349,16 +2357,22 @@
                                         cats.forEach(c => { cursores[c.ticker] = 0; });
                                         cursores[TICKER_TIPO_CAMBIO] = 0;
 
-                                        const dias = [], ganancias = [], costosAccesibles = [];
+                                        // Cuántas compras salían sin pérdida cada día y cuántas había vivas. Van
+                                        // por día y no sólo del último: el pie cambia al arrastrar el dedo, igual
+                                        // que la cifra de arriba, y decir siempre las de hoy sobre la ganancia de
+                                        // otro día sería juntar dos días distintos en un mismo renglón.
+                                        const dias = [], ganancias = [], costosAccesibles = [], accesiblesPorDia = [], vivasPorDia = [];
                                         const sinPrecio = new Set();
                                         let faltoTipoCambio = false;
                                         let iMov = 0;
-                                        let accesiblesHoy = 0, vivasHoy = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
                                         const cursor = new Date(`${movs[0].dia}T12:00:00`);
+                                        // Nunca más allá de hoy —del futuro no hay cierres— ni del final del
+                                        // recorte, que en un mes suelto ahorra recorrer todos los años de después.
+                                        const ultimoDia = (hastaFiltro && hastaFiltro < diaISO(hoy)) ? hastaFiltro : diaISO(hoy);
 
-                                        while (diaISO(cursor) <= diaISO(hoy)) {
+                                        while (diaISO(cursor) <= ultimoDia) {
                                             const dia = diaISO(cursor);
 
                                             // Todo lo que pasó ese día entra antes de valorar: una compra cuenta
@@ -2411,22 +2425,27 @@
                                                 }
                                             });
 
-                                            if (costoVivo > 0.005) {
+                                            // Los días de antes del recorte se recorren igual —hacen falta para
+                                            // saber qué compras siguen vivas—, pero no se dibujan.
+                                            const dentroDelPeriodo = (!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro);
+
+                                            if (costoVivo > 0.005 && dentroDelPeriodo) {
                                                 const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
                                                 ganancias.push(ganancia * factor);
                                                 costosAccesibles.push(costoAccesible * factor);
-                                                accesiblesHoy = cuantasAccesibles;
-                                                vivasHoy = cuantasVivas;
+                                                accesiblesPorDia.push(cuantasAccesibles);
+                                                vivasPorDia.push(cuantasVivas);
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
                                         }
 
-                                        if (dias.length === 0) return null;
+                                        // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
+                                        // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
+                                        if (dias.length === 0) return { fueraDePeriodo: true };
                                         return {
-                                            dias, ganancias, costosAccesibles,
-                                            accesiblesHoy, vivasHoy,
+                                            dias, ganancias, costosAccesibles, accesiblesPorDia, vivasPorDia,
                                             sinPrecio: [...sinPrecio], faltoTipoCambio, enPesos
                                         };
                                     }
@@ -2704,11 +2723,16 @@
                                     // recorre día a día todo el historial dejaría la pantalla pegada.
                                     function entradasDeLaCurva(ambito) {
                                         const donde = ambito || {};
+                                        const rango = rangoDelFiltro();
                                         return {
                                             cuenta: donde.cuenta || null,
                                             sector: donde.sector || null,
                                             categoria: donde.categoria || null,
                                             moneda: monedaTreemapInversiones,
+                                            // El recorte de fechas de la pantalla: moverlo cambia la curva igual
+                                            // que cambia el balance, así que también la manda rehacerse.
+                                            desde: rango.desde,
+                                            hasta: rango.hasta,
                                             // Por referencia a propósito: cada recarga rehace estos arreglos, así
                                             // que comparar referencias es preguntar "¿son los mismos datos?" sin
                                             // recorrer nada.
@@ -2755,7 +2779,7 @@
 
                                         destino.ambito = ambito;
                                         destino.entradas = entradas;
-                                        pintarCurva(destino, ambito);
+                                        pintarCurva(destino, ambito, { desde: entradas.desde, hasta: entradas.hasta });
                                     }
 
                                     // El histórico de precios llega después del arranque, así que la curva puede
@@ -2767,7 +2791,66 @@
                                         sincronizarCaraInversiones(CURVAS.principal.ambito);
                                     }
 
-                                    function pintarCurva(destino, ambito) {
+                                    // El relleno de las dos gráficas de la tarjeta: verde arriba, que se apaga
+                                    // hacia abajo. Va en coordenadas del lienzo, así que se calcula en cada
+                                    // dibujo y no puede ser una constante.
+                                    function rellenoCurvaVerde(context) {
+                                        const { ctx, chartArea } = context.chart;
+                                        if (!chartArea) return 'rgba(62, 207, 142, 0)';
+                                        const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                        grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
+                                        grad.addColorStop(0.85, 'rgba(62, 207, 142, 0.0)');
+                                        grad.addColorStop(1, 'rgba(62, 207, 142, 0.0)');
+                                        return grad;
+                                    }
+
+                                    // La raya de puntos que marca el día que se está leyendo. Sin dedo encima se
+                                    // queda en el día que cada gráfica tenga por suyo —hoy en el balance, el
+                                    // último dibujado en la curva—, que es el que sus cifras están contando.
+                                    //
+                                    // Las dos gráficas de la tarjeta la comparten: es la misma pieza del mismo
+                                    // dibujo, y tenerla escrita dos veces era arriesgarse a que una se quedara
+                                    // atrás el día que se tocara la otra.
+                                    function crearPluginLineaVertical(indicePorDefecto) {
+                                        return {
+                                            id: 'lineaVertical',
+                                            afterDraw: chart => {
+                                                let posicionX = null;
+                                                const activos = typeof chart.getActiveElements === 'function' ? chart.getActiveElements() : [];
+
+                                                if (activos && activos.length > 0 && activos[0].element) {
+                                                    posicionX = activos[0].element.x;
+                                                } else if (indicePorDefecto !== undefined && indicePorDefecto !== -1) {
+                                                    const meta = chart.getDatasetMeta(0);
+                                                    if (meta && meta.data[indicePorDefecto]) posicionX = meta.data[indicePorDefecto].x;
+                                                }
+
+                                                if (posicionX === null) return;
+
+                                                const lienzo = chart.ctx;
+                                                lienzo.save();
+                                                lienzo.beginPath();
+                                                lienzo.moveTo(posicionX, chart.scales.y.top);
+                                                lienzo.lineTo(posicionX, chart.scales.y.bottom);
+                                                lienzo.lineWidth = 1.5;
+                                                lienzo.strokeStyle = 'rgba(62, 207, 142, 0.7)';
+                                                lienzo.setLineDash([5, 5]);
+                                                lienzo.stroke();
+                                                lienzo.restore();
+                                            }
+                                        };
+                                    }
+
+                                    // El recorte de fechas que tiene puesto la pantalla, el mismo que decide qué
+                                    // dibuja el balance. Se lee de los campos del panel de filtros, que son de
+                                    // donde lo saca también aplicarFiltrosYRenderizar.
+                                    function rangoDelFiltro() {
+                                        const ini = document.getElementById('filtroInicio');
+                                        const fin = document.getElementById('filtroFin');
+                                        return { desde: (ini && ini.value) || '', hasta: (fin && fin.value) || '' };
+                                    }
+
+                                    function pintarCurva(destino, ambito, periodo) {
                                         const lienzo = document.getElementById(destino.lienzo);
                                         const caja = document.getElementById(destino.caja);
                                         const pie = document.getElementById(destino.pie);
@@ -2781,20 +2864,33 @@
                                         const nombre = (ambito && ambito.nombre) ? ambito.nombre : '';
                                         if (tituloEl) tituloEl.textContent = nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida';
 
-                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito) : null;
+                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito, periodo) : null;
+                                        const hayCurva = !!serie && !serie.fueraDePeriodo;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
+                                        if (lienzo._snapBackHandler) {
+                                            lienzo.removeEventListener('mouseleave', lienzo._snapBackHandler);
+                                            lienzo.removeEventListener('touchend', lienzo._snapBackHandler);
+                                            lienzo._snapBackHandler = null;
+                                        }
 
                                         // Cada motivo dice qué falta y qué hacer: una gráfica vacía sin más deja
-                                        // pensando que se rompió algo. Y mientras el histórico viene de camino no
-                                        // se acusa a nadie de no haber hecho la migración.
-                                        if (!serie) {
+                                        // pensando que se rompió algo. Mientras el histórico viene de camino no se
+                                        // acusa a nadie de no haber hecho la migración, y un periodo anterior a tu
+                                        // primera compra no es lo mismo que no tener acciones.
+                                        if (!hayCurva) {
                                             if (caja) caja.style.display = 'none';
                                             if (cifraEl) cifraEl.textContent = '';
                                             pie.innerHTML = !historicoPreciosListo
                                                 ? (historicoPreciosIntentado
                                                     ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
                                                     : 'Buscando el histórico de precios…')
+                                                : (serie && serie.fueraDePeriodo && (periodo || {}).desde > obtenerFechaLocalCortada(new Date().toISOString()))
+                                                // Un mes que aún no llega no tiene curva, y no porque falte nada:
+                                                // del futuro no hay cierres con los que saber qué sale sin pérdida.
+                                                ? 'Este periodo aún no llega. La curva sólo puede contar hasta hoy.'
+                                                : (serie && serie.fueraDePeriodo)
+                                                ? `En este periodo todavía no había acciones compradas${nombre ? ` en ${nombre}` : ''}.`
                                                 : `Todavía no hay compras de acciones que dibujar${nombre ? ` en ${nombre}` : ''}.`;
                                             return;
                                         }
@@ -2802,80 +2898,7 @@
                                         if (caja) caja.style.display = 'block';
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
-                                        const ultimaGanancia = serie.ganancias[serie.ganancias.length - 1];
-                                        const ultimoCosto = serie.costosAccesibles[serie.costosAccesibles.length - 1];
-                                        const pct = ultimoCosto > 0 ? (ultimaGanancia / ultimoCosto) * 100 : 0;
-                                        // Nunca es negativa: sólo suma las compras que salen sin pérdida. El día
-                                        // que no hay ninguna vale cero, y entonces el verde no dice nada.
-                                        const color = ultimaGanancia > 0.005 ? '#3ecf8e' : '#777';
-
-                                        destino.chart = new Chart(lienzo.getContext('2d'), {
-                                            type: 'line',
-                                            data: {
-                                                labels: serie.dias,
-                                                datasets: [
-                                                    {
-                                                        label: 'Accesible',
-                                                        data: serie.ganancias,
-                                                        borderColor: '#3ecf8e',
-                                                        borderWidth: 2,
-                                                        pointRadius: 0,
-                                                        tension: 0.15,
-                                                        // Se rellena hasta el cero, que aquí es el suelo de verdad:
-                                                        // el área es lo que podrías haberte llevado sin perder.
-                                                        fill: { target: 'origin', above: 'rgba(62, 207, 142, 0.12)' }
-                                                    }
-                                                ]
-                                            },
-                                            options: {
-                                                animation: ANIMACION_GRAFICAS,
-                                                responsive: true,
-                                                maintainAspectRatio: false,
-                                                interaction: { mode: 'index', intersect: false },
-                                                plugins: {
-                                                    legend: { display: false },
-                                                    tooltip: {
-                                                        callbacks: {
-                                                            title: (items) => {
-                                                                const [anio, mes, dia] = items[0].label.split('-');
-                                                                return `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].toLowerCase()} ${anio}`;
-                                                            },
-                                                            label: (item) => `+${fMoneda(item.raw)} ${simbolo} sin perder`,
-                                                            // Sobre cuánto se sacó esa ganancia: sin el costo de
-                                                            // las compras que estaban accesibles, la cifra no dice
-                                                            // si es mucho o poco.
-                                                            afterBody: (items) => {
-                                                                const costo = serie.costosAccesibles[items[0].dataIndex] || 0;
-                                                                if (!(costo > 0.005)) return 'Nada accesible ese día';
-                                                                const p = (items[0].raw / costo) * 100;
-                                                                return `sobre ${fMoneda(costo)} accesibles (+${p.toFixed(1)}%)`;
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                                scales: {
-                                                    x: {
-                                                        // Mil etiquetas de día no caben ni se leen: el eje enseña
-                                                        // unas pocas fechas de referencia y el resto lo cuenta el
-                                                        // globo al tocar.
-                                                        ticks: {
-                                                            color: '#666', maxRotation: 0, autoSkip: true, maxTicksLimit: 5,
-                                                            callback: function (v) {
-                                                                const etiqueta = this.getLabelForValue(v);
-                                                                if (!etiqueta) return '';
-                                                                const [anio, mes] = etiqueta.split('-');
-                                                                return `${NOMBRES_MESES[parseInt(mes, 10) - 1].slice(0, 3).toLowerCase()} ${anio.slice(2)}`;
-                                                            }
-                                                        },
-                                                        grid: { display: false }
-                                                    },
-                                                    y: {
-                                                        ticks: { color: '#666', callback: (v) => montoCompactoTreemap(v) },
-                                                        grid: { color: '#222' }
-                                                    }
-                                                }
-                                            }
-                                        });
+                                        const ultimo = serie.dias.length - 1;
 
                                         const desde = serie.dias[0].split('-');
                                         let aviso = serie.sinPrecio.length > 0
@@ -2885,21 +2908,100 @@
                                             aviso += `<br><span style="color:#f39c12;">⚠️ Falta histórico del tipo de cambio: esos días usan el de hoy. En USD la curva no lo necesita.</span>`;
                                         }
 
-                                        const cuantas = serie.vivasHoy > 0
-                                            ? `${serie.accesiblesHoy} de ${serie.vivasHoy} compra${serie.vivasHoy !== 1 ? 's' : ''} sale${serie.accesiblesHoy !== 1 ? 'n' : ''} sin pérdida; lo demás se realizaría en pérdida`
-                                            : '';
+                                        // Lo que dice la tarjeta del día que se esté leyendo. Es el mismo reparto
+                                        // que el balance: la cifra del día arriba, a la derecha del título, y
+                                        // debajo lo que la explica. Al arrastrar el dedo cambian las dos, así que
+                                        // el renglón de abajo es de ese mismo día y no de hoy: mezclarlos sería
+                                        // poner la ganancia de un día junto a las compras de otro.
+                                        const escribirDia = (i) => {
+                                            if (i < 0 || i >= serie.dias.length) return;
+                                            const ganancia = serie.ganancias[i];
+                                            const costo = serie.costosAccesibles[i];
+                                            const pct = costo > 0 ? (ganancia / costo) * 100 : 0;
+                                            // Nunca es negativa: sólo suma las compras que salen sin pérdida. El
+                                            // día que no hay ninguna vale cero, y entonces el verde no dice nada.
+                                            const color = ganancia > 0.005 ? '#3ecf8e' : '#777';
 
-                                        // La cifra de hoy va arriba, donde la tarjeta pone siempre su número, y el
-                                        // pie se queda con lo que la explica. Repetirla en los dos sitios era leer
-                                        // dos veces lo mismo antes de llegar a lo que el pie aporta.
-                                        if (cifraEl) {
-                                            cifraEl.style.color = color;
-                                            cifraEl.textContent = `+${fMoneda(ultimaGanancia)} ${simbolo} (+${pct.toFixed(1)}%)`;
-                                        }
+                                            // Arriba va sólo el dinero, como en el balance: el título y la cifra
+                                            // comparten renglón y con el porcentaje detrás no cabían los dos. El
+                                            // porcentaje baja al pie, que es además donde está el número del que
+                                            // sale —lo accesible— y así se lee la división entera.
+                                            if (cifraEl) {
+                                                cifraEl.style.color = color;
+                                                cifraEl.textContent = `+${fMoneda(ganancia)} ${simbolo}`;
+                                            }
 
-                                        pie.innerHTML = `
-                                            <span style="color:#888;">sobre ${fMoneda(ultimoCosto)} accesibles${cuantas ? ` · ${cuantas}` : ''}</span>
-                                            <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
+                                            const [anio, mes, dia] = serie.dias[i].split('-');
+                                            const fecha = `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].slice(0, 3).toLowerCase()} ${anio}`;
+                                            const vivas = serie.vivasPorDia[i];
+                                            const accesibles = serie.accesiblesPorDia[i];
+                                            const cuantas = vivas > 0
+                                                ? ` · ${accesibles} de ${vivas} compra${vivas !== 1 ? 's' : ''} sale${accesibles !== 1 ? 'n' : ''} sin pérdida`
+                                                : '';
+
+                                            pie.innerHTML = `
+                                                <span style="color:#888;">${fecha} · +${pct.toFixed(1)}% sobre ${fMoneda(costo)} accesibles${cuantas}</span>
+                                                <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
+                                        };
+
+                                        // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
+                                        // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
+                                        // día. Las dos ocupan el mismo hueco de la misma tarjeta, así que una que
+                                        // trajera sus propios ejes se leería como si fuera de otra app.
+                                        destino.chart = new Chart(lienzo.getContext('2d'), {
+                                            type: 'line',
+                                            data: {
+                                                labels: serie.dias,
+                                                datasets: [{
+                                                    label: 'Accesible',
+                                                    data: serie.ganancias,
+                                                    borderColor: '#3ecf8e',
+                                                    borderWidth: 2,
+                                                    pointRadius: 0,
+                                                    tension: 0.3,
+                                                    // Se rellena hasta el cero, que aquí es el suelo de verdad: el
+                                                    // área es lo que podrías haberte llevado sin perder.
+                                                    fill: true,
+                                                    backgroundColor: rellenoCurvaVerde
+                                                }]
+                                            },
+                                            options: {
+                                                animation: ANIMACION_GRAFICAS,
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                onHover: (evento, activos) => {
+                                                    if (activos && activos.length > 0) escribirDia(activos[0].index);
+                                                },
+                                                interaction: { mode: 'index', intersect: false },
+                                                scales: { x: { display: false }, y: { display: false } },
+                                                plugins: {
+                                                    legend: { display: false },
+                                                    tooltip: { enabled: false }
+                                                }
+                                            },
+                                            plugins: [crearPluginLineaVertical(ultimo)]
+                                        });
+
+                                        // Al soltar, la tarjeta vuelve al último día dibujado, que es el que
+                                        // contesta a "cuánto puedo sacar" sin tener que apuntar a ningún sitio.
+                                        const volverAlUltimo = () => {
+                                            if (!destino.chart) return;
+                                            setTimeout(() => {
+                                                if (!destino.chart) return;
+                                                destino.chart.setActiveElements([{ datasetIndex: 0, index: ultimo }]);
+                                                destino.chart.update();
+                                                escribirDia(ultimo);
+                                            }, 10);
+                                        };
+
+                                        volverAlUltimo();
+                                        lienzo._snapBackHandler = volverAlUltimo;
+                                        lienzo.addEventListener('mouseleave', lienzo._snapBackHandler);
+                                        lienzo.addEventListener('touchend', lienzo._snapBackHandler, { passive: true });
+
+                                        // La cifra se escribe ya, sin esperar al cuadro de espera de arriba: si no,
+                                        // la tarjeta aparece un instante con la del dibujo anterior.
+                                        escribirDia(ultimo);
                                     }
 
                 let idCuentaMasUsada = null; // <- Nueva variable global para recordar la cuenta frecuente
@@ -10371,41 +10473,6 @@
                 } catch(e) {}
             }
 
-            const pluginLineaVertical = {
-                        id: 'lineaVertical',
-                        afterDraw: chart => {
-                            let posicionX = null;
-                            const active = typeof chart.getActiveElements === 'function'
-                                ? chart.getActiveElements()
-                                : [];
-                                
-                            if (active && active.length > 0 && active[0].element) {
-                                posicionX = active[0].element.x;
-                            } else if (typeof indiceHoy !== 'undefined' && indiceHoy !== -1) {
-                                const meta = chart.getDatasetMeta(0);
-                                if (meta && meta.data[indiceHoy]) {
-                                    posicionX = meta.data[indiceHoy].x;
-                                }
-                            }
-
-                            if (posicionX !== null) {
-                                const topY = chart.scales.y.top;
-                                const bottomY = chart.scales.y.bottom;
-                                
-                                const chartCtx = chart.ctx;
-                                chartCtx.save();
-                                chartCtx.beginPath();
-                                chartCtx.moveTo(posicionX, topY);
-                                chartCtx.lineTo(posicionX, bottomY);
-                                chartCtx.lineWidth = 1.5;
-                                chartCtx.strokeStyle = 'rgba(62, 207, 142, 0.7)';
-                                chartCtx.setLineDash([5, 5]);
-                                chartCtx.stroke();
-                                chartCtx.restore();
-                            }
-                        }
-                    };
-            
             miGrafico = new Chart(ctx, {
                 type: usarLinea ? 'line' : 'bar',
                 data: {
@@ -10413,16 +10480,7 @@
                     datasets: [{
                         label: 'Flujo de Balance',
                         data: usarLinea ? datosLinea : datosFlotantes,
-                        backgroundColor: usarLinea ? function(context) {
-                            const chart = context.chart;
-                            const {ctx, chartArea} = chart;
-                            if (!chartArea) return 'rgba(62, 207, 142, 0)';
-                            let gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                            gradient.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
-                            gradient.addColorStop(0.85, 'rgba(62, 207, 142, 0.0)');
-                            gradient.addColorStop(1, 'rgba(62, 207, 142, 0.0)');
-                            return gradient;
-                        } : coloresBarras,
+                        backgroundColor: usarLinea ? rellenoCurvaVerde : coloresBarras,
                         borderColor: usarLinea ? '#3ecf8e' : undefined,
                         borderWidth: usarLinea ? 2 : 0,
                         pointRadius: 0,
@@ -10458,7 +10516,7 @@
                         tooltip: { enabled: false }
                     }
                 },
-                plugins: [pluginLineaVertical]
+                plugins: [crearPluginLineaVertical(indiceHoy)]
             });
 
             const forzarDiaActual = () => {
