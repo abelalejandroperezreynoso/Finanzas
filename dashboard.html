@@ -883,6 +883,53 @@
                     color: #aaa;
                     margin-top: 4px;
                 }
+                /* El logo de la empresa, con la inicial del ticker debajo. La imagen se apila
+                   encima de la inicial en vez de sustituirla: mientras no hay perfil —o cuando
+                   la imagen no carga, que sin red es siempre, porque la sirve Finnhub desde otro
+                   dominio y el service worker no la guarda— se ve la inicial y la tarjeta
+                   conserva su forma. El onerror de la imagen la quita y deja la inicial a la vista. */
+                .logo-empresa {
+                    position: relative;
+                    flex-shrink: 0;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 6px;
+                    background: #333;
+                    color: #999;
+                    font-weight: bold;
+                    overflow: hidden;
+                    line-height: 1;
+                }
+                .logo-empresa img {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    /* Los logos vienen en proporciones distintas: contain los deja enteros en
+                       lugar de recortarlos. El fondo blanco es porque muchos son PNG con
+                       transparencia pensados para fondo claro y sobre el gris se pierden. */
+                    object-fit: contain;
+                    background: #ffffff;
+                }
+                /* La pastilla del sector. Se lee como una etiqueta discreta, no como un dato
+                   más de la cuenta: es para reconocer de un vistazo, no para consultarlo. */
+                .badge-sector {
+                    display: inline-block;
+                    font-size: 0.72em;
+                    color: #9aa7b8;
+                    background: #262b33;
+                    border: 1px solid #333a45;
+                    padding: 1px 6px;
+                    border-radius: 4px;
+                    margin-bottom: 4px;
+                    max-width: 160px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    vertical-align: middle;
+                }
                 /* El tamaño de partida del saldo. Va en la hoja de estilos y no en el atributo style
                    del elemento porque ajustarSaldoAlAncho() borra su font-size en línea para volver a
                    medir, y necesita que quede este valor debajo al que regresar. */
@@ -1568,6 +1615,26 @@
                 Traer histórico
             </button>
             <div id="avisoHistorico" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+        </div>
+
+        <div style="border-top: 1px dashed #333; padding-top: 14px; margin-top: 14px;">
+            <h4 style="font-size: 0.75em; color: #888; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Empresas</h4>
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
+                El <strong>sector</strong> y el <strong>logo</strong> de cada empresa salen del mismo
+                Finnhub que los precios, sin clave ni nada que configurar. Se preguntan una sola vez
+                por empresa —no cambian— y se guardan, así que esto no hace falta tocarlo: la primera
+                vez que añadas un ticker se completa solo.
+            </p>
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
+                Los <strong>ETF</strong> y lo que cotiza fuera de Estados Unidos se quedan sin sector:
+                el plan gratuito no los perfila. Esas tarjetas salen con la inicial del ticker en lugar
+                del logo.
+            </p>
+            <button id="btnRefrescarPerfiles" onclick="forzarActualizacionPerfiles()"
+                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
+                🏷️ Sectores y logos
+            </button>
+            <div id="avisoPerfiles" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
         </div>
     </div>
     <!-- FIN PRECIOS DE MERCADO -->
@@ -2342,6 +2409,237 @@
                                     function cargarClaveHistoricoGuardada() {
                                         const campo = document.getElementById('claveApiHistorico');
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
+                                    }
+
+                                    // =========================================================
+                                    // PERFILES DE EMPRESA (SECTOR Y LOGO)
+                                    // =========================================================
+                                    // El precio dice cuánto vale una empresa; el perfil dice qué es. Sale del
+                                    // mismo Finnhub y del mismo token, del endpoint /stock/profile2, que entra
+                                    // en el plan gratuito.
+                                    //
+                                    // Se pide una vez por ticker y se guarda en `perfiles_empresas`. El sector
+                                    // de una empresa no cambia nunca: preguntarlo en cada apertura serían
+                                    // tantos viajes como empresas tengas, cada mañana, para recibir siempre lo
+                                    // mismo. Por eso esto no se parece al precio —que se pide entero cada
+                                    // vez— sino a una tabla que se llena sola y ya no se vuelve a tocar.
+                                    //
+                                    // El plan gratuito sólo perfila acciones de Estados Unidos. De un ETF o de
+                                    // una empresa de otra bolsa contesta con un objeto vacío, y esa respuesta
+                                    // se guarda igual: una fila con sector y logo en nulo es lo que distingue
+                                    // "no lo he preguntado" de "ya pregunté y no hay nada". Al mes se vuelve a
+                                    // intentar, por si Finnhub amplió su cobertura.
+                                    const DIAS_FRESCURA_PERFIL = 30;
+
+                                    // { TICKER: { nombre, sector, logo, pais, bolsa, actualizado_en } }. Se
+                                    // llena al arrancar y se queda en memoria: la lista de categorías se
+                                    // repinta muchas veces y no puede volver a la base en cada una.
+                                    let cachePerfilesEmpresa = {};
+                                    let perfilesEmpresasListo = false;
+
+                                    // Las cadenas de abajo vienen de una API ajena y acaban dentro de un
+                                    // innerHTML. Ninguna debería traer nada raro, pero el día que Finnhub
+                                    // devuelva un nombre con comillas la tarjeta se rompería sola.
+                                    function escaparHtml(texto) {
+                                        return String(texto ?? '').replace(/[&<>"']/g, (c) => (
+                                            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+                                        ));
+                                    }
+
+                                    // Qué empresas tiene el portafolio. El tipo de cambio se cuela en el
+                                    // histórico como un ticker más, pero no es una empresa y no tiene perfil.
+                                    function tickersConPerfil() {
+                                        const vistos = {};
+                                        (datosCategorias || [])
+                                            .filter(c => c.tipo === 'inversion' && c.ticker)
+                                            .forEach(c => {
+                                                const t = String(c.ticker).trim().toUpperCase();
+                                                if (t && t !== TICKER_TIPO_CAMBIO) vistos[t] = true;
+                                            });
+                                        return Object.keys(vistos);
+                                    }
+
+                                    function perfilCaducado(perfil) {
+                                        if (!perfil) return true;
+                                        if (!perfil.actualizado_en) return false;
+                                        const dias = (Date.now() - new Date(perfil.actualizado_en).getTime()) / 86400000;
+                                        return dias > DIAS_FRESCURA_PERFIL;
+                                    }
+
+                                    async function cargarPerfilesEmpresas() {
+                                        if (!clienteSupabase || !currentUser) return;
+
+                                        const { data, error } = await clienteSupabase
+                                            .from('perfiles_empresas')
+                                            .select('ticker, nombre, sector, logo, pais, bolsa, actualizado_en');
+
+                                        // Sin la tabla, la app funciona igual que antes: las tarjetas salen sin
+                                        // logo ni sector y nada más. Se avisa en Configuración, no con un error
+                                        // en la cara.
+                                        if (error) {
+                                            perfilesEmpresasListo = false;
+                                            console.warn('No hay tabla de perfiles de empresa todavía', error.message);
+                                            return;
+                                        }
+
+                                        cachePerfilesEmpresa = {};
+                                        (data || []).forEach(p => { cachePerfilesEmpresa[p.ticker] = p; });
+                                        perfilesEmpresasListo = true;
+                                    }
+
+                                    // Un viaje a Finnhub. Devuelve siempre un perfil: el objeto vacío de un ETF
+                                    // es una respuesta buena —"esta no la tengo"— y se guarda como tal.
+                                    async function perfilDesdeFinnhub(ticker) {
+                                        const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(ticker)}&token=${TOKEN_FINNHUB}`;
+                                        const res = await fetch(url);
+                                        if (!res.ok) throw new Error(`Finnhub respondió ${res.status}`);
+                                        const d = await res.json();
+                                        return {
+                                            ticker,
+                                            nombre: d && d.name ? d.name : null,
+                                            // El campo se llama así en Finnhub y mezcla granularidades
+                                            // ("Technology", "Semiconductors"): es una etiqueta por empresa,
+                                            // no el árbol GICS completo, que es de pago.
+                                            sector: d && d.finnhubIndustry ? d.finnhubIndustry : null,
+                                            logo: d && d.logo ? d.logo : null,
+                                            pais: d && d.country ? d.country : null,
+                                            bolsa: d && d.exchange ? d.exchange : null
+                                        };
+                                    }
+
+                                    // Rellena lo que falte y guarda. Va detrás del arranque y sin retenerlo: la
+                                    // app ya está en pantalla y lo único que cambia cuando esto termina es que
+                                    // aparecen los logos.
+                                    async function completarPerfilesEmpresas() {
+                                        if (!clienteSupabase || !currentUser || !perfilesEmpresasListo) return;
+
+                                        const pendientes = tickersConPerfil()
+                                            .filter(t => perfilCaducado(cachePerfilesEmpresa[t]));
+                                        if (pendientes.length === 0) return;
+
+                                        // De uno en uno y con una pausa corta. Finnhub corta a 60 llamadas por
+                                        // minuto y los precios ya se llevaron una tanda al abrir la app; esto
+                                        // no corre prisa y no vale la pena gastarle la cuota a lo que sí.
+                                        const nuevos = [];
+                                        for (const ticker of pendientes) {
+                                            try {
+                                                nuevos.push(await perfilDesdeFinnhub(ticker));
+                                            } catch (e) {
+                                                // Un ticker que falla no puede llevarse los demás por delante.
+                                                // Al no guardar nada, se vuelve a intentar en la próxima
+                                                // apertura, que es justo lo que se quiere con un fallo de red.
+                                                console.warn(`No se pudo traer el perfil de ${ticker}`, e.message);
+                                            }
+                                            await new Promise(r => setTimeout(r, 250));
+                                        }
+
+                                        if (nuevos.length === 0) return;
+
+                                        const filas = nuevos.map(p => ({
+                                            user_id: currentUser.id,
+                                            ticker: p.ticker,
+                                            nombre: p.nombre,
+                                            sector: p.sector,
+                                            logo: p.logo,
+                                            pais: p.pais,
+                                            bolsa: p.bolsa,
+                                            actualizado_en: new Date().toISOString()
+                                        }));
+
+                                        const { error } = await clienteSupabase
+                                            .from('perfiles_empresas')
+                                            .upsert(filas, { onConflict: 'user_id,ticker' });
+
+                                        if (error) {
+                                            console.warn('No se pudieron guardar los perfiles', error.message);
+                                            return;
+                                        }
+
+                                        filas.forEach(f => { cachePerfilesEmpresa[f.ticker] = f; });
+                                        // Las tarjetas ya están pintadas sin logo: hay que repintarlas.
+                                        debouncedRefreshUI();
+                                    }
+
+                                    // El botón de Configuración. Borra la frescura de lo guardado para que todo
+                                    // se vuelva a preguntar, incluidos los tickers que salieron vacíos.
+                                    async function forzarActualizacionPerfiles() {
+                                        const btn = document.getElementById('btnRefrescarPerfiles');
+                                        const aviso = document.getElementById('avisoPerfiles');
+                                        const decir = (t, malo) => {
+                                            if (!aviso) return;
+                                            aviso.textContent = t;
+                                            aviso.style.color = malo ? '#ff5c5c' : '#666';
+                                        };
+
+                                        if (!perfilesEmpresasListo) {
+                                            decir('Falta la tabla. Ejecuta migracion_perfiles_empresas.sql en Supabase y recarga.', true);
+                                            return;
+                                        }
+
+                                        const total = tickersConPerfil().length;
+                                        if (total === 0) {
+                                            decir('No hay categorías de inversión con ticker todavía.');
+                                            return;
+                                        }
+
+                                        if (btn) { btn.disabled = true; btn.textContent = 'Trayendo…'; }
+                                        // Vaciar la caché es lo que fuerza la nueva pregunta: `perfilCaducado`
+                                        // da por pendiente todo ticker del que no hay nada guardado. Las filas
+                                        // de la base siguen ahí y el upsert las reescribe al volver.
+                                        cachePerfilesEmpresa = {};
+
+                                        try {
+                                            await completarPerfilesEmpresas();
+                                            const conSector = tickersConPerfil()
+                                                .filter(t => cachePerfilesEmpresa[t] && cachePerfilesEmpresa[t].sector).length;
+                                            decir(`${conSector} de ${total} empresas con sector. Las que faltan son ETFs o de fuera de EE. UU.`);
+                                        } catch (e) {
+                                            // La caché se vació al empezar y la traída se quedó a medias: sin
+                                            // esto, las tarjetas perderían los logos que sí había hasta que el
+                                            // usuario recargara. Lo guardado en la base no se ha tocado, así que
+                                            // basta con volver a leerlo.
+                                            await cargarPerfilesEmpresas().catch(() => {});
+                                            debouncedRefreshUI();
+                                            decir('No se pudieron traer los perfiles: ' + e.message, true);
+                                        } finally {
+                                            if (btn) { btn.disabled = false; btn.textContent = '🏷️ Sectores y logos'; }
+                                        }
+                                    }
+
+                                    // --- Lo que usan las vistas ---
+
+                                    function perfilDeTicker(ticker) {
+                                        if (!ticker) return null;
+                                        return cachePerfilesEmpresa[String(ticker).trim().toUpperCase()] || null;
+                                    }
+
+                                    function sectorDeTicker(ticker) {
+                                        const p = perfilDeTicker(ticker);
+                                        return p && p.sector ? p.sector : null;
+                                    }
+
+                                    // El logo, con la inicial del ticker debajo. La imagen la sirve Finnhub
+                                    // desde otro dominio, así que el service worker no la guarda: sin red no
+                                    // carga. El onerror la quita y deja ver la inicial, que es la misma pieza
+                                    // que se ve mientras no haya perfil, de modo que la tarjeta nunca cambia de
+                                    // tamaño ni enseña el icono roto del navegador.
+                                    function logoEmpresaHtml(ticker, lado = 28) {
+                                        if (!ticker) return '';
+                                        const t = String(ticker).trim().toUpperCase();
+                                        const perfil = perfilDeTicker(t);
+                                        const inicial = escaparHtml(t.slice(0, 1));
+                                        const img = perfil && perfil.logo
+                                            ? `<img src="${escaparHtml(perfil.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`
+                                            : '';
+                                        return `<span class="logo-empresa" style="width:${lado}px; height:${lado}px; font-size:${Math.round(lado * 0.45)}px;" aria-hidden="true"><span>${inicial}</span>${img}</span>`;
+                                    }
+
+                                    // La pastilla del sector. Sin perfil no se dibuja nada: un hueco vacío dice
+                                    // menos que la ausencia.
+                                    function sectorBadgeHtml(ticker) {
+                                        const sector = sectorDeTicker(ticker);
+                                        if (!sector) return '';
+                                        return `<span class="badge-sector">${escaparHtml(sector)}</span>`;
                                     }
 
                                     function cambiarMonedaCurvaPortafolio(moneda) {
@@ -4075,6 +4373,15 @@
                                                                 // Se lanza sin esperarlo para que corra a la vez que la carga de cuentas, pero se
                                                                 // espera antes de las categorías, que ya convierten dólares a pesos con globalUsdToMxn.
                                                                 const tipoCambioListo = obtenerTipoCambioActual();
+
+                                                                // Los perfiles de empresa —el logo y el sector— son una sola consulta a la
+                                                                // base y no dependen de nada más, así que se lanzan aquí, a correr junto al
+                                                                // resto. Se esperan abajo, antes del único dibujo del arranque: si llegan
+                                                                // a tiempo, las tarjetas salen ya con su logo en vez de aparecer a medias
+                                                                // y completarse a la vista.
+                                                                const perfilesListos = cargarPerfilesEmpresas()
+                                                                    .catch(e => console.warn('No se pudieron leer los perfiles de empresa', e));
+
                                                                 await cargarCuentas();
                                                                 avanzarCarga(HITOS_CARGA.cuentas);
                                                                 await tipoCambioListo;
@@ -4086,6 +4393,7 @@
                                                                 // parecía que los datos se cargaban dos veces.
                                                                 await esperarPreciosDeMercado();
                                                                 avanzarCarga(HITOS_CARGA.precios);
+                                                                await perfilesListos;
                                                                 await cargarDatosBase();
                                                                 // La barra se llena con el dashboard ya pintado detrás: el último tramo
                                                                 // corre durante el fundido, así que se ve terminar y no cortarse.
@@ -4099,6 +4407,13 @@
                                                                 cargarHistoricoPrecios()
                                                                     .then(guardarCierresDeHoy)
                                                                     .catch(e => console.error('No se pudo preparar el histórico de precios', e));
+
+                                                                // Las empresas que todavía no tienen perfil se preguntan aquí, con la app
+                                                                // ya en pie y sin retener nada: son viajes a Finnhub que sólo hacen falta
+                                                                // la primera vez que aparece un ticker. Cuando terminan, la lista se
+                                                                // repinta sola con los logos puestos.
+                                                                completarPerfilesEmpresas()
+                                                                    .catch(e => console.error('No se pudieron completar los perfiles de empresa', e));
                                                             } catch (e) {
                                                                 // Si algo falla (sin red, por ejemplo) se destapa igual: más vale la app vacía
                                                                 // y usable que un spinner que no se va nunca.
@@ -6071,6 +6386,16 @@
                                                                                                                                 
                                                                                                                                 const textoTicker = cat.ticker ? `<span style="font-size:0.8em; opacity:0.7; background:#444; padding:2px 6px; border-radius:4px; display:inline-block; margin-bottom:4px;">${cat.ticker}<span>${badgeTickerTexto}</span></span>` : '';
 
+                                                                                                                                // El logo va pegado al nombre y el sector debajo, junto al ticker: lo
+                                                                                                                                // primero se reconoce sin leer y lo segundo se lee sólo si interesa.
+                                                                                                                                // Los dos salen del perfil guardado; mientras no lo haya, el logo es la
+                                                                                                                                // inicial del ticker y del sector no se pinta nada.
+                                                                                                                                // La caja GBM no entra por sí sola: es una categoría de inversión sin
+                                                                                                                                // ticker, y sin ticker no hay ni logo ni sector que pintar.
+                                                                                                                                const esEmpresa = cat.tipo === 'inversion' && !!cat.ticker;
+                                                                                                                                const htmlLogo = esEmpresa ? `<span style="margin-right:8px; display:inline-flex;">${logoEmpresaHtml(cat.ticker, 26)}</span>` : '';
+                                                                                                                                const htmlSector = esEmpresa ? sectorBadgeHtml(cat.ticker) : '';
+
                                                                                                                                 htmlAcumulado += `<li style="border-color:${colorTipo};">
                                                                                                                                 <div class="swipe-actions">
                                                                                                                                 <button class="btn-swipe-act" onclick="verDetallesCategoria('${cat.id}')" style="display:flex; align-items:center; justify-content:center; background:#007aff; border-radius:50px;">
@@ -6084,9 +6409,10 @@
                                                                                                                                                                                                                         <div style="display: flex; justify-content: space-between; width: 100%;">
                                                                                                                                                                                                                         <div style="flex:1;">
                                                                                                                                                                                                                                                                                                                                                             <strong style="display: flex; align-items: center; color: ${colorTipo}; min-height: 24px; margin-bottom: 2px;">
+                                                                                                                                                                                                                                                                                                                                                                ${htmlLogo}
                                                                                                                                                                                                                                                                                                                                                                 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${cat.nombre}</span>
                                                                                                                                                                                                                                                                                                                                                             </strong>
-                                                                                                                                                                                                                                                                                                                                                            ${cat.ticker ? `<div>${textoTicker}</div>` : ''}
+                                                                                                                                                                                                                                                                                                                                                            ${cat.ticker ? `<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">${textoTicker}${htmlSector}</div>` : ''}
                                                                                                                                                                                                                                                                                                                                                             <small>${cat.cuentas?.nombre || ''}</small>
                                                                                                                                                                                                                                                                                                                                                             </div>
                                                                                                                                                                                                                                                                     <div style="text-align: right;">
@@ -10954,11 +11280,27 @@
                             }
                             }
 
+                            // La ficha es el sitio donde sí caben los datos largos del perfil: en la
+                            // tarjeta de la lista sólo entran el logo y el sector, aquí entra también el
+                            // nombre con el que cotiza y en qué bolsa, que es lo que despeja la duda
+                            // cuando dos tickers se parecen.
+                            const perfilCat = cat.tipo === 'inversion' ? perfilDeTicker(cat.ticker) : null;
+                            const htmlPerfil = perfilCat && (perfilCat.nombre || perfilCat.sector || perfilCat.bolsa) ? `
+                            <div style="display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 10px; background: #1c1c1c; border-radius: 8px; border: 1px solid #2c2c2c;">
+                            ${logoEmpresaHtml(cat.ticker, 38)}
+                            <div style="min-width: 0; line-height: 1.4;">
+                            <div style="color: #fff; font-weight: bold; font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escaparHtml(perfilCat.nombre || cat.ticker)}</div>
+                            ${perfilCat.sector ? `<div style="color: #9aa7b8; font-size: 0.8em;">${escaparHtml(perfilCat.sector)}</div>` : ''}
+                            ${perfilCat.bolsa ? `<div style="color: #666; font-size: 0.72em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escaparHtml(perfilCat.bolsa)}${perfilCat.pais ? ` · ${escaparHtml(perfilCat.pais)}` : ''}</div>` : ''}
+                            </div>
+                            </div>` : '';
+
                             const htmlContenido = `
                             <span style="color: #aaa;">Nombre:</span> <strong style="color: #fff;">${cat.nombre}</strong><br>
                             <span style="color: #aaa;">Tipo:</span> <strong style="color: #fff;">${cat.tipo.toUpperCase()}</strong><br>
                             <span style="color: #aaa;">Uso Histórico:</span> <strong style="color: #fff;">${cat.vecesUsada || 0} veces</strong><br>
                             <span style="color: #aaa;">Balance:</span> <strong style="color: #fff;">${fMoneda(Math.abs(cat.balanceReal))}</strong>
+                            ${htmlPerfil}
                             ${detallesInversion}
                             `;
 
