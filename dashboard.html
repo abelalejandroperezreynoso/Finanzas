@@ -3105,7 +3105,8 @@
                                         // cuenta, de ese sector o de esa empresa, y sin decirlo se leería como si
                                         // fuera del portafolio entero.
                                         const nombre = (ambito && ambito.nombre) ? ambito.nombre : '';
-                                        if (tituloEl) tituloEl.textContent = nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida';
+                                        const tituloBase = nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida';
+                                        if (tituloEl) tituloEl.textContent = tituloBase;
 
                                         const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito, periodo) : null;
                                         const hayCurva = !!serie && !serie.fueraDePeriodo;
@@ -3156,9 +3157,13 @@
                                         pie.style.display = 'none';
                                         pie.innerHTML = '';
 
-                                        // La cifra del día que se esté leyendo, que cambia al arrastrar el dedo
-                                        // igual que la del balance.
-                                        const escribirDia = (i) => {
+                                        // Lo que dice la tarjeta del día que se esté leyendo. Con el dedo encima,
+                                        // el título deja su sitio a la fecha: sin ella la cifra cambia al
+                                        // arrastrar sin decir de cuándo es, que es justo lo que se está mirando.
+                                        // Es lo mismo que hace el balance, y al soltar vuelve el nombre, que en
+                                        // esta curva no sobra: dice de qué es —del portafolio, de una cuenta, de
+                                        // un sector o de una empresa— y eso el balance no tiene que decirlo.
+                                        const escribirDia = (i, conFecha) => {
                                             if (i < 0 || i >= serie.dias.length) return;
                                             const ganancia = serie.ganancias[i];
                                             // Nunca es negativa: sólo suma las compras que salen sin pérdida. El
@@ -3169,6 +3174,11 @@
                                                 cifraEl.style.color = color;
                                                 cifraEl.textContent = `+${fMoneda(ganancia)} ${simbolo}`;
                                             }
+
+                                            if (!tituloEl) return;
+                                            if (!conFecha) { tituloEl.textContent = tituloBase; return; }
+                                            const [anio, mes, dia] = serie.dias[i].split('-');
+                                            tituloEl.textContent = `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}`;
                                         };
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
@@ -3197,7 +3207,7 @@
                                                 responsive: true,
                                                 maintainAspectRatio: false,
                                                 onHover: (evento, activos) => {
-                                                    if (activos && activos.length > 0) escribirDia(activos[0].index);
+                                                    if (activos && activos.length > 0) escribirDia(activos[0].index, true);
                                                 },
                                                 interaction: { mode: 'index', intersect: false },
                                                 scales: { x: { display: false }, y: { display: false } },
