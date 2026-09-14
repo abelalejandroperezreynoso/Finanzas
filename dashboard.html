@@ -1275,7 +1275,7 @@
         <!-- Todos los filtros del mapa en un solo renglón que se arrastra de lado. El de tipo se
              combina con Salidas/Entradas, así que "Salidas + Deudas" son los pagos y
              "Entradas + Deudas" lo adquirido; volver a tocar el botón activo lo suelta y el mapa
-             vuelve a mostrarlo todo. Los tres últimos sólo son del portafolio y aparecen con ese
+             vuelve a mostrarlo todo. Los cuatro últimos sólo son del portafolio y aparecen con ese
              mapa puesto: en uno de gastos no hay moneda que elegir. -->
         <div id="filtrosTreemapCategorias" class="filtros-treemap">
             <div id="pastillaDireccionTreemap" class="pastilla-treemap" style="transition: opacity 0.2s;">
@@ -1289,9 +1289,15 @@
                 <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')">Deudas</button>
             </div>
 
-            <!-- Se enseña y se esconde entero desde el JS; por eso los tres van juntos en un
+            <!-- Se enseña y se esconde entero desde el JS; por eso los cuatro van juntos en un
                  contenedor y no sueltos en la fila. -->
             <div id="controlesPortafolioTreemap" style="display: none; align-items: center; gap: 8px;">
+                <span class="etiqueta-filtro-treemap">Agrupar</span>
+                <div class="pastilla-treemap">
+                    <button id="btnTreemapPorEmpresa" onclick="cambiarAgrupacionTreemapInversiones('empresa')">Empresas</button>
+                    <button id="btnTreemapPorSector" onclick="cambiarAgrupacionTreemapInversiones('sector')">Sectores</button>
+                </div>
+
                 <span class="etiqueta-filtro-treemap">Moneda</span>
                 <div class="pastilla-treemap">
                     <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')">USD</button>
@@ -8223,12 +8229,36 @@
                             // Abre en "Total", que es la lectura que el mapa ha tenido siempre.
                             let rendimientoTreemapInversiones = localStorage.getItem('rendimientoTreemapInversiones') === 'mensual' ? 'mensual' : 'total';
 
+                            // Cómo reparte el portafolio lo que hay dentro de una cuenta: una caja por empresa,
+                            // o una por sector con sus empresas dentro. Agrupar por sector responde a otra
+                            // pregunta —en qué industrias está tu dinero y cuánto pesa cada una— que con treinta
+                            // recuadros de empresas sueltas no se puede leer: habría que ir sumando de cabeza los
+                            // que se parecen. Se recuerda entre sesiones, como el resto de los filtros.
+                            let agrupacionTreemapInversiones = localStorage.getItem('agrupacionTreemapInversiones') === 'sector' ? 'sector' : 'empresa';
+
                             // Dónde está parado el portafolio: cuentas arriba, empresas de una cuenta en medio y
-                            // compras de una empresa abajo. Cada capa reparte lo que la de encima tenía en un
-                            // solo recuadro. Nada de esto se recuerda entre sesiones a propósito: son sitios a
-                            // los que se entra, no ajustes.
+                            // compras de una empresa abajo; con la agrupación por sector puesta, los sectores se
+                            // meten entre la cuenta y sus empresas. Cada capa reparte lo que la de encima tenía
+                            // en un solo recuadro. Nada de esto se recuerda entre sesiones a propósito: son
+                            // sitios a los que se entra, no ajustes.
                             let cuentaTreemapInversiones = null;
+                            let sectorTreemapInversiones = null;
                             let empresaTreemapInversiones = null;
+
+                            // El sector lo trae el perfil de cada empresa, y de un ETF o de algo que cotiza fuera
+                            // de Estados Unidos no hay perfil: esas caen juntas en "Sin sector". Es dinero tuyo y
+                            // tiene que salir en el mapa, aunque no se sepa de qué industria es.
+                            const SECTOR_SIN_PERFIL_TREEMAP = 'Sin sector';
+
+                            // La caja tampoco tiene industria —son dólares esperando a comprar algo—, así que va
+                            // a su propio grupo en vez de mezclarse con las empresas que sí la tienen.
+                            const SECTOR_CAJA_TREEMAP = 'Efectivo';
+
+                            function sectorDeCategoriaTreemap(cat) {
+                                if (!cat) return SECTOR_SIN_PERFIL_TREEMAP;
+                                if (esCategoriaCajaGbm(cat)) return SECTOR_CAJA_TREEMAP;
+                                return sectorDeTicker(cat.ticker) || SECTOR_SIN_PERFIL_TREEMAP;
+                            }
 
                             // Cuánto hay que sostener el dedo para que el toque cuente como pulsación larga.
                             // Medio segundo se siente deliberado sin llegar a parecer que la app se colgó.
@@ -8243,6 +8273,15 @@
 
                             function abrirCuentaTreemap(id) {
                                 cuentaTreemapInversiones = String(id);
+                                sectorTreemapInversiones = null;
+                                empresaTreemapInversiones = null;
+                                repintarTreemapCategorias();
+                            }
+
+                            // A un sector lo identifica su nombre: no es una fila de ninguna tabla, es lo que
+                            // tienen en común las empresas que caen dentro.
+                            function abrirSectorTreemap(sector) {
+                                sectorTreemapInversiones = String(sector);
                                 empresaTreemapInversiones = null;
                                 repintarTreemapCategorias();
                             }
@@ -8256,6 +8295,7 @@
                             // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
+                                else if (sectorTreemapInversiones) sectorTreemapInversiones = null;
                                 else if (cuentaTreemapInversiones) cuentaTreemapInversiones = null;
                                 else return;
                                 repintarTreemapCategorias();
@@ -8572,6 +8612,7 @@
                                     localStorage.setItem('tipoTreemapCategorias', '');
                                 }
                                 cuentaTreemapInversiones = null;
+                                sectorTreemapInversiones = null;
                                 empresaTreemapInversiones = null;
 
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
@@ -8825,6 +8866,46 @@
                                 }).filter(d => d.monto > 0);
                             }
 
+                            // Lo que un puñado de recuadros de empresa suma como uno solo: lo que costaron, lo
+                            // que valen hoy y la antigüedad de su dinero. Las dos capas que agrupan —la de
+                            // cuentas y la de sectores— hacen esta misma cuenta, y por eso vive aquí: si cada
+                            // una la hiciera a su manera, dos capas del mismo mapa podrían no cuadrar.
+                            function resumirGrupoTreemap(piezas) {
+                                let valor = 0, costo = 0, mesesPonderados = 0, pesoMeses = 0, conPrecio = false;
+
+                                piezas.forEach(d => {
+                                    valor += d.real;
+                                    // Una empresa sin precio de mercado vale lo que costó y entra en tablas, que
+                                    // es como el pie del mapa suma el portafolio entero: sin precio no hay
+                                    // ganancia que reclamar, pero su dinero sigue estando ahí.
+                                    const peso = d.esperado > 0 ? d.esperado : d.monto;
+                                    costo += peso;
+                                    if (d.esperado > 0) conPrecio = true;
+
+                                    // La antigüedad del grupo es la de sus empresas ponderada por lo que costó
+                                    // cada una, igual que la de una empresa es la de sus compras: una posición
+                                    // chica y vieja no puede arrastrar el ritmo de todo el grupo.
+                                    if (d.meses !== undefined) {
+                                        mesesPonderados += d.meses * peso;
+                                        pesoMeses += peso;
+                                    }
+                                });
+
+                                return { valor, costo, conPrecio, meses: pesoMeses > 0 ? mesesPonderados / pesoMeses : 0 };
+                            }
+
+                            // A qué ritmo ha rendido el grupo entero. Sin una sola empresa que cotice no hay
+                            // ritmo que dar: el valor de hoy es el costo copiado, y decir "+0.00%/m" sonaría a
+                            // que no ha rendido nada cuando lo que pasa es que no se sabe.
+                            function ponerRitmoGrupoTreemap(tile, resumen) {
+                                const { valor, costo, conPrecio, meses } = resumen;
+                                if (conPrecio && meses > 0 && costo > 0) {
+                                    tile.meses = meses;
+                                    tile.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
+                                }
+                                return tile;
+                            }
+
                             // La capa de arriba del portafolio: cada recuadro es una cuenta y vale lo que costaron
                             // sus posiciones, lleno con lo que valen hoy. Se arma sumando los recuadros de la capa
                             // de abajo en vez de calcularlo por su cuenta: así una capa no puede contradecir a otra
@@ -8838,55 +8919,61 @@
 
                                 empresas.forEach(d => {
                                     const idCuenta = String(d.cat.cuenta_id);
-                                    if (!porCuenta[idCuenta]) porCuenta[idCuenta] = { valor: 0, costo: 0, mesesPonderados: 0, pesoMeses: 0, conPrecio: false };
-                                    porCuenta[idCuenta].valor += d.real;
-                                    // Una empresa sin precio de mercado vale lo que costó y entra en tablas, que
-                                    // es como el pie del mapa suma el portafolio entero: sin precio no hay
-                                    // ganancia que reclamar, pero su dinero sigue estando ahí.
-                                    const peso = d.esperado > 0 ? d.esperado : d.monto;
-                                    porCuenta[idCuenta].costo += peso;
-                                    if (d.esperado > 0) porCuenta[idCuenta].conPrecio = true;
-
-                                    // La antigüedad de la cuenta es la de sus empresas ponderada por lo que
-                                    // costó cada una, igual que la de una empresa es la de sus compras: una
-                                    // posición chica y vieja no puede arrastrar el ritmo de toda la cuenta.
-                                    if (d.meses !== undefined) {
-                                        porCuenta[idCuenta].mesesPonderados += d.meses * peso;
-                                        porCuenta[idCuenta].pesoMeses += peso;
-                                    }
+                                    (porCuenta[idCuenta] = porCuenta[idCuenta] || []).push(d);
                                 });
 
                                 const vistos = {};
                                 return Object.keys(porCuenta).map(idCuenta => {
                                     const cuenta = (datosCuentas || []).find(c => String(c.id) === idCuenta);
-                                    const { valor, costo, mesesPonderados, pesoMeses, conPrecio } = porCuenta[idCuenta];
+                                    const resumen = resumirGrupoTreemap(porCuenta[idCuenta]);
 
                                     // Dos cuentas pueden llamarse igual y el recuadro se busca por su etiqueta
                                     let nombre = cuenta ? cuenta.nombre : 'Sin cuenta';
                                     vistos[nombre] = (vistos[nombre] || 0) + 1;
                                     if (vistos[nombre] > 1) nombre = `${nombre} ·${vistos[nombre]}`;
 
-                                    const tile = {
+                                    return ponerRitmoGrupoTreemap({
                                         id: idCuenta,
                                         // El recuadro no es de ninguna categoría, pero es de la misma materia:
                                         // hereda el color de las inversiones y el resto del dibujo no nota nada.
                                         cat: { tipo: 'inversion', cuenta_id: idCuenta },
                                         nombre: nombre,
-                                        monto: Math.max(costo, valor),
-                                        real: valor,
-                                        esperado: costo
-                                    };
+                                        monto: Math.max(resumen.costo, resumen.valor),
+                                        real: resumen.valor,
+                                        esperado: resumen.costo
+                                    }, resumen);
+                                }).filter(d => d.monto > 0);
+                            }
 
-                                    // Sin una sola empresa que cotice no hay ritmo que dar: el valor de hoy es el
-                                    // costo copiado, y decir "+0.00%/m" sonaría a que no ha rendido nada cuando
-                                    // lo que pasa es que no se sabe.
-                                    const meses = pesoMeses > 0 ? mesesPonderados / pesoMeses : 0;
-                                    if (conPrecio && meses > 0 && costo > 0) {
-                                        tile.meses = meses;
-                                        tile.mensual = ((valor - costo) / costo) * 100 / divisorMeses(meses);
-                                    }
+                            // La capa de sectores: cada recuadro junta las empresas de una misma industria, vale
+                            // lo que costaron y se llena con lo que valen hoy, igual que el de una cuenta. Se arma
+                            // con los recuadros de empresa que la capa de encima tenía, no con una cuenta aparte,
+                            // así que los sectores reparten exactamente el recuadro del que se entró.
+                            //
+                            // Aquí sí entra la caja, en su propio grupo: en la capa de empresas se la ve, y si los
+                            // sectores la dejaran fuera, entrar a un sector enseñaría menos dinero del que hay.
+                            function agruparPorSectorTreemap(empresas) {
+                                const porSector = {};
 
-                                    return tile;
+                                empresas.forEach(d => {
+                                    const sector = sectorDeCategoriaTreemap(d.cat);
+                                    (porSector[sector] = porSector[sector] || []).push(d);
+                                });
+
+                                return Object.keys(porSector).map(sector => {
+                                    const resumen = resumirGrupoTreemap(porSector[sector]);
+
+                                    return ponerRitmoGrupoTreemap({
+                                        // El sector no tiene más identidad que su nombre, y así es como se vuelve
+                                        // a encontrar al entrar en él.
+                                        id: sector,
+                                        esSector: true,
+                                        cat: { tipo: 'inversion' },
+                                        nombre: sector,
+                                        monto: Math.max(resumen.costo, resumen.valor),
+                                        real: resumen.valor,
+                                        esperado: resumen.costo
+                                    }, resumen);
                                 }).filter(d => d.monto > 0);
                             }
 
@@ -9009,6 +9096,18 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // Cambiar de agrupación deshace el camino andado dentro de la cuenta: la empresa
+                            // que estuviera abierta se llegó a ver desde un sector que a lo mejor ya no existe,
+                            // y el sector abierto no significa nada en el mapa por empresas. La cuenta se queda:
+                            // es la misma con las dos agrupaciones.
+                            function cambiarAgrupacionTreemapInversiones(modo) {
+                                agrupacionTreemapInversiones = modo === 'sector' ? 'sector' : 'empresa';
+                                localStorage.setItem('agrupacionTreemapInversiones', agrupacionTreemapInversiones);
+                                sectorTreemapInversiones = null;
+                                empresaTreemapInversiones = null;
+                                repintarTreemapCategorias();
+                            }
+
                             function cambiarMonedaTreemapInversiones(moneda) {
                                 monedaTreemapInversiones = moneda === 'usd' ? 'usd' : 'mxn';
                                 localStorage.setItem('monedaTreemapInversiones', monedaTreemapInversiones);
@@ -9023,6 +9122,7 @@
                                 localStorage.setItem('tipoTreemapCategorias', tipoTreemapCategorias);
                                 // Cambiar de mapa deja atrás la capa en la que se estuviera metido
                                 cuentaTreemapInversiones = null;
+                                sectorTreemapInversiones = null;
                                 empresaTreemapInversiones = null;
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
@@ -9138,9 +9238,11 @@
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
                                 const vistaAccesible = esPortafolio && vistaTreemapInversiones === 'accesible';
                                 const vistaMensual = esPortafolio && rendimientoTreemapInversiones === 'mensual';
+                                const porSector = esPortafolio && agrupacionTreemapInversiones === 'sector';
 
-                                // Las tres capas del portafolio salen de las mismas cifras por empresa: la de
-                                // cuentas las agrupa, la de empresas las muestra y la de compras abre una.
+                                // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
+                                // cuentas las agrupa, la de sectores las agrupa de otra manera, la de empresas
+                                // las muestra y la de compras abre una.
                                 //
                                 // El portafolio siempre abre por cuentas, también con una sola. Con una, ese
                                 // primer recuadro ocupa el mapa entero y hay que cruzarlo para llegar a las
@@ -9160,9 +9262,28 @@
                                     : null;
                                 if (!cuentaAbierta) cuentaTreemapInversiones = null;
 
-                                const empresaAbierta = (esPortafolio && empresaTreemapInversiones && (cuentaAbierta || !hayCapaCuentas))
+                                // Las empresas que reparte la capa donde se está: las de la cuenta abierta, o
+                                // todas si no hay capa de cuentas. De aquí salen los sectores y también los
+                                // recuadros de empresa, de modo que una capa no puede repartir algo distinto de
+                                // lo que la de encima tenía.
+                                const empresasDelNivel = cuentaAbierta
+                                    ? empresasPortafolio.filter(d => String(d.cat.cuenta_id) === String(cuentaAbierta.id))
+                                    : empresasPortafolio;
+                                const sectoresPortafolio = porSector ? agruparPorSectorTreemap(empresasDelNivel) : [];
+
+                                // Un sector se reconoce por su nombre, que es lo único que tiene. Si al repintar
+                                // ya no queda ninguna empresa suya —se vendió la última, o "Accesible" las dejó
+                                // fuera—, el mapa sube solo en vez de quedarse dentro de algo que no está.
+                                const sectorAbierto = (porSector && sectorTreemapInversiones && (cuentaAbierta || !hayCapaCuentas)
+                                    && sectoresPortafolio.some(d => d.id === String(sectorTreemapInversiones)))
+                                    ? String(sectorTreemapInversiones)
+                                    : null;
+                                if (!sectorAbierto) sectorTreemapInversiones = null;
+
+                                const empresaAbierta = (esPortafolio && empresaTreemapInversiones && (cuentaAbierta || !hayCapaCuentas) && (!porSector || sectorAbierto))
                                     ? (datosCategorias || []).find(c => String(c.id) === String(empresaTreemapInversiones) && c.tipo === 'inversion'
-                                        && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id)))
+                                        && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id))
+                                        && (!porSector || sectorDeCategoriaTreemap(c) === sectorAbierto))
                                     : null;
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
@@ -9183,8 +9304,9 @@
                                 encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
+                                encenderPastilla([['empresa', 'btnTreemapPorEmpresa'], ['sector', 'btnTreemapPorSector']], agrupacionTreemapInversiones);
 
-                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, sus tres
+                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, sus cuatro
                                 // filtros se van de la fila en vez de quedarse ahí sin nada que hacer.
                                 const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
                                 if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
@@ -9192,7 +9314,7 @@
                                 // La fila de filtros no cabe entera en un teléfono, así que se arrastra de lado.
                                 // El borde se desvanece sólo por donde queda algo por ver: es lo único que avisa
                                 // de que hay más filtros fuera de la pantalla, y con el portafolio puesto son
-                                // tres más. Se recalcula aquí porque enseñarlos u ocultarlos cambia el ancho.
+                                // cuatro más. Se recalcula aquí porque enseñarlos u ocultarlos cambia el ancho.
                                 const filaFiltrosTreemap = document.getElementById('filtrosTreemapCategorias');
                                 if (filaFiltrosTreemap) {
                                     const marcarBordesFiltros = () => {
@@ -9222,18 +9344,25 @@
 
                                     // Dentro de una capa el título es además la salida: el mapa no tiene otro
                                     // sitio donde poner un "volver" sin quitarle espacio a los recuadros.
-                                    const dentroDeAlgo = !!(empresaAbierta || cuentaAbierta);
+                                    const dentroDeAlgo = !!(empresaAbierta || sectorAbierto || cuentaAbierta);
                                     tituloEl.style.cursor = dentroDeAlgo ? 'pointer' : '';
                                     tituloEl.onclick = dentroDeAlgo ? (() => subirNivelTreemap()) : null;
 
                                     // Las posiciones no pertenecen a ningún mes: poner una fecha encima haría creer
                                     // que el mapa muestra lo comprado en ese periodo.
-                                    // Lo accesible se dice en el título de las tres capas: el mapa se ve muy
+                                    // Lo accesible se dice en el título de todas las capas: el mapa se ve muy
                                     // distinto —todo en ganancia— y hay que saber por qué antes de leerlo.
                                     if (empresaAbierta) {
                                         tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · ${vistaAccesible ? 'accesible' : 'compras'}`;
+                                    } else if (sectorAbierto) {
+                                        tituloEl.textContent = `‹ ${sectorAbierto} · ${vistaAccesible ? 'accesible' : 'empresas'}`;
                                     } else if (cuentaAbierta) {
-                                        tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · ${vistaAccesible ? 'accesible' : 'empresas'}`;
+                                        // Con los sectores puestos el título dice las dos cosas —qué reparte la
+                                        // capa y con qué vara—, porque las dos cambian lo que se está viendo.
+                                        const queReparte = porSector
+                                            ? (vistaAccesible ? 'sectores accesibles' : 'sectores')
+                                            : (vistaAccesible ? 'accesible' : 'empresas');
+                                        tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · ${queReparte}`;
                                     } else if (esPortafolio) {
                                         tituloEl.textContent = `Portafolio · ${vistaAccesible ? 'accesible' : 'hoy'}`;
                                     } else if (mesSeleccionado) {
@@ -9256,10 +9385,12 @@
                                     datos = vistaAccesible
                                         ? datosAccesiblesEmpresaTreemap(empresaAbierta)
                                         : datosMovimientosEmpresaTreemap(empresaAbierta);
+                                } else if (sectorAbierto) {
+                                    datos = empresasDelNivel.filter(d => sectorDeCategoriaTreemap(d.cat) === sectorAbierto);
                                 } else if (cuentaAbierta) {
-                                    datos = empresasPortafolio.filter(d => String(d.cat.cuenta_id) === String(cuentaAbierta.id));
+                                    datos = porSector ? sectoresPortafolio : empresasDelNivel;
                                 } else if (esPortafolio) {
-                                    datos = hayCapaCuentas ? cuentasPortafolio : empresasPortafolio;
+                                    datos = hayCapaCuentas ? cuentasPortafolio : (porSector ? sectoresPortafolio : empresasPortafolio);
                                 } else if (modoActivo) {
                                     datos = datosDosCarasTreemap(meses, indice, modoActivo);
                                 } else {
@@ -9311,12 +9442,16 @@
                                     // posiciones, lo que no hay es nada que salga sin realizar una pérdida.
                                     const motivo = (vistaAccesible && empresaAbierta)
                                         ? `De ${empresaAbierta.ticker || empresaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
+                                        : (vistaAccesible && sectorAbierto)
+                                        ? `De ${sectorAbierto} no puedes sacar nada sin vender en pérdida.`
                                         : (vistaAccesible && cuentaAbierta)
                                         ? `De ${cuentaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
                                         : vistaAccesible
                                         ? 'No puedes sacar nada sin vender en pérdida.'
                                         : empresaAbierta
                                         ? `No quedan compras vivas de ${empresaAbierta.ticker || empresaAbierta.nombre}.`
+                                        : sectorAbierto
+                                        ? `Ya no tienes empresas de ${sectorAbierto}.`
                                         : cuentaAbierta
                                         ? `${cuentaAbierta.nombre} ya no tiene posiciones.`
                                         : esPortafolio
@@ -9850,7 +9985,7 @@
                                 });
 
                                 // El portafolio es el único mapa con capas, y por eso el único que necesita separar
-                                // los dos gestos. La regla es la misma en las tres: un toque baja una capa y,
+                                // los dos gestos. La regla es la misma en todas: un toque baja una capa y,
                                 // cuando ya no hay nada debajo, abre la ficha de lo que se tocó; sostener el dedo
                                 // abre esa ficha desde cualquier capa —la de la cuenta, la de la categoría o la
                                 // del lote, según dónde se esté—. Para volver está el título.
@@ -9870,12 +10005,17 @@
                                         // La caja no tiene compras dentro: bajar a su capa dejaría el mapa vacío,
                                         // así que un toque abre su ficha, que es lo único que hay que ver de ella.
                                         else if (d.esCaja) verDetallesCategoria(d.id);
+                                        else if (d.esSector) abrirSectorTreemap(d.id);
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
                                         if (empresaAbierta) verDetallesMovimiento(d.id);
+                                        // Un sector no es nada que la app tenga guardado —es lo que comparten
+                                        // unas empresas—, así que no hay ficha suya que abrir. Sostener el dedo
+                                        // sobre uno no hace nada; para ver qué lo forma se entra con un toque.
+                                        else if (d.esSector) return;
                                         else if (cuentaAbierta || !hayCapaCuentas) verDetallesCategoria(d.id);
                                         else verDetallesCuenta(d.id);
                                     });
@@ -9889,6 +10029,7 @@
                                     // dentro de una empresa.
                                     const unidadNivel = empresaAbierta ? ['compra', 'compras']
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
+                                        : (porSector && !sectorAbierto) ? ['sector', 'sectores']
                                         : (modoActivo ? modoActivo.unidad : null);
                                     const etiquetaCats = unidadNivel
                                         ? `${totalCategorias} ${totalCategorias === 1 ? unidadNivel[0] : unidadNivel[1]}`
