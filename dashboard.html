@@ -2617,8 +2617,6 @@
                                         // que la cifra de arriba, y decir siempre las de hoy sobre la ganancia de
                                         // otro día sería juntar dos días distintos en un mismo renglón.
                                         const dias = [], ganancias = [], costosAccesibles = [], accesiblesPorDia = [], vivasPorDia = [];
-                                        const sinPrecio = new Set();
-                                        let faltoTipoCambio = false;
                                         let iMov = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -2637,9 +2635,8 @@
                                             const tc = cierreHasta(serieDe(TICKER_TIPO_CAMBIO), dia, cursores[TICKER_TIPO_CAMBIO]);
                                             cursores[TICKER_TIPO_CAMBIO] = tc.cursor;
                                             // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con el
-                                            // peso plano al principio que ninguna curva. Pero se apunta, y el pie
-                                            // lo dice.
-                                            if (tc.valor === null) faltoTipoCambio = true;
+                                            // peso plano al principio que ninguna curva. Que falte se ve en el
+                                            // avance del histórico, donde el tipo de cambio es una serie más.
                                             const cambio = tc.valor || globalUsdToMxn || 1;
 
                                             // Lo accesible se decide en pesos, como la ficha y el mapa: la pregunta
@@ -2654,8 +2651,10 @@
                                                 const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
                                                 cursores[c.ticker] = cierre.cursor;
 
+                                                // Sin cierre de ese día no se puede saber si esa empresa salía sin
+                                                // pérdida, así que corta la cuenta y no suma. Cuáles son y cuánto
+                                                // les falta lo dice el avance del histórico, en Configuración.
                                                 let cortada = cierre.valor === null;
-                                                if (cortada) sinPrecio.add(c.ticker);
 
                                                 for (const lote of lista) {
                                                     // Una compra ya vendida del todo no estorba: no hay nada suyo
@@ -2701,7 +2700,7 @@
                                         if (dias.length === 0) return { fueraDePeriodo: true };
                                         return {
                                             dias, ganancias, costosAccesibles, accesiblesPorDia, vivasPorDia,
-                                            sinPrecio: [...sinPrecio], faltoTipoCambio, enPesos
+                                            enPesos
                                         };
                                     }
 
@@ -3156,12 +3155,18 @@
                                         const ultimo = serie.dias.length - 1;
 
                                         const desde = serie.dias[0].split('-');
-                                        let aviso = serie.sinPrecio.length > 0
-                                            ? `<br><span style="color:#f39c12;">⚠️ Sin cierres de ${serie.sinPrecio.join(', ')}: esos días no se sabe si salían sin pérdida, así que no suman.</span>`
-                                            : '';
-                                        if (serie.enPesos && serie.faltoTipoCambio) {
-                                            aviso += `<br><span style="color:#f39c12;">⚠️ Falta histórico del tipo de cambio: esos días usan el de hoy. En USD la curva no lo necesita.</span>`;
-                                        }
+
+                                        // Aquí no van avisos sobre el estado del histórico. Los había —qué
+                                        // empresas se quedaron sin cierres esos días, y si faltaba el tipo de
+                                        // cambio—, y con cuarenta empresas eran seis renglones de tickers en
+                                        // naranja debajo de la curva, cada vez que se abría la app. Eso no es
+                                        // mirar cómo va tu dinero: es un parte de mantenimiento.
+                                        //
+                                        // Y ya se cuenta mejor donde toca: el avance del histórico, en
+                                        // Configuración, dice serie por serie desde cuándo hay cierres, cuánto
+                                        // falta y cuántos días de dentro no tienen precio. Ahí es donde se va a
+                                        // hacer algo al respecto —el botón de traerlo está justo debajo—, y no
+                                        // en la pantalla de inicio, donde sólo se puede leer y agobiarse.
 
                                         // Lo que dice la tarjeta del día que se esté leyendo. Es el mismo reparto
                                         // que el balance: la cifra del día arriba, a la derecha del título, y
@@ -3196,7 +3201,7 @@
 
                                             pie.innerHTML = `
                                                 <span style="color:#888;">${fecha} · +${pct.toFixed(1)}% sobre ${fMoneda(costo)} accesibles${cuantas}</span>
-                                                <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>${aviso}`;
+                                                <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>`;
                                         };
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
