@@ -2612,11 +2612,10 @@
                                         cats.forEach(c => { cursores[c.ticker] = 0; });
                                         cursores[TICKER_TIPO_CAMBIO] = 0;
 
-                                        // Cuántas compras salían sin pérdida cada día y cuántas había vivas. Van
-                                        // por día y no sólo del último: el pie cambia al arrastrar el dedo, igual
-                                        // que la cifra de arriba, y decir siempre las de hoy sobre la ganancia de
-                                        // otro día sería juntar dos días distintos en un mismo renglón.
-                                        const dias = [], ganancias = [], costosAccesibles = [], accesiblesPorDia = [], vivasPorDia = [];
+                                        // Lo que se dibuja: el día y cuánto habrías podido sacar sin perder. Se
+                                        // llevaban además, por día, lo que costaban esas compras y cuántas eran,
+                                        // pero eso sólo lo leía el pie de la tarjeta, que ya no está.
+                                        const dias = [], ganancias = [];
                                         let iMov = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -2643,8 +2642,7 @@
                                             // es cuánto puedo sacar sin perder, y sacar es sacar pesos, así que el
                                             // tipo de cambio al que compraste cuenta. Para leerlo en dólares hay que
                                             // deshacer esa conversión al final, no aplicarla.
-                                            let ganancia = 0, costoAccesible = 0, costoVivo = 0;
-                                            let cuantasAccesibles = 0, cuantasVivas = 0;
+                                            let ganancia = 0, costoVivo = 0;
 
                                             cats.forEach(c => {
                                                 const lista = lotes[String(c.id)];
@@ -2663,7 +2661,6 @@
 
                                                     const costo = lote.compradas > 0 ? lote.costoMxn * (lote.vivas / lote.compradas) : lote.costoMxn;
                                                     costoVivo += costo;
-                                                    cuantasVivas++;
 
                                                     // Sin precio de ese día no se puede saber si salía sin pérdida,
                                                     // y la app no inventa lo que no se puede saber: esa empresa no
@@ -2674,8 +2671,6 @@
                                                     if (valor < costo) { cortada = true; continue; }
 
                                                     ganancia += valor - costo;
-                                                    costoAccesible += costo;
-                                                    cuantasAccesibles++;
                                                 }
                                             });
 
@@ -2687,9 +2682,6 @@
                                                 const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
                                                 ganancias.push(ganancia * factor);
-                                                costosAccesibles.push(costoAccesible * factor);
-                                                accesiblesPorDia.push(cuantasAccesibles);
-                                                vivasPorDia.push(cuantasVivas);
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
@@ -2698,10 +2690,7 @@
                                         // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
                                         // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return {
-                                            dias, ganancias, costosAccesibles, accesiblesPorDia, vivasPorDia,
-                                            enPesos
-                                        };
+                                        return { dias, ganancias, enPesos };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -3135,6 +3124,7 @@
                                         if (!hayCurva) {
                                             if (caja) caja.style.display = 'none';
                                             if (cifraEl) cifraEl.textContent = '';
+                                            pie.style.display = 'block';
                                             pie.innerHTML = !historicoPreciosListo
                                                 ? (historicoPreciosIntentado
                                                     ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
@@ -3154,54 +3144,31 @@
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
 
-                                        const desde = serie.dias[0].split('-');
-
-                                        // Aquí no van avisos sobre el estado del histórico. Los había —qué
-                                        // empresas se quedaron sin cierres esos días, y si faltaba el tipo de
-                                        // cambio—, y con cuarenta empresas eran seis renglones de tickers en
-                                        // naranja debajo de la curva, cada vez que se abría la app. Eso no es
-                                        // mirar cómo va tu dinero: es un parte de mantenimiento.
+                                        // Con curva dibujada la tarjeta no lleva pie. Ahí fueron cayendo las
+                                        // explicaciones —desde cuándo va la línea, qué parte del portafolio
+                                        // cuenta, cuántas compras salían sin pérdida, qué le faltaba al
+                                        // histórico— hasta convertirse en un párrafo debajo de una gráfica de
+                                        // ciento cuarenta píxeles. La tarjeta dice ahora lo que tiene que decir:
+                                        // de qué es la curva, cuánto vale hoy y cómo llegó hasta ahí.
                                         //
-                                        // Y ya se cuenta mejor donde toca: el avance del histórico, en
-                                        // Configuración, dice serie por serie desde cuándo hay cierres, cuánto
-                                        // falta y cuántos días de dentro no tienen precio. Ahí es donde se va a
-                                        // hacer algo al respecto —el botón de traerlo está justo debajo—, y no
-                                        // en la pantalla de inicio, donde sólo se puede leer y agobiarse.
+                                        // El pie se reserva para cuando no hay curva, que es cuando de verdad
+                                        // hace falta una frase: si no, quedaría un hueco sin explicar.
+                                        pie.style.display = 'none';
+                                        pie.innerHTML = '';
 
-                                        // Lo que dice la tarjeta del día que se esté leyendo. Es el mismo reparto
-                                        // que el balance: la cifra del día arriba, a la derecha del título, y
-                                        // debajo lo que la explica. Al arrastrar el dedo cambian las dos, así que
-                                        // el renglón de abajo es de ese mismo día y no de hoy: mezclarlos sería
-                                        // poner la ganancia de un día junto a las compras de otro.
+                                        // La cifra del día que se esté leyendo, que cambia al arrastrar el dedo
+                                        // igual que la del balance.
                                         const escribirDia = (i) => {
                                             if (i < 0 || i >= serie.dias.length) return;
                                             const ganancia = serie.ganancias[i];
-                                            const costo = serie.costosAccesibles[i];
-                                            const pct = costo > 0 ? (ganancia / costo) * 100 : 0;
                                             // Nunca es negativa: sólo suma las compras que salen sin pérdida. El
                                             // día que no hay ninguna vale cero, y entonces el verde no dice nada.
                                             const color = ganancia > 0.005 ? '#3ecf8e' : '#777';
 
-                                            // Arriba va sólo el dinero, como en el balance: el título y la cifra
-                                            // comparten renglón y con el porcentaje detrás no cabían los dos. El
-                                            // porcentaje baja al pie, que es además donde está el número del que
-                                            // sale —lo accesible— y así se lee la división entera.
                                             if (cifraEl) {
                                                 cifraEl.style.color = color;
                                                 cifraEl.textContent = `+${fMoneda(ganancia)} ${simbolo}`;
                                             }
-
-                                            const [anio, mes, dia] = serie.dias[i].split('-');
-                                            const fecha = `${parseInt(dia, 10)} ${NOMBRES_MESES[parseInt(mes, 10) - 1].slice(0, 3).toLowerCase()} ${anio}`;
-                                            const vivas = serie.vivasPorDia[i];
-                                            const accesibles = serie.accesiblesPorDia[i];
-                                            const cuantas = vivas > 0
-                                                ? ` · ${accesibles} de ${vivas} compra${vivas !== 1 ? 's' : ''} sale${accesibles !== 1 ? 'n' : ''} sin pérdida`
-                                                : '';
-
-                                            pie.innerHTML = `
-                                                <span style="color:#888;">${fecha} · +${pct.toFixed(1)}% sobre ${fMoneda(costo)} accesibles${cuantas}</span>
-                                                <br><span style="color:#666;">Desde ${NOMBRES_MESES[parseInt(desde[1], 10) - 1].toLowerCase()} ${desde[0]} · la caja de dólares no entra: es dinero parado, no portafolio</span>`;
                                         };
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
