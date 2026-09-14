@@ -2242,11 +2242,46 @@
                                         return Math.round((b - a) / 86400000) + 1;
                                     }
 
+                                    // Los días hábiles sin cierre dentro de lo que ya está cubierto.
+                                    //
+                                    // Sólo cuentan los que vienen de dos en dos o más. Un día hábil suelto sin
+                                    // cierre es casi siempre un festivo de la bolsa —no abre, así que no hay
+                                    // precio que guardar— y contarlo dejaría una serie perfecta con treinta
+                                    // "huecos" que no lo son. Dos días hábiles seguidos, en cambio, la bolsa casi
+                                    // nunca los cierra: eso es la app que no se abrió esos días.
+                                    //
+                                    // El fin de semana no corta la corrida: irse un viernes y volver un lunes es
+                                    // una sola ausencia, no dos.
+                                    function huecosDeLaSerie(guardados, desde, hasta) {
+                                        const hay = new Set(guardados.map(p => p.dia));
+                                        const cursor = new Date(`${desde}T12:00:00`);
+                                        const fin = new Date(`${hasta}T12:00:00`);
+                                        if (isNaN(cursor.getTime()) || isNaN(fin.getTime())) return { dias: 0, tramos: 0 };
+
+                                        let dias = 0, tramos = 0, corrida = 0;
+                                        const cerrarCorrida = () => {
+                                            if (corrida >= 2) { dias += corrida; tramos++; }
+                                            corrida = 0;
+                                        };
+
+                                        while (cursor <= fin) {
+                                            const finDeSemana = cursor.getDay() === 0 || cursor.getDay() === 6;
+                                            if (!finDeSemana) {
+                                                if (hay.has(diaISO(cursor))) cerrarCorrida();
+                                                else corrida++;
+                                            }
+                                            cursor.setDate(cursor.getDate() + 1);
+                                        }
+                                        cerrarCorrida();
+
+                                        return { dias, tramos };
+                                    }
+
                                     function avanceDelHistorico() {
                                         const desdePorTicker = tickersDelHistorico();
                                         const hoy = obtenerFechaLocalCortada(new Date().toISOString());
 
-                                        let necesariosTotal = 0, cubiertosTotal = 0;
+                                        let necesariosTotal = 0, cubiertosTotal = 0, huecosTotal = 0;
                                         const series = Object.keys(desdePorTicker).sort((a, b) =>
                                             (a === TICKER_TIPO_CAMBIO ? 1 : 0) - (b === TICKER_TIPO_CAMBIO ? 1 : 0) || a.localeCompare(b)
                                         ).map(ticker => {
@@ -2255,12 +2290,15 @@
                                             const necesarios = diasEntreISO(desde, hoy);
                                             const primero = guardados.length ? guardados[0].dia : null;
                                             const cubiertos = primero ? diasEntreISO(primero, hoy) : 0;
+                                            const huecos = primero ? huecosDeLaSerie(guardados, primero, hoy) : { dias: 0, tramos: 0 };
 
                                             necesariosTotal += necesarios;
                                             cubiertosTotal += cubiertos;
+                                            huecosTotal += huecos.dias;
 
                                             return {
                                                 ticker, desde, primero, cierres: guardados.length,
+                                                huecos: huecos.dias, tramosSinCierre: huecos.tramos,
                                                 faltanDias: Math.max(0, necesarios - cubiertos),
                                                 pct: necesarios > 0 ? Math.min(100, (cubiertos / necesarios) * 100) : 100
                                             };
@@ -2268,6 +2306,7 @@
 
                                         return {
                                             series,
+                                            huecos: huecosTotal,
                                             pct: necesariosTotal > 0 ? Math.min(100, (cubiertosTotal / necesariosTotal) * 100) : 0,
                                             completo: series.length > 0 && series.every(s => s.pct >= 99.5)
                                         };
@@ -2306,11 +2345,15 @@
 
                                         const filas = avance.series.map(s => {
                                             const hueco = huecoEnPalabras(s.faltanDias);
+                                            // Los huecos van detrás del tramo porque son otra cosa: aquello es
+                                            // hasta dónde llega la curva hacia atrás, esto son días de dentro
+                                            // que no tienen precio.
+                                            const sinCierre = s.huecos > 0 ? ` · ${s.huecos} días sin cierre` : '';
                                             const detalle = !s.primero
                                                 ? 'sin cierres guardados'
                                                 : hueco
-                                                ? `desde ${mesEnPalabras(s.primero)} · ${hueco}`
-                                                : `completo desde ${mesEnPalabras(s.desde)}`;
+                                                ? `desde ${mesEnPalabras(s.primero)} · ${hueco}${sinCierre}`
+                                                : `completo desde ${mesEnPalabras(s.desde)}${sinCierre}`;
 
                                             return `
                                                 <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
@@ -2334,18 +2377,32 @@
                                         // cien, nunca los de más atrás. Decir "vuelve a intentarlo" ahí sería
                                         // mandar a gastar la cuota para recibir lo mismo.
                                         const sinNada = avance.series.filter(s => !s.primero).length;
-                                        const cierre = avance.completo
-                                            ? 'Completo: la curva empieza en tu primera compra.'
-                                            : sinNada > 0
-                                            ? `Quedan ${sinNada} serie${sinNada !== 1 ? 's' : ''} sin traer. Pulsa «Traer histórico»: es una petición por serie y el plan gratuito da unas pocas al día, así que puede hacer falta volver mañana; lo traído se queda guardado y sigue por donde se quedó.`
-                                            : 'Lo que falta es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae: haría falta una clave de pago u otra fuente. El hueco ya no crece: cada día que abras la app se guarda el cierre del día.';
+                                        const trozos = [];
+
+                                        if (avance.completo) trozos.push('El tramo está completo: la curva empieza en tu primera compra.');
+                                        else if (sinNada > 0) trozos.push(`Quedan ${sinNada} serie${sinNada !== 1 ? 's' : ''} sin traer. Pulsa «Traer histórico»: es una petición por serie y el plan gratuito da unas pocas al día, así que puede hacer falta volver mañana; lo traído se queda guardado y sigue por donde se quedó.`);
+                                        else trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae: haría falta una clave de pago u otra fuente.');
+
+                                        // El hueco del medio se arregla de otra manera que el de atrás, y es la
+                                        // única parte que el botón sigue teniendo que hacer cuando ya está todo:
+                                        // los últimos cien cierres tapan lo reciente, que es justo donde caen los
+                                        // días que no abriste la app.
+                                        if (avance.huecos > 0) {
+                                            trozos.push('Los días sin cierre son días hábiles en los que la app no se abrió. La curva no se rompe por ellos —arrastra el último precio conocido—, pero esos tramos salen planos; «Traer histórico» rellena los que caigan dentro de los últimos cien cierres.');
+                                        } else if (avance.completo) {
+                                            trozos.push('Y sin huecos: cada día hábil de ese tramo tiene su precio.');
+                                        }
+
+                                        trozos.push('Desde hoy crece sola: cada día que abras la app se guarda el cierre del día.');
+                                        const cierre = trozos.join(' ');
 
                                         caja.innerHTML = `
                                             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
                                                 <span style="font-size: 0.72em; color: #888; text-transform: uppercase; letter-spacing: 1px;">Avance del histórico</span>
-                                                <strong style="font-size: 0.9em; color: ${avance.completo ? '#3ecf8e' : '#f39c12'};">${Math.round(avance.pct)}%</strong>
+                                                <strong style="font-size: 0.9em; color: ${avance.completo && avance.huecos === 0 ? '#3ecf8e' : '#f39c12'};">${Math.round(avance.pct)}%</strong>
                                             </div>
                                             <div style="display: flex;">${barraAvanceHistorico(avance.pct, 6)}</div>
+                                            ${avance.huecos > 0 ? `<div style="color: #f39c12; font-size: 0.7em; margin-top: 5px;">${avance.huecos} días hábiles sin cierre dentro de lo cubierto</div>` : ''}
                                             ${filas}
                                             <p style="color: #666; font-size: 0.72em; line-height: 1.5; margin: 10px 0 0 0;">${cierre}</p>`;
                                     }
