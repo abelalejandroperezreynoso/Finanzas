@@ -1630,14 +1630,17 @@
                 Cada día que abras la app se guarda el precio de ese día, así que el histórico
                 crece solo. Para traer también lo de antes —una sola vez— se intenta primero con
                 <strong>Finnhub</strong>, que es de donde ya salen los precios de hoy y no
-                necesita nada de ti.
+                necesita nada de ti, aunque su plan gratuito ya no los sirve.
             </p>
             <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                La clave de abajo es el plan B: hace falta si Finnhub no sirve históricos con su
-                plan gratuito, y en cualquier caso para el <strong>tipo de cambio</strong>, que
-                sólo da Alpha Vantage. Sin ella la curva en dólares sale igual; la de pesos usaría
-                el cambio de hoy para todo el pasado. Es
-                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>.
+                Por eso la clave de abajo es hoy la que hace el trabajo. Con ella se traen los
+                <strong>últimos cien cierres</strong> de cada empresa —el pasado entero es de pago
+                en Alpha Vantage— y el <strong>tipo de cambio</strong>, que sólo lo da ella. Así
+                que la curva empezará hace unos meses y no en tu primera compra; de ahí en
+                adelante crece sola. Es
+                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>,
+                con un puñado de peticiones al día: si se acaban, lo traído se queda guardado y
+                mañana sigue por donde se quedó.
             </p>
             <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
                    style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
@@ -2094,44 +2097,93 @@
                                             .filter(p => p.cierre > 0);
                                     }
 
+                                    // Alpha Vantage contesta en inglés y con su publicidad dentro del mismo
+                                    // párrafo. Los dos motivos que de verdad se ven se dicen en corto, porque lo
+                                    // que hay que hacer con cada uno es distinto; el resto pasa tal cual, que
+                                    // será algo raro y conviene leerlo entero.
+                                    // Si el pasado entero resultó ser de pago con la clave que hay puesta. Vive
+                                    // sólo mientras la app esté abierta a propósito: el día que la clave cambie
+                                    // o mejore de plan, basta con recargar para que se vuelva a preguntar.
+                                    let alphaVantageRecortaElPasado = false;
+
+                                    function motivoAlphaVantage(aviso) {
+                                        const texto = String(aviso || '');
+                                        if (/rate limit|requests per day|call frequency|higher API call/i.test(texto)) {
+                                            return 'se acabó la cuota de hoy (su plan gratuito son unas pocas peticiones al día). Lo ya guardado se queda: mañana sigue por donde se quedó';
+                                        }
+                                        if (/premium/i.test(texto)) return 'lo pedido es de pago en Alpha Vantage';
+                                        return texto;
+                                    }
+
                                     // Segunda opción: Alpha Vantage, que pide una clave gratuita. Es además la
                                     // única de las dos que sirve el tipo de cambio, así que la curva en pesos
                                     // depende de ella aunque Finnhub cubra todas las empresas.
                                     //
                                     // Contesta 200 también cuando no puede servir: el error viene dentro del
-                                    // JSON, en 'Note' si se acabó la cuota del día o en 'Error Message' si el
-                                    // símbolo no existe. Leer sólo el código HTTP daría todo por bueno.
-                                    async function historicoDesdeAlphaVantage(ticker, clave) {
+                                    // JSON, en 'Note' si se acabó la cuota del día, en 'Information' si lo pedido
+                                    // es de pago y en 'Error Message' si el símbolo no existe. Leer sólo el
+                                    // código HTTP daría todo por bueno.
+                                    //
+                                    // El histórico entero —outputsize=full— pasó a ser de pago, y es justo lo
+                                    // que la app pedía: la traída moría en la primera empresa con un párrafo en
+                                    // inglés sobre planes premium. Se vuelve a pedir en 'compact', que el plan
+                                    // gratuito sí da y son los últimos cien cierres. No es todo el pasado, pero
+                                    // son cinco meses de curva donde antes no había ninguna, y desde ahí el
+                                    // histórico sigue creciendo solo con el cierre que se guarda cada día.
+                                    //
+                                    // Se intenta 'full' primero a propósito: una clave de pago lo sirve, y
+                                    // pedir 'compact' de entrada sería recortarle el pasado a quien sí paga.
+                                    async function historicoDesdeAlphaVantage(ticker, clave, tamano) {
+                                        // Cuando esta clave ya ha dicho que el pasado entero es de pago, las
+                                        // demás empresas van derechas a lo que sí da. Preguntarlo una vez por
+                                        // cada una serían el doble de peticiones contra una cuota que son unas
+                                        // pocas al día, y la mitad para que le dijeran lo mismo.
+                                        const pedido = tamano || (alphaVantageRecortaElPasado ? 'compact' : 'full');
                                         const url = ticker === TICKER_TIPO_CAMBIO
-                                            ? `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=USD&to_symbol=MXN&outputsize=full&apikey=${clave}`
-                                            : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=full&apikey=${clave}`;
+                                            ? `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=USD&to_symbol=MXN&outputsize=${pedido}&apikey=${clave}`
+                                            : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(ticker)}&outputsize=${pedido}&apikey=${clave}`;
 
                                         const res = await fetch(url);
                                         if (!res.ok) throw new Error(`Alpha Vantage respondió ${res.status}`);
 
                                         const data = await res.json();
                                         const aviso = data['Note'] || data['Information'] || data['Error Message'];
-                                        if (aviso) throw new Error(aviso);
+                                        if (aviso) {
+                                            // La queja es por el tamaño, no por la clave ni por el símbolo: se
+                                            // reintenta con lo que el plan gratuito sí da, una vez y no más.
+                                            if (pedido === 'full' && /outputsize/i.test(String(aviso))) {
+                                                alphaVantageRecortaElPasado = true;
+                                                return await historicoDesdeAlphaVantage(ticker, clave, 'compact');
+                                            }
+                                            throw new Error(motivoAlphaVantage(aviso));
+                                        }
 
                                         const serie = data['Time Series (Daily)'] || data['Time Series FX (Daily)'];
                                         if (!serie) throw new Error('la respuesta no traía precios');
 
-                                        return Object.keys(serie).map(dia => ({
+                                        const puntos = Object.keys(serie).map(dia => ({
                                             dia,
                                             cierre: parseFloat(serie[dia]['4. close'])
                                         })).filter(p => p.cierre > 0);
+
+                                        // Quien lo llama tiene que poder decir que lo traído no es todo el
+                                        // pasado, así que el recorte viaja con los puntos y no como un apunte
+                                        // suelto que hubiera que ir a consultar a otro sitio.
+                                        return { puntos, recortado: pedido === 'compact' };
                                     }
 
                                     // Devuelve [{dia, cierre}] o lanza con el motivo en claro, diciendo qué
                                     // falló en cada puerta: "no sirvió" a secas no dice si hay que conseguir
                                     // una clave, esperar a mañana o corregir el ticker.
+                                    // Devuelve { puntos, recortado }: lo segundo dice si lo traído es todo el
+                                    // pasado o sólo el tramo que el plan gratuito deja ver.
                                     async function pedirHistoricoTicker(ticker, clave, desde) {
                                         // El tipo de cambio no está en Finnhub gratis ni de casualidad: va
                                         // derecho a la segunda puerta.
                                         let motivoFinnhub = 'no sirve tipos de cambio';
                                         if (ticker !== TICKER_TIPO_CAMBIO) {
                                             try {
-                                                return await historicoDesdeFinnhub(ticker, desde);
+                                                return { puntos: await historicoDesdeFinnhub(ticker, desde), recortado: false };
                                             } catch (e) {
                                                 motivoFinnhub = e.message;
                                             }
@@ -2182,13 +2234,19 @@
                                         if (tickers.length === 0) { avisar('No hay compras de las que traer histórico', true); return; }
 
                                         let guardados = 0;
+                                        // Si alguna serie vino recortada, el aviso final tiene que decirlo: con
+                                        // el plan gratuito la curva empieza hace unos meses y no en tu primera
+                                        // compra, y sin decirlo parecería que la traída se hizo a medias.
+                                        let huboRecorte = false;
                                         for (let i = 0; i < tickers.length; i++) {
                                             const ticker = tickers[i];
                                             avisar(`Trayendo ${ticker}… (${i + 1} de ${tickers.length})`);
 
                                             let puntos;
                                             try {
-                                                puntos = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
+                                                const traido = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
+                                                puntos = traido.puntos;
+                                                if (traido.recortado) huboRecorte = true;
                                             } catch (e) {
                                                 // Que falle el tipo de cambio no es que falle la traída: va el
                                                 // último a propósito, así que las empresas ya están guardadas y
@@ -2228,7 +2286,9 @@
                                         // acaba de traer.
                                         await cargarHistoricoPrecios();
                                         refrescarCurvaInversiones();
-                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series`);
+                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series${huboRecorte
+                                            ? '. El plan gratuito de Alpha Vantage sólo da los últimos cien cierres de cada serie, así que la curva empieza ahí y no en tu primera compra. Desde hoy crece sola.'
+                                            : ''}`);
                                     }
 
                                     // =========================================================
