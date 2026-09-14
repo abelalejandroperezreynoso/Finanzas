@@ -1642,6 +1642,10 @@
                 con un puñado de peticiones al día: si se acaban, lo traído se queda guardado y
                 mañana sigue por donde se quedó.
             </p>
+            <!-- Cuánto del pasado que la curva necesita está ya guardado. Se pinta desde el JS
+                 porque cambia con cada traída y con cada día que abres la app. -->
+            <div id="avanceHistorico" style="margin: 0 0 12px 0;"></div>
+
             <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
                    style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
             <button id="btnTraerHistorico" onclick="pedirHistoricoDesdeAjustes()"
@@ -2020,6 +2024,7 @@
                                         });
                                         historicoPreciosListo = true;
                                         historicoPreciosIntentado = true;
+                                        pintarAvanceHistorico();
                                     }
 
                                     // El cierre de hoy de todo lo que tienes, guardado para mañana. Es lo que
@@ -2219,6 +2224,138 @@
                                         return primerDia;
                                     }
 
+                                    // ---- Cuánto histórico hay de lo que hace falta ----
+                                    //
+                                    // La cuenta se hace contra lo que la curva de verdad necesita: desde tu
+                                    // primera compra de esa empresa hasta hoy. Pedir más sería inventarse un
+                                    // objetivo que no se va a dibujar nunca —antes de comprar no hay posición—
+                                    // y dejaría el avance clavado en un número bajo para siempre.
+                                    //
+                                    // Y se mide por dónde empieza lo guardado, no por cuántos cierres hay. Un
+                                    // fin de semana o un festivo no tienen cierre y no son un agujero: la curva
+                                    // arrastra el último precio. Lo que sí se nota es que la línea arranque en
+                                    // mayo cuando compraste en febrero, y eso es justo lo que mide el tramo.
+                                    function diasEntreISO(desde, hasta) {
+                                        const a = new Date(`${desde}T12:00:00`).getTime();
+                                        const b = new Date(`${hasta}T12:00:00`).getTime();
+                                        if (isNaN(a) || isNaN(b) || b < a) return 0;
+                                        return Math.round((b - a) / 86400000) + 1;
+                                    }
+
+                                    function avanceDelHistorico() {
+                                        const desdePorTicker = tickersDelHistorico();
+                                        const hoy = obtenerFechaLocalCortada(new Date().toISOString());
+
+                                        let necesariosTotal = 0, cubiertosTotal = 0;
+                                        const series = Object.keys(desdePorTicker).sort((a, b) =>
+                                            (a === TICKER_TIPO_CAMBIO ? 1 : 0) - (b === TICKER_TIPO_CAMBIO ? 1 : 0) || a.localeCompare(b)
+                                        ).map(ticker => {
+                                            const desde = desdePorTicker[ticker];
+                                            const guardados = (cacheHistoricoPrecios[ticker] || []).filter(p => p.dia >= desde);
+                                            const necesarios = diasEntreISO(desde, hoy);
+                                            const primero = guardados.length ? guardados[0].dia : null;
+                                            const cubiertos = primero ? diasEntreISO(primero, hoy) : 0;
+
+                                            necesariosTotal += necesarios;
+                                            cubiertosTotal += cubiertos;
+
+                                            return {
+                                                ticker, desde, primero, cierres: guardados.length,
+                                                faltanDias: Math.max(0, necesarios - cubiertos),
+                                                pct: necesarios > 0 ? Math.min(100, (cubiertos / necesarios) * 100) : 100
+                                            };
+                                        });
+
+                                        return {
+                                            series,
+                                            pct: necesariosTotal > 0 ? Math.min(100, (cubiertosTotal / necesariosTotal) * 100) : 0,
+                                            completo: series.length > 0 && series.every(s => s.pct >= 99.5)
+                                        };
+                                    }
+
+                                    // "Faltan 14 meses" se entiende de un vistazo; "faltan 431 días", no. Por
+                                    // debajo de dos meses los días dicen más, que es cuando ya casi está.
+                                    function huecoEnPalabras(dias) {
+                                        if (dias <= 1) return '';
+                                        if (dias < 60) return `faltan ${dias} días`;
+                                        const meses = Math.round(dias / 30.4);
+                                        if (meses < 24) return `faltan ${meses} meses`;
+                                        return `faltan ${(meses / 12).toFixed(1).replace('.0', '')} años`;
+                                    }
+
+                                    // Verde lo que hay y gris lo que falta. En rojo —el color con el que la app
+                                    // dice que algo va mal— un 15% se leería como una avería, y no lo es: es una
+                                    // empresa que compraste antes de lo que el proveedor alcanza a contar.
+                                    function barraAvanceHistorico(pct, alto) {
+                                        return `<span style="display: block; flex: 1; height: ${alto}px; background: #333; border-radius: ${alto / 2}px; overflow: hidden;">
+                                            <span style="display: block; height: 100%; width: ${pct.toFixed(1)}%; background: #3ecf8e;"></span>
+                                        </span>`;
+                                    }
+
+                                    function pintarAvanceHistorico() {
+                                        const caja = document.getElementById('avanceHistorico');
+                                        if (!caja) return;
+
+                                        if (!historicoPreciosListo) { caja.innerHTML = ''; return; }
+
+                                        const avance = avanceDelHistorico();
+                                        if (avance.series.length === 0) {
+                                            caja.innerHTML = '<p style="color: #666; font-size: 0.78em; margin: 0;">Todavía no hay compras de acciones, así que no hay histórico que traer.</p>';
+                                            return;
+                                        }
+
+                                        const filas = avance.series.map(s => {
+                                            const hueco = huecoEnPalabras(s.faltanDias);
+                                            const detalle = !s.primero
+                                                ? 'sin cierres guardados'
+                                                : hueco
+                                                ? `desde ${mesEnPalabras(s.primero)} · ${hueco}`
+                                                : `completo desde ${mesEnPalabras(s.desde)}`;
+
+                                            return `
+                                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+                                                    <span style="min-width: 58px; color: #ccc; font-size: 0.75em;">${escaparHtml(s.ticker)}</span>
+                                                    ${barraAvanceHistorico(s.pct, 4)}
+                                                    <span style="min-width: 32px; text-align: right; color: #888; font-size: 0.72em;">${Math.round(s.pct)}%</span>
+                                                </div>
+                                                <div style="color: #666; font-size: 0.68em; padding-left: 66px;">${detalle}</div>`;
+                                        }).join('');
+
+                                        // Qué hacer con lo que falta, que es la otra mitad del avance. Y son dos
+                                        // cosas distintas según dónde se esté:
+                                        //
+                                        // Una serie sin un solo cierre sí se arregla con el botón, y ahí lo que
+                                        // conviene saber es cuántas peticiones quedan pendientes, porque la cuota
+                                        // del plan gratuito son unas pocas al día y la traída se para al
+                                        // agotarse. Lo ya guardado se queda, así que mañana continúa.
+                                        //
+                                        // En cambio el hueco viejo de una serie que ya tiene sus cien cierres no
+                                        // lo trae repetir el botón: el plan gratuito sirve siempre los últimos
+                                        // cien, nunca los de más atrás. Decir "vuelve a intentarlo" ahí sería
+                                        // mandar a gastar la cuota para recibir lo mismo.
+                                        const sinNada = avance.series.filter(s => !s.primero).length;
+                                        const cierre = avance.completo
+                                            ? 'Completo: la curva empieza en tu primera compra.'
+                                            : sinNada > 0
+                                            ? `Quedan ${sinNada} serie${sinNada !== 1 ? 's' : ''} sin traer. Pulsa «Traer histórico»: es una petición por serie y el plan gratuito da unas pocas al día, así que puede hacer falta volver mañana; lo traído se queda guardado y sigue por donde se quedó.`
+                                            : 'Lo que falta es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae: haría falta una clave de pago u otra fuente. El hueco ya no crece: cada día que abras la app se guarda el cierre del día.';
+
+                                        caja.innerHTML = `
+                                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+                                                <span style="font-size: 0.72em; color: #888; text-transform: uppercase; letter-spacing: 1px;">Avance del histórico</span>
+                                                <strong style="font-size: 0.9em; color: ${avance.completo ? '#3ecf8e' : '#f39c12'};">${Math.round(avance.pct)}%</strong>
+                                            </div>
+                                            <div style="display: flex;">${barraAvanceHistorico(avance.pct, 6)}</div>
+                                            ${filas}
+                                            <p style="color: #666; font-size: 0.72em; line-height: 1.5; margin: 10px 0 0 0;">${cierre}</p>`;
+                                    }
+
+                                    // "feb 2025", que es como la app escribe los meses en sitios estrechos
+                                    function mesEnPalabras(diaISO) {
+                                        const [anio, mes] = String(diaISO).split('-');
+                                        return `${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()} ${anio}`;
+                                    }
+
                                     async function traerHistoricoDePrecios(avisar) {
                                         // La clave puede faltar: se intenta Finnhub de todas formas, y sólo si
                                         // no sirve el aviso dirá que hace falta.
@@ -2286,7 +2423,8 @@
                                         // acaba de traer.
                                         await cargarHistoricoPrecios();
                                         refrescarCurvaInversiones();
-                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series${huboRecorte
+                                        const avance = avanceDelHistorico();
+                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series · histórico al ${Math.round(avance.pct)}%${huboRecorte
                                             ? '. El plan gratuito de Alpha Vantage sólo da los últimos cien cierres de cada serie, así que la curva empieza ahí y no en tu primera compra. Desde hoy crece sola.'
                                             : ''}`);
                                     }
@@ -3791,10 +3929,11 @@
                             sincronizarFechaRegistro();
                             }
                             if (id === 'sec-ajustes') {
-                            // Al entrar se piden precios frescos y se rellena la clave guardada, que
-                            // es lo único que esta sección tiene que poner al día.
+                            // Al entrar se piden precios frescos, se rellena la clave guardada y se
+                            // recalcula cuánto histórico hay: es lo que esta sección pone al día.
                             refrescarPreciosDeMercado();
                             cargarClaveHistoricoGuardada();
+                            pintarAvanceHistorico();
                             }
                             const menuGlobal = document.querySelector('.dashboard-menu');
                             if (menuGlobal) {
@@ -4692,7 +4831,7 @@
                                                                 cargarHistoricoPrecios()
                                                                     .then(guardarCierresDeHoy)
                                                                     .catch(e => console.error('No se pudo preparar el histórico de precios', e))
-                                                                    .then(refrescarCurvaInversiones);
+                                                                    .then(() => { refrescarCurvaInversiones(); pintarAvanceHistorico(); });
 
                                                                 // Las empresas que todavía no tienen perfil se preguntan aquí, con la app
                                                                 // ya en pie y sin retener nada: son viajes a Finnhub que sólo hacen falta
