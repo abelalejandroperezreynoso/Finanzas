@@ -954,6 +954,25 @@
                 .chip-sector button:hover {
                     color: #ff5c5c;
                 }
+                /* Un sector que ya existe en tus datos y todavía no está en esta categoría. Se
+                   dibuja de contorno y con un + delante para que no se confunda con los puestos:
+                   aquélla es una decisión tomada, ésta es una oferta. */
+                .chip-sugerido {
+                    all: unset;
+                    display: inline-flex;
+                    align-items: center;
+                    cursor: pointer;
+                    font-size: 0.8em;
+                    color: #9aa7b8;
+                    border: 1px dashed #454f5d;
+                    padding: 4px 10px;
+                    border-radius: 14px;
+                    white-space: nowrap;
+                }
+                .chip-sugerido:hover {
+                    color: #dfe6ef;
+                    border-color: #6b7787;
+                }
                 /* El tamaño de partida del saldo. Va en la hoja de estilos y no en el atributo style
                    del elemento porque ajustarSaldoAlAncho() borra su font-size en línea para volver a
                    medir, y necesita que quede este valor debajo al que regresar. */
@@ -1817,11 +1836,16 @@
                     <div id="bloqueSectoresCat" style="display: none; margin-top: 10px;">
                         <label style="display:block; color:#ccc; font-size:0.85em; margin-bottom:6px;">Sectores propios</label>
                         <div id="chipsSectoresCat" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-                        <input type="text" id="catSectorNuevo" list="sectoresConocidosCat" autocomplete="off"
+                        <!-- Nada de <datalist>: en Safari de iPhone no enseña nada, que es justo donde
+                             se usa esta app. Las sugerencias son pastillas que se tocan y ya. -->
+                        <input type="text" id="catSectorNuevo" autocomplete="off"
                                placeholder="Escribe un sector y pulsa Enter (Ej: Hardware)"
-                               onkeydown="teclaSectorCat(event)" onblur="agregarSectorEscrito()">
-                        <datalist id="sectoresConocidosCat"></datalist>
-                        <small id="ayudaSectoresCat" style="display:block; color:#666; font-size:0.78em; line-height:1.4; margin-top:-8px;"></small>
+                               onkeydown="teclaSectorCat(event)" oninput="pintarSectoresEnEdicion()">
+                        <div id="sugerenciasSectoresCat" style="display:none; margin-top:-8px; margin-bottom:10px;">
+                            <small style="display:block; color:#666; font-size:0.78em; margin-bottom:6px;">Ya usados · toca para añadir</small>
+                            <div id="chipsSugerenciasCat" style="display:flex; flex-wrap:wrap; gap:6px; max-height:96px; overflow-y:auto;"></div>
+                        </div>
+                        <small id="ayudaSectoresCat" style="display:block; color:#666; font-size:0.78em; line-height:1.4;"></small>
                     </div>
 
                     <!-- Lo esencial queda arriba; el resto vive detrás de este botón -->
@@ -4526,24 +4550,45 @@
                         // y esto también.
                         let sectoresEnEdicionCat = [];
 
+                        // Las sugerencias que se están enseñando, en el mismo orden que sus pastillas: al
+                        // tocar una llega su posición y no su nombre, que con comillas o acentos dentro de
+                        // un atributo onclick sería una fuente de rarezas.
+                        let sugerenciasSectoresCat = [];
+
                         function pintarSectoresEnEdicion() {
                             const chips = document.getElementById('chipsSectoresCat');
                             const ayuda = document.getElementById('ayudaSectoresCat');
-                            const sugerencias = document.getElementById('sectoresConocidosCat');
+                            const sugerencias = document.getElementById('chipsSugerenciasCat');
+                            const bloqueSugerencias = document.getElementById('sugerenciasSectoresCat');
+                            const campoNuevo = document.getElementById('catSectorNuevo');
                             if (!chips) return;
 
                             chips.style.marginBottom = sectoresEnEdicionCat.length > 0 ? '8px' : '0';
                             chips.innerHTML = sectoresEnEdicionCat.map((s, i) => `<span class="chip-sector">${escaparHtml(s)}` +
                                 `<button type="button" onclick="quitarSectorEnEdicion(${i})" aria-label="Quitar ${escaparHtml(s)}">&times;</button></span>`).join('');
 
-                            // Se sugiere lo que ya existe en tus datos, menos lo que esta categoría ya tiene:
-                            // ofrecer un sector que ya está puesto sólo estorba la lista.
+                            // Se ofrece lo que ya existe en tus datos, menos lo que esta categoría ya tiene
+                            // —ofrecer un sector que ya está puesto sólo estorba— y, si se está escribiendo,
+                            // sólo lo que se le parece: el campo hace de buscador sin dejar de ser el sitio
+                            // donde se escribe uno nuevo.
+                            //
+                            // El bloque entero desaparece cuando no queda nada que ofrecer, que es lo que
+                            // pasa la primera vez: un título sobre un hueco vacío sólo hace preguntarse qué
+                            // falta ahí.
+                            const escrito = campoNuevo ? normalizarNombreSector(campoNuevo.value).toLowerCase() : '';
+                            const puestos = sectoresEnEdicionCat.map(s => s.toLowerCase());
+                            sugerenciasSectoresCat = sectoresConocidos()
+                                .filter(s => puestos.indexOf(s.toLowerCase()) < 0)
+                                .filter(s => !escrito || s.toLowerCase().indexOf(escrito) >= 0);
+
+                            if (bloqueSugerencias) bloqueSugerencias.style.display = sugerenciasSectoresCat.length > 0 ? 'block' : 'none';
                             if (sugerencias) {
-                                const puestos = sectoresEnEdicionCat.map(s => s.toLowerCase());
-                                sugerencias.innerHTML = sectoresConocidos()
-                                    .filter(s => !puestos.includes(s.toLowerCase()))
-                                    .map(s => `<option value="${escaparHtml(s)}"></option>`)
-                                    .join('');
+                                // onmousedown con preventDefault es lo que evita que el campo pierda el foco
+                                // al tocar la pastilla: si lo perdiera, el teclado se cerraría entre una
+                                // sugerencia y la siguiente.
+                                sugerencias.innerHTML = sugerenciasSectoresCat.map((s, i) =>
+                                    `<button type="button" class="chip-sugerido" onmousedown="event.preventDefault()"` +
+                                    ` onclick="elegirSectorSugerido(${i})">+ ${escaparHtml(s)}</button>`).join('');
                             }
 
                             // La ayuda dice qué va a pasar con lo que hay puesto ahora mismo, que es la
@@ -4561,14 +4606,30 @@
                             }
                         }
 
+                        function ponerSectorEnEdicion(texto) {
+                            const nombre = normalizarNombreSector(texto);
+                            if (!nombre) return;
+                            if (sectoresEnEdicionCat.some(s => s.toLowerCase() === nombre.toLowerCase())) return;
+                            sectoresEnEdicionCat.push(nombre);
+                        }
+
                         function agregarSectoresEnEdicion(texto) {
                             // Pegar "Hardware, Software" de un tirón tiene que dar dos sectores y no uno
-                            String(texto || '').split(',').forEach(parte => {
-                                const nombre = normalizarNombreSector(parte);
-                                if (!nombre) return;
-                                if (sectoresEnEdicionCat.some(s => s.toLowerCase() === nombre.toLowerCase())) return;
-                                sectoresEnEdicionCat.push(nombre);
-                            });
+                            String(texto || '').split(',').forEach(ponerSectorEnEdicion);
+                            pintarSectoresEnEdicion();
+                        }
+
+                        // Tocar una sugerencia. No pasa por el troceo de comas a propósito: el nombre ya
+                        // existe tal cual, y partirlo lo convertiría en otro. Lo escrito se va porque era el
+                        // filtro con el que se encontró, no un sector a medio escribir.
+                        function elegirSectorSugerido(i) {
+                            const nombre = sugerenciasSectoresCat[i];
+                            if (!nombre) return;
+
+                            const campo = document.getElementById('catSectorNuevo');
+                            if (campo) campo.value = '';
+
+                            ponerSectorEnEdicion(nombre);
                             pintarSectoresEnEdicion();
                         }
 
@@ -4578,8 +4639,12 @@
                         }
 
                         // Lo que quedó escrito en el campo cuenta igual que lo ya añadido: pulsar Guardar
-                        // con "Software" a medio escribir es querer ese sector, no tirarlo. Por eso esto se
-                        // llama también al salir del campo y antes de guardar.
+                        // con "Software" escrito y sin cerrar es querer ese sector, no tirarlo. Por eso
+                        // guardarCategoria llama a esto antes de armar nada.
+                        //
+                        // Lo que no hace es dispararse al salir del campo: tocar una sugerencia saca el foco
+                        // del campo, y entonces el "Hard" que servía de filtro se colaría como un sector más
+                        // justo antes de añadir el "Hardware" que se acaba de elegir.
                         function agregarSectorEscrito() {
                             const campo = document.getElementById('catSectorNuevo');
                             if (!campo || !campo.value.trim()) return;
