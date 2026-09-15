@@ -3089,19 +3089,22 @@
                                         return deFinnhub ? [deFinnhub] : [];
                                     }
 
-                                    // Todos los sectores que ya existen en tus datos, para sugerirlos mientras se
-                                    // escribe: los tuyos y los que trajo Finnhub. Sin esto cada empresa se
-                                    // escribiría desde cero y "Semiconductores" acabaría conviviendo con
-                                    // "semiconductores" como dos recuadros distintos del mismo mapa.
-                                    function sectoresConocidos() {
+                                    // Los sectores que tú has escrito en alguna categoría, para volver a ofrecerlos
+                                    // al escribir otra. Sin esto cada empresa se escribiría desde cero y
+                                    // "Semiconductores" acabaría conviviendo con "semiconductores" como dos
+                                    // recuadros distintos del mismo mapa.
+                                    //
+                                    // Los de Finnhub se quedan fuera aunque la app los tenga a mano. Esta lista es
+                                    // tu vocabulario —lo que estás construyendo al clasificar la cartera a tu
+                                    // manera— y metiendo las etiquetas de Finnhub se llena de palabras que no son
+                                    // tuyas y que además ya se ven en la otra vara del mapa. Lo que se ofrece aquí
+                                    // es lo que ya decidiste antes.
+                                    function sectoresPropiosUsados() {
                                         const vistos = {};
-                                        const poner = (s) => {
-                                            const nombre = normalizarNombreSector(s);
-                                            if (nombre) vistos[nombre.toLowerCase()] = nombre;
-                                        };
 
-                                        (datosCategorias || []).forEach(c => sectoresPropiosDeCategoria(c).forEach(poner));
-                                        Object.keys(cachePerfilesEmpresa).forEach(t => poner(cachePerfilesEmpresa[t].sector));
+                                        (datosCategorias || []).forEach(c => sectoresPropiosDeCategoria(c).forEach(s => {
+                                            vistos[s.toLowerCase()] = s;
+                                        }));
 
                                         return Object.keys(vistos).map(k => vistos[k]).sort((a, b) => a.localeCompare(b, 'es'));
                                     }
@@ -4567,7 +4570,7 @@
                             chips.innerHTML = sectoresEnEdicionCat.map((s, i) => `<span class="chip-sector">${escaparHtml(s)}` +
                                 `<button type="button" onclick="quitarSectorEnEdicion(${i})" aria-label="Quitar ${escaparHtml(s)}">&times;</button></span>`).join('');
 
-                            // Se ofrece lo que ya existe en tus datos, menos lo que esta categoría ya tiene
+                            // Se ofrece lo que tú ya has escrito en otras categorías, menos lo que ésta ya tiene
                             // —ofrecer un sector que ya está puesto sólo estorba— y, si se está escribiendo,
                             // sólo lo que se le parece: el campo hace de buscador sin dejar de ser el sitio
                             // donde se escribe uno nuevo.
@@ -4577,7 +4580,7 @@
                             // falta ahí.
                             const escrito = campoNuevo ? normalizarNombreSector(campoNuevo.value).toLowerCase() : '';
                             const puestos = sectoresEnEdicionCat.map(s => s.toLowerCase());
-                            sugerenciasSectoresCat = sectoresConocidos()
+                            sugerenciasSectoresCat = sectoresPropiosUsados()
                                 .filter(s => puestos.indexOf(s.toLowerCase()) < 0)
                                 .filter(s => !escrito || s.toLowerCase().indexOf(escrito) >= 0);
 
