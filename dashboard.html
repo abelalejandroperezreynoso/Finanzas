@@ -930,6 +930,30 @@
                     white-space: nowrap;
                     vertical-align: middle;
                 }
+                /* El sector dentro del modal de la categoría. Es la misma idea que la pastilla de
+                   arriba, pero esta se edita: lleva su × para quitarlo y por eso no va apagada. */
+                .chip-sector {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 0.8em;
+                    color: #dfe6ef;
+                    background: #2f3641;
+                    border: 1px solid #454f5d;
+                    padding: 4px 6px 4px 10px;
+                    border-radius: 14px;
+                }
+                .chip-sector button {
+                    all: unset;
+                    cursor: pointer;
+                    color: #9aa7b8;
+                    font-size: 1.1em;
+                    line-height: 1;
+                    padding: 0 4px;
+                }
+                .chip-sector button:hover {
+                    color: #ff5c5c;
+                }
                 /* El tamaño de partida del saldo. Va en la hoja de estilos y no en el atributo style
                    del elemento porque ajustarSaldoAlAncho() borra su font-size en línea para volver a
                    medir, y necesita que quede este valor debajo al que regresar. */
@@ -1668,6 +1692,15 @@
                 el plan gratuito no los perfila. Esas tarjetas salen con la inicial del ticker en lugar
                 del logo.
             </p>
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
+                Finnhub pone una sola etiqueta por empresa, y no siempre es la tuya: Apple sale como
+                <em>Technology</em> aunque viva del hardware y del software. En cada categoría de
+                inversión puedes escribir tus <strong>sectores propios</strong>, los que quieras y
+                tantos como quieras, y cuando los pones mandan ellos. En el mapa por sectores una
+                empresa con varios reparte su dinero en partes iguales entre ellos, para que los
+                sectores sigan sumando exactamente tu portafolio. Necesita
+                <strong>migracion_sectores_categoria.sql</strong> ejecutado en Supabase.
+            </p>
             <button id="btnRefrescarPerfiles" onclick="forzarActualizacionPerfiles()"
                     style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
                 🏷️ Sectores y logos
@@ -1773,6 +1806,19 @@
                         <option value="inversion">Inversión (+/-)</option>
                     </select>
                     <input type="text" id="catTicker" placeholder="Ticker / Clave (Ej: AAPL)" style="display: none;">
+
+                    <!-- Los sectores que tú le pones a la empresa. Finnhub da uno solo y no siempre
+                         es el que tú tienes en la cabeza: Apple vende hardware y vende software, y
+                         de las dos cosas vive. Puestos aquí mandan sobre el suyo. -->
+                    <div id="bloqueSectoresCat" style="display: none; margin-top: 10px;">
+                        <label style="display:block; color:#ccc; font-size:0.85em; margin-bottom:6px;">Sectores propios</label>
+                        <div id="chipsSectoresCat" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+                        <input type="text" id="catSectorNuevo" list="sectoresConocidosCat" autocomplete="off"
+                               placeholder="Escribe un sector y pulsa Enter (Ej: Hardware)"
+                               onkeydown="teclaSectorCat(event)" onblur="agregarSectorEscrito()">
+                        <datalist id="sectoresConocidosCat"></datalist>
+                        <small id="ayudaSectoresCat" style="display:block; color:#666; font-size:0.78em; line-height:1.4; margin-top:-8px;"></small>
+                    </div>
 
                     <!-- Lo esencial queda arriba; el resto vive detrás de este botón -->
                     <button type="button" id="btnToggleAvanzadosCat" onclick="toggleAjustesAvanzadosCat()"
@@ -2568,8 +2614,17 @@
                                         const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                             && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
                                             && (!donde.categoria || String(c.id) === String(donde.categoria))
-                                            && (!donde.sector || sectorDeCategoriaTreemap(c) === donde.sector));
+                                            && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0));
                                         if (cats.length === 0) return null;
+
+                                        // Dentro de un sector, una empresa que está en varios entra con la parte
+                                        // que le tocó, igual que en el mapa: la curva mira el mismo trozo del
+                                        // portafolio que el recuadro del que se entró, y contarla entera aquí
+                                        // diría que de ese sector sale más de lo que su recuadro enseñaba.
+                                        const pesos = {};
+                                        cats.forEach(c => {
+                                            pesos[String(c.id)] = donde.sector ? 1 / sectoresDeCategoriaTreemap(c).length : 1;
+                                        });
 
                                         const porId = {};
                                         cats.forEach(c => { porId[String(c.id)] = c; });
@@ -2646,6 +2701,7 @@
 
                                             cats.forEach(c => {
                                                 const lista = lotes[String(c.id)];
+                                                const peso = pesos[String(c.id)];
                                                 const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
                                                 cursores[c.ticker] = cierre.cursor;
 
@@ -2660,7 +2716,7 @@
                                                     if (!(lote.vivas > 0.00001)) continue;
 
                                                     const costo = lote.compradas > 0 ? lote.costoMxn * (lote.vivas / lote.compradas) : lote.costoMxn;
-                                                    costoVivo += costo;
+                                                    costoVivo += costo * peso;
 
                                                     // Sin precio de ese día no se puede saber si salía sin pérdida,
                                                     // y la app no inventa lo que no se puede saber: esa empresa no
@@ -2670,7 +2726,7 @@
                                                     const valor = lote.vivas * cierre.valor * cambio;
                                                     if (valor < costo) { cortada = true; continue; }
 
-                                                    ganancia += valor - costo;
+                                                    ganancia += (valor - costo) * peso;
                                                 }
                                             });
 
@@ -2952,12 +3008,82 @@
                                         return `<span class="logo-empresa" style="width:${lado}px; height:${lado}px; font-size:${Math.round(lado * 0.45)}px;" aria-hidden="true"><span>${inicial}</span>${img}</span>`;
                                     }
 
-                                    // La pastilla del sector. Sin perfil no se dibuja nada: un hueco vacío dice
+                                    // --- SECTORES PROPIOS ---
+                                    // Finnhub clasifica cada empresa con una sola etiqueta, y no siempre es la
+                                    // que tú tienes en la cabeza: Apple sale como "Technology", pero vende
+                                    // hardware y vende software y de las dos cosas vive. Por eso una categoría
+                                    // puede traer sus propios sectores, los que quieras y tantos como quieras, y
+                                    // cuando los trae mandan ellos. El de Finnhub no desaparece: es lo que se usa
+                                    // mientras no digas otra cosa, que es distinto de ser una etiqueta por encima
+                                    // de la tuya.
+                                    //
+                                    // Viven en la columna `sectores` de `categorias`, que crea
+                                    // migracion_sectores_categoria.sql. Sin esa columna todo esto devuelve listas
+                                    // vacías y la app se comporta igual que antes: manda Finnhub y ya.
+
+                                    // Un sector no es una fila de ninguna tabla: es su nombre, y nada más. Así
+                                    // que dos que sólo se diferencien en los espacios o en las mayúsculas serían
+                                    // dos industrias distintas para el mapa, y son la misma.
+                                    const LARGO_MAXIMO_SECTOR = 40;
+
+                                    function normalizarNombreSector(texto) {
+                                        return String(texto ?? '').replace(/\s+/g, ' ').trim().slice(0, LARGO_MAXIMO_SECTOR);
+                                    }
+
+                                    // Los que tú le pusiste, limpios y sin repetir. La columna puede traer
+                                    // cualquier cosa —la escribe una persona— y todo lo que lee esto da por hecho
+                                    // que lo que sale de aquí ya está en orden.
+                                    function sectoresPropiosDeCategoria(cat) {
+                                        const crudos = (cat && Array.isArray(cat.sectores)) ? cat.sectores : [];
+                                        const vistos = {};
+                                        const limpios = [];
+
+                                        crudos.forEach(s => {
+                                            const nombre = normalizarNombreSector(s);
+                                            if (!nombre) return;
+                                            const clave = nombre.toLowerCase();
+                                            if (vistos[clave]) return;
+                                            vistos[clave] = true;
+                                            limpios.push(nombre);
+                                        });
+
+                                        return limpios;
+                                    }
+
+                                    // Los sectores de una categoría, con quién manda ya resuelto. La lista vacía
+                                    // significa que no se sabe de qué industria es —un ETF, algo de otra bolsa—,
+                                    // que no es lo mismo que no tener ninguna.
+                                    function sectoresDeCategoria(cat) {
+                                        const propios = sectoresPropiosDeCategoria(cat);
+                                        if (propios.length > 0) return propios;
+
+                                        const deFinnhub = cat ? sectorDeTicker(cat.ticker) : null;
+                                        return deFinnhub ? [deFinnhub] : [];
+                                    }
+
+                                    // Todos los sectores que ya existen en tus datos, para sugerirlos mientras se
+                                    // escribe: los tuyos y los que trajo Finnhub. Sin esto cada empresa se
+                                    // escribiría desde cero y "Semiconductores" acabaría conviviendo con
+                                    // "semiconductores" como dos recuadros distintos del mismo mapa.
+                                    function sectoresConocidos() {
+                                        const vistos = {};
+                                        const poner = (s) => {
+                                            const nombre = normalizarNombreSector(s);
+                                            if (nombre) vistos[nombre.toLowerCase()] = nombre;
+                                        };
+
+                                        (datosCategorias || []).forEach(c => sectoresPropiosDeCategoria(c).forEach(poner));
+                                        Object.keys(cachePerfilesEmpresa).forEach(t => poner(cachePerfilesEmpresa[t].sector));
+
+                                        return Object.keys(vistos).map(k => vistos[k]).sort((a, b) => a.localeCompare(b, 'es'));
+                                    }
+
+                                    // Las pastillas del sector. Sin ninguno no se dibuja nada: un hueco vacío dice
                                     // menos que la ausencia.
-                                    function sectorBadgeHtml(ticker) {
-                                        const sector = sectorDeTicker(ticker);
-                                        if (!sector) return '';
-                                        return `<span class="badge-sector">${escaparHtml(sector)}</span>`;
+                                    function sectorBadgeHtml(cat) {
+                                        return sectoresDeCategoria(cat)
+                                            .map(s => `<span class="badge-sector">${escaparHtml(s)}</span>`)
+                                            .join('');
                                     }
 
                                     // Con qué se dibujó la curva que hay en pantalla. Mientras nada de esto
@@ -4349,6 +4475,9 @@
                                                         document.getElementById('catNombre').value = '';
                                                         document.getElementById('catTipo').value = 'gasto';
                                                         document.getElementById('catTicker').value = '';
+                                                        document.getElementById('catSectorNuevo').value = '';
+                                                        sectoresEnEdicionCat = [];
+                                                        pintarSectoresEnEdicion();
                                                         document.getElementById('desactivarPrediccionCat').checked = false;
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
@@ -4357,6 +4486,87 @@
                                                         contextoCatDesdeRegistro = null;
                                                         abrirModalCategoria();
                                                     }
+
+                        // --- LOS SECTORES QUE SE ESTÁN EDITANDO ---
+                        // El modal no toca la categoría hasta que se pulsa Guardar, así que los sectores
+                        // se llevan aparte mientras tanto: Cancelar tiene que dejarlo todo como estaba,
+                        // y esto también.
+                        let sectoresEnEdicionCat = [];
+
+                        function pintarSectoresEnEdicion() {
+                            const chips = document.getElementById('chipsSectoresCat');
+                            const ayuda = document.getElementById('ayudaSectoresCat');
+                            const sugerencias = document.getElementById('sectoresConocidosCat');
+                            if (!chips) return;
+
+                            chips.style.marginBottom = sectoresEnEdicionCat.length > 0 ? '8px' : '0';
+                            chips.innerHTML = sectoresEnEdicionCat.map((s, i) => `<span class="chip-sector">${escaparHtml(s)}` +
+                                `<button type="button" onclick="quitarSectorEnEdicion(${i})" aria-label="Quitar ${escaparHtml(s)}">&times;</button></span>`).join('');
+
+                            // Se sugiere lo que ya existe en tus datos, menos lo que esta categoría ya tiene:
+                            // ofrecer un sector que ya está puesto sólo estorba la lista.
+                            if (sugerencias) {
+                                const puestos = sectoresEnEdicionCat.map(s => s.toLowerCase());
+                                sugerencias.innerHTML = sectoresConocidos()
+                                    .filter(s => !puestos.includes(s.toLowerCase()))
+                                    .map(s => `<option value="${escaparHtml(s)}"></option>`)
+                                    .join('');
+                            }
+
+                            // La ayuda dice qué va a pasar con lo que hay puesto ahora mismo, que es la
+                            // pregunta que se hace uno al poner el segundo sector.
+                            if (ayuda) {
+                                const campoTicker = document.getElementById('catTicker');
+                                const deFinnhub = sectorDeTicker((campoTicker ? campoTicker.value : '').trim().toUpperCase());
+                                ayuda.textContent = sectoresEnEdicionCat.length === 0
+                                    ? (deFinnhub
+                                        ? `Sin sectores propios se usa el de Finnhub: ${deFinnhub}.`
+                                        : 'Sin sectores propios se usa el de Finnhub, y de un ETF o de otra bolsa no hay: cae en "Sin sector".')
+                                    : sectoresEnEdicionCat.length === 1
+                                    ? 'En el mapa por sectores esta categoría cuenta entera aquí.'
+                                    : `En el mapa por sectores su dinero se reparte en ${sectoresEnEdicionCat.length} partes iguales, una por sector.`;
+                            }
+                        }
+
+                        function agregarSectoresEnEdicion(texto) {
+                            // Pegar "Hardware, Software" de un tirón tiene que dar dos sectores y no uno
+                            String(texto || '').split(',').forEach(parte => {
+                                const nombre = normalizarNombreSector(parte);
+                                if (!nombre) return;
+                                if (sectoresEnEdicionCat.some(s => s.toLowerCase() === nombre.toLowerCase())) return;
+                                sectoresEnEdicionCat.push(nombre);
+                            });
+                            pintarSectoresEnEdicion();
+                        }
+
+                        function quitarSectorEnEdicion(i) {
+                            sectoresEnEdicionCat.splice(i, 1);
+                            pintarSectoresEnEdicion();
+                        }
+
+                        // Lo que quedó escrito en el campo cuenta igual que lo ya añadido: pulsar Guardar
+                        // con "Software" a medio escribir es querer ese sector, no tirarlo. Por eso esto se
+                        // llama también al salir del campo y antes de guardar.
+                        function agregarSectorEscrito() {
+                            const campo = document.getElementById('catSectorNuevo');
+                            if (!campo || !campo.value.trim()) return;
+                            agregarSectoresEnEdicion(campo.value);
+                            campo.value = '';
+                        }
+
+                        // Enter y la coma cierran un sector y dejan el campo listo para el siguiente;
+                        // retroceso con el campo vacío quita el último, como en cualquier campo de etiquetas.
+                        function teclaSectorCat(ev) {
+                            if (ev.key === 'Enter' || ev.key === ',') {
+                                // Enter dentro de un modal envía el formulario en algunos navegadores
+                                ev.preventDefault();
+                                agregarSectorEscrito();
+                                return;
+                            }
+                            if (ev.key === 'Backspace' && !ev.target.value && sectoresEnEdicionCat.length > 0) {
+                                quitarSectorEnEdicion(sectoresEnEdicionCat.length - 1);
+                            }
+                        }
 
                         // Meta/límite y "omitir predicciones" son ajustes finos: se muestran
                         // sólo cuando el usuario los pide. Con un booleano se puede forzar el estado.
@@ -6858,7 +7068,9 @@
                                                                                                                                 // ticker, y sin ticker no hay ni logo ni sector que pintar.
                                                                                                                                 const esEmpresa = cat.tipo === 'inversion' && !!cat.ticker;
                                                                                                                                 const htmlLogo = esEmpresa ? `<span style="margin-right:8px; display:inline-flex;">${logoEmpresaHtml(cat.ticker, 26)}</span>` : '';
-                                                                                                                                const htmlSector = esEmpresa ? sectorBadgeHtml(cat.ticker) : '';
+                                                                                                                                // Los sectores tuyos no dependen del ticker: se los puedes poner a
+                                                                                                                                // cualquier categoría de inversión, también a la que no cotiza.
+                                                                                                                                const htmlSector = cat.tipo === 'inversion' ? sectorBadgeHtml(cat) : '';
 
                                                                                                                                 htmlAcumulado += `<li style="border-color:${colorTipo};">
                                                                                                                                 <div class="swipe-actions">
@@ -6876,7 +7088,7 @@
                                                                                                                                                                                                                                                                                                                                                                 ${htmlLogo}
                                                                                                                                                                                                                                                                                                                                                                 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${cat.nombre}</span>
                                                                                                                                                                                                                                                                                                                                                             </strong>
-                                                                                                                                                                                                                                                                                                                                                            ${cat.ticker ? `<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">${textoTicker}${htmlSector}</div>` : ''}
+                                                                                                                                                                                                                                                                                                                                                            ${(cat.ticker || htmlSector) ? `<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">${textoTicker}${htmlSector}</div>` : ''}
                                                                                                                                                                                                                                                                                                                                                             <small>${cat.cuentas?.nombre || ''}</small>
                                                                                                                                                                                                                                                                                                                                                             </div>
                                                                                                                                                                                                                                                                     <div style="text-align: right;">
@@ -7026,9 +7238,14 @@
                                                     function mostrarOcultarTicker() {
                                                         const tipo = document.getElementById('catTipo').value;
                                                         const inputTicker = document.getElementById('catTicker');
-                                                        
+                                                        const bloqueSectores = document.getElementById('bloqueSectoresCat');
+
                                                         if (inputTicker) {
                                                             inputTicker.style.display = tipo === 'inversion' ? 'block' : 'none';
+                                                        }
+                                                        // Un gasto no tiene industria: los sectores sólo aparecen donde significan algo
+                                                        if (bloqueSectores) {
+                                                            bloqueSectores.style.display = tipo === 'inversion' ? 'block' : 'none';
                                                         }
                                                     }
 
@@ -7060,11 +7277,21 @@
                                     const desactivar_prediccion = document.getElementById('desactivarPrediccionCat').checked;
                                     const tickerValor = tipo === 'inversion' ? document.getElementById('catTicker').value.trim().toUpperCase() : null;
 
+                                    // Lo que quedara a medio escribir en el campo de sectores cuenta también
+                                    agregarSectorEscrito();
+                                    // Sin ninguno se guarda nulo y no una lista vacía: son la misma idea —"no le
+                                    // pusiste sectores"— y con dos formas de decirla habría que comprobar las dos
+                                    // cada vez que se leen.
+                                    const sectoresValor = (tipo === 'inversion' && sectoresEnEdicionCat.length > 0)
+                                        ? sectoresEnEdicionCat.slice()
+                                        : null;
+
                                     const body = {
                                         cuenta_id: c_id,
                                         nombre: nombre,
                                         tipo: tipo,
                                         ticker: tickerValor,
+                                        sectores: sectoresValor,
                                         desactivar_prediccion: desactivar_prediccion,
                                         user_id: currentUser.id
                                     };
@@ -7075,9 +7302,23 @@
                                     btnGuardar.disabled = true;
 
                                             const esEdicion = !!editIdCat;
-                                            const res = editIdCat
-                                                ? await clienteSupabase.from('categorias').update(body).eq('id', editIdCat).select('*, cuentas(nombre)')
-                                                : await clienteSupabase.from('categorias').insert([body]).select('*, cuentas(nombre)');
+                                            const escribir = (cuerpo) => editIdCat
+                                                ? clienteSupabase.from('categorias').update(cuerpo).eq('id', editIdCat).select('*, cuentas(nombre)')
+                                                : clienteSupabase.from('categorias').insert([cuerpo]).select('*, cuentas(nombre)');
+
+                                            let res = await escribir(body);
+
+                                            // La columna `sectores` viene de una migración aparte. Si no se ha
+                                            // ejecutado, la base rechaza el guardado entero: perder el nombre y el
+                                            // ticker por una columna que a lo mejor el usuario ni tocó sería peor
+                                            // que quedarse sin los sectores. Se vuelve a intentar sin ellos y se
+                                            // dice qué falta, en lugar de tragarse el fallo en silencio.
+                                            let faltaMigracionSectores = false;
+                                            if (res.error && /sectores/i.test(res.error.message || '')) {
+                                                faltaMigracionSectores = true;
+                                                const { sectores, ...sinSectores } = body;
+                                                res = await escribir(sinSectores);
+                                            }
 
                                             btnGuardar.textContent = textoOriginal;
                                             btnGuardar.disabled = false;
@@ -7091,6 +7332,9 @@
 
                                                                 document.getElementById('catNombre').value = '';
                                                                 document.getElementById('catTicker').value = '';
+                                                                document.getElementById('catSectorNuevo').value = '';
+                                                                sectoresEnEdicionCat = [];
+                                                                pintarSectoresEnEdicion();
                                                                 editIdCat = null;
                                                                 document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                                 btnGuardar.textContent = 'Añadir Categoría';
@@ -7102,6 +7346,14 @@
                                                                 // Si la creamos desde el formulario de registro, la dejamos lista para usar
                                                                 if (contextoRegistro && !esEdicion && nuevaCat) {
                                                                     seleccionarCategoriaEnRegistro(nuevaCat, contextoRegistro);
+                                                                }
+
+                                                                // Sin sectores puestos el aviso sobraría: la categoría se guardó
+                                                                // entera y no se quedó nada fuera.
+                                                                if (faltaMigracionSectores && sectoresValor) {
+                                                                    alert('La categoría se guardó, pero sus sectores no.\n\n' +
+                                                                        'Falta la columna donde viven: abre Supabase → SQL Editor y ejecuta ' +
+                                                                        'migracion_sectores_categoria.sql del repositorio. Después vuelve a ponerlos.');
                                                                 }
                                                             }
                                 }
@@ -7115,6 +7367,9 @@
                                                                     document.getElementById('catNombre').value = cat.nombre;
                                                                     document.getElementById('catTipo').value = cat.tipo;
                                                                     document.getElementById('catTicker').value = cat.ticker || '';
+                                                                    document.getElementById('catSectorNuevo').value = '';
+                                                                    sectoresEnEdicionCat = sectoresPropiosDeCategoria(cat);
+                                                                    pintarSectoresEnEdicion();
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
@@ -8712,10 +8967,59 @@
                             // a su propio grupo en vez de mezclarse con las empresas que sí la tienen.
                             const SECTOR_CAJA_TREEMAP = 'Efectivo';
 
-                            function sectorDeCategoriaTreemap(cat) {
-                                if (!cat) return SECTOR_SIN_PERFIL_TREEMAP;
-                                if (esCategoriaCajaGbm(cat)) return SECTOR_CAJA_TREEMAP;
-                                return sectorDeTicker(cat.ticker) || SECTOR_SIN_PERFIL_TREEMAP;
+                            // En qué sectores cae una empresa del mapa: los de su categoría —los tuyos si se
+                            // los pusiste, el de Finnhub si no— con los dos casos que el mapa resuelve por su
+                            // cuenta, la caja y la empresa de la que no se sabe nada. Nunca devuelve la lista
+                            // vacía: todo lo que el mapa pinta tiene que caer en algún recuadro, o dejaría de
+                            // salir dinero que es tuyo.
+                            function sectoresDeCategoriaTreemap(cat) {
+                                if (!cat) return [SECTOR_SIN_PERFIL_TREEMAP];
+                                if (esCategoriaCajaGbm(cat)) return [SECTOR_CAJA_TREEMAP];
+
+                                const suyos = sectoresDeCategoria(cat);
+                                return suyos.length > 0 ? suyos : [SECTOR_SIN_PERFIL_TREEMAP];
+                            }
+
+                            // Una empresa con dos sectores es de los dos, pero su dinero es uno solo: el mapa lo
+                            // reparte en partes iguales entre ellos. La otra opción era contarla entera en cada
+                            // uno, y entonces los sectores sumarían más de lo que tienes: el mapa dejaría de ser
+                            // un mapa de dinero —donde el área es dinero y las partes suman el todo— y entrar en
+                            // la capa de sectores enseñaría más portafolio del que había en el recuadro por el
+                            // que se entró.
+                            //
+                            // Lo que no se toca es el porcentaje: repartir multiplica lo que costó y lo que vale
+                            // por el mismo número, así que media Apple rinde lo mismo que Apple entera.
+                            function piezaRepartidaTreemap(d, partes) {
+                                if (partes <= 1) return d;
+
+                                const peso = 1 / partes;
+                                return Object.assign({}, d, {
+                                    partes: partes,
+                                    monto: d.monto * peso,
+                                    real: d.real * peso,
+                                    esperado: d.esperado * peso,
+                                    // El nombre es lo que identifica al recuadro y lo que se lee dentro de él:
+                                    // sin la fracción, media Apple y Apple entera se verían idénticas.
+                                    nombre: `${d.nombre} ${fraccionTreemap(partes)}`
+                                });
+                            }
+
+                            function fraccionTreemap(partes) {
+                                return ({ 2: '½', 3: '⅓', 4: '¼', 5: '⅕', 6: '⅙', 8: '⅛' })[partes] || `1/${partes}`;
+                            }
+
+                            // Lo que le toca a un sector: las empresas que lo llevan entre los suyos, ya
+                            // repartidas. De aquí sale tanto el recuadro del sector como lo que se ve al entrar
+                            // en él, para que lo segundo reparta exactamente lo primero.
+                            function piezasDeSectorTreemap(empresas, sector) {
+                                const piezas = [];
+
+                                empresas.forEach(d => {
+                                    const suyos = sectoresDeCategoriaTreemap(d.cat);
+                                    if (suyos.indexOf(sector) >= 0) piezas.push(piezaRepartidaTreemap(d, suyos.length));
+                                });
+
+                                return piezas;
                             }
 
                             // Cuánto hay que sostener el dedo para que el toque cuente como pulsación larga.
@@ -8744,8 +9048,17 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // Entrar en una empresa repartida deja atrás el sector a propósito: en el sector se
+                            // ve la parte que le tocó, pero sus compras son de la empresa entera —pagaste ese
+                            // precio, no la mitad—, y partirlas enseñaría una compra que nunca hiciste. Así que
+                            // esa capa cuelga de la empresa y no del sector, y la salida del título lleva de
+                            // vuelta a la lista de sectores.
                             function abrirEmpresaTreemap(id) {
                                 empresaTreemapInversiones = String(id);
+
+                                const cat = (datosCategorias || []).find(c => String(c.id) === String(id));
+                                if (cat && sectoresDeCategoriaTreemap(cat).length > 1) sectorTreemapInversiones = null;
+
                                 repintarTreemapCategorias();
                             }
 
@@ -9414,8 +9727,13 @@
                                 const porSector = {};
 
                                 empresas.forEach(d => {
-                                    const sector = sectorDeCategoriaTreemap(d.cat);
-                                    (porSector[sector] = porSector[sector] || []).push(d);
+                                    const suyos = sectoresDeCategoriaTreemap(d.cat);
+                                    // Con varios sectores la empresa entra en todos, cada vez con la parte que le
+                                    // toca, y entre todas esas partes suman la empresa entera: el mapa sigue
+                                    // repartiendo exactamente el mismo dinero que había una capa más arriba.
+                                    suyos.forEach(sector => {
+                                        (porSector[sector] = porSector[sector] || []).push(piezaRepartidaTreemap(d, suyos.length));
+                                    });
                                 });
 
                                 return Object.keys(porSector).map(sector => {
@@ -9738,10 +10056,13 @@
                                     : null;
                                 if (!sectorAbierto) sectorTreemapInversiones = null;
 
-                                const empresaAbierta = (esPortafolio && empresaTreemapInversiones && (cuentaAbierta || !hayCapaCuentas) && (!porSector || sectorAbierto))
+                                // Se puede estar dentro de una empresa sin sector abierto aunque los sectores
+                                // estén puestos: es lo que pasa al entrar en una empresa repartida, que suelta el
+                                // sector para poder enseñar sus compras enteras.
+                                const empresaAbierta = (esPortafolio && empresaTreemapInversiones && (cuentaAbierta || !hayCapaCuentas))
                                     ? (datosCategorias || []).find(c => String(c.id) === String(empresaTreemapInversiones) && c.tipo === 'inversion'
                                         && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id))
-                                        && (!porSector || sectorDeCategoriaTreemap(c) === sectorAbierto))
+                                        && (!porSector || !sectorAbierto || sectoresDeCategoriaTreemap(c).indexOf(sectorAbierto) >= 0))
                                     : null;
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
@@ -9859,7 +10180,7 @@
                                         ? datosAccesiblesEmpresaTreemap(empresaAbierta)
                                         : datosMovimientosEmpresaTreemap(empresaAbierta);
                                 } else if (sectorAbierto) {
-                                    datos = empresasDelNivel.filter(d => sectorDeCategoriaTreemap(d.cat) === sectorAbierto);
+                                    datos = piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
                                 } else if (cuentaAbierta) {
                                     datos = porSector ? sectoresPortafolio : empresasDelNivel;
                                 } else if (esPortafolio) {
