@@ -3943,6 +3943,32 @@
                         return `${signo}$${formatear(Math.abs(valor))}`;
                     }
 
+                    // --- CUANDO UN GUARDADO SALE MAL ---
+                    // Hay dos fallos distintos y el usuario tiene que poder distinguirlos, porque lo que
+                    // toca hacer no se parece en nada:
+                    //
+                    //   la base lo rechazó   → algo del dato no cuadra, y su mensaje dice qué
+                    //   la petición no llegó → no hay nada que corregir, sólo volver a intentarlo
+                    //
+                    // El segundo llega como "TypeError: Load failed" en Safari y "Failed to fetch" en
+                    // Chrome: el navegador no sabe por qué falló —sin red, con la señal cortada a medias,
+                    // con el servidor sin contestar— y devuelve siempre lo mismo. Enseñar ese texto tal
+                    // cual deja mirando algo que no significa nada, y encima buscando el fallo donde no
+                    // está: parece que lo que escribiste está mal cuando ni siquiera salió del teléfono.
+                    //
+                    // Lo que se escribió no se pierde: el modal sigue abierto y sólo se limpia cuando el
+                    // guardado sale bien, así que basta con volver a pulsar.
+                    function explicarFalloAlGuardar(error, queSeGuardaba) {
+                        const mensaje = (error && error.message) ? error.message : 'error desconocido';
+                        const noLlego = /load failed|failed to fetch|networkerror|network request failed|net::|err_/i.test(mensaje);
+
+                        return noLlego
+                            ? `No se pudo llegar a la base de datos, así que no se guardó nada.\n\n` +
+                              `Casi siempre es la conexión: comprueba que tengas internet y vuelve a pulsar. ` +
+                              `Lo que escribiste sigue donde estaba.`
+                            : `Error al guardar ${queSeGuardaba}: ${mensaje}`;
+                    }
+
                     // La antigüedad de una posición se usa para dos cosas que no piden lo mismo, y durante mucho
                     // tiempo se resolvieron con un solo número redondeado hacia arriba. Por eso una compra de hace
                     // cinco días se anunciaba como "1.0m": no es que se calculara mal el tiempo, es que se estaba
@@ -5283,7 +5309,7 @@
             // Opcional: Volver al inicio para ver el cambio reflejado
             cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0]);
         } else {
-            alert("Error al guardar la cuenta: " + res.error.message);
+            alert(explicarFalloAlGuardar(res.error, 'la cuenta'));
         }
     }
 
@@ -7331,7 +7357,7 @@
                                             btnGuardar.disabled = false;
 
                                             if (res.error) {
-                                                alert("Error al guardar la categoría: " + res.error.message);
+                                                alert(explicarFalloAlGuardar(res.error, 'la categoría'));
                                             } else {
                                                                 const nuevaCat = (res.data && res.data[0]) ? res.data[0] : null;
                                                                 const contextoRegistro = contextoCatDesdeRegistro;
@@ -15327,7 +15353,7 @@
                             // momento no había nada frecuente que precargar.
                             preseleccionarFrecuentes(true);
                         } else {
-                alert("Error al guardar: " + res.error.message);
+                alert(explicarFalloAlGuardar(res.error, 'el movimiento'));
             }
         });
 
