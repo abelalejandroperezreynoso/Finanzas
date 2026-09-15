@@ -3985,15 +3985,51 @@
                     //
                     // Lo que se escribió no se pierde: el modal sigue abierto y sólo se limpia cuando el
                     // guardado sale bien, así que basta con volver a pulsar.
+                    // Distingue una cosa de la otra. Los cuatro navegadores dicen lo suyo para lo mismo,
+                    // y ninguno explica nada: el navegador tampoco sabe por qué falló.
+                    function elGuardadoNoLlego(error) {
+                        const mensaje = (error && error.message) ? error.message : '';
+                        return /load failed|failed to fetch|networkerror|network request failed|net::|err_/i.test(mensaje);
+                    }
+
                     function explicarFalloAlGuardar(error, queSeGuardaba) {
                         const mensaje = (error && error.message) ? error.message : 'error desconocido';
-                        const noLlego = /load failed|failed to fetch|networkerror|network request failed|net::|err_/i.test(mensaje);
 
-                        return noLlego
-                            ? `No se pudo llegar a la base de datos, así que no se guardó nada.\n\n` +
-                              `Casi siempre es la conexión: comprueba que tengas internet y vuelve a pulsar. ` +
-                              `Lo que escribiste sigue donde estaba.`
+                        return elGuardadoNoLlego(error)
+                            ? `No se pudo llegar a la base de datos, así que no se guardó nada. Se intentó dos veces.\n\n` +
+                              `Vuelve a pulsar: si tienes señal, casi siempre entra. Lo que escribiste sigue donde estaba.`
                             : `Error al guardar ${queSeGuardaba}: ${mensaje}`;
+                    }
+
+                    // --- EL SEGUNDO INTENTO ---
+                    // Safari, y en el iPhone sobre todo, reaprovecha una conexión que lleva un rato quieta.
+                    // Si el servidor ya la cerró por su lado —y Supabase las cierra— la petición muere ahí
+                    // mismo, sin llegar a salir, y el navegador dice lo único que sabe decir. De ahí que
+                    // esto aparezca "después de un rato": justo cuando la conexión lleva parada lo
+                    // suficiente. El segundo intento abre una conexión nueva y entra sin más, así que
+                    // hacerlo aquí ahorra un error en la cara por algo que se arregla solo.
+                    //
+                    // Repetir una escritura sólo es inofensivo si repetirla no cambia el resultado. Una
+                    // corrección —un UPDATE de una fila por su id— deja la fila igual se haga una vez o
+                    // dos. Un alta no: si la primera llegó y lo que se perdió fue la respuesta, el segundo
+                    // intento crearía una fila repetida. Por eso un alta pasa antes por `yaEntro`, que va a
+                    // mirar si la fila ya está; y si ni siquiera se puede mirar, no se repite nada: dos
+                    // categorías iguales son peor que un aviso.
+                    const PAUSA_REINTENTO_MS = 700;
+
+                    async function conUnReintento(escribir, yaEntro) {
+                        const res = await escribir();
+                        if (!elGuardadoNoLlego(res.error)) return res;
+
+                        await new Promise(r => setTimeout(r, PAUSA_REINTENTO_MS));
+
+                        if (yaEntro) {
+                            const mirada = await yaEntro();
+                            if (!mirada.sePudoMirar) return res;
+                            if (mirada.fila) return { data: [mirada.fila], error: null };
+                        }
+
+                        return await escribir();
                     }
 
                     // La antigüedad de una posición se usa para dos cosas que no piden lo mismo, y durante mucho
@@ -7407,7 +7443,25 @@
                                                 ? clienteSupabase.from('categorias').update(cuerpo).eq('id', editIdCat).select('*, cuentas(nombre)')
                                                 : clienteSupabase.from('categorias').insert([cuerpo]).select('*, cuentas(nombre)');
 
-                                            let res = await escribir(body);
+                                            // Un alta se comprueba antes de repetirla: se busca una fila igual que
+                                            // no estuviera ya en la lista que se tenía antes de guardar, que es lo
+                                            // que distingue "la creó el intento perdido" de "ésa ya existía".
+                                            const filaYaCreada = async () => {
+                                                const { data, error } = await clienteSupabase
+                                                    .from('categorias')
+                                                    .select('*, cuentas(nombre)')
+                                                    .eq('cuenta_id', c_id)
+                                                    .eq('nombre', nombre)
+                                                    .eq('tipo', tipo);
+
+                                                if (error) return { sePudoMirar: false, fila: null };
+
+                                                const conocidas = (datosCategorias || []).map(c => String(c.id));
+                                                const nueva = (data || []).find(f => conocidas.indexOf(String(f.id)) < 0);
+                                                return { sePudoMirar: true, fila: nueva || null };
+                                            };
+
+                                            let res = await conUnReintento(() => escribir(body), esEdicion ? null : filaYaCreada);
 
                                             // La columna `sectores` viene de una migración aparte. Si no se ha
                                             // ejecutado, la base rechaza el guardado entero: perder el nombre y el
@@ -7418,7 +7472,7 @@
                                             if (res.error && /sectores/i.test(res.error.message || '')) {
                                                 faltaMigracionSectores = true;
                                                 const { sectores, ...sinSectores } = body;
-                                                res = await escribir(sinSectores);
+                                                res = await conUnReintento(() => escribir(sinSectores), esEdicion ? null : filaYaCreada);
                                             }
 
                                             btnGuardar.textContent = textoOriginal;
