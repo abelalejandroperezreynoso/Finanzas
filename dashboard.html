@@ -1329,10 +1329,17 @@
 
     <!-- Qué cuenta la curva: tus acciones, o lo que el tipo de cambio le ha hecho a los pesos
          que metiste. Lo segundo no tiene recuadros en el mapa, así que lleva su propio botón. -->
-    <div style="display: flex; justify-content: center; margin-top: 8px;">
+    <div style="display: flex; justify-content: center; flex-wrap: wrap; row-gap: 6px; margin-top: 8px;">
         <div style="display: inline-flex; background: #1a1a1a; border-radius: 14px; padding: 2px;">
             <button id="btnCurvaAcciones" onclick="cambiarCurvaInversiones('acciones')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">Acciones</button>
             <button id="btnCurvaDolar" onclick="cambiarCurvaInversiones('dolar')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">USD/MXN</button>
+        </div>
+        <!-- Cómo se lee el porcentaje al comparar dos días con dos dedos. "Invertido" divide la
+             ganancia entre lo que hay metido al final del tramo; "Como ETF" encadena el rendimiento
+             de cada día, así que meter o sacar dinero no lo mueve. -->
+        <div id="pastillaPctCurva" style="display: inline-flex; background: #1a1a1a; border-radius: 14px; padding: 2px; margin-left: 8px;">
+            <button id="btnPctInvertido" onclick="cambiarPorcentajeCurva('invertido')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">% invertido</button>
+            <button id="btnPctEtf" onclick="cambiarPorcentajeCurva('etf')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">% como ETF</button>
         </div>
     </div>
 
@@ -2787,13 +2794,20 @@
                                         cats.forEach(c => { lotes[String(c.id)] = []; });
                                         // Lo ganado (o perdido) con lo ya vendido, acumulado hasta el día
                                         let realizadoMxn = 0, realizadoUsd = 0;
+                                        // El rendimiento como ETF: lo que entra y sale cada día, el valor de ayer
+                                        // y el precio de una "unidad" del portafolio, que arranca en 1.
+                                        let entraMxn = 0, entraUsd = 0, saleMxn = 0, saleUsd = 0, valorAyer = 0, unidad = 1;
 
                                         const aplicar = (m) => {
                                             const lista = lotes[String(m.cat.id)];
                                             const acciones = parseFloat(m.u.cantidad_acciones) || 0;
 
                                             if (esCompraInversion(m.u)) {
-                                                lista.push({ compradas: acciones, vivas: acciones, costoMxn: costoMxnDeLote(m.u), costoUsd: costoUsdDeLote(m.u) });
+                                                const lote = { compradas: acciones, vivas: acciones, costoMxn: costoMxnDeLote(m.u), costoUsd: costoUsdDeLote(m.u) };
+                                                lista.push(lote);
+                                                // Lo que entra ese día al portafolio, para el rendimiento como ETF
+                                                entraMxn += lote.costoMxn * pesos[String(m.cat.id)];
+                                                entraUsd += lote.costoUsd * pesos[String(m.cat.id)];
                                                 return;
                                             }
 
@@ -2825,6 +2839,8 @@
                                             const peso = pesos[String(m.cat.id)];
                                             realizadoMxn += (recibidoMxn - costoVendidoMxn) * peso;
                                             realizadoUsd += (recibidoUsd - costoVendidoUsd) * peso;
+                                            saleMxn += recibidoMxn * peso;
+                                            saleUsd += recibidoUsd * peso;
                                         };
 
                                         // Un cursor por serie de precios, y el día del que se parte.
@@ -2836,7 +2852,7 @@
                                         // Lo que se dibuja: el día y cuánto habrías podido sacar sin perder. Se
                                         // llevaban además, por día, lo que costaban esas compras y cuántas eran,
                                         // pero eso sólo lo leía el pie de la tarjeta, que ya no está.
-                                        const dias = [], ganancias = [], costos = [];
+                                        const dias = [], ganancias = [], costos = [], unidades = [];
                                         let iMov = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -2873,6 +2889,8 @@
                                             // comparar dos días con dos dedos: lo accesible contra el costo de las
                                             // compras que salen sin pérdida, el total contra todo lo vivo.
                                             let costoAccesible = 0, costoVivoUsd = 0;
+                                            // Lo que vale hoy todo lo vivo, en la moneda de la curva
+                                            let valorVivo = 0;
 
                                             cats.forEach(c => {
                                                 const lista = lotes[String(c.id)];
@@ -2893,6 +2911,12 @@
 
                                                     const costo = lote.compradas > 0 ? lote.costoMxn * (lote.vivas / lote.compradas) : lote.costoMxn;
                                                     costoVivo += costo * peso;
+                                                    // Sin precio todavía vale lo que costó: sacarla del valor haría que
+                                                    // el día que aparece su precio pareciera una subida enorme.
+                                                    const parteViva = lote.compradas > 0 ? lote.vivas / lote.compradas : 1;
+                                                    valorVivo += (cierre.valor === null
+                                                        ? (enPesos ? costo : lote.costoUsd * parteViva)
+                                                        : lote.vivas * cierre.valor * (enPesos ? cambio : 1)) * peso;
 
                                                     // Sin precio de ese día no se puede saber si salía sin pérdida,
                                                     // y la app no inventa lo que no se puede saber: esa empresa no
@@ -2920,6 +2944,15 @@
                                                 }
                                             });
 
+                                            // Rendimiento del día como lo cuenta un ETF: lo que se movió lo que ya
+                                            // había, con el dinero que entró ese día sumado al punto de partida. Una
+                                            // compra o una venta no mueven la unidad; sólo lo hace el mercado.
+                                            const entra = enPesos ? entraMxn : entraUsd, sale = enPesos ? saleMxn : saleUsd;
+                                            const base = valorAyer + entra;
+                                            if (base > 0.005) unidad *= 1 + (valorVivo + sale - entra - valorAyer) / base;
+                                            valorAyer = valorVivo;
+                                            entraMxn = entraUsd = saleMxn = saleUsd = 0;
+
                                             // Los días de antes del recorte se recorren igual —hacen falta para
                                             // saber qué compras siguen vivas—, pero no se dibujan.
                                             const dentroDelPeriodo = (!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro);
@@ -2936,6 +2969,7 @@
                                                     ? rendimiento + (enPesos ? realizadoMxn : realizadoUsd)
                                                     : (ganancia + realizadoMxn) * factor);
                                                 costos.push(todo ? (enPesos ? costoVivo : costoVivoUsd) : costoAccesible * factor);
+                                                unidades.push(unidad);
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
@@ -2944,7 +2978,9 @@
                                         // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
                                         // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return { dias, ganancias, costos, enPesos, todo };
+                                        // Lo accesible no es un portafolio con entradas y salidas —es un corte
+                                        // que cambia cada día—, así que ahí no hay rendimiento como ETF.
+                                        return { dias, ganancias, costos, enPesos, todo, unidades: todo ? unidades : null };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -3469,6 +3505,27 @@
                                         repintarTreemapCategorias();
                                     }
 
+                                    let porcentajeCurva = localStorage.getItem('porcentajeCurva') === 'etf' ? 'etf' : 'invertido';
+
+                                    function encenderPastillaPctCurva() {
+                                        [['invertido', 'btnPctInvertido'], ['etf', 'btnPctEtf']].forEach(([valor, id]) => {
+                                            const btn = document.getElementById(id);
+                                            if (!btn) return;
+                                            btn.style.background = valor === porcentajeCurva ? '#333' : 'none';
+                                            btn.style.color = valor === porcentajeCurva ? '#ffffff' : '#888';
+                                        });
+                                    }
+
+                                    // Sólo cambia cómo se lee el porcentaje: la curva no se rehace, y si hay
+                                    // un tramo marcado se vuelve a escribir con la otra lectura.
+                                    function cambiarPorcentajeCurva(modo) {
+                                        porcentajeCurva = modo === 'etf' ? 'etf' : 'invertido';
+                                        try { localStorage.setItem('porcentajeCurva', porcentajeCurva); } catch (e) { /* sin memoria: se queda en esta visita */ }
+                                        encenderPastillaPctCurva();
+                                        const chart = CURVAS.principal.chart;
+                                        if (chart && chart.$tramoDosDedos && chart.$escribirTramo) chart.$escribirTramo(chart.$tramoDosDedos[0], chart.$tramoDosDedos[1]);
+                                    }
+
                                     function serieTipoCambio(ambito, periodo) {
                                         const donde = ambito || {};
                                         const recorte = periodo || {};
@@ -3502,7 +3559,8 @@
                                         };
 
                                         let usd = 0, pesosBase = 0, realizado = 0, iMov = 0, cursorTc = 0;
-                                        const dias = [], ganancias = [], costos = [], tipos = [];
+                                        let entra = 0, sale = 0, valorAyer = 0, unidad = 1;
+                                        const dias = [], ganancias = [], costos = [], tipos = [], unidades = [];
                                         const serieTc = cacheHistoricoPrecios[TICKER_TIPO_CAMBIO] || [];
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -3518,7 +3576,9 @@
                                                 if (m.t === 'aportacion' || m.t === 'compra_directa') {
                                                     usd += dolares;
                                                     pesosBase += pesos;
+                                                    entra += pesos;
                                                 } else {
+                                                    sale += pesos;
                                                     // Los dólares que salen se llevan su parte de lo que costaron
                                                     const parte = usd > 0.00001 ? Math.min(1, dolares / usd) : 1;
                                                     const base = pesosBase * parte;
@@ -3533,17 +3593,24 @@
                                             cursorTc = tc.cursor;
                                             const cambio = (dia === diaISO(hoy) && globalUsdToMxn > 0) ? globalUsdToMxn : (tc.valor || globalUsdToMxn || 1);
 
+                                            const valor = usd * cambio;
+                                            const base = valorAyer + entra;
+                                            if (base > 0.005) unidad *= 1 + (valor + sale - entra - valorAyer) / base;
+                                            valorAyer = valor;
+                                            entra = sale = 0;
+
                                             if ((!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro)) {
                                                 dias.push(dia);
                                                 ganancias.push(usd * cambio - pesosBase + realizado);
                                                 costos.push(pesosBase);
                                                 tipos.push(cambio);
+                                                unidades.push(unidad);
                                             }
                                             cursor.setDate(cursor.getDate() + 1);
                                         }
 
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return { dias, ganancias, costos, tipos, enPesos: true, dolar: true };
+                                        return { dias, ganancias, costos, tipos, unidades, enPesos: true, dolar: true };
                                     }
 
                                     function pintarCurva(destino, ambito, periodo) {
@@ -3605,6 +3672,11 @@
 
                                         if (caja) caja.style.display = 'block';
 
+                                        // El botón del porcentaje sólo sale donde hay dos lecturas que elegir
+                                        const pastillaPct = document.getElementById('pastillaPctCurva');
+                                        if (pastillaPct) pastillaPct.style.display = serie.unidades ? 'inline-flex' : 'none';
+                                        encenderPastillaPctCurva();
+
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
                                         // El rendimiento total puede acabar en pérdida, y entonces la curva lo
@@ -3657,14 +3729,23 @@
                                         // Dos dedos: como en la app de Bolsa, se compara un día con otro. La
                                         // tarjeta dice cuánto cambió entre los dos y qué porcentaje es eso del
                                         // costo de lo que se está contando el día de la derecha.
+                                        // Con el año en dos cifras: con cuatro, dos fechas de años distintos no
+                                        // cabían junto a la cifra y el título se cortaba.
                                         const fechaCorta = (d, conAnio) => {
                                             const [anio, mes, dia] = d.split('-');
-                                            return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)}${conAnio ? ` ${anio}` : ''}`;
+                                            return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()}${conAnio ? ` ${anio.slice(2)}` : ''}`;
                                         };
                                         const escribirTramo = (a, b) => {
                                             const cambio = serie.ganancias[b] - serie.ganancias[a];
+                                            // Dos lecturas del mismo tramo. "Invertido": la ganancia entre lo que
+                                            // hay metido al final, que mezcla ganancias viejas con dinero recién
+                                            // llegado. "Como ETF": lo que subió la unidad del portafolio, que sólo
+                                            // mueve el mercado, igual que el precio de un ETF.
+                                            const comoEtf = porcentajeCurva === 'etf' && serie.unidades && serie.unidades[a] > 0;
                                             const base = serie.costos[b];
-                                            const pct = base > 0.005 ? (cambio / base) * 100 : null;
+                                            const pct = comoEtf
+                                                ? (serie.unidades[b] / serie.unidades[a] - 1) * 100
+                                                : base > 0.005 ? (cambio / base) * 100 : null;
                                             const signo = cambio < -0.005 ? '' : '+';
                                             if (cifraEl) {
                                                 cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
@@ -3748,6 +3829,7 @@
                                             },
                                             plugins: [crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
                                         });
+                                        destino.chart.$escribirTramo = escribirTramo;
 
                                         // Al soltar, la tarjeta vuelve al último día dibujado, que es el que
                                         // contesta a "cuánto puedo sacar" sin tener que apuntar a ningún sitio.
