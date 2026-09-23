@@ -2737,7 +2737,7 @@
                                         // Lo que se dibuja: el día y cuánto habrías podido sacar sin perder. Se
                                         // llevaban además, por día, lo que costaban esas compras y cuántas eran,
                                         // pero eso sólo lo leía el pie de la tarjeta, que ya no está.
-                                        const dias = [], ganancias = [];
+                                        const dias = [], ganancias = [], costos = [];
                                         let iMov = 0;
 
                                         const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
@@ -2765,6 +2765,10 @@
                                             // tipo de cambio al que compraste cuenta. Para leerlo en dólares hay que
                                             // deshacer esa conversión al final, no aplicarla.
                                             let ganancia = 0, costoVivo = 0, rendimiento = 0;
+                                            // Lo que costó lo que se está contando, para dar el porcentaje al
+                                            // comparar dos días con dos dedos: lo accesible contra el costo de las
+                                            // compras que salen sin pérdida, el total contra todo lo vivo.
+                                            let costoAccesible = 0, costoVivoUsd = 0;
 
                                             cats.forEach(c => {
                                                 const lista = lotes[String(c.id)];
@@ -2796,6 +2800,7 @@
                                                     // corte de lo accesible: una en pérdida resta, no detiene.
                                                     if (todo) {
                                                         const parte = lote.compradas > 0 ? lote.vivas / lote.compradas : 1;
+                                                        costoVivoUsd += lote.costoUsd * parte * peso;
                                                         rendimiento += (enPesos
                                                             ? valor - costo
                                                             : lote.vivas * cierre.valor - lote.costoUsd * parte) * peso;
@@ -2806,6 +2811,7 @@
                                                     if (valor < costo) { cortada = true; continue; }
 
                                                     ganancia += (valor - costo) * peso;
+                                                    costoAccesible += costo * peso;
                                                 }
                                             });
 
@@ -2817,6 +2823,7 @@
                                                 const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
                                                 ganancias.push(todo ? rendimiento : ganancia * factor);
+                                                costos.push(todo ? (enPesos ? costoVivo : costoVivoUsd) : costoAccesible * factor);
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
@@ -2825,7 +2832,7 @@
                                         // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
                                         // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return { dias, ganancias, enPesos, todo };
+                                        return { dias, ganancias, costos, enPesos, todo };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -3283,6 +3290,8 @@
                                         return {
                                             id: 'lineaVertical',
                                             afterDraw: chart => {
+                                                // Con dos dedos encima las rayas las pinta el tramo.
+                                                if (chart.$tramoDosDedos) return;
                                                 let posicionX = null;
                                                 const activos = typeof chart.getActiveElements === 'function' ? chart.getActiveElements() : [];
 
@@ -3413,6 +3422,62 @@
                                             tituloEl.textContent = `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}`;
                                         };
 
+                                        // Dos dedos: como en la app de Bolsa, se compara un día con otro. La
+                                        // tarjeta dice cuánto cambió entre los dos y qué porcentaje es eso del
+                                        // costo de lo que se está contando el día de la derecha.
+                                        const fechaCorta = (d, conAnio) => {
+                                            const [anio, mes, dia] = d.split('-');
+                                            return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)}${conAnio ? ` ${anio}` : ''}`;
+                                        };
+                                        const escribirTramo = (a, b) => {
+                                            const cambio = serie.ganancias[b] - serie.ganancias[a];
+                                            const base = serie.costos[b];
+                                            const pct = base > 0.005 ? (cambio / base) * 100 : null;
+                                            const signo = cambio < -0.005 ? '' : '+';
+                                            if (cifraEl) {
+                                                cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
+                                                cifraEl.textContent = `${signo}${fMoneda(cambio)}${pct !== null ? ` (${pct < 0 ? '' : '+'}${pct.toFixed(2)}%)` : ''}`;
+                                            }
+                                            if (tituloEl) {
+                                                const mismoAnio = serie.dias[a].slice(0, 4) === serie.dias[b].slice(0, 4);
+                                                tituloEl.textContent = `${fechaCorta(serie.dias[a], !mismoAnio)} – ${fechaCorta(serie.dias[b], true)}`;
+                                            }
+                                        };
+
+                                        // Las dos rayas y el tramo sombreado entre ellas
+                                        const pluginTramoDosDedos = {
+                                            id: 'tramoDosDedos',
+                                            afterDraw: chart => {
+                                                const tramo = chart.$tramoDosDedos;
+                                                if (!tramo) return;
+                                                const meta = chart.getDatasetMeta(0);
+                                                const pa = meta.data[tramo[0]], pb = meta.data[tramo[1]];
+                                                if (!pa || !pb) return;
+                                                const { top, bottom } = chart.scales.y;
+                                                const c = chart.ctx;
+                                                c.save();
+                                                c.fillStyle = 'rgba(255, 255, 255, 0.08)';
+                                                c.fillRect(pa.x, top, pb.x - pa.x, bottom - top);
+                                                c.lineWidth = 1.5;
+                                                c.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                                                c.setLineDash([5, 5]);
+                                                [pa, pb].forEach(p => {
+                                                    c.beginPath();
+                                                    c.moveTo(p.x, top);
+                                                    c.lineTo(p.x, bottom);
+                                                    c.stroke();
+                                                });
+                                                c.setLineDash([]);
+                                                c.fillStyle = '#ffffff';
+                                                [pa, pb].forEach(p => {
+                                                    c.beginPath();
+                                                    c.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                                                    c.fill();
+                                                });
+                                                c.restore();
+                                            }
+                                        };
+
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
                                         // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
                                         // día. Las dos ocupan el mismo hueco de la misma tarjeta, así que una que
@@ -3439,6 +3504,7 @@
                                                 responsive: true,
                                                 maintainAspectRatio: false,
                                                 onHover: (evento, activos) => {
+                                                    if (destino.chart && destino.chart.$tramoDosDedos) return;
                                                     if (activos && activos.length > 0) escribirDia(activos[0].index, true);
                                                 },
                                                 interaction: { mode: 'index', intersect: false },
@@ -3448,7 +3514,7 @@
                                                     tooltip: { enabled: false }
                                                 }
                                             },
-                                            plugins: [crearPluginLineaVertical(ultimo)]
+                                            plugins: [crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
                                         });
 
                                         // Al soltar, la tarjeta vuelve al último día dibujado, que es el que
@@ -3467,6 +3533,44 @@
                                         lienzo._snapBackHandler = volverAlUltimo;
                                         lienzo.addEventListener('mouseleave', lienzo._snapBackHandler);
                                         lienzo.addEventListener('touchend', lienzo._snapBackHandler, { passive: true });
+
+                                        // Con dos dedos se marca el tramo. Se atiende en el propio lienzo y sin
+                                        // "passive" para poder impedir que el navegador lo tome por un pellizco
+                                        // de zoom o por un desplazamiento de la página.
+                                        const indiceEnX = (x) => {
+                                            const meta = destino.chart.getDatasetMeta(0);
+                                            let mejor = 0, dist = Infinity;
+                                            meta.data.forEach((p, i) => {
+                                                const d = Math.abs(p.x - x);
+                                                if (d < dist) { dist = d; mejor = i; }
+                                            });
+                                            return mejor;
+                                        };
+                                        const alTocarConDos = (evento) => {
+                                            if (!destino.chart) return;
+                                            if (evento.touches.length < 2) {
+                                                if (destino.chart.$tramoDosDedos) {
+                                                    // Se levantó un dedo: el que queda vuelve a leer un solo día.
+                                                    destino.chart.$tramoDosDedos = null;
+                                                    destino.chart.update('none');
+                                                }
+                                                return;
+                                            }
+                                            evento.preventDefault();
+                                            const caja = lienzo.getBoundingClientRect();
+                                            const xs = [evento.touches[0].clientX, evento.touches[1].clientX].map(x => x - caja.left);
+                                            const a = indiceEnX(Math.min(xs[0], xs[1]));
+                                            const b = indiceEnX(Math.max(xs[0], xs[1]));
+                                            destino.chart.$tramoDosDedos = [a, b];
+                                            destino.chart.setActiveElements([]);
+                                            destino.chart.update('none');
+                                            escribirTramo(a, b);
+                                        };
+                                        if (lienzo._tramoHandler) {
+                                            ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => lienzo.removeEventListener(t, lienzo._tramoHandler));
+                                        }
+                                        lienzo._tramoHandler = alTocarConDos;
+                                        ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => lienzo.addEventListener(t, alTocarConDos, { passive: false }));
 
                                         // La cifra se escribe ya, sin esperar al cuadro de espera de arriba: si no,
                                         // la tarjeta aparece un instante con la del dibujo anterior.
