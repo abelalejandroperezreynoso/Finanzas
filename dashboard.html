@@ -2708,6 +2708,8 @@
                                         // Las compras vivas de cada empresa, en el orden en que se hicieron
                                         const lotes = {};
                                         cats.forEach(c => { lotes[String(c.id)] = []; });
+                                        // Lo ganado (o perdido) con lo ya vendido, acumulado hasta el día
+                                        let realizadoMxn = 0, realizadoUsd = 0;
 
                                         const aplicar = (m) => {
                                             const lista = lotes[String(m.cat.id)];
@@ -2718,14 +2720,34 @@
                                                 return;
                                             }
 
-                                            // Venta: las acciones salen de las compras más viejas primero
-                                            let porVender = acciones;
+                                            // Venta: las acciones salen de las compras más viejas primero, y lo
+                                            // que se ganó o perdió con ellas se queda en la curva desde ese día.
+                                            // Sin esto, vender con ganancia se leía como una caída: la plusvalía
+                                            // se esfumaba de la línea aunque el dinero ya estuviera en tu mano.
+                                            let porVender = acciones, costoVendidoMxn = 0, costoVendidoUsd = 0;
                                             for (const lote of lista) {
                                                 if (porVender <= 0.00001) break;
                                                 const salen = Math.min(lote.vivas, porVender);
+                                                if (lote.compradas > 0) {
+                                                    costoVendidoMxn += lote.costoMxn * (salen / lote.compradas);
+                                                    costoVendidoUsd += lote.costoUsd * (salen / lote.compradas);
+                                                }
                                                 lote.vivas -= salen;
                                                 porVender -= salen;
                                             }
+
+                                            // Lo que se recibió, en las dos monedas. Una venta directa a pesos
+                                            // trae los pesos en el monto; la que se queda en la caja trae los
+                                            // dólares, y sus pesos son los de ese día.
+                                            const tcVenta = parseFloat(m.u.tipo_cambio) || globalUsdToMxn || 1;
+                                            const montoMxn = Math.abs(parseFloat(m.u.monto) || 0);
+                                            let recibidoUsd = parseFloat(m.u.monto_usd) || (acciones * (parseFloat(m.u.costo_accion) || 0));
+                                            if (!(recibidoUsd > 0) && montoMxn > 0) recibidoUsd = montoMxn / tcVenta;
+                                            const recibidoMxn = montoMxn > 0 ? montoMxn : recibidoUsd * tcVenta;
+
+                                            const peso = pesos[String(m.cat.id)];
+                                            realizadoMxn += (recibidoMxn - costoVendidoMxn) * peso;
+                                            realizadoUsd += (recibidoUsd - costoVendidoUsd) * peso;
                                         };
 
                                         // Un cursor por serie de precios, y el día del que se parte.
@@ -2819,10 +2841,17 @@
                                             // saber qué compras siguen vivas—, pero no se dibujan.
                                             const dentroDelPeriodo = (!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro);
 
-                                            if (costoVivo > 0.005 && dentroDelPeriodo) {
+                                            // Los días sin acciones también se dibujan: saltárselos pegaba dos
+                                            // fechas separadas por semanas como si fueran días seguidos. En esos
+                                            // días la curva se queda en lo ya realizado.
+                                            if (dentroDelPeriodo) {
                                                 const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
-                                                ganancias.push(todo ? rendimiento : ganancia * factor);
+                                                // Lo realizado es dinero en mano: suma en las dos vistas. En lo
+                                                // accesible entra en pesos, como todo lo demás, y se deshace al final.
+                                                ganancias.push(todo
+                                                    ? rendimiento + (enPesos ? realizadoMxn : realizadoUsd)
+                                                    : (ganancia + realizadoMxn) * factor);
                                                 costos.push(todo ? (enPesos ? costoVivo : costoVivoUsd) : costoAccesible * factor);
                                             }
 
@@ -3406,9 +3435,8 @@
                                         const escribirDia = (i, conFecha) => {
                                             if (i < 0 || i >= serie.dias.length) return;
                                             const ganancia = serie.ganancias[i];
-                                            // Lo accesible nunca es negativo: sólo suma las compras que salen sin
-                                            // pérdida, y el día que no hay ninguna vale cero y el verde no dice
-                                            // nada. El rendimiento total sí puede ir en rojo.
+                                            // En gris cuando no hay nada que contar; en rojo cuando va en pérdida,
+                                            // que en lo accesible sólo pasa si una venta ya realizó una.
                                             const color = ganancia > 0.005 ? '#3ecf8e' : ganancia < -0.005 ? '#ff5c5c' : '#777';
 
                                             if (cifraEl) {
