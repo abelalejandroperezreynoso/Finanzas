@@ -2857,7 +2857,12 @@
                                             // Sin tipo de cambio de ese día vale el de hoy: mejor una curva con el
                                             // peso plano al principio que ninguna curva. Que falte se ve en el
                                             // avance del histórico, donde el tipo de cambio es una serie más.
-                                            const cambio = tc.valor || globalUsdToMxn || 1;
+                                            // Hoy se lee en vivo, igual que el mapa: el último cierre guardado
+                                            // puede ser de ayer o de otra fuente, y con miles de dólares en juego
+                                            // unos centavos de tipo de cambio eran cientos de pesos de diferencia
+                                            // entre la curva y el pie del mapa.
+                                            const esHoy = dia === diaISO(hoy);
+                                            const cambio = (esHoy && globalUsdToMxn > 0) ? globalUsdToMxn : (tc.valor || globalUsdToMxn || 1);
 
                                             // Lo accesible se decide en pesos, como la ficha y el mapa: la pregunta
                                             // es cuánto puedo sacar sin perder, y sacar es sacar pesos, así que el
@@ -2874,6 +2879,7 @@
                                                 const peso = pesos[String(c.id)];
                                                 const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
                                                 cursores[c.ticker] = cierre.cursor;
+                                                if (esHoy && cachePreciosMercado[c.ticker] > 0) cierre.valor = cachePreciosMercado[c.ticker];
 
                                                 // Sin cierre de ese día no se puede saber si esa empresa salía sin
                                                 // pérdida, así que corta la cuenta y no suma. Cuáles son y cuánto
@@ -3308,6 +3314,9 @@
                                             moneda: monedaTreemapInversiones,
                                             // Todo o Accesible: son dos curvas distintas.
                                             vista: donde.vista || 'accesible',
+                                            // El día de hoy se dibuja con los precios en vivo: si cambian, la
+                                            // curva se rehace para seguir cuadrando con el mapa.
+                                            vivo: `${globalUsdToMxn}|${Object.keys(cachePreciosMercado).map(k => cachePreciosMercado[k]).join(',')}`,
                                             // El recorte de fechas de la pantalla: moverlo cambia la curva igual
                                             // que cambia el balance, así que también la manda rehacerse.
                                             desde: rango.desde,
@@ -3522,7 +3531,7 @@
 
                                             const tc = cierreHasta(serieTc, dia, cursorTc);
                                             cursorTc = tc.cursor;
-                                            const cambio = tc.valor || globalUsdToMxn || 1;
+                                            const cambio = (dia === diaISO(hoy) && globalUsdToMxn > 0) ? globalUsdToMxn : (tc.valor || globalUsdToMxn || 1);
 
                                             if ((!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro)) {
                                                 dias.push(dia);
