@@ -1721,6 +1721,11 @@
                 Traer histórico
             </button>
             <div id="avisoHistorico" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+            <!-- Todo lo guardado del histórico, copiado como JSON para poder revisarlo fuera de la app -->
+            <button id="btnCopiarHistorico" onclick="copiarHistoricoJSON()"
+                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px;">
+                Copiar histórico (JSON)
+            </button>
         </div>
 
         <div style="border-top: 1px dashed #333; padding-top: 14px; margin-top: 14px;">
@@ -3017,6 +3022,83 @@
                                             btn.disabled = false;
                                             // El botón dice cuál es la siguiente: lo repinta el avance.
                                             pintarAvanceHistorico();
+                                        }
+                                    }
+
+                                    // El histórico entero, listo para pegarlo en otro sitio. Junto a cada serie van
+                                    // las compras y ventas de esa empresa con el precio al que se registraron y el
+                                    // cierre guardado de ese día: si una serie es de otra empresa, de un símbolo
+                                    // repetido o de antes de un split, la diferencia salta a la vista.
+                                    async function copiarHistoricoJSON() {
+                                        const btn = document.getElementById('btnCopiarHistorico');
+                                        const restaurar = (texto, color) => {
+                                            if (!btn) return;
+                                            btn.textContent = texto;
+                                            btn.style.color = color || '#ccc';
+                                            setTimeout(() => { btn.textContent = 'Copiar histórico (JSON)'; btn.style.color = '#ccc'; btn.disabled = false; }, 2500);
+                                        };
+                                        if (btn) { btn.disabled = true; btn.textContent = 'Preparando…'; }
+
+                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
+                                        const avance = historicoPreciosListo ? avanceDelHistorico() : { series: [] };
+                                        const series = {};
+
+                                        Object.keys(cacheHistoricoPrecios || {}).sort().forEach(ticker => {
+                                            const puntos = cacheHistoricoPrecios[ticker] || [];
+                                            const cierres = {};
+                                            puntos.forEach(p => { cierres[p.dia] = p.cierre; });
+                                            const estado = avance.series.find(x => x.ticker === ticker);
+
+                                            // El cierre guardado de un día, o el último antes de él
+                                            const cierreDelDia = (dia) => {
+                                                let valor = null;
+                                                for (const p of puntos) { if (p.dia <= dia) valor = p.cierre; else break; }
+                                                return valor;
+                                            };
+
+                                            const idsCat = cats.filter(c => c.ticker === ticker).map(c => String(c.id));
+                                            const movimientos = (datosUsoCompleto || [])
+                                                .filter(u => idsCat.indexOf(String(u.categoria_id)) >= 0 && (esCompraInversion(u) || esVentaInversion(u)))
+                                                .map(u => {
+                                                    const dia = diaDeRegistro(u);
+                                                    const precio = parseFloat(u.costo_accion) || 0;
+                                                    const cierre = cierreDelDia(dia);
+                                                    return {
+                                                        dia,
+                                                        tipo: esCompraInversion(u) ? 'compra' : 'venta',
+                                                        acciones: parseFloat(u.cantidad_acciones) || 0,
+                                                        precio_registrado: precio,
+                                                        cierre_guardado: cierre,
+                                                        diferencia_pct: (precio > 0 && cierre > 0) ? Number((((cierre / precio) - 1) * 100).toFixed(2)) : null
+                                                    };
+                                                })
+                                                .sort((a, b) => a.dia.localeCompare(b.dia));
+
+                                            series[ticker] = {
+                                                desde: puntos.length ? puntos[0].dia : null,
+                                                hasta: puntos.length ? puntos[puntos.length - 1].dia : null,
+                                                total_cierres: puntos.length,
+                                                avance_pct: estado ? Math.round(estado.pct) : null,
+                                                dias_sin_cierre: estado ? estado.huecos : null,
+                                                precio_hoy: cachePreciosMercado[ticker] || (ticker === TICKER_TIPO_CAMBIO ? globalUsdToMxn : null),
+                                                movimientos,
+                                                cierres
+                                            };
+                                        });
+
+                                        const exportacion = {
+                                            exportado_en: new Date().toISOString(),
+                                            tipo_cambio_hoy: globalUsdToMxn || null,
+                                            total_series: Object.keys(series).length,
+                                            series
+                                        };
+
+                                        const copiado = await copiarTextoAlPortapapeles(JSON.stringify(exportacion));
+                                        if (copiado) {
+                                            restaurar(`✅ ${Object.keys(series).length} series copiadas`, '#3ecf8e');
+                                        } else {
+                                            restaurar('⚠️ No se pudo copiar', '#ff5c5c');
+                                            alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo.');
                                         }
                                     }
 
