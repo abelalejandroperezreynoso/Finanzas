@@ -1683,8 +1683,8 @@
                 que la curva empezará hace unos meses y no en tu primera compra; de ahí en
                 adelante crece sola. Es
                 <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>,
-                con un puñado de peticiones al día: si se acaban, lo traído se queda guardado y
-                mañana sigue por donde se quedó.
+                con un puñado de peticiones al día, así que se trae <strong>una empresa a la
+                vez</strong>: el botón trae la que más falta, o toca cualquier fila para traer esa.
             </p>
             <!-- Cuánto del pasado que la curva necesita está ya guardado. Se pinta desde el JS
                  porque cambia con cada traída y con cada día que abres la app. -->
@@ -2412,6 +2412,15 @@
                                         if (!historicoPreciosListo) { caja.innerHTML = ''; return; }
 
                                         const avance = avanceDelHistorico();
+                                        const { siguiente, quedan } = siguienteSerieDelHistorico(avance);
+
+                                        // El botón nombra la serie que va a traer: así se sabe en qué empresa
+                                        // se va a gastar la petición antes de pulsarlo.
+                                        const btn = document.getElementById('btnTraerHistorico');
+                                        if (btn && !btn.disabled) {
+                                            btn.textContent = siguiente ? `Traer histórico de ${siguiente}` : 'Traer histórico';
+                                        }
+
                                         if (avance.series.length === 0) {
                                             caja.innerHTML = '<p style="color: #666; font-size: 0.78em; margin: 0;">Todavía no hay compras de acciones, así que no hay histórico que traer.</p>';
                                             return;
@@ -2429,13 +2438,18 @@
                                                 ? `desde ${mesEnPalabras(s.primero)} · ${hueco}${sinCierre}`
                                                 : `completo desde ${mesEnPalabras(s.desde)}${sinCierre}`;
 
+                                            // Cada fila se puede tocar para traer esa serie en concreto, y la que
+                                            // toca después va marcada.
+                                            const esSiguiente = s.ticker === siguiente;
                                             return `
+                                                <div onclick="pedirHistoricoDesdeAjustes('${escaparHtml(s.ticker)}')" style="cursor: pointer;">
                                                 <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                                                    <span style="min-width: 58px; color: #ccc; font-size: 0.75em;">${escaparHtml(s.ticker)}</span>
+                                                    <span style="min-width: 58px; color: ${esSiguiente ? '#3ecf8e' : '#ccc'}; font-size: 0.75em;">${esSiguiente ? '▸ ' : ''}${escaparHtml(s.ticker)}</span>
                                                     ${barraAvanceHistorico(s.pct, 4)}
                                                     <span style="min-width: 32px; text-align: right; color: #888; font-size: 0.72em;">${Math.round(s.pct)}%</span>
                                                 </div>
-                                                <div style="color: #666; font-size: 0.68em; padding-left: 66px;">${detalle}</div>`;
+                                                <div style="color: #666; font-size: 0.68em; padding-left: 66px;">${detalle}</div>
+                                                </div>`;
                                         }).join('');
 
                                         // Qué hacer con lo que falta, que es la otra mitad del avance. Y son dos
@@ -2450,11 +2464,10 @@
                                         // lo trae repetir el botón: el plan gratuito sirve siempre los últimos
                                         // cien, nunca los de más atrás. Decir "vuelve a intentarlo" ahí sería
                                         // mandar a gastar la cuota para recibir lo mismo.
-                                        const sinNada = avance.series.filter(s => !s.primero).length;
                                         const trozos = [];
 
                                         if (avance.completo) trozos.push('El tramo está completo: la curva empieza en tu primera compra.');
-                                        else if (sinNada > 0) trozos.push(`Quedan ${sinNada} serie${sinNada !== 1 ? 's' : ''} sin traer. Pulsa «Traer histórico»: es una petición por serie y el plan gratuito da unas pocas al día, así que puede hacer falta volver mañana; lo traído se queda guardado y sigue por donde se quedó.`);
+                                        else if (quedan > 0) trozos.push(`Quedan ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada con ▸ y cualquier fila se puede tocar para traer esa. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
                                         else trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae: haría falta una clave de pago u otra fuente.');
 
                                         // El hueco del medio se arregla de otra manera que el de atrás, y es la
@@ -2487,77 +2500,97 @@
                                         return `${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()} ${anio}`;
                                     }
 
-                                    async function traerHistoricoDePrecios(avisar) {
+                                    // Qué serie se trajo y cuándo, para no volver a gastar cuota en ella. Antes
+                                    // cada pulsación pedía todas las series desde la primera: las ya traídas se
+                                    // volvían a pedir una y otra vez, la cuota diaria se acababa a mitad de la
+                                    // lista y las del final nunca llegaban.
+                                    const CLAVE_HISTORICO_TRAIDO = 'historicoTraidoPorTicker';
+
+                                    function historicoTraido() {
+                                        try { return JSON.parse(localStorage.getItem(CLAVE_HISTORICO_TRAIDO)) || {}; }
+                                        catch (e) { return {}; }
+                                    }
+
+                                    function marcarHistoricoTraido(ticker) {
+                                        const traido = historicoTraido();
+                                        traido[ticker] = diaISO(new Date());
+                                        try { localStorage.setItem(CLAVE_HISTORICO_TRAIDO, JSON.stringify(traido)); } catch (e) { /* sin memoria: se volverá a ofrecer */ }
+                                    }
+
+                                    // La serie que toca traer: una sola por vez. Primero las que nunca se han
+                                    // pedido, la más atrasada delante; el tipo de cambio va tras las empresas
+                                    // porque sólo lo da Alpha Vantage. Una ya traída sólo vuelve si tiene días
+                                    // sin cierre y no se pidió hoy: pedirla otra vez el mismo día devolvería lo
+                                    // mismo, y el hueco viejo de atrás no lo tapa repetirla.
+                                    function siguienteSerieDelHistorico(avance) {
+                                        const traido = historicoTraido();
+                                        const hoy = diaISO(new Date());
+                                        const pendientes = (avance || avanceDelHistorico()).series.filter(s => {
+                                            if (s.pct >= 99.5 && s.huecos === 0) return false;
+                                            if (!traido[s.ticker]) return true;
+                                            return s.huecos > 0 && traido[s.ticker] !== hoy;
+                                        });
+                                        pendientes.sort((a, b) =>
+                                            (traido[a.ticker] ? 1 : 0) - (traido[b.ticker] ? 1 : 0)
+                                            || (a.ticker === TICKER_TIPO_CAMBIO ? 1 : 0) - (b.ticker === TICKER_TIPO_CAMBIO ? 1 : 0)
+                                            || a.pct - b.pct
+                                            || a.ticker.localeCompare(b.ticker));
+                                        return { siguiente: pendientes.length ? pendientes[0].ticker : null, quedan: pendientes.length };
+                                    }
+
+                                    // Trae el histórico de UNA serie: la que se pida, o si no, la que toque.
+                                    // Concentrarse en una a la vez hace que cada petición cuente: una empresa
+                                    // queda terminada antes de pasar a la siguiente, y la cuota del día no se
+                                    // reparte entre series que ya estaban.
+                                    async function traerHistoricoDePrecios(avisar, tickerElegido) {
                                         // La clave puede faltar: se intenta Finnhub de todas formas, y sólo si
                                         // no sirve el aviso dirá que hace falta.
                                         const clave = (localStorage.getItem(CLAVE_API_HISTORICO) || '').trim();
                                         if (!historicoPreciosListo) { avisar('Falta crear la tabla: ejecuta migracion_historico_precios.sql', true); return; }
 
                                         const desdePorTicker = tickersDelHistorico();
-                                        // Las empresas primero y el tipo de cambio al final: es el único que
-                                        // sólo puede venir de Alpha Vantage, así que si es el que falla, las
-                                        // empresas ya están guardadas y la curva se puede ver en dólares.
-                                        const tickers = Object.keys(desdePorTicker).sort((a, b) =>
-                                            (a === TICKER_TIPO_CAMBIO ? 1 : 0) - (b === TICKER_TIPO_CAMBIO ? 1 : 0));
-                                        if (tickers.length === 0) { avisar('No hay compras de las que traer histórico', true); return; }
+                                        if (Object.keys(desdePorTicker).length === 0) { avisar('No hay compras de las que traer histórico', true); return; }
 
-                                        let guardados = 0;
-                                        // Si alguna serie vino recortada, el aviso final tiene que decirlo: con
-                                        // el plan gratuito la curva empieza hace unos meses y no en tu primera
-                                        // compra, y sin decirlo parecería que la traída se hizo a medias.
-                                        let huboRecorte = false;
-                                        for (let i = 0; i < tickers.length; i++) {
-                                            const ticker = tickers[i];
-                                            avisar(`Trayendo ${ticker}… (${i + 1} de ${tickers.length})`);
+                                        const ticker = (tickerElegido && desdePorTicker[tickerElegido]) ? tickerElegido : siguienteSerieDelHistorico().siguiente;
+                                        if (!ticker) { avisar('No queda ninguna serie por traer: lo que falta lo irá sumando la app cada día que la abras.'); return; }
 
-                                            let puntos;
-                                            try {
-                                                const traido = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
-                                                puntos = traido.puntos;
-                                                if (traido.recortado) huboRecorte = true;
-                                            } catch (e) {
-                                                // Que falle el tipo de cambio no es que falle la traída: va el
-                                                // último a propósito, así que las empresas ya están guardadas y
-                                                // la curva en dólares queda entera. Sólo la de pesos se queda
-                                                // con el cambio de hoy, y eso la propia curva lo dice en su pie.
-                                                if (ticker === TICKER_TIPO_CAMBIO && guardados > 0) {
-                                                    await cargarHistoricoPrecios();
-                                                    avisar(`Empresas listas · ${guardados.toLocaleString('es-MX')} cierres. Falta el tipo de cambio (${e.message}): la curva en USD está entera, la de MXN usa el cambio de hoy.`);
-                                                    return;
-                                                }
+                                        avisar(`Trayendo ${ticker}…`);
 
-                                                // Lo traído hasta aquí ya está guardado. Se para en el primer
-                                                // fallo en vez de seguir gastando cuota contra el mismo muro.
-                                                avisar(`${ticker}: ${e.message}${guardados > 0 ? ` · se guardaron ${guardados} cierres antes de parar` : ''}`, true);
-                                                return;
-                                            }
-
-                                            const desde = desdePorTicker[ticker];
-                                            const filas = puntos
-                                                .filter(p => p.dia >= desde)
-                                                .map(p => ({ user_id: currentUser.id, ticker, dia: p.dia, cierre: p.cierre }));
-
-                                            // De golpe son miles de filas: se mandan por tandas para no pasarse
-                                            // del tamaño que aguanta una petición.
-                                            for (let k = 0; k < filas.length; k += 500) {
-                                                const { error } = await clienteSupabase
-                                                    .from('precios_historicos')
-                                                    .upsert(filas.slice(k, k + 500), { onConflict: 'user_id,ticker,dia' });
-                                                if (error) { avisar(`No se pudieron guardar los cierres de ${ticker}: ${error.message}`, true); return; }
-                                            }
-                                            guardados += filas.length;
+                                        let puntos, recortado = false;
+                                        try {
+                                            const traido = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
+                                            puntos = traido.puntos;
+                                            recortado = traido.recortado;
+                                        } catch (e) {
+                                            avisar(`${ticker}: ${e.message}`, true);
+                                            return;
                                         }
 
+                                        const desde = desdePorTicker[ticker];
+                                        const filas = puntos
+                                            .filter(p => p.dia >= desde)
+                                            .map(p => ({ user_id: currentUser.id, ticker, dia: p.dia, cierre: p.cierre }));
+
+                                        // De golpe pueden ser miles de filas: se mandan por tandas para no
+                                        // pasarse del tamaño que aguanta una petición.
+                                        for (let k = 0; k < filas.length; k += 500) {
+                                            const { error } = await clienteSupabase
+                                                .from('precios_historicos')
+                                                .upsert(filas.slice(k, k + 500), { onConflict: 'user_id,ticker,dia' });
+                                            if (error) { avisar(`No se pudieron guardar los cierres de ${ticker}: ${error.message}`, true); return; }
+                                        }
+                                        marcarHistoricoTraido(ticker);
+
                                         // Los cierres nuevos se quedan en memoria y la curva de la pantalla
-                                        // principal se rehace con ellos: es media hora de historia que acaba de
-                                        // aparecer, y dejarla para la próxima recarga sería no enseñar lo que se
-                                        // acaba de traer.
+                                        // principal se rehace con ellos.
                                         await cargarHistoricoPrecios();
                                         refrescarCurvaInversiones();
                                         const avance = avanceDelHistorico();
-                                        avisar(`Listo · ${guardados.toLocaleString('es-MX')} cierres de ${tickers.length} series · histórico al ${Math.round(avance.pct)}%${huboRecorte
-                                            ? '. El plan gratuito de Alpha Vantage sólo da los últimos cien cierres de cada serie, así que la curva empieza ahí y no en tu primera compra. Desde hoy crece sola.'
-                                            : ''}`);
+                                        const serie = avance.series.find(x => x.ticker === ticker);
+                                        const { siguiente, quedan } = siguienteSerieDelHistorico(avance);
+                                        avisar(`${ticker} listo · ${filas.length.toLocaleString('es-MX')} cierres · al ${Math.round(serie ? serie.pct : 0)}%${recortado
+                                            ? ' (el plan gratuito sólo da los últimos cien cierres)'
+                                            : ''}. ${siguiente ? `Siguiente: ${siguiente} · quedan ${quedan}.` : 'No queda ninguna serie por traer.'}`);
                                     }
 
                                     // =========================================================
@@ -2799,7 +2832,7 @@
                                     // contando por dónde va. Tarda —son varios viajes a una API que además
                                     // limita el ritmo—, así que el botón se apaga mientras tanto: pulsarlo dos
                                     // veces lanzaría dos traídas contra la misma cuota.
-                                    async function pedirHistoricoDesdeAjustes() {
+                                    async function pedirHistoricoDesdeAjustes(tickerElegido) {
                                         const campo = document.getElementById('claveApiHistorico');
                                         const btn = document.getElementById('btnTraerHistorico');
                                         const aviso = document.getElementById('avisoHistorico');
@@ -2813,14 +2846,16 @@
                                             aviso.style.color = malo ? '#ff5c5c' : '#666';
                                         };
 
+                                        // Una traída a la vez: dos juntas gastarían la cuota contra la misma serie.
+                                        if (btn.disabled) return;
                                         btn.disabled = true;
-                                        const textoOriginal = btn.textContent;
                                         btn.textContent = 'Trayendo…';
                                         try {
-                                            await traerHistoricoDePrecios(avisar);
+                                            await traerHistoricoDePrecios(avisar, tickerElegido);
                                         } finally {
                                             btn.disabled = false;
-                                            btn.textContent = textoOriginal;
+                                            // El botón dice cuál es la siguiente: lo repinta el avance.
+                                            pintarAvanceHistorico();
                                         }
                                     }
 
