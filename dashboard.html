@@ -15740,7 +15740,7 @@
             let montoInput = Math.abs(parseFloat(document.getElementById('regMonto').value));
             let montoFinal = direccion === 'salida' ? -montoInput : montoInput;
 
-            const costoAccion = parseFloat(document.getElementById('regCostoAccion').value) || 0;
+            let costoAccion = parseFloat(document.getElementById('regCostoAccion').value) || 0;
                         // No es constante: en una conversión el tipo de cambio no se captura, se deduce de
                         // los dos importes, así que las ramas de aportación y retiro lo recalculan más abajo.
                         let tipoCambio = parseFloat(document.getElementById('regTipoCambio').value) || 1;
@@ -15790,6 +15790,9 @@
                                 tipoCambio = tipoCambioDeConversion(montoInput, montoUsd);
                                 montoFinal = direccion === 'salida' ? -montoInput : montoInput;
                                 cantidadAcciones = 0;
+                                // Una aportación no tiene precio por acción. El campo se esconde, pero
+                                // conserva el de la compra anterior y se guardaba sin verse.
+                                costoAccion = 0;
                             } else if (tipoMovimiento === 'retiro') {
                                 montoUsd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value)) || 0;
                                 if (!montoInput || montoInput <= 0 || !montoUsd || montoUsd <= 0) {
@@ -15798,6 +15801,7 @@
                                 }
                                 tipoCambio = tipoCambioDeConversion(montoInput, montoUsd);
                                 cantidadAcciones = 0;
+                                costoAccion = 0;
                                 if (!editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
                                     if (!confirm(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
                                 }
