@@ -1327,6 +1327,15 @@
     <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
     </div>
 
+    <!-- Qué cuenta la curva: tus acciones, o lo que el tipo de cambio le ha hecho a los pesos
+         que metiste. Lo segundo no tiene recuadros en el mapa, así que lleva su propio botón. -->
+    <div style="display: flex; justify-content: center; margin-top: 8px;">
+        <div style="display: inline-flex; background: #1a1a1a; border-radius: 14px; padding: 2px;">
+            <button id="btnCurvaAcciones" onclick="cambiarCurvaInversiones('acciones')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">Acciones</button>
+            <button id="btnCurvaDolar" onclick="cambiarCurvaInversiones('dolar')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">USD/MXN</button>
+        </div>
+    </div>
+
     <div id="pieCurvaPrincipal" style="padding: 12px 1rem 5px 1rem; font-size: 0.8em; color: #888; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;"></div>
     </div>
     </div>
@@ -3432,6 +3441,102 @@
                                         return { desde: (ini && ini.value) || '', hasta: (fin && fin.value) || '' };
                                     }
 
+                                    // ---- Lo que el tipo de cambio le ha hecho a tus pesos ----
+                                    //
+                                    // Cada aportación cambia pesos por dólares a un tipo de cambio; desde ese
+                                    // día esos dólares valen, en pesos, lo que diga el USD/MXN. La curva es esa
+                                    // diferencia: los dólares que metiste valorados al cambio de cada día, menos
+                                    // los pesos que te costaron. Las acciones no entran —eso lo cuenta la otra
+                                    // curva—: aquí sólo se ve si el peso te ayudó o te quitó.
+                                    //
+                                    // Cuentan como cambio de moneda las aportaciones y las compras viejas pagadas
+                                    // directo con pesos; los retiros y las ventas directas a pesos devuelven
+                                    // dólares, y lo que ganaron o perdieron por el cambio se queda en la curva.
+                                    let curvaInversiones = localStorage.getItem('curvaInversiones') === 'dolar' ? 'dolar' : 'acciones';
+
+                                    function cambiarCurvaInversiones(modo) {
+                                        curvaInversiones = modo === 'dolar' ? 'dolar' : 'acciones';
+                                        try { localStorage.setItem('curvaInversiones', curvaInversiones); } catch (e) { /* sin memoria: se queda en esta visita */ }
+                                        repintarTreemapCategorias();
+                                    }
+
+                                    function serieTipoCambio(ambito, periodo) {
+                                        const donde = ambito || {};
+                                        const recorte = periodo || {};
+                                        const desdeFiltro = recorte.desde || '', hastaFiltro = recorte.hasta || '';
+
+                                        const cats = {};
+                                        (datosCategorias || []).forEach(c => {
+                                            if (c.tipo === 'inversion' && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))) cats[String(c.id)] = c;
+                                        });
+
+                                        const movs = (datosUsoCompleto || [])
+                                            .filter(u => cats[String(u.categoria_id)])
+                                            .map(u => ({ u, t: tipoMovInversion(u), dia: diaDeRegistro(u) }))
+                                            .filter(m => m.dia.length === 10 && ['aportacion', 'retiro', 'compra_directa', 'venta_directa'].indexOf(m.t) >= 0)
+                                            .sort((a, b) => a.dia.localeCompare(b.dia));
+                                        if (movs.length === 0) return null;
+
+                                        // Los dos importes del cambio: los pesos y los dólares. Si falta uno, sale
+                                        // del otro con el tipo de cambio anotado en el registro.
+                                        const importes = (u) => {
+                                            const pesos = Math.abs(parseFloat(u.monto) || 0);
+                                            const tc = parseFloat(u.tipo_cambio) || 0;
+                                            let usd = Math.abs(parseFloat(u.monto_usd) || 0);
+                                            if (!(usd > 0)) {
+                                                const acciones = parseFloat(u.cantidad_acciones) || 0;
+                                                usd = acciones > 0 && parseFloat(u.costo_accion) > 0
+                                                    ? acciones * parseFloat(u.costo_accion)
+                                                    : (tc > 1 ? pesos / tc : 0);
+                                            }
+                                            return { pesos, usd };
+                                        };
+
+                                        let usd = 0, pesosBase = 0, realizado = 0, iMov = 0, cursorTc = 0;
+                                        const dias = [], ganancias = [], costos = [], tipos = [];
+                                        const serieTc = cacheHistoricoPrecios[TICKER_TIPO_CAMBIO] || [];
+
+                                        const hoy = new Date(); hoy.setHours(12, 0, 0, 0);
+                                        const cursor = new Date(`${movs[0].dia}T12:00:00`);
+                                        const ultimoDia = (hastaFiltro && hastaFiltro < diaISO(hoy)) ? hastaFiltro : diaISO(hoy);
+
+                                        while (diaISO(cursor) <= ultimoDia) {
+                                            const dia = diaISO(cursor);
+                                            while (iMov < movs.length && movs[iMov].dia <= dia) {
+                                                const m = movs[iMov++];
+                                                const { pesos, usd: dolares } = importes(m.u);
+                                                if (!(dolares > 0)) continue;
+                                                if (m.t === 'aportacion' || m.t === 'compra_directa') {
+                                                    usd += dolares;
+                                                    pesosBase += pesos;
+                                                } else {
+                                                    // Los dólares que salen se llevan su parte de lo que costaron
+                                                    const parte = usd > 0.00001 ? Math.min(1, dolares / usd) : 1;
+                                                    const base = pesosBase * parte;
+                                                    realizado += pesos - base;
+                                                    pesosBase -= base;
+                                                    usd = Math.max(0, usd - dolares);
+                                                    if (usd < 0.00001) { usd = 0; pesosBase = 0; }
+                                                }
+                                            }
+
+                                            const tc = cierreHasta(serieTc, dia, cursorTc);
+                                            cursorTc = tc.cursor;
+                                            const cambio = tc.valor || globalUsdToMxn || 1;
+
+                                            if ((!desdeFiltro || dia >= desdeFiltro) && (!hastaFiltro || dia <= hastaFiltro)) {
+                                                dias.push(dia);
+                                                ganancias.push(usd * cambio - pesosBase + realizado);
+                                                costos.push(pesosBase);
+                                                tipos.push(cambio);
+                                            }
+                                            cursor.setDate(cursor.getDate() + 1);
+                                        }
+
+                                        if (dias.length === 0) return { fueraDePeriodo: true };
+                                        return { dias, ganancias, costos, tipos, enPesos: true, dolar: true };
+                                    }
+
                                     function pintarCurva(destino, ambito, periodo) {
                                         const lienzo = document.getElementById(destino.lienzo);
                                         const caja = document.getElementById(destino.caja);
@@ -3445,12 +3550,17 @@
                                         // fuera del portafolio entero.
                                         const nombre = (ambito && ambito.nombre) ? ambito.nombre : '';
                                         const esTodo = !!ambito && ambito.vista === 'todo';
-                                        const tituloBase = esTodo
+                                        const esDolar = !!ambito && ambito.vista === 'dolar';
+                                        const tituloBase = esDolar
+                                            ? (nombre ? `USD/MXN · ${nombre}` : 'Tus pesos en dólares')
+                                            : esTodo
                                             ? (nombre ? `Rendimiento · ${nombre}` : 'Rendimiento total')
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
                                         if (tituloEl) tituloEl.textContent = tituloBase;
 
-                                        const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito, periodo) : null;
+                                        const serie = !historicoPreciosListo ? null
+                                            : esDolar ? serieTipoCambio(ambito, periodo)
+                                            : serieHistoricaAccesible(ambito, periodo);
                                         const hayCurva = !!serie && !serie.fueraDePeriodo;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
@@ -3477,7 +3587,9 @@
                                                 // del futuro no hay cierres con los que saber qué sale sin pérdida.
                                                 ? 'Este periodo aún no llega. La curva sólo puede contar hasta hoy.'
                                                 : (serie && serie.fueraDePeriodo)
-                                                ? `En este periodo todavía no había acciones compradas${nombre ? ` en ${nombre}` : ''}.`
+                                                ? `En este periodo todavía no ${esDolar ? 'habías cambiado pesos a dólares' : 'había acciones compradas'}${nombre ? ` en ${nombre}` : ''}.`
+                                                : esDolar
+                                                ? `Todavía no hay aportaciones de pesos a dólares que dibujar${nombre ? ` en ${nombre}` : ''}.`
                                                 : `Todavía no hay compras de acciones que dibujar${nombre ? ` en ${nombre}` : ''}.`;
                                             return;
                                         }
@@ -3517,13 +3629,20 @@
 
                                             if (cifraEl) {
                                                 cifraEl.style.color = color;
-                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)} ${simbolo}`;
+                                                // En la del dólar el porcentaje es lo que se movió el peso para
+                                                // tus dólares: la cifra sola no dice si es mucho o poco.
+                                                const base = serie.dolar ? serie.costos[i] : 0;
+                                                const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(1)}%)` : '';
+                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${serie.dolar ? pct : ` ${simbolo}`}`;
                                             }
 
                                             if (!tituloEl) return;
-                                            if (!conFecha) { tituloEl.textContent = tituloBase; return; }
+                                            // El dólar dice siempre a cuánto estaba, que es lo primero que se busca
+                                            // en una gráfica del tipo de cambio.
+                                            const tipoDia = serie.dolar ? ` · $${serie.tipos[i].toFixed(2)}` : '';
+                                            if (!conFecha) { tituloEl.textContent = serie.dolar ? `USD/MXN${tipoDia}` : tituloBase; return; }
                                             const [anio, mes, dia] = serie.dias[i].split('-');
-                                            tituloEl.textContent = `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}`;
+                                            tituloEl.textContent = `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}${tipoDia}`;
                                         };
 
                                         // Dos dedos: como en la app de Bolsa, se compara un día con otro. La
@@ -3591,7 +3710,7 @@
                                             data: {
                                                 labels: serie.dias,
                                                 datasets: [{
-                                                    label: serie.todo ? 'Rendimiento' : 'Accesible',
+                                                    label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: serie.ganancias,
                                                     borderColor: enRojo ? '#ff5c5c' : '#3ecf8e',
                                                     borderWidth: 2,
@@ -10543,7 +10662,14 @@
                                 // rendimiento total con "Todo"—, y la dibuja de lo que el mapa tenga abierto. Se avisa aquí, con las capas ya resueltas y antes de que el mapa
                                 // pueda irse por un vacío: también un portafolio sin nada tiene que cambiar de
                                 // cara, o la tarjeta de arriba se quedaría contando otra cosa.
-                                sincronizarCaraInversiones(!esPortafolio ? null : {
+                                // La curva del dólar sólo sabe de cuentas: el cambio de moneda se hace al
+                                // aportar a la cuenta, no por empresa ni por sector.
+                                const curvaDolar = curvaInversiones === 'dolar';
+                                sincronizarCaraInversiones(!esPortafolio ? null : curvaDolar ? {
+                                    vista: 'dolar',
+                                    cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
+                                    nombre: cuentaAbierta ? cuentaAbierta.nombre : ''
+                                } : {
                                     vista: vistaAccesible ? 'accesible' : 'todo',
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     sector: sectorAbierto || null,
@@ -10570,6 +10696,7 @@
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
                                 encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
+                                encenderPastilla([['acciones', 'btnCurvaAcciones'], ['dolar', 'btnCurvaDolar']], curvaInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
                                 encenderPastilla([['empresa', 'btnTreemapPorEmpresa'], ['sector', 'btnTreemapPorSector'],
                                     ['personalizado', 'btnTreemapPorPersonalizado']], agrupacionTreemapInversiones);
