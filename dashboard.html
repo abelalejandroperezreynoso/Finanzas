@@ -1690,6 +1690,14 @@
                  porque cambia con cada traída y con cada día que abres la app. -->
             <div id="avanceHistorico" style="margin: 0 0 12px 0;"></div>
 
+            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
+                Para llegar hasta tu primera compra usa <strong>Twelve Data</strong>: su clave
+                <a href="https://twelvedata.com/register" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>
+                trae años de cierres de cada empresa y del tipo de cambio de una sola vez (unas
+                ochocientas peticiones al día, ocho por minuto). Con ella puesta se usa primero.
+            </p>
+            <input type="text" id="claveApiTwelve" placeholder="Clave de Twelve Data (recomendada)" autocomplete="off"
+                   style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
             <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
                    style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
             <button id="btnTraerHistorico" onclick="pedirHistoricoDesdeAjustes()"
@@ -2044,6 +2052,10 @@
                                     // —cuánto valía algo un día— y separarlo obligaría a duplicar cada consulta.
                                     const TICKER_TIPO_CAMBIO = 'USDMXN';
                                     const CLAVE_API_HISTORICO = 'claveApiHistorico';
+                                    // Twelve Data: gratis, y su plan gratuito sí sirve años de cierres diarios
+                                    // —hasta cinco mil por petición— y el tipo de cambio. Es la fuente que
+                                    // llega a tu primera compra; Alpha Vantage gratis se queda en cien.
+                                    const CLAVE_API_TWELVE = 'claveApiTwelveData';
 
                                     // El mismo token con el que la app pregunta el precio de hoy. Vive aquí
                                     // arriba y no dentro de una función porque ahora lo usan dos: la cotización
@@ -2256,7 +2268,53 @@
                                     // una clave, esperar a mañana o corregir el ticker.
                                     // Devuelve { puntos, recortado }: lo segundo dice si lo traído es todo el
                                     // pasado o sólo el tramo que el plan gratuito deja ver.
+                                    // Twelve Data escribe las series de otra forma: el tipo de cambio es
+                                    // "USD/MXN" y las acciones de clase llevan punto ("BRK.B"), no guion.
+                                    async function historicoDesdeTwelveData(ticker, clave, desde) {
+                                        const simbolo = ticker === TICKER_TIPO_CAMBIO ? 'USD/MXN' : ticker.replace('-', '.');
+                                        const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(simbolo)}&interval=1day&outputsize=5000`
+                                            + `${desde ? `&start_date=${desde}` : ''}&order=ASC&apikey=${encodeURIComponent(clave)}`;
+
+                                        const res = await fetch(url);
+                                        if (!res.ok) throw new Error(`Twelve Data respondió ${res.status}`);
+                                        const data = await res.json();
+                                        if (data.status === 'error' || !Array.isArray(data.values)) {
+                                            const msg = String(data.message || 'la respuesta no traía precios');
+                                            if (data.code === 429 || /credits|limit/i.test(msg)) throw new Error('se acabaron las peticiones de este minuto o del día; espera un poco');
+                                            if (data.code === 401 || /api ?key/i.test(msg)) throw new Error('la clave no es válida');
+                                            throw new Error(msg.slice(0, 140));
+                                        }
+
+                                        const puntos = data.values.map(v => ({
+                                            dia: String(v.datetime || '').slice(0, 10),
+                                            cierre: parseFloat(v.close)
+                                        })).filter(p => p.dia.length === 10 && p.cierre > 0);
+                                        if (puntos.length === 0) throw new Error('no trajo cierres para ese periodo');
+                                        return { puntos, recortado: false };
+                                    }
+
                                     async function pedirHistoricoTicker(ticker, clave, desde) {
+                                        // Con clave de Twelve Data se va derecho a ella: es la única gratuita
+                                        // que trae el pasado entero. Si falla, se sigue con las demás.
+                                        const claveTwelve = (localStorage.getItem(CLAVE_API_TWELVE) || '').trim();
+                                        let motivoTwelve = '';
+                                        if (claveTwelve) {
+                                            try {
+                                                const traido = await historicoDesdeTwelveData(ticker, claveTwelve, desde);
+                                                traido.fuente = 'twelve';
+                                                return traido;
+                                            } catch (e) {
+                                                motivoTwelve = `Twelve Data: ${e.message} · `;
+                                            }
+                                        }
+                                        try {
+                                            return await pedirHistoricoTickerSinTwelve(ticker, clave, desde);
+                                        } catch (e) {
+                                            throw new Error(motivoTwelve + e.message);
+                                        }
+                                    }
+
+                                    async function pedirHistoricoTickerSinTwelve(ticker, clave, desde) {
                                         // El tipo de cambio no está en Finnhub gratis ni de casualidad: va
                                         // derecho a la segunda puerta.
                                         let motivoFinnhub = 'no sirve tipos de cambio';
@@ -2468,7 +2526,8 @@
 
                                         if (avance.completo) trozos.push('El tramo está completo: la curva empieza en tu primera compra.');
                                         else if (quedan > 0) trozos.push(`Quedan ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada con ▸ y cualquier fila se puede tocar para traer esa. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
-                                        else trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae: haría falta una clave de pago u otra fuente.');
+                                        else if (!(localStorage.getItem(CLAVE_API_TWELVE) || '').trim()) trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae. Pega una clave gratuita de Twelve Data abajo: esa sí trae años de cierres.');
+                                        else trozos.push('Lo que falta por detrás no lo tiene tampoco Twelve Data: suele pasar con empresas que empezaron a cotizar después de tu compra o con símbolos que ella escribe distinto.');
 
                                         // El hueco del medio se arregla de otra manera que el de atrás, y es la
                                         // única parte que el botón sigue teniendo que hacer cuando ya está todo:
@@ -2511,9 +2570,12 @@
                                         catch (e) { return {}; }
                                     }
 
-                                    function marcarHistoricoTraido(ticker) {
+                                    // Se guarda el día y, si vino de Twelve Data, la fuente: una serie traída
+                                    // sólo con los cien cierres de Alpha Vantage vuelve a ofrecerse en cuanto
+                                    // hay clave de Twelve Data, porque ahora sí se puede completar.
+                                    function marcarHistoricoTraido(ticker, fuente) {
                                         const traido = historicoTraido();
-                                        traido[ticker] = diaISO(new Date());
+                                        traido[ticker] = diaISO(new Date()) + (fuente === 'twelve' ? '|twelve' : '');
                                         try { localStorage.setItem(CLAVE_HISTORICO_TRAIDO, JSON.stringify(traido)); } catch (e) { /* sin memoria: se volverá a ofrecer */ }
                                     }
 
@@ -2525,10 +2587,15 @@
                                     function siguienteSerieDelHistorico(avance) {
                                         const traido = historicoTraido();
                                         const hoy = diaISO(new Date());
+                                        const hayTwelve = !!(localStorage.getItem(CLAVE_API_TWELVE) || '').trim();
                                         const pendientes = (avance || avanceDelHistorico()).series.filter(s => {
                                             if (s.pct >= 99.5 && s.huecos === 0) return false;
                                             if (!traido[s.ticker]) return true;
-                                            return s.huecos > 0 && traido[s.ticker] !== hoy;
+                                            const [dia, fuente] = String(traido[s.ticker]).split('|');
+                                            if (dia === hoy) return false;
+                                            // Le falta pasado y ahora hay con qué traerlo
+                                            if (hayTwelve && fuente !== 'twelve' && s.pct < 99.5) return true;
+                                            return s.huecos > 0;
                                         });
                                         pendientes.sort((a, b) =>
                                             (traido[a.ticker] ? 1 : 0) - (traido[b.ticker] ? 1 : 0)
@@ -2556,11 +2623,12 @@
 
                                         avisar(`Trayendo ${ticker}…`);
 
-                                        let puntos, recortado = false;
+                                        let puntos, recortado = false, fuente = '';
                                         try {
                                             const traido = await pedirHistoricoTicker(ticker, clave, desdePorTicker[ticker]);
                                             puntos = traido.puntos;
                                             recortado = traido.recortado;
+                                            fuente = traido.fuente || '';
                                         } catch (e) {
                                             avisar(`${ticker}: ${e.message}`, true);
                                             return;
@@ -2579,7 +2647,7 @@
                                                 .upsert(filas.slice(k, k + 500), { onConflict: 'user_id,ticker,dia' });
                                             if (error) { avisar(`No se pudieron guardar los cierres de ${ticker}: ${error.message}`, true); return; }
                                         }
-                                        marcarHistoricoTraido(ticker);
+                                        marcarHistoricoTraido(ticker, fuente);
 
                                         // Los cierres nuevos se quedan en memoria y la curva de la pantalla
                                         // principal se rehace con ellos.
@@ -2589,7 +2657,7 @@
                                         const serie = avance.series.find(x => x.ticker === ticker);
                                         const { siguiente, quedan } = siguienteSerieDelHistorico(avance);
                                         avisar(`${ticker} listo · ${filas.length.toLocaleString('es-MX')} cierres · al ${Math.round(serie ? serie.pct : 0)}%${recortado
-                                            ? ' (el plan gratuito sólo da los últimos cien cierres)'
+                                            ? ' (Alpha Vantage gratis sólo da los últimos cien cierres: con una clave de Twelve Data llega a tu primera compra)'
                                             : ''}. ${siguiente ? `Siguiente: ${siguiente} · quedan ${quedan}.` : 'No queda ninguna serie por traer.'}`);
                                     }
 
@@ -2876,6 +2944,12 @@
 
                                         const clave = campo.value.trim();
                                         if (clave) localStorage.setItem(CLAVE_API_HISTORICO, clave);
+                                        const campoTwelve = document.getElementById('claveApiTwelve');
+                                        if (campoTwelve) {
+                                            const claveTwelve = campoTwelve.value.trim();
+                                            if (claveTwelve) localStorage.setItem(CLAVE_API_TWELVE, claveTwelve);
+                                            else localStorage.removeItem(CLAVE_API_TWELVE);
+                                        }
 
                                         const avisar = (texto, malo) => {
                                             aviso.innerHTML = texto;
@@ -2900,6 +2974,8 @@
                                     function cargarClaveHistoricoGuardada() {
                                         const campo = document.getElementById('claveApiHistorico');
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
+                                        const campoTwelve = document.getElementById('claveApiTwelve');
+                                        if (campoTwelve) campoTwelve.value = localStorage.getItem(CLAVE_API_TWELVE) || '';
                                     }
 
                                     // =========================================================
