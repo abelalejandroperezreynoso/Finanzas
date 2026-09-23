@@ -1334,12 +1334,12 @@
             <button id="btnCurvaAcciones" onclick="cambiarCurvaInversiones('acciones')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">Acciones</button>
             <button id="btnCurvaDolar" onclick="cambiarCurvaInversiones('dolar')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">USD/MXN</button>
         </div>
-        <!-- Cómo se lee el porcentaje al comparar dos días con dos dedos. "Invertido" divide la
-             ganancia entre lo que hay metido al final del tramo; "Como ETF" encadena el rendimiento
-             de cada día, así que meter o sacar dinero no lo mueve. -->
+        <!-- Qué dibuja la curva: "$" la ganancia en dinero; "%" el rendimiento, encadenado día a
+             día como el precio de un ETF, así que meter o sacar dinero no lo mueve y un punto más
+             alto siempre es un rendimiento mayor. -->
         <div id="pastillaPctCurva" style="display: inline-flex; background: #1a1a1a; border-radius: 14px; padding: 2px; margin-left: 8px;">
-            <button id="btnPctInvertido" onclick="cambiarPorcentajeCurva('invertido')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">% invertido</button>
-            <button id="btnPctEtf" onclick="cambiarPorcentajeCurva('etf')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">% como ETF</button>
+            <button id="btnPctInvertido" onclick="cambiarPorcentajeCurva('invertido')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">$</button>
+            <button id="btnPctEtf" onclick="cambiarPorcentajeCurva('etf')" style="border: none; border-radius: 12px; padding: 4px 10px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">%</button>
         </div>
     </div>
 
@@ -3432,6 +3432,7 @@
                                             moneda: monedaTreemapInversiones,
                                             // Todo o Accesible: son dos curvas distintas.
                                             vista: donde.vista || 'accesible',
+                                            porcentaje: porcentajeCurva,
                                             // El día de hoy se dibuja con los precios en vivo: si cambian, la
                                             // curva se rehace para seguir cuadrando con el mapa.
                                             vivo: `${globalUsdToMxn}|${Object.keys(cachePreciosMercado).map(k => cachePreciosMercado[k]).join(',')}`,
@@ -3598,14 +3599,12 @@
                                         });
                                     }
 
-                                    // Sólo cambia cómo se lee el porcentaje: la curva no se rehace, y si hay
-                                    // un tramo marcado se vuelve a escribir con la otra lectura.
                                     function cambiarPorcentajeCurva(modo) {
                                         porcentajeCurva = modo === 'etf' ? 'etf' : 'invertido';
                                         try { localStorage.setItem('porcentajeCurva', porcentajeCurva); } catch (e) { /* sin memoria: se queda en esta visita */ }
                                         encenderPastillaPctCurva();
-                                        const chart = CURVAS.principal.chart;
-                                        if (chart && chart.$tramoDosDedos && chart.$escribirTramo) chart.$escribirTramo(chart.$tramoDosDedos[0], chart.$tramoDosDedos[1]);
+                                        // Cambia lo que se dibuja, no sólo cómo se lee: la curva se rehace.
+                                        refrescarCurvaInversiones();
                                     }
 
                                     function serieTipoCambio(ambito, periodo) {
@@ -3761,9 +3760,21 @@
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
+
+                                        // Con "%" la curva es el rendimiento desde el primer día dibujado, igual
+                                        // que la gráfica de un ETF: sube y baja sólo con el mercado, y más arriba
+                                        // siempre es más rendimiento. Con "$" es la ganancia en dinero, que crece
+                                        // también porque metes más, y ahí un punto más alto no tiene por qué
+                                        // haber rendido más.
+                                        const enPct = porcentajeCurva === 'etf' && !!serie.unidades && serie.unidades[0] > 0;
+                                        const valores = enPct
+                                            ? serie.unidades.map(u => (u / serie.unidades[0] - 1) * 100)
+                                            : serie.ganancias;
+                                        const textoPct = (v) => `${v < 0 ? '' : '+'}${v.toFixed(2)}%`;
+
                                         // El rendimiento total puede acabar en pérdida, y entonces la curva lo
                                         // dice en rojo, como los recuadros del mapa.
-                                        const enRojo = serie.ganancias[ultimo] < -0.005;
+                                        const enRojo = valores[ultimo] < -0.005;
 
                                         // Con curva dibujada la tarjeta no lleva pie. Ahí fueron cayendo las
                                         // explicaciones —desde cuándo va la línea, qué parte del portafolio
@@ -3785,7 +3796,7 @@
                                         // un sector o de una empresa— y eso el balance no tiene que decirlo.
                                         const escribirDia = (i, conFecha) => {
                                             if (i < 0 || i >= serie.dias.length) return;
-                                            const ganancia = serie.ganancias[i];
+                                            const ganancia = valores[i];
                                             // En gris cuando no hay nada que contar; en rojo cuando va en pérdida,
                                             // que en lo accesible sólo pasa si una venta ya realizó una.
                                             const color = ganancia > 0.005 ? '#3ecf8e' : ganancia < -0.005 ? '#ff5c5c' : '#777';
@@ -3796,7 +3807,9 @@
                                                 // tus dólares: la cifra sola no dice si es mucho o poco.
                                                 const base = serie.dolar ? serie.costos[i] : 0;
                                                 const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(1)}%)` : '';
-                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${serie.dolar ? pct : ` ${simbolo}`}`;
+                                                cifraEl.textContent = enPct
+                                                    ? textoPct(ganancia)
+                                                    : `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${serie.dolar ? pct : ` ${simbolo}`}`;
                                             }
 
                                             if (!tituloEl) return;
@@ -3818,20 +3831,22 @@
                                             return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()}${conAnio ? ` ${anio.slice(2)}` : ''}`;
                                         };
                                         const escribirTramo = (a, b) => {
-                                            const cambio = serie.ganancias[b] - serie.ganancias[a];
-                                            // Dos lecturas del mismo tramo. "Invertido": la ganancia entre lo que
-                                            // hay metido al final, que mezcla ganancias viejas con dinero recién
-                                            // llegado. "Como ETF": lo que subió la unidad del portafolio, que sólo
-                                            // mueve el mercado, igual que el precio de un ETF.
-                                            const comoEtf = porcentajeCurva === 'etf' && serie.unidades && serie.unidades[a] > 0;
-                                            const base = serie.costos[b];
-                                            const pct = comoEtf
-                                                ? (serie.unidades[b] / serie.unidades[a] - 1) * 100
-                                                : base > 0.005 ? (cambio / base) * 100 : null;
-                                            const signo = cambio < -0.005 ? '' : '+';
                                             if (cifraEl) {
-                                                cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
-                                                cifraEl.textContent = `${signo}${fMoneda(cambio)}${pct !== null ? ` (${pct < 0 ? '' : '+'}${pct.toFixed(2)}%)` : ''}`;
+                                                if (enPct) {
+                                                    // Lo que subió la unidad entre los dos días: el rendimiento del
+                                                    // tramo, sin que pese lo que metiste o sacaste por el camino.
+                                                    const pct = (serie.unidades[b] / serie.unidades[a] - 1) * 100;
+                                                    cifraEl.style.color = pct > 0.005 ? '#3ecf8e' : pct < -0.005 ? '#ff5c5c' : '#777';
+                                                    cifraEl.textContent = textoPct(pct);
+                                                } else {
+                                                    // En dinero, lo que cambió la ganancia y qué parte es de lo que
+                                                    // había metido al final del tramo.
+                                                    const cambio = serie.ganancias[b] - serie.ganancias[a];
+                                                    const base = serie.costos[b];
+                                                    const pct = base > 0.005 ? (cambio / base) * 100 : null;
+                                                    cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
+                                                    cifraEl.textContent = `${cambio < -0.005 ? '' : '+'}${fMoneda(cambio)}${pct !== null ? ` (${textoPct(pct)})` : ''}`;
+                                                }
                                             }
                                             if (tituloEl) {
                                                 const mismoAnio = serie.dias[a].slice(0, 4) === serie.dias[b].slice(0, 4);
@@ -3883,7 +3898,7 @@
                                                 labels: serie.dias,
                                                 datasets: [{
                                                     label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
-                                                    data: serie.ganancias,
+                                                    data: valores,
                                                     borderColor: enRojo ? '#ff5c5c' : '#3ecf8e',
                                                     borderWidth: 2,
                                                     pointRadius: 0,
