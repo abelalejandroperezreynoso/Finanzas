@@ -15750,6 +15750,17 @@
                         const tipoMovimiento = (tipoInvSel === 'compra' || tipoInvSel === 'venta' || tipoInvSel === 'aportacion' || tipoInvSel === 'retiro') ? tipoInvSel : null;
                         let montoUsd = 0;
 
+                        // Un tipo de cambio escrito sin punto —1779.68 en vez de 17.7968— no lo detectaba
+                        // nadie y se quedaba guardado. Se compara con el de hoy: un peso que valga la mitad
+                        // o el doble de un día a otro es un error de captura, no un movimiento del mercado.
+                        // Las aportaciones y retiros lo calculan solos, así que no se revisan aquí.
+                        if (esInversion && tipoInvSel !== 'aportacion' && tipoInvSel !== 'retiro' && globalUsdToMxn > 0
+                            && document.getElementById('regTipoCambio').value !== ''
+                            && (tipoCambio > globalUsdToMxn * 2 || tipoCambio < globalUsdToMxn / 2)) {
+                            alert(`⚠️ El tipo de cambio ${tipoCambio} no parece correcto: hoy el dólar está en ${globalUsdToMxn.toFixed(2)}. Revisa que tenga el punto decimal en su lugar.`);
+                            return;
+                        }
+
                         if (esInversion) {
                             const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[catSeleccionada.cuenta_id] : null;
                             const cajaDisponibleUsd = cajaCta ? cajaCta.usd : 0;
