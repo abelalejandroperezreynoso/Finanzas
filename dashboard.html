@@ -2633,8 +2633,14 @@
                                     // —para saber qué queda vivo de cada lote hay que recorrerlo todo—, pero sólo
                                     // se dibujan los días que caen dentro. Sin esto la curva contaba su propia
                                     // historia mientras la tarjeta de al lado contaba la del mes elegido.
+                                    //
+                                    // Con "Todo" puesto en el mapa la curva deja de ser la de lo accesible y pasa
+                                    // a ser el rendimiento de todas las compras vivas, ganen o pierdan: la misma
+                                    // pregunta que el mapa contesta en esa vista. Ahí sí puede bajar de cero, y
+                                    // cada moneda mide contra su propio costo, igual que los recuadros.
                                     function serieHistoricaAccesible(ambito, periodo) {
                                         const donde = ambito || {};
+                                        const todo = donde.vista === 'todo';
                                         const recorte = periodo || {};
                                         const desdeFiltro = recorte.desde || '';
                                         const hastaFiltro = recorte.hasta || '';
@@ -2675,7 +2681,7 @@
                                             const acciones = parseFloat(m.u.cantidad_acciones) || 0;
 
                                             if (esCompraInversion(m.u)) {
-                                                lista.push({ compradas: acciones, vivas: acciones, costoMxn: costoMxnDeLote(m.u) });
+                                                lista.push({ compradas: acciones, vivas: acciones, costoMxn: costoMxnDeLote(m.u), costoUsd: costoUsdDeLote(m.u) });
                                                 return;
                                             }
 
@@ -2725,7 +2731,7 @@
                                             // es cuánto puedo sacar sin perder, y sacar es sacar pesos, así que el
                                             // tipo de cambio al que compraste cuenta. Para leerlo en dólares hay que
                                             // deshacer esa conversión al final, no aplicarla.
-                                            let ganancia = 0, costoVivo = 0;
+                                            let ganancia = 0, costoVivo = 0, rendimiento = 0;
 
                                             cats.forEach(c => {
                                                 const lista = lotes[String(c.id)];
@@ -2749,9 +2755,21 @@
                                                     // Sin precio de ese día no se puede saber si salía sin pérdida,
                                                     // y la app no inventa lo que no se puede saber: esa empresa no
                                                     // aporta nada accesible ese día.
-                                                    if (cortada) continue;
+                                                    if (cierre.valor === null) continue;
 
                                                     const valor = lote.vivas * cierre.valor * cambio;
+
+                                                    // El rendimiento total cuenta todas las compras vivas, sin el
+                                                    // corte de lo accesible: una en pérdida resta, no detiene.
+                                                    if (todo) {
+                                                        const parte = lote.compradas > 0 ? lote.vivas / lote.compradas : 1;
+                                                        rendimiento += (enPesos
+                                                            ? valor - costo
+                                                            : lote.vivas * cierre.valor - lote.costoUsd * parte) * peso;
+                                                        continue;
+                                                    }
+
+                                                    if (cortada) continue;
                                                     if (valor < costo) { cortada = true; continue; }
 
                                                     ganancia += (valor - costo) * peso;
@@ -2765,7 +2783,7 @@
                                             if (costoVivo > 0.005 && dentroDelPeriodo) {
                                                 const factor = enPesos ? 1 : 1 / cambio;
                                                 dias.push(dia);
-                                                ganancias.push(ganancia * factor);
+                                                ganancias.push(todo ? rendimiento : ganancia * factor);
                                             }
 
                                             cursor.setDate(cursor.getDate() + 1);
@@ -2774,7 +2792,7 @@
                                         // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
                                         // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return { dias, ganancias, enPesos };
+                                        return { dias, ganancias, enPesos, todo };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -3132,6 +3150,8 @@
                                             agrupacion: agrupacionTreemapInversiones,
                                             categoria: donde.categoria || null,
                                             moneda: monedaTreemapInversiones,
+                                            // Todo o Accesible: son dos curvas distintas.
+                                            vista: donde.vista || 'accesible',
                                             // El recorte de fechas de la pantalla: moverlo cambia la curva igual
                                             // que cambia el balance, así que también la manda rehacerse.
                                             desde: rango.desde,
@@ -3207,6 +3227,16 @@
                                         return grad;
                                     }
 
+                                    function rellenoCurvaRoja(context) {
+                                        const { ctx, chartArea } = context.chart;
+                                        if (!chartArea) return 'rgba(255, 92, 92, 0)';
+                                        const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                        grad.addColorStop(0, 'rgba(255, 92, 92, 0.95)');
+                                        grad.addColorStop(0.85, 'rgba(255, 92, 92, 0.0)');
+                                        grad.addColorStop(1, 'rgba(255, 92, 92, 0.0)');
+                                        return grad;
+                                    }
+
                                     // La raya de puntos que marca el día que se está leyendo. Sin dedo encima se
                                     // queda en el día que cada gráfica tenga por suyo —hoy en el balance, el
                                     // último dibujado en la curva—, que es el que sus cifras están contando.
@@ -3265,7 +3295,10 @@
                                         // cuenta, de ese sector o de esa empresa, y sin decirlo se leería como si
                                         // fuera del portafolio entero.
                                         const nombre = (ambito && ambito.nombre) ? ambito.nombre : '';
-                                        const tituloBase = nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida';
+                                        const esTodo = !!ambito && ambito.vista === 'todo';
+                                        const tituloBase = esTodo
+                                            ? (nombre ? `Rendimiento · ${nombre}` : 'Rendimiento total')
+                                            : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
                                         if (tituloEl) tituloEl.textContent = tituloBase;
 
                                         const serie = historicoPreciosListo ? serieHistoricaAccesible(ambito, periodo) : null;
@@ -3304,6 +3337,9 @@
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
+                                        // El rendimiento total puede acabar en pérdida, y entonces la curva lo
+                                        // dice en rojo, como los recuadros del mapa.
+                                        const enRojo = serie.ganancias[ultimo] < -0.005;
 
                                         // Con curva dibujada la tarjeta no lleva pie. Ahí fueron cayendo las
                                         // explicaciones —desde cuándo va la línea, qué parte del portafolio
@@ -3326,13 +3362,14 @@
                                         const escribirDia = (i, conFecha) => {
                                             if (i < 0 || i >= serie.dias.length) return;
                                             const ganancia = serie.ganancias[i];
-                                            // Nunca es negativa: sólo suma las compras que salen sin pérdida. El
-                                            // día que no hay ninguna vale cero, y entonces el verde no dice nada.
-                                            const color = ganancia > 0.005 ? '#3ecf8e' : '#777';
+                                            // Lo accesible nunca es negativo: sólo suma las compras que salen sin
+                                            // pérdida, y el día que no hay ninguna vale cero y el verde no dice
+                                            // nada. El rendimiento total sí puede ir en rojo.
+                                            const color = ganancia > 0.005 ? '#3ecf8e' : ganancia < -0.005 ? '#ff5c5c' : '#777';
 
                                             if (cifraEl) {
                                                 cifraEl.style.color = color;
-                                                cifraEl.textContent = `+${fMoneda(ganancia)} ${simbolo}`;
+                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)} ${simbolo}`;
                                             }
 
                                             if (!tituloEl) return;
@@ -3350,16 +3387,16 @@
                                             data: {
                                                 labels: serie.dias,
                                                 datasets: [{
-                                                    label: 'Accesible',
+                                                    label: serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: serie.ganancias,
-                                                    borderColor: '#3ecf8e',
+                                                    borderColor: enRojo ? '#ff5c5c' : '#3ecf8e',
                                                     borderWidth: 2,
                                                     pointRadius: 0,
                                                     tension: 0.3,
                                                     // Se rellena hasta el cero, que aquí es el suelo de verdad: el
                                                     // área es lo que podrías haberte llevado sin perder.
                                                     fill: true,
-                                                    backgroundColor: rellenoCurvaVerde
+                                                    backgroundColor: enRojo ? rellenoCurvaRoja : rellenoCurvaVerde
                                                 }]
                                             },
                                             options: {
@@ -10259,11 +10296,12 @@
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
                                 // La tarjeta de arriba sigue al mapa: con Inversiones puesto cambia la línea del
-                                // balance por la curva de lo que sale sin pérdida, y la dibuja de lo que el mapa
-                                // tenga abierto. Se avisa aquí, con las capas ya resueltas y antes de que el mapa
+                                // balance por una curva —la de lo que sale sin pérdida con "Accesible", la del
+                                // rendimiento total con "Todo"—, y la dibuja de lo que el mapa tenga abierto. Se avisa aquí, con las capas ya resueltas y antes de que el mapa
                                 // pueda irse por un vacío: también un portafolio sin nada tiene que cambiar de
                                 // cara, o la tarjeta de arriba se quedaría contando otra cosa.
                                 sincronizarCaraInversiones(!esPortafolio ? null : {
+                                    vista: vistaAccesible ? 'accesible' : 'todo',
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     sector: sectorAbierto || null,
                                     categoria: empresaAbierta ? String(empresaAbierta.id) : null,
