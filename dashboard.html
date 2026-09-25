@@ -3494,17 +3494,43 @@
                                     // dos apagándose hacia el cero. Un degradado fijo al recuadro dejaba lo que
                                     // cae bajo cero casi sin color —parecía cortado— y además en verde, así que
                                     // una racha de pérdidas se leía como una ganancia pequeña.
+                                    //
+                                    // Cada color llega a su tono más fuerte en el punto más alejado del cero de
+                                    // su lado —el máximo el verde, el mínimo el rojo— y no en el borde del
+                                    // recuadro: si no, unas pérdidas poco hondas junto a una subida grande
+                                    // quedaban con un rojo que apenas se veía.
                                     function rellenoCurvaDesdeCero(context) {
                                         const { ctx, chartArea, scales } = context.chart;
-                                        if (!chartArea || !scales.y) return 'rgba(62, 207, 142, 0)';
-                                        const alto = chartArea.bottom - chartArea.top;
-                                        if (!(alto > 0)) return 'rgba(62, 207, 142, 0)';
-                                        const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - chartArea.top) / alto));
-                                        const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                        const transparente = 'rgba(62, 207, 142, 0)';
+                                        if (!chartArea || !scales.y) return transparente;
+                                        const datos = (context.chart.data.datasets[context.datasetIndex || 0] || {}).data || [];
+                                        if (datos.length === 0) return transparente;
+                                        const maximo = Math.max(0, ...datos), minimo = Math.min(0, ...datos);
+                                        const arriba = scales.y.getPixelForValue(maximo);
+                                        const abajo = scales.y.getPixelForValue(minimo);
+                                        if (!(abajo - arriba > 0)) return transparente;
+                                        const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - arriba) / (abajo - arriba)));
+                                        const grad = ctx.createLinearGradient(0, arriba, 0, abajo);
                                         grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
                                         grad.addColorStop(cero, 'rgba(62, 207, 142, 0)');
                                         grad.addColorStop(cero, 'rgba(255, 92, 92, 0)');
                                         grad.addColorStop(1, 'rgba(255, 92, 92, 0.95)');
+                                        return grad;
+                                    }
+
+                                    // La línea, del mismo modo: verde mientras va sobre el cero y roja mientras
+                                    // va por debajo, con el cambio justo donde lo cruza.
+                                    function lineaCurvaDesdeCero(context) {
+                                        const { ctx, chartArea, scales } = context.chart;
+                                        if (!chartArea || !scales.y) return '#3ecf8e';
+                                        const alto = chartArea.bottom - chartArea.top;
+                                        if (!(alto > 0)) return '#3ecf8e';
+                                        const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - chartArea.top) / alto));
+                                        const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                        grad.addColorStop(0, '#3ecf8e');
+                                        grad.addColorStop(cero, '#3ecf8e');
+                                        grad.addColorStop(cero, '#ff5c5c');
+                                        grad.addColorStop(1, '#ff5c5c');
                                         return grad;
                                     }
 
@@ -3775,10 +3801,6 @@
                                         const valores = serie.ganancias;
                                         const textoPct = (v) => `${v < 0 ? '' : '+'}${v.toFixed(2)}%`;
 
-                                        // El rendimiento total puede acabar en pérdida, y entonces la curva lo
-                                        // dice en rojo, como los recuadros del mapa.
-                                        const enRojo = valores[ultimo] < -0.005;
-
                                         // Con curva dibujada la tarjeta no lleva pie. Ahí fueron cayendo las
                                         // explicaciones —desde cuándo va la línea, qué parte del portafolio
                                         // cuenta, cuántas compras salían sin pérdida, qué le faltaba al
@@ -3918,9 +3940,15 @@
                                                 datasets: [{
                                                     label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: valores,
-                                                    borderColor: enRojo ? '#ff5c5c' : '#3ecf8e',
+                                                    borderColor: lineaCurvaDesdeCero,
                                                     borderWidth: 1.5,
                                                     pointRadius: 0,
+                                                    // El punto del día que se lee va del color del lado del cero
+                                                    // en que está ese día.
+                                                    pointBackgroundColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
+                                                    pointBorderColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
+                                                    pointHoverBackgroundColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
+                                                    pointHoverBorderColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
                                                     tension: 0.3,
                                                     // Se rellena hasta el cero, que aquí es el suelo de verdad: el
                                                     // área es lo que podrías haberte llevado sin perder.
