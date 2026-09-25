@@ -3490,13 +3490,21 @@
                                         return grad;
                                     }
 
-                                    function rellenoCurvaRoja(context) {
-                                        const { ctx, chartArea } = context.chart;
-                                        if (!chartArea) return 'rgba(255, 92, 92, 0)';
+                                    // El relleno de la curva que cruza el cero: verde arriba y rojo abajo, los
+                                    // dos apagándose hacia el cero. Un degradado fijo al recuadro dejaba lo que
+                                    // cae bajo cero casi sin color —parecía cortado— y además en verde, así que
+                                    // una racha de pérdidas se leía como una ganancia pequeña.
+                                    function rellenoCurvaDesdeCero(context) {
+                                        const { ctx, chartArea, scales } = context.chart;
+                                        if (!chartArea || !scales.y) return 'rgba(62, 207, 142, 0)';
+                                        const alto = chartArea.bottom - chartArea.top;
+                                        if (!(alto > 0)) return 'rgba(62, 207, 142, 0)';
+                                        const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - chartArea.top) / alto));
                                         const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                                        grad.addColorStop(0, 'rgba(255, 92, 92, 0.95)');
-                                        grad.addColorStop(0.85, 'rgba(255, 92, 92, 0.0)');
-                                        grad.addColorStop(1, 'rgba(255, 92, 92, 0.0)');
+                                        grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
+                                        grad.addColorStop(cero, 'rgba(62, 207, 142, 0)');
+                                        grad.addColorStop(cero, 'rgba(255, 92, 92, 0)');
+                                        grad.addColorStop(1, 'rgba(255, 92, 92, 0.95)');
                                         return grad;
                                     }
 
@@ -3917,7 +3925,7 @@
                                                     // Se rellena hasta el cero, que aquí es el suelo de verdad: el
                                                     // área es lo que podrías haberte llevado sin perder.
                                                     fill: true,
-                                                    backgroundColor: enRojo ? rellenoCurvaRoja : rellenoCurvaVerde
+                                                    backgroundColor: rellenoCurvaDesdeCero
                                                 }]
                                             },
                                             options: {
