@@ -3477,19 +3477,6 @@
                                         sincronizarCaraInversiones(CURVAS.principal.ambito);
                                     }
 
-                                    // El relleno de las dos gráficas de la tarjeta: verde arriba, que se apaga
-                                    // hacia abajo. Va en coordenadas del lienzo, así que se calcula en cada
-                                    // dibujo y no puede ser una constante.
-                                    function rellenoCurvaVerde(context) {
-                                        const { ctx, chartArea } = context.chart;
-                                        if (!chartArea) return 'rgba(62, 207, 142, 0)';
-                                        const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                                        grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
-                                        grad.addColorStop(0.85, 'rgba(62, 207, 142, 0.0)');
-                                        grad.addColorStop(1, 'rgba(62, 207, 142, 0.0)');
-                                        return grad;
-                                    }
-
                                     // El relleno de la curva que cruza el cero: verde arriba y rojo abajo, los
                                     // dos apagándose hacia el cero. Un degradado fijo al recuadro dejaba lo que
                                     // cae bajo cero casi sin color —parecía cortado— y además en verde, así que
@@ -11812,6 +11799,28 @@
 
             const usarLinea = datosGraf.length > 160;
 
+            // En línea son muchos días: se quitan puntos igual que en la curva de inversiones, sin
+            // perder la forma. Hoy y el primer día de proyección se quedan siempre, porque ahí se
+            // para la raya y ahí empieza el tramo punteado.
+            if (usarLinea) {
+                const ahora = new Date();
+                ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset());
+                const hoyISO = ahora.toISOString().slice(0, 10);
+                const fijos = [
+                    datosGraf.findIndex(d => d.fecha.startsWith(hoyISO)),
+                    datosGraf.findIndex(d => d.esFuturo)
+                ].filter(i => i >= 0).map(i => ({ indice: i }));
+                const reducida = reducirSerie({
+                    dias: fe.slice(),
+                    ganancias: datosLinea.slice(),
+                    posiciones: datosGraf.map((_, i) => i),
+                    marcas: fijos
+                }, Math.max(60, Math.round((canvas.clientWidth || 300) / 3)));
+                datosGraf = reducida.posiciones.map(i => datosGraf[i]);
+                fe.splice(0, fe.length, ...reducida.dias);
+                datosLinea.splice(0, datosLinea.length, ...reducida.ganancias);
+            }
+
             const detallesEl = document.getElementById('detallesGrafico');
             const tituloTendenciaEl = document.getElementById('tituloTendencia');
             
@@ -11884,16 +11893,26 @@
                     datasets: [{
                         label: 'Flujo de Balance',
                         data: usarLinea ? datosLinea : datosFlotantes,
-                        backgroundColor: usarLinea ? rellenoCurvaVerde : coloresBarras,
-                        borderColor: usarLinea ? '#3ecf8e' : undefined,
-                        borderWidth: usarLinea ? 2 : 0,
+                        // En línea, lo mismo que la curva de inversiones: verde sobre el cero y
+                        // rojo por debajo, la línea y el relleno.
+                        backgroundColor: usarLinea ? rellenoCurvaDesdeCero : coloresBarras,
+                        borderColor: usarLinea ? lineaCurvaDesdeCero : undefined,
+                        borderWidth: usarLinea ? 1.5 : 0,
                         pointRadius: 0,
+                        pointBackgroundColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
+                        pointBorderColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
+                        pointHoverBackgroundColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
+                        pointHoverBorderColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
                         tension: 0.3,
                         fill: usarLinea,
                         borderRadius: usarLinea ? 0 : 4,
                         borderSkipped: false,
                         segment: usarLinea ? {
-                            borderColor: ctxSegment => datosGraf[ctxSegment.p1DataIndex]?.esFuturo ? 'rgba(62, 207, 142, 0.4)' : '#3ecf8e',
+                            // La proyección, apagada y del color de su lado del cero; lo demás toma
+                            // el de la línea.
+                            borderColor: ctxSegment => datosGraf[ctxSegment.p1DataIndex]?.esFuturo
+                                ? (ctxSegment.p1.parsed.y < 0 ? 'rgba(255, 92, 92, 0.4)' : 'rgba(62, 207, 142, 0.4)')
+                                : undefined,
                             borderDash: ctxSegment => datosGraf[ctxSegment.p1DataIndex]?.esFuturo ? [5, 5] : undefined
                         } : undefined
                     }]
