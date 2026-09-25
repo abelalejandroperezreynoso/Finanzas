@@ -3507,6 +3507,60 @@
                                     // Las dos gráficas de la tarjeta la comparten: es la misma pieza del mismo
                                     // dibujo, y tenerla escrita dos veces era arriesgarse a que una se quedara
                                     // atrás el día que se tocara la otra.
+                                    // Menos puntos sin perder la forma: con años de días la línea se volvía un
+                                    // serrucho de picos de un píxel. Se usa "el triángulo más grande" (LTTB):
+                                    // la serie se parte en tramos y de cada uno se queda el día que más forma le
+                                    // da a la línea, así que los picos y los hoyos de verdad sobreviven y el
+                                    // ruido de día a día se va. El primer día, el último, el más alto, el más
+                                    // bajo y los días con compra o venta se quedan siempre.
+                                    function reducirSerie(serie, maxPuntos) {
+                                        const n = serie.dias.length;
+                                        if (!(maxPuntos >= 3) || n <= maxPuntos) return serie;
+                                        const v = serie.ganancias;
+                                        const elegidos = new Set([0, n - 1]);
+
+                                        const tramo = (n - 2) / (maxPuntos - 2);
+                                        let a = 0;
+                                        for (let i = 0; i < maxPuntos - 2; i++) {
+                                            // El promedio del tramo siguiente es el tercer vértice del triángulo
+                                            const sigIni = Math.floor((i + 1) * tramo) + 1;
+                                            const sigFin = Math.min(n, Math.floor((i + 2) * tramo) + 1);
+                                            let promX = 0, promY = 0;
+                                            for (let j = sigIni; j < sigFin; j++) { promX += j; promY += v[j]; }
+                                            const cuenta = Math.max(1, sigFin - sigIni);
+                                            promX /= cuenta; promY /= cuenta;
+
+                                            const ini = Math.floor(i * tramo) + 1;
+                                            const fin = Math.min(n - 1, Math.floor((i + 1) * tramo) + 1);
+                                            let mejor = ini, area = -1;
+                                            for (let j = ini; j < fin; j++) {
+                                                const ar = Math.abs((a - promX) * (v[j] - v[a]) - (a - j) * (promY - v[a]));
+                                                if (ar > area) { area = ar; mejor = j; }
+                                            }
+                                            elegidos.add(mejor);
+                                            a = mejor;
+                                        }
+
+                                        let iMax = 0, iMin = 0;
+                                        v.forEach((x, i) => { if (x > v[iMax]) iMax = i; if (x < v[iMin]) iMin = i; });
+                                        elegidos.add(iMax); elegidos.add(iMin);
+                                        (serie.marcas || []).forEach(m => elegidos.add(m.indice));
+
+                                        const indices = Array.from(elegidos).sort((x, y) => x - y);
+                                        const nuevoIndice = {};
+                                        indices.forEach((viejo, nuevo) => { nuevoIndice[viejo] = nuevo; });
+
+                                        // Todo lo que va día por día se recorta igual; lo demás pasa tal cual.
+                                        const reducida = {};
+                                        Object.keys(serie).forEach(k => {
+                                            reducida[k] = Array.isArray(serie[k]) && serie[k].length === n
+                                                ? indices.map(i => serie[k][i])
+                                                : serie[k];
+                                        });
+                                        if (serie.marcas) reducida.marcas = serie.marcas.map(m => ({ ...m, indice: nuevoIndice[m.indice] }));
+                                        return reducida;
+                                    }
+
                                     function crearPluginLineaVertical(indicePorDefecto) {
                                         return {
                                             id: 'lineaVertical',
@@ -3665,7 +3719,7 @@
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
                                         if (tituloEl) tituloEl.textContent = tituloBase;
 
-                                        const serie = !historicoPreciosListo ? null
+                                        let serie = !historicoPreciosListo ? null
                                             : esDolar ? serieTipoCambio(ambito, periodo)
                                             : serieHistoricaAccesible(ambito, periodo);
                                         const hayCurva = !!serie && !serie.fueraDePeriodo;
@@ -3702,6 +3756,10 @@
                                         }
 
                                         if (caja) caja.style.display = 'block';
+
+                                        // Unos tres píxeles por punto: más ya no se distinguen en pantalla y
+                                        // sólo ensucian la línea.
+                                        serie = reducirSerie(serie, Math.max(60, Math.round((lienzo.clientWidth || (caja && caja.clientWidth) || 300) / 3)));
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
