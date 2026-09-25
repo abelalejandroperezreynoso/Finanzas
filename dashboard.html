@@ -2828,6 +2828,8 @@
                                             const recibidoMxn = montoMxn > 0 ? montoMxn : recibidoUsd * tcVenta;
 
                                             const peso = pesos[String(m.cat.id)];
+                                            // Con plusvalía o minusvalía: decide el color de su punto en la curva.
+                                            m.resultado = enPesos ? recibidoMxn - costoVendidoMxn : recibidoUsd - costoVendidoUsd;
                                             realizadoMxn += (recibidoMxn - costoVendidoMxn) * peso;
                                             realizadoUsd += (recibidoUsd - costoVendidoUsd) * peso;
                                         };
@@ -2955,14 +2957,19 @@
                                         const marcas = [];
                                         const indiceDia = {};
                                         dias.forEach((d, i) => { indiceDia[d] = i; });
+                                        // Varias ventas del mismo día cuentan juntas: el punto dice si ese día
+                                        // se vendió, en total, con plusvalía o con minusvalía.
                                         const vistas = {};
                                         movs.forEach(m => {
                                             const i = indiceDia[m.dia];
                                             if (i === undefined) return;
                                             const tipo = esCompraInversion(m.u) ? 'compra' : 'venta';
-                                            if (vistas[`${i}|${tipo}`]) return;
-                                            vistas[`${i}|${tipo}`] = true;
-                                            marcas.push({ indice: i, tipo });
+                                            const clave = `${i}|${tipo}`;
+                                            if (!vistas[clave]) {
+                                                vistas[clave] = { indice: i, tipo, resultado: 0 };
+                                                marcas.push(vistas[clave]);
+                                            }
+                                            if (tipo === 'venta') vistas[clave].resultado += m.resultado || 0;
                                         });
 
                                         return { dias, ganancias, costos, enPesos, todo, marcas };
@@ -3814,7 +3821,8 @@
                                         };
 
                                         // Dentro de una empresa, un punto pequeño en cada día que se compró
-                                        // (blanco) o se vendió (naranja), encima de la línea.
+                                        // (blanco) o se vendió: verde si fue con plusvalía, rojo si fue con
+                                        // minusvalía.
                                         const marcasCompraVenta = (ambito && ambito.categoria && !esDolar && serie.marcas) ? serie.marcas : [];
                                         const pluginMarcasCompraVenta = {
                                             id: 'marcasCompraVenta',
@@ -3831,7 +3839,7 @@
                                                     const dx = doble ? (m.tipo === 'compra' ? -3 : 3) : 0;
                                                     c.beginPath();
                                                     c.arc(p.x + dx, p.y, 3.5, 0, Math.PI * 2);
-                                                    c.fillStyle = m.tipo === 'compra' ? '#ffffff' : '#ffa53e';
+                                                    c.fillStyle = m.tipo === 'compra' ? '#ffffff' : m.resultado < 0 ? '#ff5c5c' : '#3ecf8e';
                                                     c.fill();
                                                     c.lineWidth = 1.5;
                                                     c.strokeStyle = '#000000';
