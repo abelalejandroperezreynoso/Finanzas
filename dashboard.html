@@ -3521,6 +3521,36 @@
                                         return grad;
                                     }
 
+                                    // El aspecto de toda gráfica de línea de la app, en un solo sitio: la curva
+                                    // de inversiones y el balance en línea lo toman de aquí, así que un cambio
+                                    // de grosor, de colores o de relleno les llega a las dos a la vez.
+                                    const PIXELES_POR_PUNTO_CURVA = 3;
+                                    const MIN_PUNTOS_CURVA = 60;
+
+                                    // Cuántos puntos dibujar según el ancho del lienzo (ver reducirSerie).
+                                    function maxPuntosCurva(ancho) {
+                                        return Math.max(MIN_PUNTOS_CURVA, Math.round((ancho || 300) / PIXELES_POR_PUNTO_CURVA));
+                                    }
+
+                                    function estiloCurva() {
+                                        // El punto del día que se lee va del color del lado del cero en que
+                                        // está ese día.
+                                        const colorPunto = c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e';
+                                        return {
+                                            borderColor: lineaCurvaDesdeCero,
+                                            borderWidth: 1.5,
+                                            pointRadius: 0,
+                                            pointBackgroundColor: colorPunto,
+                                            pointBorderColor: colorPunto,
+                                            pointHoverBackgroundColor: colorPunto,
+                                            pointHoverBorderColor: colorPunto,
+                                            tension: 0.3,
+                                            // Se rellena hasta el cero, que es el suelo de verdad.
+                                            fill: true,
+                                            backgroundColor: rellenoCurvaDesdeCero
+                                        };
+                                    }
+
                                     // La raya de puntos que marca el día que se está leyendo. Sin dedo encima se
                                     // queda en el día que cada gráfica tenga por suyo —hoy en el balance, el
                                     // último dibujado en la curva—, que es el que sus cifras están contando.
@@ -3780,7 +3810,7 @@
 
                                         // Unos tres píxeles por punto: más ya no se distinguen en pantalla y
                                         // sólo ensucian la línea.
-                                        serie = reducirSerie(serie, Math.max(60, Math.round((lienzo.clientWidth || (caja && caja.clientWidth) || 300) / 3)));
+                                        serie = reducirSerie(serie, maxPuntosCurva(lienzo.clientWidth || (caja && caja.clientWidth)));
 
                                         const simbolo = serie.enPesos ? 'MXN' : 'USD';
                                         const ultimo = serie.dias.length - 1;
@@ -3927,20 +3957,7 @@
                                                 datasets: [{
                                                     label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: valores,
-                                                    borderColor: lineaCurvaDesdeCero,
-                                                    borderWidth: 1.5,
-                                                    pointRadius: 0,
-                                                    // El punto del día que se lee va del color del lado del cero
-                                                    // en que está ese día.
-                                                    pointBackgroundColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
-                                                    pointBorderColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
-                                                    pointHoverBackgroundColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
-                                                    pointHoverBorderColor: c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e',
-                                                    tension: 0.3,
-                                                    // Se rellena hasta el cero, que aquí es el suelo de verdad: el
-                                                    // área es lo que podrías haberte llevado sin perder.
-                                                    fill: true,
-                                                    backgroundColor: rellenoCurvaDesdeCero
+                                                    ...estiloCurva()
                                                 }]
                                             },
                                             options: {
@@ -11815,7 +11832,7 @@
                     ganancias: datosLinea.slice(),
                     posiciones: datosGraf.map((_, i) => i),
                     marcas: fijos
-                }, Math.max(60, Math.round((canvas.clientWidth || 300) / 3)));
+                }, maxPuntosCurva(canvas.clientWidth));
                 datosGraf = reducida.posiciones.map(i => datosGraf[i]);
                 fe.splice(0, fe.length, ...reducida.dias);
                 datosLinea.splice(0, datosLinea.length, ...reducida.ganancias);
@@ -11893,18 +11910,12 @@
                     datasets: [{
                         label: 'Flujo de Balance',
                         data: usarLinea ? datosLinea : datosFlotantes,
-                        // En línea, lo mismo que la curva de inversiones: verde sobre el cero y
-                        // rojo por debajo, la línea y el relleno.
-                        backgroundColor: usarLinea ? rellenoCurvaDesdeCero : coloresBarras,
-                        borderColor: usarLinea ? lineaCurvaDesdeCero : undefined,
-                        borderWidth: usarLinea ? 1.5 : 0,
-                        pointRadius: 0,
-                        pointBackgroundColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
-                        pointBorderColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
-                        pointHoverBackgroundColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
-                        pointHoverBorderColor: usarLinea ? (c => c.raw < 0 ? '#ff5c5c' : '#3ecf8e') : undefined,
-                        tension: 0.3,
-                        fill: usarLinea,
+                        // En línea, el mismo aspecto que la curva de inversiones.
+                        ...(usarLinea ? estiloCurva() : {
+                            backgroundColor: coloresBarras,
+                            borderWidth: 0,
+                            pointRadius: 0
+                        }),
                         borderRadius: usarLinea ? 0 : 4,
                         borderSkipped: false,
                         segment: usarLinea ? {
