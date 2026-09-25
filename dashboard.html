@@ -3842,7 +3842,9 @@
                                                     c.fillStyle = m.tipo === 'compra' ? '#ffffff' : m.resultado < 0 ? '#ff5c5c' : '#3ecf8e';
                                                     c.fill();
                                                     c.lineWidth = 1.5;
-                                                    c.strokeStyle = '#000000';
+                                                    // La venta con plusvalía lleva el contorno blanco: verde sobre
+                                                    // la línea verde, con uno negro casi no se veía.
+                                                    c.strokeStyle = (m.tipo === 'venta' && !(m.resultado < 0)) ? '#ffffff' : '#000000';
                                                     c.stroke();
                                                 });
                                                 c.restore();
