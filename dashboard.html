@@ -2949,7 +2949,23 @@
                                         // Hubo compras, pero ninguna había ocurrido todavía dentro del recorte: no
                                         // es lo mismo que no tener acciones, y el pie lo dice de otra manera.
                                         if (dias.length === 0) return { fueraDePeriodo: true };
-                                        return { dias, ganancias, costos, enPesos, todo };
+
+                                        // Los días en que se compró o se vendió, para marcarlos sobre la curva
+                                        // de una empresa. Un día con las dos cosas lleva las dos marcas.
+                                        const marcas = [];
+                                        const indiceDia = {};
+                                        dias.forEach((d, i) => { indiceDia[d] = i; });
+                                        const vistas = {};
+                                        movs.forEach(m => {
+                                            const i = indiceDia[m.dia];
+                                            if (i === undefined) return;
+                                            const tipo = esCompraInversion(m.u) ? 'compra' : 'venta';
+                                            if (vistas[`${i}|${tipo}`]) return;
+                                            vistas[`${i}|${tipo}`] = true;
+                                            marcas.push({ indice: i, tipo });
+                                        });
+
+                                        return { dias, ganancias, costos, enPesos, todo, marcas };
                                     }
 
                                     // El botón de los ajustes: guarda la clave, dispara la traída y va
@@ -3797,6 +3813,34 @@
                                             }
                                         };
 
+                                        // Dentro de una empresa, un punto pequeño en cada día que se compró
+                                        // (blanco) o se vendió (naranja), encima de la línea.
+                                        const marcasCompraVenta = (ambito && ambito.categoria && !esDolar && serie.marcas) ? serie.marcas : [];
+                                        const pluginMarcasCompraVenta = {
+                                            id: 'marcasCompraVenta',
+                                            afterDatasetsDraw: chart => {
+                                                if (marcasCompraVenta.length === 0) return;
+                                                const meta = chart.getDatasetMeta(0);
+                                                const c = chart.ctx;
+                                                c.save();
+                                                marcasCompraVenta.forEach(m => {
+                                                    const p = meta.data[m.indice];
+                                                    if (!p) return;
+                                                    // Si el mismo día hubo compra y venta, se separan un poco.
+                                                    const doble = marcasCompraVenta.some(o => o.indice === m.indice && o.tipo !== m.tipo);
+                                                    const dx = doble ? (m.tipo === 'compra' ? -3 : 3) : 0;
+                                                    c.beginPath();
+                                                    c.arc(p.x + dx, p.y, 3.5, 0, Math.PI * 2);
+                                                    c.fillStyle = m.tipo === 'compra' ? '#ffffff' : '#ffa53e';
+                                                    c.fill();
+                                                    c.lineWidth = 1.5;
+                                                    c.strokeStyle = '#000000';
+                                                    c.stroke();
+                                                });
+                                                c.restore();
+                                            }
+                                        };
+
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
                                         // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
                                         // día. Las dos ocupan el mismo hueco de la misma tarjeta, así que una que
@@ -3833,7 +3877,7 @@
                                                     tooltip: { enabled: false }
                                                 }
                                             },
-                                            plugins: [crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
+                                            plugins: [pluginMarcasCompraVenta, crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
                                         });
                                         destino.chart.$escribirTramo = escribirTramo;
 
