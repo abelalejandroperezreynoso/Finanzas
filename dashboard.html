@@ -171,8 +171,10 @@
 .caja-resumen h4 { margin: 0 0 10px 0; font-size: 0.75em; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .caja-resumen span { font-size: clamp(0.85em, 4vw, 1.1em); font-weight: bold; display: block; word-break: break-all; }
 
-.movimiento-info { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.movimiento-info { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
 .movimiento-info strong, .movimiento-info small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* La descripción, en un solo renglón: lo que no quepa se corta con puntos suspensivos */
+.movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
         .seccion { display: none; animation: fadeIn 0.3s; }
         .seccion.activa { display: block; }
@@ -9115,6 +9117,13 @@
                                                                                                                                                     montoAbajoHtml = infoRendimientoDerecha;
                                                                                                                                                 }
 
+                                                                                                                                                // Al menos un renglón de la descripción, aunque no quepa entera: es
+                                                                                                                                                // lo que distingue dos movimientos de la misma categoría.
+                                                                                                                                                const textoDescripcion = String(r.descripcion || '').replace(/\s+/g, ' ').trim();
+                                                                                                                                                const descripcionRenglon = textoDescripcion
+                                                                                                                                                    ? `<small class="movimiento-desc">${escaparHtml(textoDescripcion)}</small>`
+                                                                                                                                                    : '';
+
                                                                                                                                                 const esNuevo = esMovimientoNuevo(r.id);
                                                                                                                                                 const retrasoNuevo = esNuevo ? cuantosNuevosPintados++ * RETRASO_ENTRE_MOVS_NUEVOS : 0;
 
@@ -9139,6 +9148,7 @@
                                                                                                                                                             ${fechaFormateada} <span style="color: #444; margin: 0 4px;">|</span>
                                                                                                                                                             <i style="color: #888;">${nombreCuenta}</i>
                                                                                                                                                             </small>
+                                                                                                                                                            ${descripcionRenglon}
                                                                                                                                                             ${infoAcciones}
                                                                                                                                                             </div>
                                                                                                                                                             <div style="text-align:right; margin-left:10px; display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-end;">
