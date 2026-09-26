@@ -8187,6 +8187,13 @@
     // insert y el update se conservan aquí para colarlas en la lista mientras la consulta
     // no llegue hasta ellas.
     const LIMITE_REGISTROS_HISTORIAL = 50;
+    // Cuántos trae ahora la consulta: crece con "Cargar más" y se queda así en las recargas,
+    // para que guardar algo no devuelva la lista a los primeros cincuenta.
+    let limiteHistorialBase = LIMITE_REGISTROS_HISTORIAL;
+    // Lo que dejó la última consulta: si llenó la ventana, puede haber más en la base, y
+    // hasta qué día llegó, para saber si al periodo elegido le falta algo.
+    let ventanaHistorialLlena = false;
+    let diaMasViejoHistorial = '';
     let registrosRecienGuardados = [];
 
     function recordarRegistrosRecienGuardados(regs) {
@@ -8237,7 +8244,7 @@
         if (registrosRecienGuardados.length === 0) return regs;
 
         const presentes = new Set(regs.map(r => String(r.id)));
-        const ventanaLlena = regs.length >= LIMITE_REGISTROS_HISTORIAL;
+        const ventanaLlena = regs.length >= limiteHistorialBase;
         const masAntiguoCargado = ventanaLlena ? Math.min(...regs.map(msDeFechaRegistro)) : -Infinity;
 
         registrosRecienGuardados = registrosRecienGuardados.filter(r =>
@@ -8254,8 +8261,10 @@
                 .from('registros')
                 .select('*, cantidad_acciones, categorias(nombre, tipo)')
                 .order('fecha', { ascending: false })
-                .limit(LIMITE_REGISTROS_HISTORIAL);
+                .limit(limiteHistorialBase);
 
+            ventanaHistorialLlena = (regs || []).length >= limiteHistorialBase;
+            diaMasViejoHistorial = (regs || []).length ? obtenerFechaLocalCortada(regs[regs.length - 1].fecha) : '';
             datosRegistros = fusionarRegistrosRecienGuardados(regs || []);
 
             // Detecta la zona horaria real del dispositivo (ej. "America/Mexico_City" o "Europe/Madrid")
@@ -8767,6 +8776,68 @@
                                 return false;
                             }
 
+                            // --- "CARGAR MÁS" DEL LISTADO DE MOVIMIENTOS ---
+                            // La lista pinta de cien en cien, y la base sólo trae de entrada los últimos
+                            // movimientos (y la búsqueda, los primeros cien). El botón del final sigue
+                            // por lo que ya está en memoria y, cuando se acaba, pide la siguiente tanda.
+                            const TANDA_HISTORIAL = 100;
+                            let visiblesHistorial = TANDA_HISTORIAL;
+                            let conservarVisiblesHistorial = false;
+                            let ultimaListaHistorial = [];
+                            let limiteBusquedaHistorial = TANDA_HISTORIAL;
+                            let busquedaHistorialLlena = false;
+                            let textoBusquedaHistorial = '';
+
+                            // Si en la base queda algo que esta lista debería enseñar. Categoría y cuenta
+                            // traen todos sus movimientos, así que sólo cuentan la vista normal y la búsqueda.
+                            function puedeTraerMasHistorial() {
+                                const filtro = window.filtroMovimientosActivo;
+                                if (filtro && filtro.tipo === 'busqueda') return busquedaHistorialLlena;
+                                if (filtro) return false;
+                                if (!ventanaHistorialLlena) return false;
+                                // Si lo cargado ya llega a antes del periodo elegido, a éste no le falta nada
+                                const inicio = document.getElementById('filtroInicio')?.value || '';
+                                return !inicio || !diaMasViejoHistorial || diaMasViejoHistorial >= inicio;
+                            }
+
+                            async function cargarMasHistorial(boton) {
+                                if (boton) { boton.disabled = true; boton.textContent = 'Cargando…'; }
+                                const antes = visiblesHistorial;
+                                visiblesHistorial += TANDA_HISTORIAL;
+                                conservarVisiblesHistorial = true;
+
+                                if (ultimaListaHistorial.length > antes) {
+                                    actualizarResumenEHistorial(ultimaListaHistorial);
+                                    return;
+                                }
+
+                                const filtro = window.filtroMovimientosActivo;
+                                if (filtro && filtro.tipo === 'busqueda') {
+                                    limiteBusquedaHistorial += TANDA_HISTORIAL;
+                                    buscarEnTodosLosMovimientos();
+                                    return;
+                                }
+
+                                limiteHistorialBase += TANDA_HISTORIAL;
+                                const { data: regs, error } = await clienteSupabase
+                                    .from('registros')
+                                    .select('*, cantidad_acciones, categorias(nombre, tipo)')
+                                    .order('fecha', { ascending: false })
+                                    .limit(limiteHistorialBase);
+                                if (error) {
+                                    console.error('Error al cargar más movimientos:', error.message);
+                                    limiteHistorialBase -= TANDA_HISTORIAL;
+                                    visiblesHistorial = antes;
+                                    conservarVisiblesHistorial = false;
+                                    if (boton) { boton.disabled = false; boton.textContent = 'Cargar más'; }
+                                    return;
+                                }
+                                ventanaHistorialLlena = (regs || []).length >= limiteHistorialBase;
+                                diaMasViejoHistorial = (regs || []).length ? obtenerFechaLocalCortada(regs[regs.length - 1].fecha) : '';
+                                datosRegistros = fusionarRegistrosRecienGuardados(regs || []);
+                                aplicarFiltrosYRenderizar();
+                            }
+
                             function esMovimientoNuevo(id) {
                                 if (idsMovimientosNuevos.size === 0) return false;
                                 if (Date.now() - momentoMarcaMovsNuevos > VIGENCIA_MARCA_MOVS_NUEVOS) {
@@ -8811,6 +8882,12 @@
                                                         const lista = document.getElementById('listaHistorial');
                                                         if (!lista) return;
 
+                                                        // Cuántos se pintan: vuelve a la primera tanda con cada lista nueva,
+                                                        // salvo cuando la trae el propio "Cargar más".
+                                                        if (!conservarVisiblesHistorial) visiblesHistorial = TANDA_HISTORIAL;
+                                                        conservarVisiblesHistorial = false;
+                                                        ultimaListaHistorial = regsFiltro;
+
                                                         // Los recién guardados entran en cascada, en el orden en que salen en la lista
                                                         let cuantosNuevosPintados = 0;
 
@@ -8827,8 +8904,8 @@
 
                                             let grupoActual = null;
                                             
-                                            // NUEVO: Límite de seguridad. El gráfico procesa miles, pero el DOM solo renderiza 100
-                                            const registrosVisibles = regsFiltro.slice(0, 100);
+                                            // El gráfico procesa miles, pero la lista pinta por tandas
+                                            const registrosVisibles = regsFiltro.slice(0, visiblesHistorial);
 
                                             registrosVisibles.forEach(r => {
                                             const fechaLimpia = r.fecha ? r.fecha.replace(' ', 'T') : '';
@@ -9160,6 +9237,15 @@
                                                                                                                                                             </li>`;
                                             });
                                             
+                                            // Si la lista no está completa —quedan por pintar o quedan en la base—
+                                            // lo dice al final, con la forma de seguir.
+                                            if (regsFiltro.length > visiblesHistorial || puedeTraerMasHistorial()) {
+                                                htmlAcumulado += `
+                                                <li style="background: transparent; border: none; padding: 16px 0 8px 0;">
+                                                    <button type="button" onclick="cargarMasHistorial(this)" style="width: 100%; padding: 12px; margin: 0; background: #1c1c1e; color: #ffffff; border: 1px solid #333; border-radius: 8px; font-size: 0.95em; cursor: pointer;">Cargar más</button>
+                                                </li>`;
+                                            }
+
                                             // NUEVO: Asignamos todo al DOM en un solo movimiento
                                             lista.innerHTML = htmlAcumulado;
 
@@ -16660,6 +16746,12 @@
                     function buscarEnTodosLosMovimientos() {
                         const textoBusqueda = document.getElementById('buscadorMovimientos').value.trim();
 
+                        // Otra búsqueda empieza otra vez por los primeros cien
+                        if (textoBusqueda !== textoBusquedaHistorial) {
+                            textoBusquedaHistorial = textoBusqueda;
+                            limiteBusquedaHistorial = TANDA_HISTORIAL;
+                        }
+
                         // 1. Si el buscador se vacía, cancelamos cualquier búsqueda pendiente y restauramos la vista normal al instante
                         if (textoBusqueda === '') {
                             window.filtroMovimientosActivo = null; // NUEVO: Limpiar memoria
@@ -16701,8 +16793,9 @@
                     .select('*, categorias(nombre, tipo)')
                     .or(orQuery)
                     .order('fecha', { ascending: false })
-                    .limit(100); // Límite generoso para no sobrecargar el DOM
+                    .limit(limiteBusquedaHistorial);
 
+                    busquedaHistorialLlena = !error && (data || []).length >= limiteBusquedaHistorial;
                     if (error) {
                                         console.error("Error en búsqueda:", error.message);
                                         document.getElementById('textoRangoFechas').textContent = `Error al buscar`;
