@@ -978,6 +978,11 @@
                 /* El tamaño de partida del saldo. Va en la hoja de estilos y no en el atributo style
                    del elemento porque ajustarSaldoAlAncho() borra su font-size en línea para volver a
                    medir, y necesita que quede este valor debajo al que regresar. */
+                /* El tamaño de partida del pie del mapa de categorías, por lo mismo que el del saldo:
+                   ajustarPieAlAncho() borra el font-size en línea para volver a medir. Estaba en el
+                   atributo style y se borraba con él, así que el pie volvía a la letra entera. */
+                #totalTreemapCategorias { font-size: 0.85em; }
+
                 #saldoTotalDisponible {
                     font-size: clamp(1.8em, 10vw, 3.5em);
                     font-weight: bold;
@@ -1403,7 +1408,7 @@
             <canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
         </div>
 
-        <div id="totalTreemapCategorias" style="padding: 10px 0 2px 0; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px;"></div>
+        <div id="totalTreemapCategorias" style="padding: 10px 0 2px 0; color: #ccc; border-top: 1px solid #333; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px;"></div>
     </div>
     <!-- FIN TARJETA DE MAPA DE CATEGORÍAS -->
 
@@ -8356,6 +8361,8 @@
                             const TAMANO_MINIMO_PIE = 9;
                             function ajustarPieAlAncho(el) {
                                 if (!el) return;
+                                // Escondido no hay ancho con que medir: se deja como está y se mide al verse
+                                if (el.getClientRects().length === 0 || !el.clientWidth) return;
 
                                 // Se suelta el tamaño anterior para medir desde el que decide el CSS: si no, cada
                                 // ajuste partiría del anterior y el error se iría acumulando —y al ensanchar la
@@ -8408,6 +8415,16 @@
                                     anchoSaldoPrevio = ancho;
                                     if (ancho > 0) ajustarSaldoAlAncho();
                                 }).observe(saldoEl);
+
+                                // Lo mismo para el pie del mapa de categorías
+                                const pieEl = document.getElementById('totalTreemapCategorias');
+                                let anchoPiePrevio = -1;
+                                if (pieEl) new ResizeObserver(entradas => {
+                                    const ancho = Math.round(entradas[0].contentRect.width);
+                                    if (ancho === anchoPiePrevio) return;
+                                    anchoPiePrevio = ancho;
+                                    if (ancho > 0) ajustarPieAlAncho(pieEl);
+                                }).observe(pieEl);
                             }
 
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
