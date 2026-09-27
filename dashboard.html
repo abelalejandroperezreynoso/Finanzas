@@ -4795,6 +4795,10 @@
                             if (id === 'sec-inicio') {
                             // La tarjeta ya tiene medidas: si quedó un mapa por dibujar, es el momento
                             reintentarTreemapPendiente();
+                            // Y el saldo y el pie del mapa, que pudieron cambiar mientras el inicio no se
+                            // veía y entonces no había ancho con el que medirlos
+                            ajustarSaldoAlAncho();
+                            ajustarPieAlAncho(document.getElementById('totalTreemapCategorias'));
                             }
                             if (id === 'sec-lista' && filtroPorDefectoPuesto && hayFiltroDeTiempoActivo()) {
                             // Gestión de Datos es para repasar y tocar los movimientos, y ahí el recorte de
@@ -8308,6 +8312,12 @@
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
 
+                                // Con el inicio escondido —abierta Configuración o Gestión de Datos— la cifra no
+                                // tiene ancho que medir. Antes se soltaba el tamaño y se salía sin poner otro, así
+                                // que guardar algo desde otra sección dejaba el saldo con el tamaño de partida del
+                                // CSS, más chico. Ahora se deja como está y se mide al volver a verse (abajo).
+                                if (el.getClientRects().length === 0) return;
+
                                 // Se suelta el tamaño anterior para medir desde el que decide el CSS: si no, cada
                                 // ajuste partiría del anterior y el error se iría acumulando.
                                 el.style.fontSize = '';
@@ -8385,6 +8395,20 @@
                                 ajustarSaldoAlAncho();
                                 ajustarPieAlAncho(document.getElementById('totalTreemapCategorias'));
                             });
+
+                            // Al volver a enseñarse el inicio, la cifra pasa de no tener ancho a tenerlo: es el
+                            // momento de medirla, que mientras estuvo escondida pudo cambiar sin poder medirse.
+                            // Sólo cuenta el ancho; el alto cambia con la propia letra y no debe volver a llamar.
+                            if (window.ResizeObserver) {
+                                const saldoEl = document.getElementById('saldoTotalDisponible');
+                                let anchoSaldoPrevio = -1;
+                                if (saldoEl) new ResizeObserver(entradas => {
+                                    const ancho = Math.round(entradas[0].contentRect.width);
+                                    if (ancho === anchoSaldoPrevio) return;
+                                    anchoSaldoPrevio = ancho;
+                                    if (ancho > 0) ajustarSaldoAlAncho();
+                                }).observe(saldoEl);
+                            }
 
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
