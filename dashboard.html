@@ -6925,14 +6925,14 @@
                                 // movimientos directos. En una venta todo queda en dólares (no se pide), y en
                                 // una compra solo sirve de estimación del costo MXN si la caja está vacía.
                                 //
-                                // Al editar se enseña siempre: el registro ya lleva uno guardado, y escondido no
-                                // había forma de corregirlo cuando se quedó mal —un 1779.68 sin punto decimal
-                                // sólo se podía cambiar por el de hoy, no por el del día de la compra—.
+                                // En una venta se enseña al editar: con él se pasan a pesos los dólares que
+                                // se recibieron, así que un valor mal guardado sí cambia las cifras y tiene
+                                // que poder corregirse. En una compra con caja no: su costo en pesos sale de
+                                // la aportación que trajo los dólares, y el TC del registro no se usa.
                                 const divTC = document.getElementById('divRegTipoCambio');
-                                const editandoMovimiento = !!editIdMov;
                                 let muestraTC = true;
-                                if (tipoInv === 'venta') muestraTC = editandoMovimiento;
-                                if (tipoInv === 'compra') muestraTC = !hayCaja || editandoMovimiento;
+                                if (tipoInv === 'venta') muestraTC = !!editIdMov;
+                                if (tipoInv === 'compra') muestraTC = !hayCaja;
                                 divTC.style.display = muestraTC ? '' : 'none';
 
                                 labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
