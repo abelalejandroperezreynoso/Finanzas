@@ -6924,15 +6924,22 @@
                                 // El TC solo importa cuando hay conversión de pesos: aportación, retiro y los
                                 // movimientos directos. En una venta todo queda en dólares (no se pide), y en
                                 // una compra solo sirve de estimación del costo MXN si la caja está vacía.
+                                //
+                                // Al editar se enseña siempre: el registro ya lleva uno guardado, y escondido no
+                                // había forma de corregirlo cuando se quedó mal —un 1779.68 sin punto decimal
+                                // sólo se podía cambiar por el de hoy, no por el del día de la compra—.
                                 const divTC = document.getElementById('divRegTipoCambio');
+                                const editandoMovimiento = !!editIdMov;
                                 let muestraTC = true;
-                                if (tipoInv === 'venta') muestraTC = false;
-                                if (tipoInv === 'compra') muestraTC = !hayCaja;
+                                if (tipoInv === 'venta') muestraTC = editandoMovimiento;
+                                if (tipoInv === 'compra') muestraTC = !hayCaja || editandoMovimiento;
                                 divTC.style.display = muestraTC ? '' : 'none';
 
                                 labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
                                 labelTC.textContent = esConversion ? 'Tipo de cambio real'
-                                    : (tipoInv === 'compra') ? 'TC estimado (caja vacía)' : 'Tipo de Cambio (MXN)';
+                                    : (tipoInv === 'compra' && !hayCaja) ? 'TC estimado (caja vacía)'
+                                    : (tipoInv === 'compra' || tipoInv === 'venta') ? 'TC de referencia'
+                                    : 'Tipo de Cambio (MXN)';
 
                                 let textoHint = '';
                                 if (tipoInv === 'aportacion') textoHint = `Copia del comprobante los dos importes: los pesos que GBM cobró y los dólares que acreditó. El tipo de cambio sale de ellos —el del comprobante viene redondeado y no cuadra al centavo—. ${cajaTxt}`;
@@ -16422,6 +16429,10 @@
                                                                     actualizarCamposInversion();
                                                                     if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'venta') {
                                                                         document.getElementById('regMonto').value = '';
+                                                                        // Si el formulario venía de una aportación, cambiar de tipo pone el TC
+                                                                        // de hoy en el campo. Al editar tiene que verse el que está guardado,
+                                                                        // que es el que se viene a revisar.
+                                                                        document.getElementById('regTipoCambio').value = r.tipo_cambio || '';
                                                                     }
                                                                 }
                                                                 
