@@ -9842,24 +9842,30 @@
                             // mismo corte en todos los niveles, también en Todo, para compararlos parejo.
                             //
                             // Los empates se rompen así: primero el que realiza menos pérdida (dejar fuera una
-                            // compra que pierde 3 y otra que gana 3 vale lo mismo, pero sin perder nada); y si
-                            // tampoco ahí hay diferencia, el nivel más alto, porque vende más sin costar nada.
-                            // Así, si todas las compras van en ganancia, la estrella cae en Todo.
+                            // compra que pierde 3 y otra que gana 3 vale lo mismo, pero sin perder nada); luego
+                            // el que vende más dinero, que es sacar más sin costar nada (si todas las compras
+                            // ganan, la estrella cae en Todo); y si venden exactamente lo mismo, el nivel más
+                            // bajo. Si lo mejor es no vender nada, no hay estrella: ningún nivel deja ganancia.
                             function mejorToleranciaTreemap(cats) {
-                                let mejor = 0, mejorGanancia = -Infinity, mejorPerdida = Infinity;
+                                let mejor = null;
                                 TOLERANCIAS_TREEMAP_INVERSIONES.forEach(t => {
-                                    let ganancia = 0, perdida = 0;
+                                    let ganancia = 0, perdida = 0, vendido = 0;
                                     cats.forEach(cat => lotesAccesiblesTreemap(cat, t).forEach(l => {
                                         ganancia += l.valor - l.costo;
+                                        vendido += l.valor;
                                         if (l.valor < l.costo) perdida += l.costo - l.valor;
                                     }));
-                                    const masGanancia = ganancia > mejorGanancia + 0.005;
-                                    const igualGanancia = Math.abs(ganancia - mejorGanancia) <= 0.005;
-                                    if (masGanancia || (igualGanancia && perdida <= mejorPerdida + 0.005)) {
-                                        mejor = t; mejorGanancia = ganancia; mejorPerdida = perdida;
+                                    const nivel = { t, ganancia, perdida, vendido };
+                                    const mayor = (x, y) => x > y + 0.005;
+                                    const igual = (x, y) => Math.abs(x - y) <= 0.005;
+                                    if (!mejor
+                                        || mayor(ganancia, mejor.ganancia)
+                                        || (igual(ganancia, mejor.ganancia) && mayor(mejor.perdida, perdida))
+                                        || (igual(ganancia, mejor.ganancia) && igual(perdida, mejor.perdida) && mayor(vendido, mejor.vendido))) {
+                                        mejor = nivel;
                                     }
                                 });
-                                return mejor;
+                                return (mejor && mejor.vendido > 0.005 && mejor.ganancia > 0.005) ? mejor.t : null;
                             }
 
                             function etiquetaToleranciaTreemap(tolerancia) {
