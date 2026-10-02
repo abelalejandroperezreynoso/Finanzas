@@ -612,6 +612,39 @@
                         /* El día elegido queda marcado. Gris claro y no verde o rojo: elegir el día no
                            es elegir dirección, y con los colores de arriba se leería como si lo fuera. */
                         #registroForm .btn-toggle.activo,
+                        /* Pastillas de cuenta: como los días, pero con el nombre de la cuenta */
+                        #registroForm .cuenta-chip {
+                            flex: 0 0 auto;
+                            margin: 0;
+                            padding: 9px 16px;
+                            border: none;
+                            border-radius: 18px;
+                            background-color: #2c2c2e;
+                            color: var(--ios-valor);
+                            font-size: 0.95em;
+                            font-weight: 600;
+                            white-space: nowrap;
+                            scroll-snap-align: center;
+                            width: auto;
+                            -webkit-tap-highlight-color: transparent;
+                        }
+                        #registroForm .cuenta-chip.activo { background-color: #48484a; color: #ffffff; }
+                        #registroForm .cuenta-chip:disabled { opacity: 0.4; }
+                        #registroForm .tira-cuentas:empty::before {
+                            content: 'Sin cuentas';
+                            color: var(--ios-valor);
+                            padding: 9px 0;
+                        }
+                        /* El select de la cuenta queda debajo de la tira, invisible y sin recibir toques:
+                           sólo está para guardar la elección y para que el formulario avise si falta. */
+                        #registroForm .select-cuenta-oculto {
+                            position: absolute;
+                            inset: 0;
+                            opacity: 0;
+                            pointer-events: none;
+                            overflow: hidden;
+                        }
+
                         #registroForm .dia-chip.activo {
                             background-color: #48484a;
                             color: #ffffff;
@@ -1610,12 +1643,16 @@
          categoría cae. Las tres cosas se eligen en ese orden porque cada una acota
          la siguiente, y por eso viven en la misma tarjeta. -->
     <div class="ios-grupo">
-        <div class="ios-fila ios-fila-select">
-            <label for="regCuentaSelect">Cuenta</label>
-            <span class="ios-espejo marcador">Selecciona...</span>
-            <select id="regCuentaSelect" required onchange="actualizarCategoriasRegistro()">
-            <option value="" disabled selected>Selecciona...</option>
-            </select>
+        <!-- La cuenta se elige en una tira de pastillas que se desliza de lado. El <select> sigue
+             siendo quien guarda la elección (y quien avisa si falta al guardar): va invisible
+             debajo de la tira, y las pastillas las pinta pintarPastillasCuentaRegistro(). -->
+        <div class="ios-fila-tira">
+            <div class="ios-tira-dias tira-cuentas" id="tiraCuentasRegistro"></div>
+            <div class="ios-fila-select select-cuenta-oculto">
+                <select id="regCuentaSelect" required onchange="actualizarCategoriasRegistro()">
+                <option value="" disabled selected>Selecciona...</option>
+                </select>
+            </div>
         </div>
 
         <div class="toggle-container">
@@ -6226,7 +6263,46 @@
                             // Copia al <span> visible lo que el <select> invisible tiene elegido. Existe
                             // porque Safari no alinea a la derecha el texto de un select; queda explicado
                             // donde se le quita la opacidad.
+                            // Pinta las pastillas de cuenta a partir de las opciones del select, con la
+                            // elegida encendida. Se llama cada vez que el select cambia por cualquier vía.
+                            function pintarPastillasCuentaRegistro(sel) {
+                                const tira = document.getElementById('tiraCuentasRegistro');
+                                if (!tira) return;
+                                const opciones = [...sel.options].filter(o => o.value && !o.disabled);
+                                const firma = opciones.map(o => o.value + ':' + o.textContent).join('|') + '#' + sel.value + '#' + sel.disabled;
+                                if (tira.dataset.firma === firma) return;
+                                const cambioDeEleccion = tira.dataset.elegida !== sel.value;
+                                tira.dataset.firma = firma;
+                                tira.dataset.elegida = sel.value;
+
+                                tira.textContent = '';
+                                let activa = null;
+                                opciones.forEach(o => {
+                                    const btn = document.createElement('button');
+                                    btn.type = 'button';
+                                    btn.className = 'cuenta-chip';
+                                    btn.textContent = o.textContent.trim();
+                                    btn.disabled = sel.disabled;
+                                    if (o.value === sel.value) { btn.classList.add('activo'); activa = btn; }
+                                    btn.onclick = () => {
+                                        if (sel.value === o.value) return;
+                                        sel.value = o.value;
+                                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                                    };
+                                    tira.appendChild(btn);
+                                });
+
+                                // La elegida se trae a la vista, centrada en la tira
+                                if (activa && cambioDeEleccion) {
+                                    requestAnimationFrame(() => {
+                                        const destino = activa.offsetLeft - (tira.clientWidth - activa.offsetWidth) / 2;
+                                        tira.scrollTo({ left: Math.max(0, destino), behavior: 'smooth' });
+                                    });
+                                }
+                            }
+
                             function sincronizarEspejoSelect(sel) {
+                                if (sel.id === 'regCuentaSelect') pintarPastillasCuentaRegistro(sel);
                                 const fila = sel.parentElement;
                                 const espejo = fila && fila.querySelector('.ios-espejo');
                                 if (!espejo) return;
