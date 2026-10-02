@@ -1130,7 +1130,8 @@
                 .saldo-rodillo-columna > span { height: 1.1em; line-height: 1.1; text-align: center; }
                 .saldo-rodillo-columna.baja { transform: translateY(0); }
 
-                #saldoTotalDisponible {
+                /* La copia invisible con la que ajustarSaldoAlAncho() mide comparte el estilo */
+                #saldoTotalDisponible, #saldoTotalDisponibleMedida {
                     -webkit-tap-highlight-color: transparent;
                     user-select: none;
                     -webkit-user-select: none;
@@ -1142,6 +1143,8 @@
                     /* Sin nowrap la cifra se parte en dos renglones en cuanto crece */
                     white-space: nowrap;
                     overflow: hidden;
+                    /* El tamaño lo pone ajustarSaldoAlAncho(); cuando cambia, cambia suave */
+                    transition: font-size 0.35s ease;
                 }
 
                 /* --- INICIO ESTILOS AVISO DE VERSIÓN --- */
@@ -8355,44 +8358,65 @@
                             // Tope para que un saldo corto —"$0.00" -— no acabe con letras de cuatro centímetros.
                             // Hasta aquí, la cifra crece cuanto haga falta para llenar el ancho de la tarjeta.
                             const TAMANO_MAXIMO_SALDO = 72;
-                            function ajustarSaldoAlAncho() {
+                            // La medición se hace sobre una copia invisible de la cifra y no sobre la cifra misma:
+                            // así el tamaño puede cambiar con transición (sin soltarlo para medir, que lo haría
+                            // saltar) y se puede medir el texto final mientras la cifra todavía está animándose.
+                            // Recibe opcionalmente cómo llenar la copia; si no, copia lo que hay en pantalla.
+                            function ajustarSaldoAlAncho(llenarCopia) {
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
 
                                 // Con el inicio escondido —abierta Configuración o Gestión de Datos— la cifra no
-                                // tiene ancho que medir. Antes se soltaba el tamaño y se salía sin poner otro, así
-                                // que guardar algo desde otra sección dejaba el saldo con el tamaño de partida del
-                                // CSS, más chico. Ahora se deja como está y se mide al volver a verse (abajo).
+                                // tiene ancho que medir. Se deja como está y se mide al volver a verse (abajo).
                                 if (el.getClientRects().length === 0) return;
 
-                                // Se suelta el tamaño anterior para medir desde el que decide el CSS: si no, cada
-                                // ajuste partiría del anterior y el error se iría acumulando.
-                                el.style.fontSize = '';
-
                                 const disponible = el.clientWidth;
-                                const base = parseFloat(getComputedStyle(el).fontSize);
-                                if (!(disponible > 0) || !(base > 0)) return;
+                                if (!(disponible > 0)) return;
 
-                                // El ancho del texto se mide con un rango sobre su contenido, no con scrollWidth:
-                                // cuando la cifra es más corta que la caja, scrollWidth devuelve el ancho de la
-                                // caja y no el del texto, con lo que no habría forma de saber cuánto puede crecer.
-                                const rango = document.createRange();
-                                rango.selectNodeContents(el);
-                                const anchoTexto = rango.getBoundingClientRect().width;
-                                if (!(anchoTexto > 0)) return;
+                                // La copia lleva la clase y el tamaño de partida del CSS, sin el que se le puso a
+                                // mano, y va fuera de la vista con el mismo ancho que la cifra.
+                                const copia = el.cloneNode(!llenarCopia);
+                                copia.id = 'saldoTotalDisponibleMedida';
+                                if (llenarCopia) llenarCopia(copia);
+                                copia.style.fontSize = '';
+                                copia.style.transition = 'none';
+                                copia.style.position = 'absolute';
+                                copia.style.visibility = 'hidden';
+                                copia.style.pointerEvents = 'none';
+                                copia.style.left = '0';
+                                copia.style.top = '0';
+                                copia.style.width = disponible + 'px';
+                                el.parentNode.appendChild(copia);
 
-                                // El ancho del texto es proporcional al tamaño de letra, así que la regla de tres
-                                // da el tamaño que llena la línea justa.
-                                const ideal = Math.floor(base * (disponible / anchoTexto));
-                                let tamano = Math.min(TAMANO_MAXIMO_SALDO, Math.max(TAMANO_MINIMO_SALDO, ideal));
-                                el.style.fontSize = tamano + 'px';
+                                try {
+                                    const base = parseFloat(getComputedStyle(copia).fontSize);
+                                    if (!(base > 0)) return;
 
-                                // El redondeo de la medición puede dejar la cifra un pelo fuera, y el overflow la
-                                // cortaría. Se baja de uno en uno hasta que entre; con la proporción bien hecha
-                                // esto no suele dar ni una vuelta.
-                                while (tamano > TAMANO_MINIMO_SALDO && el.scrollWidth > el.clientWidth) {
-                                    tamano -= 1;
+                                    // El ancho del texto se mide con un rango sobre su contenido, no con scrollWidth:
+                                    // cuando la cifra es más corta que la caja, scrollWidth devuelve el ancho de la
+                                    // caja y no el del texto, con lo que no habría forma de saber cuánto puede crecer.
+                                    const rango = document.createRange();
+                                    rango.selectNodeContents(copia);
+                                    const anchoTexto = rango.getBoundingClientRect().width;
+                                    if (!(anchoTexto > 0)) return;
+
+                                    // El ancho del texto es proporcional al tamaño de letra, así que la regla de tres
+                                    // da el tamaño que llena la línea justa.
+                                    const ideal = Math.floor(base * (disponible / anchoTexto));
+                                    let tamano = Math.min(TAMANO_MAXIMO_SALDO, Math.max(TAMANO_MINIMO_SALDO, ideal));
+                                    copia.style.fontSize = tamano + 'px';
+
+                                    // El redondeo de la medición puede dejar la cifra un pelo fuera, y el overflow la
+                                    // cortaría. Se baja de uno en uno hasta que entre.
+                                    while (tamano > TAMANO_MINIMO_SALDO && copia.scrollWidth > copia.clientWidth) {
+                                        tamano -= 1;
+                                        copia.style.fontSize = tamano + 'px';
+                                    }
+
+                                    // El cambio de tamaño se anima con la transición del CSS
                                     el.style.fontSize = tamano + 'px';
+                                } finally {
+                                    copia.remove();
                                 }
                             }
 
@@ -11123,7 +11147,17 @@
                                     moneda.style.color = '#888';
                                     el.appendChild(moneda);
                                 }
-                                ajustarSaldoAlAncho();
+                                // Se mide ya con la cifra final, para que el tamaño vaya cambiando mientras los
+                                // dígitos bajan y no dé un salto al terminar.
+                                ajustarSaldoAlAncho(copia => {
+                                    copia.textContent = texto;
+                                    if (sufijo) {
+                                        const moneda = document.createElement('span');
+                                        moneda.textContent = sufijo;
+                                        moneda.style.fontSize = '0.35em';
+                                        copia.appendChild(moneda);
+                                    }
+                                });
 
                                 // Un fotograma con la columna arriba (enseñando el viejo) y luego baja
                                 requestAnimationFrame(() => requestAnimationFrame(() => {
