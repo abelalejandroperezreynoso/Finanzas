@@ -11862,6 +11862,29 @@
                                         if (!meta || !meta.data || !meta.data.length) return;
 
                                         const lienzo = chart.ctx;
+
+                                        // En el portafolio cada recuadro lleva un contorno blanco fino con un
+                                        // resplandor suave alrededor. Se traza encima, siguiendo el mismo
+                                        // redondeo que el relleno.
+                                        if (esPortafolio) {
+                                            lienzo.save();
+                                            lienzo.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                                            lienzo.lineWidth = 1;
+                                            lienzo.shadowColor = 'rgba(255, 255, 255, 0.85)';
+                                            lienzo.shadowBlur = 10;
+                                            meta.data.forEach(el => {
+                                                if (!(el.width > 1) || !(el.height > 1)) return;
+                                                const x = el.x + 0.5, y = el.y + 0.5;
+                                                const w = el.width - 1, h = el.height - 1;
+                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, w / 2, h / 2) - 0.5);
+                                                lienzo.beginPath();
+                                                if (lienzo.roundRect) lienzo.roundRect(x, y, w, h, r);
+                                                else lienzo.rect(x, y, w, h);
+                                                lienzo.stroke();
+                                            });
+                                            lienzo.restore();
+                                        }
+
                                         lienzo.save();
                                         lienzo.strokeStyle = COLOR_MARCA_OBJETIVO_TREEMAP;
                                         lienzo.lineWidth = ESPACIO_TREEMAP;
