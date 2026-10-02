@@ -11871,7 +11871,7 @@
                                             lienzo.strokeStyle = 'rgba(255, 255, 255, 0.95)';
                                             lienzo.lineWidth = 0.5;
                                             lienzo.shadowColor = 'rgba(255, 255, 255, 1)';
-                                            lienzo.shadowBlur = 16;
+                                            lienzo.shadowBlur = 22;
                                             meta.data.forEach(el => {
                                                 if (!(el.width > 1) || !(el.height > 1)) return;
                                                 const x = el.x + 0.25, y = el.y + 0.25;
@@ -11880,8 +11880,9 @@
                                                 lienzo.beginPath();
                                                 if (lienzo.roundRect) lienzo.roundRect(x, y, w, h, r);
                                                 else lienzo.rect(x, y, w, h);
-                                                // Dos pasadas: el contorno es fino, y el resplandor de una sola
+                                                // Tres pasadas: el contorno es fino, y con una sola el resplandor
                                                 // se quedaba casi invisible.
+                                                lienzo.stroke();
                                                 lienzo.stroke();
                                                 lienzo.stroke();
                                             });
