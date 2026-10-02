@@ -11868,18 +11868,21 @@
                                         // redondeo que el relleno.
                                         if (esPortafolio) {
                                             lienzo.save();
-                                            lienzo.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-                                            lienzo.lineWidth = 1;
-                                            lienzo.shadowColor = 'rgba(255, 255, 255, 0.85)';
-                                            lienzo.shadowBlur = 10;
+                                            lienzo.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+                                            lienzo.lineWidth = 0.5;
+                                            lienzo.shadowColor = 'rgba(255, 255, 255, 1)';
+                                            lienzo.shadowBlur = 16;
                                             meta.data.forEach(el => {
                                                 if (!(el.width > 1) || !(el.height > 1)) return;
-                                                const x = el.x + 0.5, y = el.y + 0.5;
-                                                const w = el.width - 1, h = el.height - 1;
-                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, w / 2, h / 2) - 0.5);
+                                                const x = el.x + 0.25, y = el.y + 0.25;
+                                                const w = el.width - 0.5, h = el.height - 0.5;
+                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, w / 2, h / 2) - 0.25);
                                                 lienzo.beginPath();
                                                 if (lienzo.roundRect) lienzo.roundRect(x, y, w, h, r);
                                                 else lienzo.rect(x, y, w, h);
+                                                // Dos pasadas: el contorno es fino, y el resplandor de una sola
+                                                // se quedaba casi invisible.
+                                                lienzo.stroke();
                                                 lienzo.stroke();
                                             });
                                             lienzo.restore();
