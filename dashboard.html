@@ -978,6 +978,17 @@
                    atributo style y se borraba con él, así que el pie volvía a la letra entera. */
                 #totalTreemapCategorias { font-size: 0.85em; }
 
+                /* Alto del mapa de cuadros. En horizontal se queda en 290px; en vertical, con el
+                   portafolio puesto, se estira hasta llenar la pantalla dejando sitio al título de
+                   arriba y al pie de abajo, para que los recuadros chicos se puedan leer. */
+                #contenedorTreemapCategorias { height: 290px; }
+                @media (orientation: portrait) {
+                    #contenedorTreemapCategorias.treemap-alto {
+                        height: max(290px, calc(100vh - 150px));
+                        height: max(290px, calc(100svh - 150px));
+                    }
+                }
+
                 /* Rango personalizado de la hoja de Filtro, con la forma de las tarjetas de iOS. Dentro de una
                    hoja iOS usa el gris elevado (#2c2c2e): el de las tarjetas normales no se distingue del fondo. */
                 .rango-ios-encabezado {
@@ -1471,7 +1482,7 @@
         </div>
 
         <!-- Sin padding lateral: el mapa llega a las orillas igual que el listado de registros -->
-        <div id="contenedorTreemapCategorias" style="position: relative; width: 100%; height: 290px; padding: 0; box-sizing: border-box;">
+        <div id="contenedorTreemapCategorias" style="position: relative; width: 100%; padding: 0; box-sizing: border-box;">
             <canvas id="graficoTreemapCategorias" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
         </div>
 
@@ -11108,6 +11119,7 @@
                                 if (!contenedor) return;
 
                                 contextoTreemapCategorias = { meses: meses || [], indice: indice };
+                                contenedor.classList.toggle('treemap-alto', tipoTreemapCategorias === 'inversion');
                                 actualizarTituloInicio();
                                 actualizarSaldoPrincipal();
 
