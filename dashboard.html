@@ -1468,13 +1468,6 @@
 
             <!-- Se enseña y se esconde entero desde el JS; por eso los cuatro van juntos en un
                  contenedor y no sueltos en la fila. -->
-            <div id="controlesPortafolioTreemap" style="display: none; align-items: center; gap: 8px;">
-                <span class="etiqueta-filtro-treemap">Mostrar</span>
-                <div class="pastilla-treemap">
-                    <button id="btnTreemapTodo" onclick="cambiarVistaTreemapInversiones('todo')">Todo</button>
-                    <button id="btnTreemapAccesible" onclick="cambiarVistaTreemapInversiones('accesible')">Accesible</button>
-                </div>
-            </div>
         </div>
 
         <!-- Sin padding lateral: el mapa llega a las orillas igual que el listado de registros -->
@@ -10820,17 +10813,30 @@
                                 repintarTreemapCategorias();
                             }
 
-                            // La agrupación ya no tiene pastilla: se va alternando al tocarla en el título del
-                            // mapa: Empresas ↔ Sectores.
+                            // La agrupación y el "Mostrar" ya no tienen pastilla: se van alternando juntos al
+                            // tocarlos en el título del mapa, en el orden
+                            // Empresas → Sectores → Accesible → Sectores accesibles → Empresas…
+                            const CICLO_TITULO_TREEMAP_INVERSIONES = [
+                                ['empresa', 'todo'], ['personalizado', 'todo'], ['empresa', 'accesible'], ['personalizado', 'accesible']
+                            ];
                             function alternarAgrupacionTreemapInversiones() {
-                                const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
-                                cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
+                                const i = CICLO_TITULO_TREEMAP_INVERSIONES.findIndex(([agrupacion, vista]) =>
+                                    agrupacion === agrupacionTreemapInversiones && vista === vistaTreemapInversiones);
+                                const [agrupacion, vista] = CICLO_TITULO_TREEMAP_INVERSIONES[(i + 1) % CICLO_TITULO_TREEMAP_INVERSIONES.length];
+                                vistaTreemapInversiones = vista;
+                                localStorage.setItem('vistaTreemapInversiones', vistaTreemapInversiones);
+                                cambiarAgrupacionTreemapInversiones(agrupacion);
+                            }
+
+                            // Arriba del todo, en la capa de cuentas, no hay agrupación que elegir: sólo Todo ↔ Accesible
+                            function alternarVistaTreemapInversiones() {
+                                cambiarVistaTreemapInversiones(vistaTreemapInversiones === 'accesible' ? 'todo' : 'accesible');
                             }
 
                             // Pinta un título de dos partes: la de la izquierda es el "volver" (o nada) y la
                             // de la derecha, la agrupación, que se toca para cambiarla. Lleva el icono de
                             // flechas arriba/abajo de iOS para que se note que se puede tocar.
-                            function pintarTituloConAgrupacionTreemap(tituloEl, textoIzquierda, textoAgrupacion, alVolver) {
+                            function pintarTituloConAgrupacionTreemap(tituloEl, textoIzquierda, textoAgrupacion, alVolver, alTocar = alternarAgrupacionTreemapInversiones) {
                                 tituloEl.textContent = '';
                                 tituloEl.onclick = null;
                                 tituloEl.style.cursor = '';
@@ -10845,7 +10851,7 @@
                                 const agrupacion = document.createElement('span');
                                 agrupacion.style.cursor = 'pointer';
                                 agrupacion.style.color = '#3ecf8e';
-                                agrupacion.onclick = alternarAgrupacionTreemapInversiones;
+                                agrupacion.onclick = alTocar;
                                 agrupacion.innerHTML = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
                                 agrupacion.insertBefore(document.createTextNode(textoAgrupacion), agrupacion.firstChild);
 
@@ -11159,18 +11165,12 @@
 
                                 encenderPastilla([['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']], direccionTreemapCategorias);
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
-                                encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
                                 const selectorRendimiento = document.getElementById('selectorRendimientoTreemap');
                                 if (selectorRendimiento) {
                                     selectorRendimiento.style.display = esPortafolio ? '' : 'none';
                                     selectorRendimiento.innerHTML = (rendimientoTreemapInversiones === 'mensual' ? '% Mensual' : '% Total')
                                         + '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
                                 }
-
-                                // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, sus cuatro
-                                // filtros se van de la fila en vez de quedarse ahí sin nada que hacer.
-                                const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
-                                if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
 
                                 // En el modo Inversiones no hay salidas ni entradas, préstamos ni deudas que elegir:
                                 // esas pastillas se van. De ahí se sale tocando el título de la página.
@@ -11184,6 +11184,8 @@
                                 // de que hay más filtros fuera de la pantalla, y con el portafolio puesto son
                                 // cuatro más. Se recalcula aquí porque enseñarlos u ocultarlos cambia el ancho.
                                 const filaFiltrosTreemap = document.getElementById('filtrosTreemapCategorias');
+                                // En el portafolio todos sus filtros viven ya en el título: la fila sobra entera
+                                if (filaFiltrosTreemap) filaFiltrosTreemap.style.display = esPortafolio ? 'none' : '';
                                 if (filaFiltrosTreemap) {
                                     const marcarBordesFiltros = () => {
                                         const sobra = filaFiltrosTreemap.scrollWidth - filaFiltrosTreemap.clientWidth;
@@ -11243,7 +11245,7 @@
                                             : (vistaAccesible ? 'Accesible' : 'Empresas');
                                         pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', queReparte, null);
                                     } else if (esPortafolio) {
-                                        tituloEl.textContent = vistaAccesible ? 'Portafolio · Accesible' : 'Portafolio';
+                                        pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', vistaAccesible ? 'Accesible' : 'Todo', null, alternarVistaTreemapInversiones);
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
