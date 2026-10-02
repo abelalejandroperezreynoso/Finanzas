@@ -1466,13 +1466,6 @@
             <!-- Se enseña y se esconde entero desde el JS; por eso los cuatro van juntos en un
                  contenedor y no sueltos en la fila. -->
             <div id="controlesPortafolioTreemap" style="display: none; align-items: center; gap: 8px;">
-                <span class="etiqueta-filtro-treemap">Agrupar</span>
-                <div class="pastilla-treemap">
-                    <button id="btnTreemapPorEmpresa" onclick="cambiarAgrupacionTreemapInversiones('empresa')">Empresas</button>
-                    <button id="btnTreemapPorSector" onclick="cambiarAgrupacionTreemapInversiones('sector')">Sectores</button>
-                    <button id="btnTreemapPorPersonalizado" onclick="cambiarAgrupacionTreemapInversiones('personalizado')">Personalizado</button>
-                </div>
-
                 <span class="etiqueta-filtro-treemap">Mostrar</span>
                 <div class="pastilla-treemap">
                     <button id="btnTreemapTodo" onclick="cambiarVistaTreemapInversiones('todo')">Todo</button>
@@ -10823,6 +10816,40 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // La agrupación ya no tiene pastilla: se va alternando al tocarla en el título del
+                            // mapa, en el orden empresas → sectores → mis sectores.
+                            function alternarAgrupacionTreemapInversiones() {
+                                const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
+                                cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
+                            }
+
+                            // Pinta un título de dos partes: la de la izquierda es el "volver" (o nada) y la
+                            // de la derecha, la agrupación, que se toca para cambiarla. Lleva el icono de
+                            // flechas arriba/abajo de iOS para que se note que se puede tocar.
+                            function pintarTituloConAgrupacionTreemap(tituloEl, textoIzquierda, textoAgrupacion, alVolver) {
+                                tituloEl.textContent = '';
+                                tituloEl.onclick = null;
+                                tituloEl.style.cursor = '';
+
+                                const izquierda = document.createElement('span');
+                                izquierda.textContent = textoIzquierda;
+                                if (alVolver) {
+                                    izquierda.style.cursor = 'pointer';
+                                    izquierda.onclick = alVolver;
+                                }
+
+                                const agrupacion = document.createElement('span');
+                                agrupacion.style.cursor = 'pointer';
+                                agrupacion.style.color = '#3ecf8e';
+                                agrupacion.onclick = alternarAgrupacionTreemapInversiones;
+                                agrupacion.innerHTML = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
+                                agrupacion.insertBefore(document.createTextNode(textoAgrupacion), agrupacion.firstChild);
+
+                                tituloEl.appendChild(izquierda);
+                                tituloEl.appendChild(document.createTextNode(' · '));
+                                tituloEl.appendChild(agrupacion);
+                            }
+
                             function cambiarMonedaTreemapInversiones(moneda) {
                                 monedaTreemapInversiones = moneda === 'usd' ? 'usd' : 'mxn';
                                 localStorage.setItem('monedaTreemapInversiones', monedaTreemapInversiones);
@@ -11130,8 +11157,6 @@
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
-                                encenderPastilla([['empresa', 'btnTreemapPorEmpresa'], ['sector', 'btnTreemapPorSector'],
-                                    ['personalizado', 'btnTreemapPorPersonalizado']], agrupacionTreemapInversiones);
 
                                 // La moneda sólo tiene sentido con el portafolio puesto: fuera de él, sus cuatro
                                 // filtros se van de la fila en vez de quedarse ahí sin nada que hacer.
@@ -11199,7 +11224,15 @@
                                         const queReparte = porSector
                                             ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
                                             : (vistaAccesible ? 'accesible' : 'empresas');
-                                        tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · ${queReparte}`;
+                                        pintarTituloConAgrupacionTreemap(tituloEl, `‹ ${cuentaAbierta.nombre}`, queReparte, () => subirNivelTreemap());
+                                    } else if (esPortafolio && !hayCapaCuentas) {
+                                        // Sin capa de cuentas la agrupación se aplica aquí mismo, así que el título
+                                        // también la lleva para poder cambiarla.
+                                        const nombreVara = porSectorPropio ? 'mis sectores' : 'sectores';
+                                        const queReparte = porSector
+                                            ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
+                                            : (vistaAccesible ? 'accesible' : 'empresas');
+                                        pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', queReparte, null);
                                     } else if (esPortafolio) {
                                         tituloEl.textContent = vistaAccesible ? 'Portafolio · accesible' : 'Portafolio';
                                     } else if (mesSeleccionado) {
