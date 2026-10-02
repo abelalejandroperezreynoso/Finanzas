@@ -9838,15 +9838,26 @@
                             vistaTreemapInversiones = toleranciaTreemapInversiones >= 100 ? 'todo' : 'accesible';
 
                             // Cuál de los niveles deja más dinero en la mano —ganancia neta: lo que se saca
-                            // menos lo que costó— en el trozo del portafolio que se está mirando. A igual
-                            // ganancia gana el nivel más bajo, que es el que acepta menos pérdida. Se mide con el
+                            // menos lo que costó— en el trozo del portafolio que se está mirando. Se mide con el
                             // mismo corte en todos los niveles, también en Todo, para compararlos parejo.
+                            //
+                            // Los empates se rompen así: primero el que realiza menos pérdida (dejar fuera una
+                            // compra que pierde 3 y otra que gana 3 vale lo mismo, pero sin perder nada); y si
+                            // tampoco ahí hay diferencia, el nivel más alto, porque vende más sin costar nada.
+                            // Así, si todas las compras van en ganancia, la estrella cae en Todo.
                             function mejorToleranciaTreemap(cats) {
-                                let mejor = 0, mejorGanancia = -Infinity;
+                                let mejor = 0, mejorGanancia = -Infinity, mejorPerdida = Infinity;
                                 TOLERANCIAS_TREEMAP_INVERSIONES.forEach(t => {
-                                    const ganancia = cats.reduce((acc, cat) =>
-                                        acc + lotesAccesiblesTreemap(cat, t).reduce((a, l) => a + (l.valor - l.costo), 0), 0);
-                                    if (ganancia > mejorGanancia + 0.005) { mejor = t; mejorGanancia = ganancia; }
+                                    let ganancia = 0, perdida = 0;
+                                    cats.forEach(cat => lotesAccesiblesTreemap(cat, t).forEach(l => {
+                                        ganancia += l.valor - l.costo;
+                                        if (l.valor < l.costo) perdida += l.costo - l.valor;
+                                    }));
+                                    const masGanancia = ganancia > mejorGanancia + 0.005;
+                                    const igualGanancia = Math.abs(ganancia - mejorGanancia) <= 0.005;
+                                    if (masGanancia || (igualGanancia && perdida <= mejorPerdida + 0.005)) {
+                                        mejor = t; mejorGanancia = ganancia; mejorPerdida = perdida;
+                                    }
                                 });
                                 return mejor;
                             }
