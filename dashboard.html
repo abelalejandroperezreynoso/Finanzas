@@ -1770,19 +1770,20 @@
 
         <hr style="border-color:#444; margin: 15px 0;">
 
+        <!-- En el modo Inversiones la gráfica es la curva del portafolio, ni balance ni barras: esta parte
+             se esconde entera, con su separador -->
+        <div id="seccionTiposGrafica">
         <label style="display: block; margin-bottom: 8px;">Visualización de la gráfica:</label>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
             <button id="btnModoBalance" class="btn-shortcut" onclick="cambiarModoGrafica('balance')">📈 Balance Diario</button>
             <button id="btnModoMensual" class="btn-shortcut" onclick="cambiarModoGrafica('mensual')">📊 Barras Mensuales</button>
         </div>
 
-        <!-- En el modo Inversiones la gráfica es la curva del portafolio, no las barras: esta parte se esconde -->
-        <div id="seccionTiposGrafica">
         <label style="display: block; margin-bottom: 8px;">Tipos en las barras mensuales:</label>
         <div id="checksTiposGrafica" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;"></div>
-        </div>
 
         <hr style="border-color:#444; margin: 15px 0;">
+        </div>
 
         <label style="display: block; margin-bottom: 8px;">O rango personalizado:</label>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; width: 100%;">
