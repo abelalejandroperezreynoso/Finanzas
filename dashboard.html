@@ -1113,6 +1113,23 @@
                     appearance: none;
                 }
 
+                /* Contador de la cifra grande: cada dígito que cambia es una ventana de un renglón con
+                   el nuevo arriba y el viejo abajo; la columna arranca subida (se ve el viejo) y baja. */
+                .saldo-rodillo {
+                    display: inline-block;
+                    height: 1.1em;
+                    overflow: hidden;
+                    vertical-align: top;
+                }
+                .saldo-rodillo-columna {
+                    display: flex;
+                    flex-direction: column;
+                    transform: translateY(-1.1em);
+                    transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+                }
+                .saldo-rodillo-columna > span { height: 1.1em; line-height: 1.1; text-align: center; }
+                .saldo-rodillo-columna.baja { transform: translateY(0); }
+
                 #saldoTotalDisponible {
                     -webkit-tap-highlight-color: transparent;
                     user-select: none;
@@ -10987,8 +11004,7 @@
                                 el.style.cursor = enInversiones ? 'pointer' : '';
 
                                 if (!enInversiones) {
-                                    el.textContent = fMoneda(saldoTotalFinanzas, fNumSaldo);
-                                    ajustarSaldoAlAncho();
+                                    pintarSaldoAnimado(el, fMoneda(saldoTotalFinanzas, fNumSaldo), '');
                                     return;
                                 }
 
@@ -10998,13 +11014,87 @@
                                 const enDolares = monedaTreemapInversiones === 'usd';
                                 const totalMxn = calcularTotalInversionesMxn();
                                 const cifra = Math.round(enDolares ? totalMxn / (globalUsdToMxn || 1) : totalMxn);
-                                el.textContent = fMoneda(cifra, fNumSaldo);
-                                const moneda = document.createElement('span');
-                                moneda.textContent = enDolares ? ' USD' : ' MXN';
-                                moneda.style.fontSize = '0.35em';
-                                moneda.style.color = '#888';
-                                el.appendChild(moneda);
+                                pintarSaldoAnimado(el, fMoneda(cifra, fNumSaldo), enDolares ? ' USD' : ' MXN');
+                            }
+
+                            // Pinta la cifra grande. Cuando cambia, cada dígito distinto baja como en un contador:
+                            // el número nuevo entra desde arriba y empuja al viejo hacia abajo. Los que no cambian
+                            // se quedan quietos. Al terminar se deja el texto plano, para que la medición del
+                            // ancho y el resto de la app lo vean como siempre.
+                            const DURACION_SALDO_ANIMADO = 450;
+                            function pintarSaldoAnimado(el, texto, sufijo) {
+                                const pintarPlano = () => {
+                                    el.textContent = texto;
+                                    if (sufijo) {
+                                        const moneda = document.createElement('span');
+                                        moneda.textContent = sufijo;
+                                        moneda.style.fontSize = '0.35em';
+                                        moneda.style.color = '#888';
+                                        el.appendChild(moneda);
+                                    }
+                                    ajustarSaldoAlAncho();
+                                };
+
+                                const previo = el.dataset.textoSaldo;
+                                const previoSufijo = el.dataset.sufijoSaldo || '';
+                                // La cifra se vuelve a pintar en cada repintado del mapa: si no cambió no se toca
+                                // nada, para no cortar una animación que esté en marcha.
+                                if (previo === texto && previoSufijo === (sufijo || '')) return;
+                                el.dataset.textoSaldo = texto;
+                                el.dataset.sufijoSaldo = sufijo || '';
+                                clearTimeout(el._temporizadorSaldo);
+
+                                let sinMovimiento = false;
+                                try { sinMovimiento = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* sin soporte */ }
+
+                                // La primera vez, sin cambio, o con otra moneda (es otra cifra, no un cambio de
+                                // valor): sin animación.
+                                if (previo === undefined || previoSufijo !== (sufijo || '') || sinMovimiento) {
+                                    pintarPlano();
+                                    return;
+                                }
+
+                                // Se alinean por la derecha: las unidades con las unidades, aunque la cifra gane o
+                                // pierda un dígito.
+                                const largo = Math.max(previo.length, texto.length);
+                                const viejo = previo.padStart(largo, ' ');
+                                const nuevo = texto.padStart(largo, ' ');
+
+                                el.textContent = '';
+                                for (let i = 0; i < largo; i++) {
+                                    const antes = viejo[i], ahora = nuevo[i];
+                                    if (antes === ahora) {
+                                        if (ahora !== ' ') el.appendChild(document.createTextNode(ahora));
+                                        continue;
+                                    }
+                                    if (ahora === ' ') continue;
+                                    const rodillo = document.createElement('span');
+                                    rodillo.className = 'saldo-rodillo';
+                                    const columna = document.createElement('span');
+                                    columna.className = 'saldo-rodillo-columna';
+                                    const entra = document.createElement('span');
+                                    entra.textContent = ahora;
+                                    const sale = document.createElement('span');
+                                    sale.textContent = antes === ' ' ? '\u00a0' : antes;
+                                    columna.appendChild(entra);
+                                    columna.appendChild(sale);
+                                    rodillo.appendChild(columna);
+                                    el.appendChild(rodillo);
+                                }
+                                if (sufijo) {
+                                    const moneda = document.createElement('span');
+                                    moneda.textContent = sufijo;
+                                    moneda.style.fontSize = '0.35em';
+                                    moneda.style.color = '#888';
+                                    el.appendChild(moneda);
+                                }
                                 ajustarSaldoAlAncho();
+
+                                // Un fotograma con la columna arriba (enseñando el viejo) y luego baja
+                                requestAnimationFrame(() => requestAnimationFrame(() => {
+                                    el.querySelectorAll('.saldo-rodillo-columna').forEach(c => c.classList.add('baja'));
+                                }));
+                                el._temporizadorSaldo = setTimeout(pintarPlano, DURACION_SALDO_ANIMADO + 80);
                             }
 
                             function actualizarTituloInicio() {
