@@ -11375,7 +11375,28 @@
 
                             function actualizarTituloInicio() {
                                 const titulo = document.getElementById('tituloInicio');
-                                if (titulo) titulo.textContent = tipoTreemapCategorias === 'inversion' ? 'Inversiones' : 'Finanzas';
+                                if (!titulo) return;
+                                const enInversiones = tipoTreemapCategorias === 'inversion';
+                                titulo.textContent = enInversiones ? 'Inversiones' : 'Finanzas';
+                                if (!enInversiones) return;
+
+                                // Si a alguna empresa con acciones vivas no se le pudo traer el precio, el título
+                                // lo avisa con un triángulo. Tocarlo dice cuáles son (y no cambia de modo).
+                                const errores = window.cacheErroresMercado || {};
+                                const sinPrecio = (datosCategorias || [])
+                                    .filter(c => c.tipo === 'inversion' && c.ticker && (c.totalAcciones || 0) > 0.00001 && errores[c.ticker])
+                                    .map(c => c.ticker);
+                                if (sinPrecio.length === 0) return;
+
+                                const aviso = document.createElement('span');
+                                aviso.title = 'Empresas sin precio';
+                                aviso.style.cssText = 'display: inline-flex; vertical-align: middle; margin-left: 10px; color: #f5a623; cursor: pointer;';
+                                aviso.innerHTML = '<svg viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.4v.1"/></svg>';
+                                aviso.onclick = (e) => {
+                                    e.stopPropagation();
+                                    alert(`No se pudo obtener el precio de: ${sinPrecio.join(', ')}.\n\nSus valores se calculan con lo que costaron hasta que el precio llegue. Prueba de nuevo en un rato.`);
+                                };
+                                titulo.appendChild(aviso);
                             }
 
                             // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
