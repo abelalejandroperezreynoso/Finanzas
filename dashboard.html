@@ -4302,8 +4302,13 @@
                     }
 
                     localStorage.setItem('tiposVisiblesGrafica', JSON.stringify([...tiposVisiblesGrafica]));
-                    aplicarFiltrosYRenderizar();
+                    // No se repinta aquí: repintar cierra la hoja, y así sólo se podía marcar un tipo por
+                    // vez. Se deja pendiente y se aplica al cerrar la hoja (con ✓, arrastrándola o tocando
+                    // fuera).
+                    tiposGraficaPendientes = true;
                 }
+
+                var tiposGraficaPendientes = false;
 
                 function cambiarModoGrafica(modo) {
                     modoGrafica = modo;
@@ -5098,6 +5103,9 @@
                                 // El display: none tiene que esperar a que baje la hoja, si no la corta.
                                 clearTimeout(hoja._temporizadorCierre);
                                 hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
+
+                                // Los tipos de la gráfica marcados en la hoja se aplican ahora, todos juntos
+                                if (tiposGraficaPendientes) aplicarFiltrosYRenderizar();
                             }
 
                             // Las pastillas del rango personalizado. Los campos de fecha se cambian desde muchos
@@ -8624,6 +8632,8 @@
                             }
 
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
+                                // Este repintado ya recoge los tipos de la gráfica que estuvieran pendientes
+                                tiposGraficaPendientes = false;
                                 actualizarRangoFiltroIos();
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
                                     window.filtroMovimientosActivo = null;
