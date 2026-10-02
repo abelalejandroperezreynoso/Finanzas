@@ -11011,6 +11011,21 @@
                                 actualizarTituloInicio();
                                 actualizarSaldoPrincipal();
 
+                                // Con la curva del dólar puesta, el mapa del portafolio no tiene nada que decir: esa
+                                // curva no se reparte por empresas. La tarjeta se va entera y la curva se dibuja
+                                // para todas las cuentas; se sale de cualquier capa en la que se estuviera, porque
+                                // sin el mapa no habría forma de volver de ella.
+                                const tarjetaMapa = document.getElementById('cardTreemapCategorias');
+                                const soloCurvaDolar = tipoTreemapCategorias === 'inversion' && curvaInversiones === 'dolar';
+                                if (tarjetaMapa) tarjetaMapa.style.display = soloCurvaDolar ? 'none' : '';
+                                if (soloCurvaDolar) {
+                                    cuentaTreemapInversiones = null;
+                                    sectorTreemapInversiones = null;
+                                    empresaTreemapInversiones = null;
+                                    sincronizarCaraInversiones({ vista: 'dolar', cuenta: null, nombre: '' });
+                                    return;
+                                }
+
                                 // Sin tamaño no hay geometría de la que sacar el relleno: se aplaza el dibujo
                                 if (!contenedor.clientWidth || !contenedor.clientHeight) {
                                     treemapPendiente = { meses: meses || [], indice: indice };
