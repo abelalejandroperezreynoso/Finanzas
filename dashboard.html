@@ -17019,7 +17019,7 @@
                                         <div class="swipe-actions">
                                             <button type="button" class="btn-swipe-act" onclick="omitirSugerencia('${cat.id}', '${cat.siguienteFechaRecurrencia}')" style="font-size: 1.1em;">⏭️</button>
                                         </div>
-                                        <div class="swipe-content" style="cursor:pointer; padding: 10px 12px;" onclick="cargarSugerenciaEnFormulario('${cat.id}')">
+                                        <div class="swipe-content" style="cursor:pointer; padding: 10px 12px;" onclick="elegirSugerenciaRegistro('${cat.id}')">
                                             <div style="flex:1; text-align: left;">
                                                 <strong style="color:${colorTipo}; font-size: 0.95em;">${cat.nombre}</strong><br>
                                                 <small style="color:#aaa; font-size: 0.8em;">Monto: ${fMoneda(cat.montoSugerido || 0)}</small>
@@ -17051,6 +17051,13 @@
                                                         // 4. Cambiamos a la pantalla de registro
                                                         cambiarSeccion('sec-registro');
                                                     }
+
+                            // Tocar una sugerencia de la lista: rellena el formulario y sube a verlo, que la
+                            // lista queda debajo y el formulario recién llenado se quedaba fuera de la vista.
+                            function elegirSugerenciaRegistro(idCat) {
+                                cargarSugerenciaEnFormulario(idCat);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
 
                             function cargarSugerenciaEnFormulario(idCat) {
                                                         const cat = datosCategorias.find(c => String(c.id) === String(idCat));
