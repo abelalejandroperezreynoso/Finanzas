@@ -8519,8 +8519,8 @@
                                         .filter(c => c.incluir_en_total !== false)
                                         .reduce((acc, c) => acc + (c.balanceReal || 0), 0);
                                     
-                                    document.getElementById('saldoTotalDisponible').textContent = fMoneda(saldoTotal, fNumSaldo);
-                                    ajustarSaldoAlAncho();
+                                    saldoTotalFinanzas = saldoTotal;
+                                    actualizarSaldoPrincipal();
 
                                     // 4. Renderizamos UI (Pasamos el nuevo parámetro a la gráfica)
                                         actualizarResumenEHistorial(filtradosRegs);
@@ -10654,6 +10654,36 @@
                                 cambiarTipoTreemapCategorias('inversion');
                             }
 
+                            // El número grande sigue al título: en Finanzas es el saldo disponible y en
+                            // Inversiones lo que vale hoy el portafolio entero, en pesos.
+                            var saldoTotalFinanzas = 0;
+
+                            // Cada posición a precio de hoy y al tipo de cambio de hoy, más los dólares parados en
+                            // la caja GBM. Sin precio de mercado se cuenta lo que costó en pesos, que es lo único
+                            // que se sabe de ella; igual que hace el mapa del portafolio.
+                            function calcularTotalInversionesMxn() {
+                                const tipoCambio = globalUsdToMxn || 1;
+                                return (datosCategorias || [])
+                                    .filter(cat => cat.tipo === 'inversion')
+                                    .reduce((acc, cat) => {
+                                        if (esCategoriaCajaGbm(cat)) {
+                                            const caja = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cat.cuenta_id] : null;
+                                            return acc + ((caja && caja.usd > 0.005) ? caja.usd * tipoCambio : 0);
+                                        }
+                                        const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
+                                        if (precio) return acc + (cat.totalAcciones || 0) * precio * tipoCambio;
+                                        return acc + (cat.costoBaseInvertido || 0);
+                                    }, 0);
+                            }
+
+                            function actualizarSaldoPrincipal() {
+                                const el = document.getElementById('saldoTotalDisponible');
+                                if (!el) return;
+                                const cifra = tipoTreemapCategorias === 'inversion' ? calcularTotalInversionesMxn() : saldoTotalFinanzas;
+                                el.textContent = fMoneda(cifra, fNumSaldo);
+                                ajustarSaldoAlAncho();
+                            }
+
                             function actualizarTituloInicio() {
                                 const titulo = document.getElementById('tituloInicio');
                                 if (titulo) titulo.textContent = tipoTreemapCategorias === 'inversion' ? 'Inversiones' : 'Finanzas';
@@ -10769,6 +10799,7 @@
 
                                 contextoTreemapCategorias = { meses: meses || [], indice: indice };
                                 actualizarTituloInicio();
+                                actualizarSaldoPrincipal();
 
                                 // Sin tamaño no hay geometría de la que sacar el relleno: se aplaza el dibujo
                                 if (!contenedor.clientWidth || !contenedor.clientHeight) {
