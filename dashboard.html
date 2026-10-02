@@ -17918,37 +17918,66 @@
                                     return;
                                 }
                                 
-                                try {
-                                    const tickerLimpio = ticker.trim().toUpperCase();
-                                    const url = `https://finnhub.io/api/v1/quote?symbol=${tickerLimpio}&token=${FinnhubToken}`;
-                                    
-                                    const res = await fetch(url);
-                                    if (!res.ok) throw new Error('Error en el servidor de Finnhub');
-                                    
-                                    const data = await res.json();
-                                    window.cacheErroresMercado = window.cacheErroresMercado || {};
-                                    
-                                    if (data && data.c && data.c !== 0) {
-                                        const precio = parseFloat(data.c);
+                                // El precio se pide primero a Finnhub. Su plan gratuito tiene un límite de
+                                // peticiones por minuto y, al pasarlo, deja empresas sin precio ("Error API").
+                                // Entonces se prueba con las otras dos fuentes que se configuran en Ajustes,
+                                // en este orden: Twelve Data y Alpha Vantage. Cada una se salta si no hay clave.
+                                const tickerLimpio = ticker.trim().toUpperCase();
+                                const fuentes = [
+                                    async () => {
+                                        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(tickerLimpio)}&token=${FinnhubToken}`);
+                                        if (!res.ok) throw new Error(`Finnhub ${res.status}`);
+                                        const data = await res.json();
+                                        if (data && data.error) throw new Error(`Finnhub: ${data.error}`);
+                                        return data && data.c ? parseFloat(data.c) : null;
+                                    },
+                                    async () => {
+                                        const clave = (localStorage.getItem('claveApiTwelveData') || '').trim();
+                                        if (!clave) return null;
+                                        const res = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(tickerLimpio)}&apikey=${encodeURIComponent(clave)}`);
+                                        if (!res.ok) throw new Error(`Twelve Data ${res.status}`);
+                                        const data = await res.json();
+                                        // Al pasar el límite responde 200 con un código de error dentro
+                                        if (data && data.code && data.code !== 400) throw new Error(`Twelve Data ${data.code}`);
+                                        return data && data.price ? parseFloat(data.price) : null;
+                                    },
+                                    async () => {
+                                        const clave = (localStorage.getItem('claveApiHistorico') || '').trim();
+                                        if (!clave) return null;
+                                        const res = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(tickerLimpio)}&apikey=${encodeURIComponent(clave)}`);
+                                        if (!res.ok) throw new Error(`Alpha Vantage ${res.status}`);
+                                        const data = await res.json();
+                                        // Al pasar el límite contesta con un aviso en vez de la cotización
+                                        if (data && (data.Note || data.Information)) throw new Error('Alpha Vantage: límite');
+                                        const cotizacion = data && data['Global Quote'];
+                                        return cotizacion && cotizacion['05. price'] ? parseFloat(cotizacion['05. price']) : null;
+                                    }
+                                ];
+
+                                window.cacheErroresMercado = window.cacheErroresMercado || {};
+                                let huboErrorDeConexion = false;
+                                for (const fuente of fuentes) {
+                                    let precio = null;
+                                    try {
+                                        precio = await fuente();
+                                    } catch (e) {
+                                        huboErrorDeConexion = true;
+                                    }
+                                    if (precio > 0) {
                                         cachePreciosMercado[ticker] = precio;
                                         delete window.cacheErroresMercado[ticker];
                                         mostrarDatosMercado(precio);
-                                        
                                         // Durante el arranque no: el render que viene detrás ya lleva este precio.
-                                        if (!arranqueEnCurso) debouncedRefreshUI(); // Refresca las listas automáticamente
-                                    } else {
-                                        window.cacheErroresMercado[ticker] = 'Ticker no válido o sin datos';
-                                        mostrarDatosMercado(null, 'Ticker no válido');
-                                        
-                                        if (!arranqueEnCurso) debouncedRefreshUI(); // Quita el estado "Cargando..." si falla
+                                        if (!arranqueEnCurso) debouncedRefreshUI();
+                                        return;
                                     }
-                                } catch (error) {
-                                    window.cacheErroresMercado = window.cacheErroresMercado || {};
-                                    window.cacheErroresMercado[ticker] = 'Error de conexión API';
-                                    mostrarDatosMercado(null, 'Error de conexión API');
-                                    
-                                    if (!arranqueEnCurso) debouncedRefreshUI();
                                 }
+
+                                // Ninguna fuente dio precio
+                                const motivo = huboErrorDeConexion ? 'Error de conexión API' : 'Ticker no válido o sin datos';
+                                window.cacheErroresMercado[ticker] = motivo;
+                                mostrarDatosMercado(null, motivo);
+                                if (!arranqueEnCurso) debouncedRefreshUI();
                             }
 
                                     
