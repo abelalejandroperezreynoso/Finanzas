@@ -1120,6 +1120,10 @@
                     height: 1.1em;
                     overflow: hidden;
                     vertical-align: top;
+                    /* Los dígitos que entran y salen se desvanecen en los bordes en vez de verse
+                       cortados de tajo */
+                    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
+                    mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
                 }
                 .saldo-rodillo-columna {
                     display: flex;
@@ -1145,6 +1149,9 @@
                     overflow: hidden;
                     /* El tamaño lo pone ajustarSaldoAlAncho(); cuando cambia, cambia suave */
                     transition: font-size 0.35s ease;
+                    /* Todos los dígitos del mismo ancho: así la cifra no se recorre de lado cuando un
+                       dígito cambia por otro más ancho o más angosto, ni al terminar la animación */
+                    font-variant-numeric: tabular-nums;
                 }
 
                 /* --- INICIO ESTILOS AVISO DE VERSIÓN --- */
