@@ -9854,11 +9854,14 @@
                             // Los tuyos no sustituyen a los de Finnhub en esta pastilla: si lo hicieran, poner
                             // "Hardware" en Apple cambiaría también el mapa que pretende leer la industria, y
                             // dejaría de haber forma de ver las dos cosas.
-                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'sector', 'personalizado'];
-                            let agrupacionTreemapInversiones = AGRUPACIONES_TREEMAP_INVERSIONES
-                                .indexOf(localStorage.getItem('agrupacionTreemapInversiones')) >= 0
-                                ? localStorage.getItem('agrupacionTreemapInversiones')
-                                : 'empresa';
+                            // Los sectores de la industria ya no se ofrecen: sólo empresas o los sectores propios.
+                            // Quien los tenía guardados pasa a los suyos, que es la otra forma de verlos por sector.
+                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'personalizado'];
+                            let agrupacionTreemapInversiones = (function () {
+                                const guardada = localStorage.getItem('agrupacionTreemapInversiones');
+                                if (guardada === 'sector') return 'personalizado';
+                                return AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(guardada) >= 0 ? guardada : 'empresa';
+                            })();
 
                             // Las dos varas de sector reparten igual y se dibujan igual: lo único que cambia es
                             // de dónde sale el nombre del recuadro.
@@ -10817,7 +10820,7 @@
                             }
 
                             // La agrupación ya no tiene pastilla: se va alternando al tocarla en el título del
-                            // mapa, en el orden empresas → sectores → mis sectores.
+                            // mapa: empresas ↔ mis sectores.
                             function alternarAgrupacionTreemapInversiones() {
                                 const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
                                 cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
