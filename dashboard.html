@@ -11579,6 +11579,36 @@
                                         return { tam, tamCifra, tamNombre, nombre, textoPorc, fuente };
                                     };
 
+                                    // En el portafolio el recuadro ya no lleva lo que pesa en la cartera —el área lo
+                                    // dice—: sólo el nombre y, en negritas, la ganancia (o el ritmo en "% Mensual").
+                                    // Las compras de una empresa añaden su ritmo debajo, en letra normal, si cabe.
+                                    if (esPortafolio) {
+                                        if (conRitmo && cabenRenglones >= 3) {
+                                            const tresP = armar(3);
+                                            const cifra = enUnRenglon(tresP.tamCifra);
+                                            const suelto = enUnRenglon(tresP.tamCifra, formasRitmo);
+                                            if (cifra && suelto) {
+                                                return {
+                                                    lineas: [tresP.nombre, cifra.forma, suelto.forma],
+                                                    fuentes: [tresP.fuente(tresP.tamNombre, 'bold'),
+                                                              tresP.fuente(cifra.tam, 'bold'),
+                                                              tresP.fuente(suelto.tam, 'normal')]
+                                                };
+                                            }
+                                        }
+                                        if (cabenRenglones >= 2) {
+                                            const dosP = armar(2);
+                                            const cifra = enUnRenglon(dosP.tamCifra);
+                                            return {
+                                                lineas: [dosP.nombre, cifra ? cifra.forma : formasCifra[formasCifra.length - 1]],
+                                                fuentes: [dosP.fuente(dosP.tamNombre, 'bold'),
+                                                          dosP.fuente(cifra ? cifra.tam : MIN_FUENTE_TREEMAP - 1, 'bold')]
+                                            };
+                                        }
+                                        const unoP = armar(1);
+                                        return { lineas: [unoP.nombre], fuentes: [unoP.fuente(unoP.tamNombre, 'bold')] };
+                                    }
+
                                     // Intento 1: cuatro renglones, con el ritmo al final. Sólo lo piden las compras
                                     // de una empresa, que son las únicas que traen ritmo propio y no lo llevan ya
                                     // encabezando el recuadro. Va antes que el recuadro de tres porque es lo que
