@@ -10224,9 +10224,6 @@
                             const HUECO_RECUADROS_TREEMAP = 3;
                             const RADIO_RECUADROS_TREEMAP = 8;
 
-                            // Fondo de los recuadros del portafolio (lo que costó cada posición)
-                            const GRIS_RECUADRO_PORTAFOLIO = '#000000';
-
                             // En el portafolio la franja que sobra no es "lo que falta por gastar" sino lo que la
                             // posición ha ganado o perdido desde que se compró, y por eso se pinta y no se insinúa.
                             const VERDE_GANANCIA_TREEMAP = '#3ecf8e';
@@ -11793,9 +11790,7 @@
                                     if (!d) return '#444444';
                                     if (!d.cat) return '#3a3a3a';
 
-                                    // En el portafolio lo que costó va en gris oscuro, como las tarjetas de iOS en
-                                    // modo oscuro, con la letra en blanco encima.
-                                    const base = esPortafolio ? GRIS_RECUADRO_PORTAFOLIO : colorTreemapCategoria(d.cat, entradas);
+                                    const base = colorTreemapCategoria(d.cat, entradas);
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
                                     const { y, h } = context.raw;
@@ -11862,63 +11857,6 @@
                                         if (!meta || !meta.data || !meta.data.length) return;
 
                                         const lienzo = chart.ctx;
-
-                                        // En el portafolio cada recuadro lleva un contorno blanco fino con un
-                                        // resplandor suave alrededor. Se traza encima, siguiendo el mismo
-                                        // redondeo que el relleno.
-                                        if (esPortafolio) {
-                                            lienzo.save();
-                                            lienzo.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-                                            lienzo.lineWidth = 0.5;
-                                            lienzo.shadowColor = 'rgba(255, 255, 255, 1)';
-                                            lienzo.shadowBlur = 22;
-                                            meta.data.forEach(el => {
-                                                if (!(el.width > 1) || !(el.height > 1)) return;
-                                                const x = el.x + 0.25, y = el.y + 0.25;
-                                                const w = el.width - 0.5, h = el.height - 0.5;
-                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, w / 2, h / 2) - 0.25);
-                                                lienzo.beginPath();
-                                                if (lienzo.roundRect) lienzo.roundRect(x, y, w, h, r);
-                                                else lienzo.rect(x, y, w, h);
-                                                // Tres pasadas: el contorno es fino, y con una sola el resplandor
-                                                // se quedaba casi invisible.
-                                                lienzo.stroke();
-                                                lienzo.stroke();
-                                                lienzo.stroke();
-                                            });
-                                            lienzo.restore();
-
-                                            // La franja verde o roja resplandece con su propio color. Sólo se
-                                            // dibuja el brillo, no la franja (ya está pintada): la forma se manda
-                                            // fuera del lienzo y su sombra se desplaza de vuelta a su sitio.
-                                            // Va después del contorno blanco para que éste no la apague.
-                                            lienzo.save();
-                                            const fuera = 10000;
-                                            lienzo.shadowBlur = 20;
-                                            lienzo.shadowOffsetX = fuera * (chart.currentDevicePixelRatio || 1);
-                                            meta.data.forEach((el, i) => {
-                                                const d = buscarDato(chart.data.datasets[0].data[i]);
-                                                if (!d || !d.cat || !(el.width > 1) || !(el.height > 1)) return;
-                                                const f = fraccionLlenado(d);
-                                                const marca = fraccionObjetivo(d);
-                                                const corte = marca !== null ? marca : f;
-                                                const alto = el.height * (1 - corte);
-                                                if (!(alto > 0.5)) return;
-
-                                                const color = f < 1 ? ROJO_PERDIDA_TREEMAP : VERDE_GANANCIA_TREEMAP;
-                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, el.width / 2, el.height / 2));
-                                                lienzo.fillStyle = color;
-                                                lienzo.shadowColor = color;
-                                                lienzo.beginPath();
-                                                if (lienzo.roundRect) lienzo.roundRect(el.x - fuera, el.y, el.width, alto, [r, r, 0, 0]);
-                                                else lienzo.rect(el.x - fuera, el.y, el.width, alto);
-                                                // Dos pasadas para que el brillo tenga cuerpo
-                                                lienzo.fill();
-                                                lienzo.fill();
-                                            });
-                                            lienzo.restore();
-                                        }
-
                                         lienzo.save();
                                         lienzo.strokeStyle = COLOR_MARCA_OBJETIVO_TREEMAP;
                                         lienzo.lineWidth = ESPACIO_TREEMAP;
@@ -11984,7 +11922,7 @@
                                                     // grande, los renglones que caían del otro lado salían blancos
                                                     // sobre el blanco del relleno y desaparecían, que es lo que le
                                                     // pasaba a las posiciones en pérdida.
-                                                    if (esPortafolio) return '#ffffff';
+                                                    if (esPortafolio) return '#0a0a0a';
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
                                                     // En los otros mapas el recuadro es del color de la categoría y
