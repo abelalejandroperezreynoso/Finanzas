@@ -6969,10 +6969,12 @@
                                             selCat.appendChild(opCaja);
                                         }
                                         selCat.value = valorCaja;
-                                    // Solo bloqueamos cuando fuimos nosotros quienes cambiamos la categoría;
-                                    // si el usuario eligió la Caja GBM a propósito, puede seguir navegando
-                                    selCat.disabled = true;
                                     }
+                                    // Con MXN→USD o un retiro la única categoría posible es la Caja GBM, así
+                                    // que se bloquea siempre, también cuando la caja la eligió la persona: si
+                                    // no, la lista ofrecía empresas que no se compran con pesos. Para hablar de
+                                    // una empresa se cambia primero el tipo.
+                                    if (cat && esCategoriaCajaGbm(cat) || selCat.dataset.catAntesCaja) selCat.disabled = true;
                                 } else {
                                     // Comprar o vender es cosa de una empresa, no de la caja.
                                     if (selCat.disabled) {
@@ -6985,7 +6987,8 @@
                                             cat = datosCategorias.find(c => String(c.id) === String(catPrevia));
                                         }
                                         delete selCat.dataset.catAntesCaja;
-                                    } else if (cat && esCategoriaCajaGbm(cat)) {
+                                    }
+                                    if (cat && esCategoriaCajaGbm(cat)) {
                                         // Y si la caja la había elegido la persona, se suelta la categoría para
                                         // que diga de qué empresa habla. Antes esto no podía pasar porque con la
                                         // caja puesta no se ofrecía comprar; ahora el tipo va primero y es la
