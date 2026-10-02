@@ -11201,7 +11201,7 @@
                                             : (vistaAccesible ? 'accesible' : 'empresas');
                                         tituloEl.textContent = `‹ ${cuentaAbierta.nombre} · ${queReparte}`;
                                     } else if (esPortafolio) {
-                                        tituloEl.textContent = `Portafolio · ${vistaAccesible ? 'accesible' : 'hoy'}`;
+                                        tituloEl.textContent = vistaAccesible ? 'Portafolio · accesible' : 'Portafolio';
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
