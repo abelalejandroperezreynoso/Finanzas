@@ -1219,7 +1219,8 @@
 
         <div id="sec-inicio" class="seccion activa">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-                    <h2 class="titulo-seccion" style="margin: 0;">Finanzas</h2>
+                    <!-- Tocar el título alterna entre el resumen general y el modo Inversiones -->
+                    <h2 id="tituloInicio" class="titulo-seccion" onclick="alternarModoInversiones()" style="margin: 0; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;">Finanzas</h2>
                     <div style="display: flex; align-items: center;">
                     
                     <!-- NUEVO: Botón de Quitar Filtro (Página Principal) -->
@@ -1340,7 +1341,6 @@
             </div>
 
             <div class="pastilla-treemap">
-                <button id="btnTreemapInversion" onclick="cambiarTipoTreemapCategorias('inversion')">Inversiones</button>
                 <button id="btnTreemapPrestamo" onclick="cambiarTipoTreemapCategorias('prestamo')">Préstamos</button>
                 <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')">Deudas</button>
             </div>
@@ -10648,6 +10648,17 @@
 
                             // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
                             // completo desde la propia pastilla, que no tiene un botón de "todos".
+                            // El modo Inversiones ya no tiene botón en la pastilla: se entra y se sale tocando
+                            // el título de la página, que cambia de "Finanzas" a "Inversiones".
+                            function alternarModoInversiones() {
+                                cambiarTipoTreemapCategorias('inversion');
+                            }
+
+                            function actualizarTituloInicio() {
+                                const titulo = document.getElementById('tituloInicio');
+                                if (titulo) titulo.textContent = tipoTreemapCategorias === 'inversion' ? 'Inversiones' : 'Finanzas';
+                            }
+
                             function cambiarTipoTreemapCategorias(tipo) {
                                 const valido = TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === tipo);
                                 tipoTreemapCategorias = (!valido || tipo === tipoTreemapCategorias) ? '' : tipo;
@@ -10757,6 +10768,7 @@
                                 if (!contenedor) return;
 
                                 contextoTreemapCategorias = { meses: meses || [], indice: indice };
+                                actualizarTituloInicio();
 
                                 // Sin tamaño no hay geometría de la que sacar el relleno: se aplaza el dibujo
                                 if (!contenedor.clientWidth || !contenedor.clientHeight) {
