@@ -10820,7 +10820,7 @@
                             }
 
                             // La agrupación ya no tiene pastilla: se va alternando al tocarla en el título del
-                            // mapa: empresas ↔ mis sectores.
+                            // mapa: Empresas ↔ Sectores.
                             function alternarAgrupacionTreemapInversiones() {
                                 const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
                                 cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
@@ -11215,29 +11215,29 @@
                                     // Lo accesible se dice en el título de todas las capas: el mapa se ve muy
                                     // distinto —todo en ganancia— y hay que saber por qué antes de leerlo.
                                     if (empresaAbierta) {
-                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · ${vistaAccesible ? 'accesible' : 'compras'}`;
+                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · ${vistaAccesible ? 'Accesible' : 'Compras'}`;
                                     } else if (sectorAbierto) {
-                                        tituloEl.textContent = `‹ ${sectorAbierto} · ${vistaAccesible ? 'accesible' : 'empresas'}`;
+                                        tituloEl.textContent = `‹ ${sectorAbierto} · ${vistaAccesible ? 'Accesible' : 'Empresas'}`;
                                     } else if (cuentaAbierta) {
                                         // Con los sectores puestos el título dice las dos cosas —qué reparte la
                                         // capa y con qué vara—, porque las dos cambian lo que se está viendo.
                                         // Con los tuyos puestos el título lo dice: el mismo recuadro repartido de
                                         // dos maneras distintas son dos mapas, y hay que saber cuál se está viendo.
-                                        const nombreVara = porSectorPropio ? 'mis sectores' : 'sectores';
+                                        const nombreVara = 'Sectores';
                                         const queReparte = porSector
                                             ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
-                                            : (vistaAccesible ? 'accesible' : 'empresas');
+                                            : (vistaAccesible ? 'Accesible' : 'Empresas');
                                         pintarTituloConAgrupacionTreemap(tituloEl, `‹ ${cuentaAbierta.nombre}`, queReparte, () => subirNivelTreemap());
                                     } else if (esPortafolio && !hayCapaCuentas) {
                                         // Sin capa de cuentas la agrupación se aplica aquí mismo, así que el título
                                         // también la lleva para poder cambiarla.
-                                        const nombreVara = porSectorPropio ? 'mis sectores' : 'sectores';
+                                        const nombreVara = 'Sectores';
                                         const queReparte = porSector
                                             ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
-                                            : (vistaAccesible ? 'accesible' : 'empresas');
+                                            : (vistaAccesible ? 'Accesible' : 'Empresas');
                                         pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', queReparte, null);
                                     } else if (esPortafolio) {
-                                        tituloEl.textContent = vistaAccesible ? 'Portafolio · accesible' : 'Portafolio';
+                                        tituloEl.textContent = vistaAccesible ? 'Portafolio · Accesible' : 'Portafolio';
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
