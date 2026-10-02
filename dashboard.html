@@ -6944,7 +6944,7 @@
 
                             // Muestra/oculta los campos del formulario según el tipo de movimiento GBM elegido.
                             // Compra y venta no mueven pesos (monto = 0); aportación y retiro sí.
-                            function actualizarCamposInversion() {
+                            function actualizarCamposInversion(reintento = false) {
                                 const tipoInv = document.getElementById('regTipoInversion').value;
                                 const inputMonto = document.getElementById('regMonto');
                                 const filaRegMonto = document.getElementById('filaRegMonto');
@@ -6973,6 +6973,23 @@
                                 // la categoría visiblemente y la bloqueamos mientras dure ese tipo de movimiento
                                 const esMovCaja = tipoInv === 'aportacion' || tipoInv === 'retiro';
                                 if (esMovCaja) {
+                                    // Sin categoría elegida (por ejemplo, se soltó al pasar por USD→ACCIONES)
+                                    // se toma la de la cuenta: su Caja GBM si ya existe, o si no cualquiera de
+                                    // sus inversiones como punto de partida para crearla al guardar.
+                                    if (!cat) {
+                                        const cuentaId = document.getElementById('regCuentaSelect').value;
+                                        const delaCuenta = (datosCategorias || []).filter(c => String(c.cuenta_id) === String(cuentaId) && c.tipo === 'inversion');
+                                        const cajaCuenta = delaCuenta.find(c => esCategoriaCajaGbm(c));
+                                        const tieneOpcion = c => [...selCat.options].some(o => o.value === String(c.id));
+                                        const punto = (cajaCuenta && tieneOpcion(cajaCuenta)) ? cajaCuenta : delaCuenta.find(tieneOpcion);
+                                        // Con la categoría puesta se vuelve a pasar por aquí, una sola vez, para
+                                        // que todo lo que depende de ella (el saldo de la caja, el bloqueo) salga
+                                        // de la categoría y no del hueco.
+                                        if (punto && !reintento) {
+                                            selCat.value = String(punto.id);
+                                            return actualizarCamposInversion(true);
+                                        }
+                                    }
                                     if (cat && !esCategoriaCajaGbm(cat)) {
                                         selCat.dataset.catAntesCaja = String(cat.id);
                                         const catCaja = (datosCategorias || []).find(c => String(c.cuenta_id) === String(cat.cuenta_id) && esCategoriaCajaGbm(c));
