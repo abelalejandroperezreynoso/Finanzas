@@ -980,6 +980,9 @@
                 #totalTreemapCategorias { font-size: 0.85em; }
 
                 #saldoTotalDisponible {
+                    -webkit-tap-highlight-color: transparent;
+                    user-select: none;
+                    -webkit-user-select: none;
                     font-size: clamp(1.8em, 10vw, 3.5em);
                     font-weight: bold;
                     line-height: 1.1;
@@ -1256,7 +1259,8 @@
             </div>
     <div class="card" style="background: #000000; padding: 1.5rem; text-align: center;">
     <!-- El tamaño de partida lo pone el CSS; si la cifra no cabe de una línea, ajustarSaldoAlAncho() la encoge -->
-    <span id="saldoTotalDisponible">$0.00</span>
+    <!-- En el modo Inversiones, tocar la cifra cambia la moneda (pesos ↔ dólares) de todo el portafolio -->
+    <span id="saldoTotalDisponible" onclick="alternarMonedaInversiones()">$0.00</span>
     </div>
 
     <div class="card" style="padding: 0; margin: 0; background: #000000;">
@@ -1353,12 +1357,6 @@
                     <button id="btnTreemapPorEmpresa" onclick="cambiarAgrupacionTreemapInversiones('empresa')">Empresas</button>
                     <button id="btnTreemapPorSector" onclick="cambiarAgrupacionTreemapInversiones('sector')">Sectores</button>
                     <button id="btnTreemapPorPersonalizado" onclick="cambiarAgrupacionTreemapInversiones('personalizado')">Personalizado</button>
-                </div>
-
-                <span class="etiqueta-filtro-treemap">Moneda</span>
-                <div class="pastilla-treemap">
-                    <button id="btnTreemapUsd" onclick="cambiarMonedaTreemapInversiones('usd')">USD</button>
-                    <button id="btnTreemapMxn" onclick="cambiarMonedaTreemapInversiones('mxn')">MXN</button>
                 </div>
 
                 <span class="etiqueta-filtro-treemap">Mostrar</span>
@@ -10646,8 +10644,13 @@
                                 renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
                             }
 
-                            // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
-                            // completo desde la propia pastilla, que no tiene un botón de "todos".
+                            // La moneda del portafolio ya no tiene pastilla: se cambia tocando el número grande,
+                            // y sólo en el modo Inversiones. En Finanzas el saldo es siempre en pesos.
+                            function alternarMonedaInversiones() {
+                                if (tipoTreemapCategorias !== 'inversion') return;
+                                cambiarMonedaTreemapInversiones(monedaTreemapInversiones === 'usd' ? 'mxn' : 'usd');
+                            }
+
                             // El modo Inversiones ya no tiene botón en la pastilla: se entra y se sale tocando
                             // el título de la página, que cambia de "Finanzas" a "Inversiones".
                             function alternarModoInversiones() {
@@ -10655,7 +10658,7 @@
                             }
 
                             // El número grande sigue al título: en Finanzas es el saldo disponible y en
-                            // Inversiones lo que vale hoy el portafolio entero, en pesos.
+                            // Inversiones lo que vale hoy el portafolio entero, en la moneda elegida para el mapa.
                             var saldoTotalFinanzas = 0;
 
                             // Cada posición a precio de hoy y al tipo de cambio de hoy, más los dólares parados en
@@ -10679,10 +10682,28 @@
                             function actualizarSaldoPrincipal() {
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
-                                // En Inversiones el total va en pesos cerrados: los centavos de un portafolio que se
-                                // mueve con el mercado no dicen nada.
-                                const cifra = tipoTreemapCategorias === 'inversion' ? Math.round(calcularTotalInversionesMxn()) : saldoTotalFinanzas;
+                                const enInversiones = tipoTreemapCategorias === 'inversion';
+                                // Sólo se puede tocar para cambiar de moneda en Inversiones
+                                el.style.cursor = enInversiones ? 'pointer' : '';
+
+                                if (!enInversiones) {
+                                    el.textContent = fMoneda(saldoTotalFinanzas, fNumSaldo);
+                                    ajustarSaldoAlAncho();
+                                    return;
+                                }
+
+                                // En Inversiones el total va en unidades cerradas: los centavos de un portafolio que
+                                // se mueve con el mercado no dicen nada. La moneda va al lado, en chico, para que no
+                                // se confundan pesos con dólares.
+                                const enDolares = monedaTreemapInversiones === 'usd';
+                                const totalMxn = calcularTotalInversionesMxn();
+                                const cifra = Math.round(enDolares ? totalMxn / (globalUsdToMxn || 1) : totalMxn);
                                 el.textContent = fMoneda(cifra, fNumSaldo);
+                                const moneda = document.createElement('span');
+                                moneda.textContent = enDolares ? ' USD' : ' MXN';
+                                moneda.style.fontSize = '0.35em';
+                                moneda.style.color = '#888';
+                                el.appendChild(moneda);
                                 ajustarSaldoAlAncho();
                             }
 
@@ -10691,6 +10712,8 @@
                                 if (titulo) titulo.textContent = tipoTreemapCategorias === 'inversion' ? 'Inversiones' : 'Finanzas';
                             }
 
+                            // Tocar el tipo ya activo lo suelta: sin esto no habría forma de volver al mapa
+                            // completo desde la propia pastilla, que no tiene un botón de "todos".
                             function cambiarTipoTreemapCategorias(tipo) {
                                 const valido = TIPOS_PASTILLA_TREEMAP.some(t => t.tipo === tipo);
                                 tipoTreemapCategorias = (!valido || tipo === tipoTreemapCategorias) ? '' : tipo;
@@ -10905,7 +10928,6 @@
 
                                 encenderPastilla([['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']], direccionTreemapCategorias);
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
-                                encenderPastilla([['usd', 'btnTreemapUsd'], ['mxn', 'btnTreemapMxn']], monedaTreemapInversiones);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
                                 encenderPastilla([['acciones', 'btnCurvaAcciones'], ['dolar', 'btnCurvaDolar']], curvaInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
