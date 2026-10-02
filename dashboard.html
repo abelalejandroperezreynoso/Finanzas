@@ -1464,7 +1464,7 @@
         <div id="sec-inicio" class="seccion activa">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
                     <!-- Tocar el título alterna entre el resumen general y el modo Inversiones -->
-                    <h2 id="tituloInicio" class="titulo-seccion" onclick="alternarModoInversiones()" style="margin: 0; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;">Finanzas</h2>
+                    <h2 id="tituloInicio" class="titulo-seccion" onclick="alternarModoInversiones()" style="margin: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;">Finanzas</h2>
                     <div style="display: flex; align-items: center;">
                     
                     <!-- NUEVO: Botón de Quitar Filtro (Página Principal) -->
@@ -11390,7 +11390,7 @@
 
                                 const aviso = document.createElement('span');
                                 aviso.title = 'Empresas sin precio';
-                                aviso.style.cssText = 'display: inline-flex; vertical-align: middle; margin-left: 10px; color: #f5a623; cursor: pointer;';
+                                aviso.style.cssText = 'display: inline-flex; flex-shrink: 0; margin-left: 6px; color: #f5a623; cursor: pointer;';
                                 aviso.innerHTML = '<svg viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.4v.1"/></svg>';
                                 aviso.onclick = (e) => {
                                     e.stopPropagation();
