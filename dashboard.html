@@ -1664,10 +1664,13 @@
              acciones—, y de ahí sale a qué categoría cae. Por eso el Tipo va por encima de Categoría,
              y no enterrado más abajo con el resto de los datos de la operación. Sólo sale cuando la
              categoría elegida es de inversión; en cualquier otro movimiento la fila no existe. -->
-        <div class="ios-fila ios-fila-select" id="filaTipoInversion" style="display: none;">
-            <label for="regTipoInversion">Tipo</label>
-            <span class="ios-espejo marcador">—</span>
-            <select id="regTipoInversion" onchange="actualizarCamposInversion()"></select>
+        <!-- El tipo de movimiento GBM, también en pastillas: son dos o tres opciones y se ven todas
+             de un vistazo. El <select> sigue debajo, invisible, guardando la elección. -->
+        <div class="ios-fila-tira" id="filaTipoInversion" style="display: none;">
+            <div class="ios-tira-dias tira-cuentas" id="tiraTipoInversion"></div>
+            <div class="ios-fila-select select-cuenta-oculto">
+                <select id="regTipoInversion" onchange="actualizarCamposInversion()"></select>
+            </div>
         </div>
 
         <div class="ios-fila ios-fila-select">
@@ -6266,7 +6269,19 @@
                             // Pinta las pastillas de cuenta a partir de las opciones del select, con la
                             // elegida encendida. Se llama cada vez que el select cambia por cualquier vía.
                             function pintarPastillasCuentaRegistro(sel) {
-                                const tira = document.getElementById('tiraCuentasRegistro');
+                                pintarPastillasSelect(sel, document.getElementById('tiraCuentasRegistro'), t => t);
+                            }
+
+                            // Las pastillas del tipo GBM llevan el nombre corto: sin el icono y sin la
+                            // explicación entre paréntesis, que en una pastilla no cabe.
+                            function pintarPastillasTipoInversion(sel) {
+                                pintarPastillasSelect(sel, document.getElementById('tiraTipoInversion'), t =>
+                                    t.replace(/^[^A-Za-zÁÉÍÓÚáéíóúÑñ]+/, '').replace(/\s*\(.*\)\s*$/, '').trim());
+                            }
+
+                            // Pinta una tira de pastillas a partir de las opciones de un select, con la elegida
+                            // encendida. Tocar una pastilla cambia el select y avisa con 'change'.
+                            function pintarPastillasSelect(sel, tira, etiqueta) {
                                 if (!tira) return;
                                 const opciones = [...sel.options].filter(o => o.value && !o.disabled);
                                 const firma = opciones.map(o => o.value + ':' + o.textContent).join('|') + '#' + sel.value + '#' + sel.disabled;
@@ -6281,7 +6296,7 @@
                                     const btn = document.createElement('button');
                                     btn.type = 'button';
                                     btn.className = 'cuenta-chip';
-                                    btn.textContent = o.textContent.trim();
+                                    btn.textContent = etiqueta(o.textContent.trim());
                                     btn.disabled = sel.disabled;
                                     if (o.value === sel.value) { btn.classList.add('activo'); activa = btn; }
                                     btn.onclick = () => {
@@ -6303,6 +6318,7 @@
 
                             function sincronizarEspejoSelect(sel) {
                                 if (sel.id === 'regCuentaSelect') pintarPastillasCuentaRegistro(sel);
+                                if (sel.id === 'regTipoInversion') pintarPastillasTipoInversion(sel);
                                 const fila = sel.parentElement;
                                 const espejo = fila && fila.querySelector('.ios-espejo');
                                 if (!espejo) return;
