@@ -1427,15 +1427,6 @@
     <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
     </div>
 
-    <!-- Qué cuenta la curva: tus acciones, o lo que el tipo de cambio le ha hecho a los pesos
-         que metiste. Lo segundo no tiene recuadros en el mapa, así que lleva su propio botón. -->
-    <div style="display: flex; justify-content: center; flex-wrap: wrap; row-gap: 6px; margin-top: 8px;">
-        <div style="display: inline-flex; background: #1a1a1a; border-radius: 14px; padding: 2px;">
-            <button id="btnCurvaAcciones" onclick="cambiarCurvaInversiones('acciones')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: #333; color: #fff;">Acciones</button>
-            <button id="btnCurvaDolar" onclick="cambiarCurvaInversiones('dolar')" style="border: none; border-radius: 12px; padding: 4px 12px; font-size: 0.72em; font-weight: bold; cursor: pointer; background: none; color: #888;">USD/MXN</button>
-        </div>
-    </div>
-
     <div id="pieCurvaPrincipal" style="padding: 12px 1rem 5px 1rem; font-size: 0.8em; color: #888; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;"></div>
     </div>
     </div>
@@ -1894,6 +1885,21 @@
         </label>
     </div>
 
+
+        <!-- Qué cuenta la curva del modo Inversiones: tus acciones, o lo que el tipo de cambio le ha hecho
+             a los pesos que metiste. Sólo se enseña en ese modo; lo decide abrirModalFiltros(). -->
+        <div id="seccionCurvaInversiones" style="display: none;">
+        <div class="rango-ios-grupo">
+            <label class="rango-ios-fila">
+                <span>Gráfica</span>
+                <span class="rango-ios-pastilla" id="textoCurvaInversiones">—</span>
+                <select id="selectCurvaInversiones" onchange="cambiarCurvaInversiones(this.value); actualizarRangoFiltroIos();">
+                    <option value="acciones">Acciones</option>
+                    <option value="dolar">USD/MXN</option>
+                </select>
+            </label>
+        </div>
+        </div>
 
         <!-- En el modo Inversiones la gráfica es la curva del portafolio, ni balance ni barras: esta parte
              se esconde entera, con su separador -->
@@ -4981,6 +4987,8 @@
                             actualizarRangoFiltroIos();
                             const seccionTipos = document.getElementById('seccionTiposGrafica');
                             if (seccionTipos) seccionTipos.style.display = tipoTreemapCategorias === 'inversion' ? 'none' : '';
+                            const seccionCurva = document.getElementById('seccionCurvaInversiones');
+                            if (seccionCurva) seccionCurva.style.display = tipoTreemapCategorias === 'inversion' ? '' : 'none';
                             const indicador = document.getElementById('indicadorFiltroContexto');
                             const textoIndicador = document.getElementById('textoFiltroContexto');
                             if (indicador && textoIndicador) {
@@ -5023,6 +5031,13 @@
                             function actualizarRangoFiltroIos() {
                                 // El renglón de Periodo dice qué atajo está puesto; un rango hecho a mano sale
                                 // como "Personalizado", que no se puede elegir en la rueda.
+                                const selectCurva = document.getElementById('selectCurvaInversiones');
+                                const textoCurva = document.getElementById('textoCurvaInversiones');
+                                if (selectCurva && textoCurva) {
+                                    selectCurva.value = curvaInversiones;
+                                    textoCurva.textContent = selectCurva.options[selectCurva.selectedIndex].textContent;
+                                }
+
                                 const selectPeriodo = document.getElementById('selectPeriodoFiltro');
                                 const textoPeriodo = document.getElementById('textoPeriodoFiltro');
                                 if (selectPeriodo && textoPeriodo) {
@@ -11090,7 +11105,6 @@
                                 encenderPastilla([['salidas', 'btnTreemapSalidas'], ['entradas', 'btnTreemapEntradas']], direccionTreemapCategorias);
                                 encenderPastilla(TIPOS_PASTILLA_TREEMAP.map(t => [t.tipo, t.boton]), tipoTreemapCategorias);
                                 encenderPastilla([['todo', 'btnTreemapTodo'], ['accesible', 'btnTreemapAccesible']], vistaTreemapInversiones);
-                                encenderPastilla([['acciones', 'btnCurvaAcciones'], ['dolar', 'btnCurvaDolar']], curvaInversiones);
                                 encenderPastilla([['total', 'btnTreemapRendTotal'], ['mensual', 'btnTreemapRendMensual']], rendimientoTreemapInversiones);
                                 encenderPastilla([['empresa', 'btnTreemapPorEmpresa'], ['sector', 'btnTreemapPorSector'],
                                     ['personalizado', 'btnTreemapPorPersonalizado']], agrupacionTreemapInversiones);
