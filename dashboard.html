@@ -11023,7 +11023,10 @@
                             // el número nuevo entra desde arriba y empuja al viejo hacia abajo. Los que no cambian
                             // se quedan quietos. Al terminar se deja el texto plano, para que la medición del
                             // ancho y el resto de la app lo vean como siempre.
-                            const DURACION_SALDO_ANIMADO = 450;
+                            // Los dígitos cambian uno a la vez, de izquierda a derecha: cada uno baja en
+                            // DURACION_DIGITO_SALDO y el siguiente arranca PASO_DIGITO_SALDO después.
+                            const DURACION_DIGITO_SALDO = 260;
+                            const PASO_DIGITO_SALDO = 150;
                             var saldoInicialPendiente = null;
 
                             // La llama ocultarSplashCarga: con el velo ya fuera, la cifra baja de ceros a su valor
@@ -11089,6 +11092,7 @@
                                 const nuevo = texto.padStart(largo, ' ');
 
                                 el.textContent = '';
+                                let cambiados = 0;
                                 for (let i = 0; i < largo; i++) {
                                     const antes = viejo[i], ahora = nuevo[i];
                                     if (antes === ahora) {
@@ -11106,6 +11110,9 @@
                                     sale.textContent = antes === ' ' ? '\u00a0' : antes;
                                     columna.appendChild(entra);
                                     columna.appendChild(sale);
+                                    columna.style.transitionDuration = DURACION_DIGITO_SALDO + 'ms';
+                                    columna.style.transitionDelay = (cambiados * PASO_DIGITO_SALDO) + 'ms';
+                                    cambiados++;
                                     rodillo.appendChild(columna);
                                     el.appendChild(rodillo);
                                 }
@@ -11122,7 +11129,8 @@
                                 requestAnimationFrame(() => requestAnimationFrame(() => {
                                     el.querySelectorAll('.saldo-rodillo-columna').forEach(c => c.classList.add('baja'));
                                 }));
-                                el._temporizadorSaldo = setTimeout(pintarPlano, DURACION_SALDO_ANIMADO + 80);
+                                el._temporizadorSaldo = setTimeout(pintarPlano,
+                                    Math.max(0, cambiados - 1) * PASO_DIGITO_SALDO + DURACION_DIGITO_SALDO + 80);
                             }
 
                             function actualizarTituloInicio() {
