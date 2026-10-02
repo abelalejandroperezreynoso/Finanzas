@@ -1075,6 +1075,53 @@
                     white-space: nowrap;
                 }
                 .rango-ios-pastilla.marcador { color: #98989d; }
+                /* Control segmentado al estilo de iOS 26: cápsula translúcida y la opción elegida en
+                   una pastilla de vidrio que se desliza de un lado a otro. */
+                .segmentado-ios {
+                    position: relative;
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    padding: 3px;
+                    margin-bottom: 26px;
+                    border-radius: 999px;
+                    background: rgba(118, 118, 128, 0.24);
+                }
+                .segmentado-ios-pastilla {
+                    position: absolute;
+                    top: 3px;
+                    bottom: 3px;
+                    left: 3px;
+                    width: calc(50% - 3px);
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.16);
+                    box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), 0 3px 10px rgba(0, 0, 0, 0.35);
+                    -webkit-backdrop-filter: blur(12px) saturate(160%);
+                    backdrop-filter: blur(12px) saturate(160%);
+                    transition: transform 0.35s cubic-bezier(0.3, 1.3, 0.5, 1);
+                }
+                .segmentado-ios.segunda .segmentado-ios-pastilla { transform: translateX(100%); }
+                .segmentado-ios button {
+                    position: relative;
+                    margin: 0;
+                    padding: 9px 0;
+                    border: none;
+                    background: none;
+                    color: rgba(235, 235, 245, 0.6);
+                    font-size: 0.95em;
+                    font-weight: 600;
+                    border-radius: 999px;
+                    cursor: pointer;
+                    transition: color 0.25s;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .segmentado-ios button.activo { color: #ffffff; }
+                .punto-tipo-grafica {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    flex-shrink: 0;
+                }
+
                 /* Raya fina entre secciones de la hoja, como la de Ajustes */
                 .separador-ios {
                     border: none;
@@ -1974,16 +2021,17 @@
         <!-- En el modo Inversiones la gráfica es la curva del portafolio, ni balance ni barras: esta parte
              se esconde entera, con su separador -->
         <div id="seccionTiposGrafica">
-        <label style="display: block; margin-bottom: 8px;">Visualización de la gráfica:</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-            <button id="btnModoBalance" class="btn-shortcut" onclick="cambiarModoGrafica('balance')">Lineal</button>
-            <button id="btnModoMensual" class="btn-shortcut" onclick="cambiarModoGrafica('mensual')">Barras</button>
+        <!-- Al estilo de iOS 26: un control segmentado en cápsula con la opción elegida en una
+             pastilla de vidrio que se desliza, y los tipos como renglones con interruptor. -->
+        <div class="rango-ios-encabezado">Gráfica</div>
+        <div class="segmentado-ios" id="segmentadoModoGrafica">
+            <span class="segmentado-ios-pastilla"></span>
+            <button type="button" id="btnModoBalance" onclick="cambiarModoGrafica('balance')">Lineal</button>
+            <button type="button" id="btnModoMensual" onclick="cambiarModoGrafica('mensual')">Barras</button>
         </div>
 
-        <label style="display: block; margin-bottom: 8px;">Tipos en las barras mensuales:</label>
-        <div id="checksTiposGrafica" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;"></div>
-
-        <hr style="border-color:#444; margin: 15px 0;">
+        <div class="rango-ios-encabezado">Tipos en las barras</div>
+        <div class="rango-ios-grupo" id="checksTiposGrafica"></div>
         </div>
 
         <!-- Como el editor de eventos de Calendario: una tarjeta con dos renglones y la fecha en una
@@ -4281,11 +4329,17 @@
                     const contenedor = document.getElementById('checksTiposGrafica');
                     if (!contenedor) return;
 
+                    // Un renglón por tipo, como en Ajustes: el punto con su color, el nombre y un interruptor
                     contenedor.innerHTML = TIPOS_REGISTRO_GRAFICA.map(t => `
-                        <label style="display: flex; align-items: center; margin: 0; cursor: pointer; background: #222; padding: 8px 10px; border-radius: 6px; border: 1px solid #333;">
-                            <input type="checkbox" onchange="alternarTipoGrafica('${t.tipo}', this.checked)" ${tiposVisiblesGrafica.has(t.tipo) ? 'checked' : ''}
-                                   style="width: auto; margin: 0 8px 0 0; transform: scale(1.1); cursor: pointer;">
-                            <span style="color: ${t.color || obtenerColorCategoria(t.tipo)}; font-size: 0.85em;">${t.etiqueta}</span>
+                        <label class="rango-ios-fila">
+                            <span style="display: flex; align-items: center; gap: 10px;">
+                                <span class="punto-tipo-grafica" style="background: ${t.color || obtenerColorCategoria(t.tipo)};"></span>
+                                ${t.etiqueta}
+                            </span>
+                            <span class="ios-switch">
+                                <input type="checkbox" onchange="alternarTipoGrafica('${t.tipo}', this.checked)" ${tiposVisiblesGrafica.has(t.tipo) ? 'checked' : ''}>
+                                <span class="ios-switch-pista"></span>
+                            </span>
                         </label>
                     `).join('');
                 }
@@ -4325,15 +4379,11 @@
                 function actualizarBotonesModoGrafica() {
                     const botones = { balance: document.getElementById('btnModoBalance'), mensual: document.getElementById('btnModoMensual') };
                     Object.entries(botones).forEach(([modo, btn]) => {
-                        if (!btn) return;
-                        if (modo === modoGrafica) {
-                            btn.style.background = '#ffffff';
-                            btn.style.color = '#000000';
-                        } else {
-                            btn.style.background = '#444';
-                            btn.style.color = '#ffffff';
-                        }
+                        if (btn) btn.classList.toggle('activo', modo === modoGrafica);
                     });
+                    // La pastilla de vidrio se desliza bajo la opción elegida
+                    const segmentado = document.getElementById('segmentadoModoGrafica');
+                    if (segmentado) segmentado.classList.toggle('segunda', modoGrafica === 'mensual');
                 }
 
 
