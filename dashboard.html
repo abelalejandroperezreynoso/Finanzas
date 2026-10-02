@@ -1031,6 +1031,13 @@
                     white-space: nowrap;
                 }
                 .rango-ios-pastilla.marcador { color: #98989d; }
+                /* Raya fina entre secciones de la hoja, como la de Ajustes */
+                .separador-ios {
+                    border: none;
+                    height: 1px;
+                    background: #3a3a3c;
+                    margin: 0 0 26px 0;
+                }
                 .rango-ios-fila select {
                     position: absolute;
                     inset: 0;
@@ -1844,10 +1851,10 @@
 </div>
 
     <div class="modal-overlay hoja-ios" id="modalFiltros" onclick="if (event.target === this) cerrarModalFiltros();">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Filtro">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Panel de control">
     <div class="hoja-ios-tirador" id="tiradorHojaFiltros"></div>
     <div class="hoja-ios-encabezado" id="encabezadoHojaFiltros">
-        <h3>Filtro</h3>
+        <h3>Panel de control</h3>
         <button type="button" class="hoja-ios-accion" onclick="confirmarHojaFiltros()" aria-label="Listo" title="Listo">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.6l4.7 4.7L19 7"/></svg>
         </button>
@@ -1857,6 +1864,23 @@
     <div id="indicadorFiltroContexto" style="display: none; background: rgba(62, 207, 142, 0.15); border: 1px solid #3ecf8e; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
         <span id="textoFiltroContexto" style="color: #3ecf8e; font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 0;"></span>
         </div>
+
+    <!-- Qué cuenta la curva del modo Inversiones: tus acciones, o lo que el tipo de cambio le ha hecho
+         a los pesos que metiste. Sólo se enseña en ese modo; lo decide abrirModalFiltros(). Va primero y
+         con un separador debajo: es de la gráfica, no del periodo. -->
+    <div id="seccionCurvaInversiones" style="display: none;">
+    <div class="rango-ios-grupo">
+        <label class="rango-ios-fila">
+            <span>Gráfica</span>
+            <span class="rango-ios-pastilla" id="textoCurvaInversiones">—</span>
+            <select id="selectCurvaInversiones" onchange="cambiarCurvaInversiones(this.value); actualizarRangoFiltroIos();">
+                <option value="acciones">Acciones</option>
+                <option value="dolar">USD/MXN</option>
+            </select>
+        </label>
+    </div>
+    <hr class="separador-ios">
+    </div>
 
     <!-- Los atajos de tiempo, como un renglón de Ajustes: el periodo se elige en la rueda nativa de
          iOS (un <select> invisible estirado sobre el renglón) y se lee en la pastilla de la derecha.
@@ -1885,21 +1909,6 @@
         </label>
     </div>
 
-
-        <!-- Qué cuenta la curva del modo Inversiones: tus acciones, o lo que el tipo de cambio le ha hecho
-             a los pesos que metiste. Sólo se enseña en ese modo; lo decide abrirModalFiltros(). -->
-        <div id="seccionCurvaInversiones" style="display: none;">
-        <div class="rango-ios-grupo">
-            <label class="rango-ios-fila">
-                <span>Gráfica</span>
-                <span class="rango-ios-pastilla" id="textoCurvaInversiones">—</span>
-                <select id="selectCurvaInversiones" onchange="cambiarCurvaInversiones(this.value); actualizarRangoFiltroIos();">
-                    <option value="acciones">Acciones</option>
-                    <option value="dolar">USD/MXN</option>
-                </select>
-            </label>
-        </div>
-        </div>
 
         <!-- En el modo Inversiones la gráfica es la curva del portafolio, ni balance ni barras: esta parte
              se esconde entera, con su separador -->
