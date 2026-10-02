@@ -2865,6 +2865,7 @@
                                     function serieHistoricaAccesible(ambito, periodo) {
                                         const donde = ambito || {};
                                         const todo = donde.vista === 'todo';
+                                        const tolerancia = donde.tolerancia || 0;
                                         const recorte = periodo || {};
                                         const desdeFiltro = recorte.desde || '';
                                         const hastaFiltro = recorte.hasta || '';
@@ -3027,7 +3028,7 @@
                                                     }
 
                                                     if (cortada) continue;
-                                                    if (valor < costo) { cortada = true; continue; }
+                                                    if (valor < costo * (1 - tolerancia / 100)) { cortada = true; continue; }
 
                                                     ganancia += (valor - costo) * peso;
                                                     costoAccesible += costo * peso;
@@ -3521,6 +3522,7 @@
                                             moneda: monedaTreemapInversiones,
                                             // Todo o Accesible: son dos curvas distintas.
                                             vista: donde.vista || 'accesible',
+                                            tolerancia: donde.tolerancia || 0,
                                             // El día de hoy se dibuja con los precios en vivo: si cambian, la
                                             // curva se rehace para seguir cuadrando con el mapa.
                                             vivo: `${globalUsdToMxn}|${Object.keys(cachePreciosMercado).map(k => cachePreciosMercado[k]).join(',')}`,
@@ -3876,6 +3878,8 @@
                                             ? (nombre ? `USD/MXN · ${nombre}` : 'Tus pesos en dólares')
                                             : esTodo
                                             ? (nombre ? `Rendimiento · ${nombre}` : 'Rendimiento total')
+                                            : (ambito && ambito.tolerancia > 0)
+                                            ? (nombre ? `Pérdida ≤${ambito.tolerancia}% · ${nombre}` : `Lo que sale perdiendo ≤${ambito.tolerancia}%`)
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
                                         if (tituloEl) tituloEl.textContent = tituloBase;
 
@@ -9819,6 +9823,25 @@
                             // sacar— y por eso se mide con otra vara; queda explicado donde se calcula.
                             let vistaTreemapInversiones = localStorage.getItem('vistaTreemapInversiones') === 'accesible' ? 'accesible' : 'todo';
 
+                            // Cuánta pérdida se acepta por compra al calcular lo que se puede sacar. "Accesible"
+                            // es el 0% —ninguna compra puede ir en pérdida— y "Todo" es el 100%, porque una
+                            // compra no puede perder más de lo que costó y así entran todas. Entre medias, lo que
+                            // sacarías aceptando perder hasta ese porcentaje en alguna compra. "Todo" sigue su
+                            // propio cálculo (incluye la caja y lo que no tiene precio); el resto usa el corte.
+                            const TOLERANCIAS_TREEMAP_INVERSIONES = [0, 5, 10, 15, 20, 30, 40, 50, 75, 100];
+                            let toleranciaTreemapInversiones = (function () {
+                                const guardada = parseInt(localStorage.getItem('toleranciaTreemapInversiones'), 10);
+                                if (TOLERANCIAS_TREEMAP_INVERSIONES.indexOf(guardada) >= 0) return guardada;
+                                return vistaTreemapInversiones === 'accesible' ? 0 : 100;
+                            })();
+                            vistaTreemapInversiones = toleranciaTreemapInversiones >= 100 ? 'todo' : 'accesible';
+
+                            function etiquetaToleranciaTreemap(tolerancia) {
+                                if (tolerancia >= 100) return 'Todo';
+                                if (tolerancia <= 0) return 'Accesible';
+                                return `Pérdida ≤${tolerancia}%`;
+                            }
+
                             // Con qué vara se lee el rendimiento de cada recuadro. "Total" es cuánto vale hoy de
                             // lo que costó —el 94% de un recuadro a la baja, el 131% de uno que subió—; "Mensual"
                             // es a qué ritmo lo consiguió, repartiendo esa ganancia entre los meses que lleva
@@ -10474,7 +10497,8 @@
                                     const costo = compradas > 0 ? costoLote * (vivas / compradas) : costoLote;
                                     const valor = vivas * precio * (globalUsdToMxn || 1);
 
-                                    if (valor < costo) break;
+                                    // Corta en la primera compra que pierda más de lo tolerado (0% en "Accesible")
+                                    if (valor < costo * (1 - toleranciaTreemapInversiones / 100)) break;
                                     accesibles.push({ registro: u, costo: costo, valor: valor });
                                 }
 
@@ -10785,8 +10809,11 @@
                                     .filter(d => d && d.monto > 0);
                             }
 
-                            function cambiarVistaTreemapInversiones(vista) {
-                                vistaTreemapInversiones = vista === 'accesible' ? 'accesible' : 'todo';
+                            function cambiarToleranciaTreemapInversiones(tolerancia) {
+                                const t = parseInt(tolerancia, 10);
+                                toleranciaTreemapInversiones = TOLERANCIAS_TREEMAP_INVERSIONES.indexOf(t) >= 0 ? t : 100;
+                                vistaTreemapInversiones = toleranciaTreemapInversiones >= 100 ? 'todo' : 'accesible';
+                                localStorage.setItem('toleranciaTreemapInversiones', String(toleranciaTreemapInversiones));
                                 localStorage.setItem('vistaTreemapInversiones', vistaTreemapInversiones);
                                 repintarTreemapCategorias();
                             }
@@ -10820,9 +10847,6 @@
                                 cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
                             }
 
-                            function alternarVistaTreemapInversiones() {
-                                cambiarVistaTreemapInversiones(vistaTreemapInversiones === 'accesible' ? 'todo' : 'accesible');
-                            }
 
                             const ICONO_ALTERNAR_TREEMAP = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
 
@@ -10846,11 +10870,22 @@
                                     tituloEl.appendChild(document.createTextNode(' · '));
                                     const el = document.createElement('span');
                                     el.textContent = trozo.texto;
-                                    if (trozo.alTocar) {
+                                    if (trozo.alTocar || trozo.opciones) {
                                         el.style.cursor = 'pointer';
                                         el.style.color = '#3ecf8e';
-                                        el.onclick = trozo.alTocar;
                                         el.insertAdjacentHTML('beforeend', ICONO_ALTERNAR_TREEMAP);
+                                    }
+                                    if (trozo.alTocar) el.onclick = trozo.alTocar;
+                                    // Con muchas opciones no se alterna: se abre la rueda nativa de iOS con un
+                                    // <select> invisible encima del trozo.
+                                    if (trozo.opciones) {
+                                        el.style.position = 'relative';
+                                        const select = document.createElement('select');
+                                        select.style.cssText = 'position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: none; opacity: 0; -webkit-appearance: none; appearance: none; cursor: pointer;';
+                                        trozo.opciones.forEach(([valor, texto]) => select.add(new Option(texto, valor)));
+                                        select.value = trozo.valor;
+                                        select.onchange = () => trozo.alElegir(select.value);
+                                        el.appendChild(select);
                                     }
                                     tituloEl.appendChild(el);
                                 });
@@ -11137,6 +11172,7 @@
                                     nombre: cuentaAbierta ? cuentaAbierta.nombre : ''
                                 } : {
                                     vista: vistaAccesible ? 'accesible' : 'todo',
+                                    tolerancia: vistaAccesible ? toleranciaTreemapInversiones : 0,
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     sector: sectorAbierto || null,
                                     categoria: empresaAbierta ? String(empresaAbierta.id) : null,
@@ -11220,7 +11256,12 @@
                                     // En el portafolio el título se arma por trozos: el "volver" (o el nombre), lo
                                     // que reparte la capa —la agrupación se toca para cambiarla donde aplica— y,
                                     // aparte, Todo ↔ Accesible, que se toca en cualquier capa.
-                                    const trozoVista = { texto: vistaAccesible ? 'Accesible' : 'Todo', alTocar: alternarVistaTreemapInversiones };
+                                    const trozoVista = {
+                                        texto: etiquetaToleranciaTreemap(toleranciaTreemapInversiones),
+                                        opciones: TOLERANCIAS_TREEMAP_INVERSIONES.map(t => [String(t), etiquetaToleranciaTreemap(t)]),
+                                        valor: String(toleranciaTreemapInversiones),
+                                        alElegir: cambiarToleranciaTreemapInversiones
+                                    };
                                     const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
                                     if (empresaAbierta) {
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${empresaAbierta.ticker || empresaAbierta.nombre}`, () => subirNivelTreemap(),
@@ -11311,14 +11352,17 @@
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
                                     // Vacío en "Accesible" no es lo mismo que vacío en "Todo": ahí sí hay
                                     // posiciones, lo que no hay es nada que salga sin realizar una pérdida.
+                                    const sinPerder = toleranciaTreemapInversiones > 0
+                                        ? `sin perder más del ${toleranciaTreemapInversiones}% en alguna compra`
+                                        : 'sin vender en pérdida';
                                     const motivo = (vistaAccesible && empresaAbierta)
-                                        ? `De ${empresaAbierta.ticker || empresaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
+                                        ? `De ${empresaAbierta.ticker || empresaAbierta.nombre} no puedes sacar nada ${sinPerder}.`
                                         : (vistaAccesible && sectorAbierto)
-                                        ? `De ${sectorAbierto} no puedes sacar nada sin vender en pérdida.`
+                                        ? `De ${sectorAbierto} no puedes sacar nada ${sinPerder}.`
                                         : (vistaAccesible && cuentaAbierta)
-                                        ? `De ${cuentaAbierta.nombre} no puedes sacar nada sin vender en pérdida.`
+                                        ? `De ${cuentaAbierta.nombre} no puedes sacar nada ${sinPerder}.`
                                         : vistaAccesible
-                                        ? 'No puedes sacar nada sin vender en pérdida.'
+                                        ? `No puedes sacar nada ${sinPerder}.`
                                         : empresaAbierta
                                         ? `No quedan compras vivas de ${empresaAbierta.ticker || empresaAbierta.nombre}.`
                                         : sectorAbierto
