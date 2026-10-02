@@ -10679,7 +10679,9 @@
                             function actualizarSaldoPrincipal() {
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
-                                const cifra = tipoTreemapCategorias === 'inversion' ? calcularTotalInversionesMxn() : saldoTotalFinanzas;
+                                // En Inversiones el total va en pesos cerrados: los centavos de un portafolio que se
+                                // mueve con el mercado no dicen nada.
+                                const cifra = tipoTreemapCategorias === 'inversion' ? Math.round(calcularTotalInversionesMxn()) : saldoTotalFinanzas;
                                 el.textContent = fMoneda(cifra, fNumSaldo);
                                 ajustarSaldoAlAncho();
                             }
