@@ -7031,6 +7031,13 @@
                                     }
                                 }
 
+                                // Y al revés: comprar o vender con dólares es cosa de una empresa, así que con
+                                // esos tipos la Caja GBM no se ofrece en la lista de categorías.
+                                const idsCaja = new Set((datosCategorias || []).filter(c => esCategoriaCajaGbm(c)).map(c => String(c.id)));
+                                [...selCat.options].forEach(o => {
+                                    if (idsCaja.has(o.value) || o.value === VALOR_CAJA_AUTO) o.disabled = !esMovCaja;
+                                });
+
                                 divAcciones.style.display = usaAcciones ? '' : 'none';
                                 divCosto.style.display = usaAcciones ? '' : 'none';
                                 // Se esconde el renglón, no el campo: dejar el campo oculto dentro de su
