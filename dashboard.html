@@ -1340,7 +1340,7 @@
                 <button id="btnTreemapEntradas" onclick="cambiarDireccionTreemapCategorias('entradas')">Entradas</button>
             </div>
 
-            <div class="pastilla-treemap">
+            <div id="pastillaTipoTreemap" class="pastilla-treemap">
                 <button id="btnTreemapPrestamo" onclick="cambiarTipoTreemapCategorias('prestamo')">Préstamos</button>
                 <button id="btnTreemapDeuda" onclick="cambiarTipoTreemapCategorias('deuda')">Deudas</button>
             </div>
@@ -10917,10 +10917,12 @@
                                 const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
                                 if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
 
-                                // En el modo Inversiones no hay salidas ni entradas que elegir: esa pastilla se va.
-                                // De ahí se sale tocando el título de la página.
-                                const pastillaDireccionInv = document.getElementById('pastillaDireccionTreemap');
-                                if (pastillaDireccionInv) pastillaDireccionInv.style.display = esPortafolio ? 'none' : '';
+                                // En el modo Inversiones no hay salidas ni entradas, préstamos ni deudas que elegir:
+                                // esas pastillas se van. De ahí se sale tocando el título de la página.
+                                ['pastillaDireccionTreemap', 'pastillaTipoTreemap'].forEach(id => {
+                                    const pastilla = document.getElementById(id);
+                                    if (pastilla) pastilla.style.display = esPortafolio ? 'none' : '';
+                                });
 
                                 // La fila de filtros no cabe entera en un teléfono, así que se arrastra de lado.
                                 // El borde se desvanece sólo por donde queda algo por ver: es lo único que avisa
