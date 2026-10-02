@@ -2866,6 +2866,7 @@
                                         const donde = ambito || {};
                                         const todo = donde.vista === 'todo';
                                         const tolerancia = donde.tolerancia || 0;
+                                        const optimo = tolerancia === TOLERANCIA_OPTIMA_TREEMAP;
                                         const recorte = periodo || {};
                                         const desdeFiltro = recorte.desde || '';
                                         const hastaFiltro = recorte.hasta || '';
@@ -3000,6 +3001,8 @@
                                                 // pérdida, así que corta la cuenta y no suma. Cuáles son y cuánto
                                                 // les falta lo dice el avance del histórico, en Configuración.
                                                 let cortada = cierre.valor === null;
+                                                // Para el óptimo: lo acumulado vendiendo en orden y el mejor punto de corte
+                                                let acumulado = 0, acumuladoCosto = 0, mejor = 0, mejorCosto = 0;
 
                                                 for (const lote of lista) {
                                                     // Una compra ya vendida del todo no estorba: no hay nada suyo
@@ -3028,10 +3031,23 @@
                                                     }
 
                                                     if (cortada) continue;
+
+                                                    if (optimo) {
+                                                        acumulado += valor - costo;
+                                                        acumuladoCosto += costo;
+                                                        if (acumulado > mejor) { mejor = acumulado; mejorCosto = acumuladoCosto; }
+                                                        continue;
+                                                    }
+
                                                     if (valor < costo * (1 - tolerancia / 100)) { cortada = true; continue; }
 
                                                     ganancia += (valor - costo) * peso;
                                                     costoAccesible += costo * peso;
+                                                }
+
+                                                if (optimo) {
+                                                    ganancia += mejor * peso;
+                                                    costoAccesible += mejorCosto * peso;
                                                 }
                                             });
 
@@ -3878,6 +3894,8 @@
                                             ? (nombre ? `USD/MXN · ${nombre}` : 'Tus pesos en dólares')
                                             : esTodo
                                             ? (nombre ? `Rendimiento · ${nombre}` : 'Rendimiento total')
+                                            : (ambito && ambito.tolerancia === TOLERANCIA_OPTIMA_TREEMAP)
+                                            ? (nombre ? `Óptimo · ${nombre}` : 'Lo más que puedes ganar')
                                             : (ambito && ambito.tolerancia > 0)
                                             ? (nombre ? `Pérdida ≤${ambito.tolerancia}% · ${nombre}` : `Lo que sale perdiendo ≤${ambito.tolerancia}%`)
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
@@ -9828,7 +9846,12 @@
                             // compra no puede perder más de lo que costó y así entran todas. Entre medias, lo que
                             // sacarías aceptando perder hasta ese porcentaje en alguna compra. "Todo" sigue su
                             // propio cálculo (incluye la caja y lo que no tiene precio); el resto usa el corte.
-                            const TOLERANCIAS_TREEMAP_INVERSIONES = [0, 5, 10, 15, 20, 30, 40, 50, 75, 100];
+                            // "Óptimo" (-1) no es un porcentaje fijo: para cada empresa elige hasta qué compra
+                            // vender —siempre de la más vieja a la más nueva— para que la ganancia neta sea la
+                            // mayor posible. Puede pasar por una compra en pérdida si las de después la compensan
+                            // de sobra, y se detiene antes de las que ya sólo restan.
+                            var TOLERANCIA_OPTIMA_TREEMAP = -1; // var: la curva lo lee desde más arriba en el archivo
+                            const TOLERANCIAS_TREEMAP_INVERSIONES = [0, TOLERANCIA_OPTIMA_TREEMAP, 5, 10, 15, 20, 30, 40, 50, 75, 100];
                             let toleranciaTreemapInversiones = (function () {
                                 const guardada = parseInt(localStorage.getItem('toleranciaTreemapInversiones'), 10);
                                 if (TOLERANCIAS_TREEMAP_INVERSIONES.indexOf(guardada) >= 0) return guardada;
@@ -9837,6 +9860,7 @@
                             vistaTreemapInversiones = toleranciaTreemapInversiones >= 100 ? 'todo' : 'accesible';
 
                             function etiquetaToleranciaTreemap(tolerancia) {
+                                if (tolerancia === TOLERANCIA_OPTIMA_TREEMAP) return 'Óptimo';
                                 if (tolerancia >= 100) return 'Todo';
                                 if (tolerancia <= 0) return 'Accesible';
                                 return `Pérdida ≤${tolerancia}%`;
@@ -10497,9 +10521,23 @@
                                     const costo = compradas > 0 ? costoLote * (vivas / compradas) : costoLote;
                                     const valor = vivas * precio * (globalUsdToMxn || 1);
 
-                                    // Corta en la primera compra que pierda más de lo tolerado (0% en "Accesible")
-                                    if (valor < costo * (1 - toleranciaTreemapInversiones / 100)) break;
+                                    // Corta en la primera compra que pierda más de lo tolerado (0% en "Accesible").
+                                    // En el óptimo no corta aquí: se queda con todas y elige el corte abajo.
+                                    if (toleranciaTreemapInversiones !== TOLERANCIA_OPTIMA_TREEMAP
+                                        && valor < costo * (1 - toleranciaTreemapInversiones / 100)) break;
                                     accesibles.push({ registro: u, costo: costo, valor: valor });
+                                }
+
+                                // Óptimo: de todos los cortes posibles (vender las primeras 1, 2, 3… compras), el
+                                // que deja más ganancia neta. A igual ganancia, el que vende menos. Si ninguno
+                                // gana, no se vende nada.
+                                if (toleranciaTreemapInversiones === TOLERANCIA_OPTIMA_TREEMAP) {
+                                    let acumulado = 0, mejor = 0, corte = 0;
+                                    accesibles.forEach((l, i) => {
+                                        acumulado += l.valor - l.costo;
+                                        if (acumulado > mejor + 0.005) { mejor = acumulado; corte = i + 1; }
+                                    });
+                                    return accesibles.slice(0, corte);
                                 }
 
                                 return accesibles;
@@ -11352,7 +11390,9 @@
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
                                     // Vacío en "Accesible" no es lo mismo que vacío en "Todo": ahí sí hay
                                     // posiciones, lo que no hay es nada que salga sin realizar una pérdida.
-                                    const sinPerder = toleranciaTreemapInversiones > 0
+                                    const sinPerder = toleranciaTreemapInversiones === TOLERANCIA_OPTIMA_TREEMAP
+                                        ? 'sin que la venta acabe en pérdida'
+                                        : toleranciaTreemapInversiones > 0
                                         ? `sin perder más del ${toleranciaTreemapInversiones}% en alguna compra`
                                         : 'sin vender en pérdida';
                                     const motivo = (vistaAccesible && empresaAbierta)
