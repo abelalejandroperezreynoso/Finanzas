@@ -11431,19 +11431,6 @@
                                     const signoGanancia = ganancia >= 0 ? '+' : '-';
                                     const absGanancia = Math.abs(ganancia);
 
-                                    // La misma ganancia leída en porcentaje: cuánto ha rendido lo que se puso en
-                                    // esta posición. Va pegada al dinero porque las dos cifras responden a la
-                                    // misma pregunta y por separado ninguna basta —"+$460" no dice si es mucho
-                                    // sobre lo invertido, "+23%" no dice de cuánto dinero hablamos—. Comparten
-                                    // signo, así que se escribe una vez para cada una y la cifra va en absoluto.
-                                    const pctGanancia = d.esperado > 0 ? Math.abs((ganancia / d.esperado) * 100) : 0;
-
-                                    // La forma apretada suelta el decimal, salvo cuando sin él la cifra se
-                                    // quedaría en "0%": una posición que apenas se movió no ha rendido cero, y
-                                    // decirlo así al lado de un "+$2" hace dudar de las dos cifras.
-                                    const pctCorto = pctGanancia >= 0.95 ? pctGanancia.toFixed(0) : pctGanancia.toFixed(1);
-                                    const conPct = (dinero, pct) => `${signoGanancia}${dinero} (${signoGanancia}${pct}%)`;
-
                                     // En el portafolio el recuadro no repite el par "vale / costó": arriba va lo
                                     // que pesa la posición en la cartera y abajo lo que ha ganado o perdido, en
                                     // dinero y en porcentaje. Con las dos caras además puestas, el recuadro pedía
@@ -11456,12 +11443,12 @@
                                     //
                                     // Fuera del portafolio el par se queda: ahí las dos caras son lo que llevas y
                                     // lo que se espera, y la gracia está justamente en verlas juntas.
+                                    // En el portafolio va sólo el dinero ganado o perdido, sin su porcentaje: el
+                                    // porcentaje del rendimiento se lee en la vista "% Mensual".
                                     const formasDinero = enElPortafolio
                                         ? (hayGanancia
-                                            ? [conPct(fMoneda(absGanancia), pctGanancia.toFixed(1)),
-                                               conPct(redondo(absGanancia), pctGanancia.toFixed(1)),
-                                               conPct(montoCompactoTreemap(absGanancia), pctGanancia.toFixed(1)),
-                                               conPct(montoCompactoTreemap(absGanancia), pctCorto),
+                                            ? [`${signoGanancia}${fMoneda(absGanancia)}`,
+                                               `${signoGanancia}${redondo(absGanancia)}`,
                                                `${signoGanancia}${montoCompactoTreemap(absGanancia)}`]
                                             // Una posición plana no tiene ganancia que enseñar, y "$2.0k / $2.0k"
                                             // tampoco dice nada: se queda con lo que vale y ya.
@@ -11598,7 +11585,8 @@
                                         }
                                         if (cabenRenglones >= 2) {
                                             const dosP = armar(2);
-                                            const cifra = enUnRenglon(dosP.tamCifra);
+                                            // En "% Total" el monto va al mismo cuerpo que el nombre del recuadro
+                                            const cifra = enUnRenglon(muestraRitmo ? dosP.tamCifra : dosP.tamNombre);
                                             return {
                                                 lineas: [dosP.nombre, cifra ? cifra.forma : formasCifra[formasCifra.length - 1]],
                                                 fuentes: [dosP.fuente(dosP.tamNombre, 'bold'),
