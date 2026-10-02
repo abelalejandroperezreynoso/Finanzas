@@ -11887,6 +11887,36 @@
                                                 lienzo.stroke();
                                             });
                                             lienzo.restore();
+
+                                            // La franja verde o roja resplandece con su propio color. Sólo se
+                                            // dibuja el brillo, no la franja (ya está pintada): la forma se manda
+                                            // fuera del lienzo y su sombra se desplaza de vuelta a su sitio.
+                                            // Va después del contorno blanco para que éste no la apague.
+                                            lienzo.save();
+                                            const fuera = 10000;
+                                            lienzo.shadowBlur = 20;
+                                            lienzo.shadowOffsetX = fuera * (chart.currentDevicePixelRatio || 1);
+                                            meta.data.forEach((el, i) => {
+                                                const d = buscarDato(chart.data.datasets[0].data[i]);
+                                                if (!d || !d.cat || !(el.width > 1) || !(el.height > 1)) return;
+                                                const f = fraccionLlenado(d);
+                                                const marca = fraccionObjetivo(d);
+                                                const corte = marca !== null ? marca : f;
+                                                const alto = el.height * (1 - corte);
+                                                if (!(alto > 0.5)) return;
+
+                                                const color = f < 1 ? ROJO_PERDIDA_TREEMAP : VERDE_GANANCIA_TREEMAP;
+                                                const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, el.width / 2, el.height / 2));
+                                                lienzo.fillStyle = color;
+                                                lienzo.shadowColor = color;
+                                                lienzo.beginPath();
+                                                if (lienzo.roundRect) lienzo.roundRect(el.x - fuera, el.y, el.width, alto, [r, r, 0, 0]);
+                                                else lienzo.rect(el.x - fuera, el.y, el.width, alto);
+                                                // Dos pasadas para que el brillo tenga cuerpo
+                                                lienzo.fill();
+                                                lienzo.fill();
+                                            });
+                                            lienzo.restore();
                                         }
 
                                         lienzo.save();
