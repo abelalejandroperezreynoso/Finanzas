@@ -366,7 +366,6 @@
             padding: 16px 20px calc(20px + env(safe-area-inset-bottom));
         }
 
-        .grid-atajos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 
                 
                 .toggle-container {
@@ -996,7 +995,7 @@
                     background: #3a3a3c;
                     border-radius: 26px;
                     overflow: hidden;
-                    margin-bottom: 15px;
+                    margin-bottom: 26px;
                 }
                 .rango-ios-fila {
                     position: relative;
@@ -1032,6 +1031,57 @@
                     white-space: nowrap;
                 }
                 .rango-ios-pastilla.marcador { color: #98989d; }
+                .rango-ios-fila select {
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                    opacity: 0;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
+
+                /* Interruptor de iOS: pista de 51×31 que se pone verde y una bola blanca que se desliza */
+                .ios-switch {
+                    position: relative;
+                    flex-shrink: 0;
+                    width: 51px;
+                    height: 31px;
+                }
+                .ios-switch input {
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    margin: 0;
+                    opacity: 0;
+                    z-index: 1;
+                    cursor: pointer;
+                }
+                .ios-switch-pista {
+                    position: absolute;
+                    inset: 0;
+                    border-radius: 31px;
+                    background: #39393d;
+                    transition: background 0.25s;
+                }
+                .ios-switch-pista::after {
+                    content: '';
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 27px;
+                    height: 27px;
+                    border-radius: 50%;
+                    background: #ffffff;
+                    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+                    transition: transform 0.25s;
+                }
+                .ios-switch input:checked + .ios-switch-pista { background: #34c759; }
+                .ios-switch input:checked + .ios-switch-pista::after { transform: translateX(20px); }
                 .rango-ios-fila input[type="date"] {
                     position: absolute;
                     inset: 0;
@@ -1817,24 +1867,33 @@
         <span id="textoFiltroContexto" style="color: #3ecf8e; font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 0;"></span>
         </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <label style="margin: 0;">Accesos Directos:</label>
-                    <div style="display: flex; align-items: center;">
-                        <input type="checkbox" id="checkDesdeHoy" style="width: auto; margin: 0 8px 0 0; transform: scale(1.2); cursor: pointer;">
-                        <label for="checkDesdeHoy" style="margin: 0; cursor: pointer; color: #ccc;">Calcular desde hoy</label>
-                    </div>
-                </div>
-                <div class="grid-atajos">
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('hoy')">Hoy</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('semana')">Esta Semana</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('mes')">Este Mes</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('trimestre')">Este Trimestre</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('semestre')">Este Semestre</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('año')">Este Año</button>
-                    <button class="btn-shortcut" onclick="aplicarAtajoFiltro('todo')" style="grid-column: span 2;">Todo el Tiempo</button>
-                </div>
+    <!-- Los atajos de tiempo, como un renglón de Ajustes: el periodo se elige en la rueda nativa de
+         iOS (un <select> invisible estirado sobre el renglón) y se lee en la pastilla de la derecha.
+         Debajo, "Calcular desde hoy" es un interruptor que vuelve a aplicar el periodo al cambiarlo. -->
+    <div class="rango-ios-grupo">
+        <label class="rango-ios-fila">
+            <span>Periodo</span>
+            <span class="rango-ios-pastilla" id="textoPeriodoFiltro">—</span>
+            <select id="selectPeriodoFiltro" onchange="aplicarAtajoFiltro(this.value)">
+                <option value="hoy">Hoy</option>
+                <option value="semana">Esta semana</option>
+                <option value="mes">Este mes</option>
+                <option value="trimestre">Este trimestre</option>
+                <option value="semestre">Este semestre</option>
+                <option value="año">Este año</option>
+                <option value="todo">Todo el tiempo</option>
+                <option value="personalizado" disabled hidden>Personalizado</option>
+            </select>
+        </label>
+        <label class="rango-ios-fila">
+            <span>Calcular desde hoy</span>
+            <span class="ios-switch">
+                <input type="checkbox" id="checkDesdeHoy" onchange="reaplicarPeriodoFiltro()">
+                <span class="ios-switch-pista"></span>
+            </span>
+        </label>
+    </div>
 
-        <hr style="border-color:#444; margin: 15px 0;">
 
         <!-- En el modo Inversiones la gráfica es la curva del portafolio, ni balance ni barras: esta parte
              se esconde entera, con su separador -->
@@ -4943,16 +5002,6 @@
                             indicador.style.display = 'none';
                             }
                             }
-                            document.querySelectorAll('.grid-atajos .btn-shortcut').forEach(btn => {
-                            const accion = String(btn.getAttribute('onclick') || '');
-                            if (accion.includes(`'${tipoFiltroActual}'`) || accion.includes(`"${tipoFiltroActual}"`)) {
-                            btn.style.background = '#ffffff';
-                            btn.style.color = '#000000';
-                            } else {
-                            btn.style.background = '#444';
-                            btn.style.color = '#ffffff';
-                            }
-                            });
                             actualizarBotonesModoGrafica();
                             renderizarChecksTiposGrafica();
                             }
@@ -4972,6 +5021,16 @@
                             // sitios (atajos, flechas, el mes de arranque), y todos acaban en
                             // aplicarFiltrosYRenderizar, que llama aquí; también al abrir la hoja.
                             function actualizarRangoFiltroIos() {
+                                // El renglón de Periodo dice qué atajo está puesto; un rango hecho a mano sale
+                                // como "Personalizado", que no se puede elegir en la rueda.
+                                const selectPeriodo = document.getElementById('selectPeriodoFiltro');
+                                const textoPeriodo = document.getElementById('textoPeriodoFiltro');
+                                if (selectPeriodo && textoPeriodo) {
+                                    selectPeriodo.value = tipoFiltroActual;
+                                    const opcion = selectPeriodo.options[selectPeriodo.selectedIndex];
+                                    textoPeriodo.textContent = opcion ? opcion.textContent : 'Personalizado';
+                                }
+
                                 [['filtroInicio', 'textoFiltroInicio'], ['filtroFin', 'textoFiltroFin']].forEach(([idInput, idTexto]) => {
                                     const input = document.getElementById(idInput);
                                     const texto = document.getElementById(idTexto);
@@ -5601,6 +5660,13 @@
 
                                         offsetFiltroActual += direccion;
                                         procesarDesplazamiento();
+                                    }
+
+                                    // El interruptor "Calcular desde hoy" cambia cómo se mide el periodo puesto, así
+                                    // que se vuelve a aplicar en el acto. Un rango a mano o "Todo" no dependen de él.
+                                    function reaplicarPeriodoFiltro() {
+                                        if (tipoFiltroActual === 'todo' || tipoFiltroActual === 'personalizado') return;
+                                        aplicarAtajoFiltro(tipoFiltroActual);
                                     }
 
                                     function aplicarAtajoFiltro(tipo) {
