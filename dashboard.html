@@ -1950,7 +1950,7 @@
         <label class="rango-ios-fila">
             <span>Periodo</span>
             <span class="rango-ios-pastilla" id="textoPeriodoFiltro">—</span>
-            <select id="selectPeriodoFiltro" onchange="aplicarAtajoFiltro(this.value)">
+            <select id="selectPeriodoFiltro" onchange="aplicarAtajoFiltro(this.value, true)">
                 <option value="hoy">Hoy</option>
                 <option value="semana">Esta semana</option>
                 <option value="mes">Este mes</option>
@@ -1994,12 +1994,12 @@
             <label class="rango-ios-fila">
                 <span>Desde</span>
                 <span class="rango-ios-pastilla" id="textoFiltroInicio">—</span>
-                <input type="date" id="filtroInicio" onchange="actualizarRangoFiltroIos()">
+                <input type="date" id="filtroInicio" onchange="rangoManualPendiente = true; actualizarRangoFiltroIos()">
             </label>
             <label class="rango-ios-fila">
                 <span>Hasta</span>
                 <span class="rango-ios-pastilla" id="textoFiltroFin">—</span>
-                <input type="date" id="filtroFin" onchange="actualizarRangoFiltroIos()">
+                <input type="date" id="filtroFin" onchange="rangoManualPendiente = true; actualizarRangoFiltroIos()">
             </label>
         </div>
 
@@ -4305,10 +4305,14 @@
                     // No se repinta aquí: repintar cierra la hoja, y así sólo se podía marcar un tipo por
                     // vez. Se deja pendiente y se aplica al cerrar la hoja (con ✓, arrastrándola o tocando
                     // fuera).
-                    tiposGraficaPendientes = true;
+                    cambiosPanelPendientes = true;
                 }
 
-                var tiposGraficaPendientes = false;
+                // Lo que se toca en el Panel de control no se aplica al momento —repintar cierra la hoja—
+                // sino al cerrarla: los tipos de la gráfica, el periodo y "Calcular desde hoy" marcan
+                // cambiosPanelPendientes; las fechas escritas a mano, rangoManualPendiente.
+                var cambiosPanelPendientes = false;
+                var rangoManualPendiente = false;
 
                 function cambiarModoGrafica(modo) {
                     modoGrafica = modo;
@@ -5104,8 +5108,13 @@
                                 clearTimeout(hoja._temporizadorCierre);
                                 hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
 
-                                // Los tipos de la gráfica marcados en la hoja se aplican ahora, todos juntos
-                                if (tiposGraficaPendientes) aplicarFiltrosYRenderizar();
+                                // Lo que se tocó en la hoja se aplica ahora, todo junto
+                                if (rangoManualPendiente) {
+                                    rangoManualPendiente = false;
+                                    aplicarRangoManual();
+                                } else if (cambiosPanelPendientes) {
+                                    aplicarFiltrosYRenderizar();
+                                }
                             }
 
                             // Las pastillas del rango personalizado. Los campos de fecha se cambian desde muchos
@@ -5143,10 +5152,8 @@
 
                             // El "Listo" del encabezado: cierra la hoja y, si hay fechas escritas,
                             // aplica antes ese rango. Sin fechas no toca el tipo de filtro vigente.
+                            // El ✓ del encabezado cierra la hoja; al cerrarse se aplica lo que se haya tocado
                             function confirmarHojaFiltros() {
-                                const inicio = document.getElementById('filtroInicio').value;
-                                const fin = document.getElementById('filtroFin').value;
-                                if (inicio || fin) aplicarRangoManual();
                                 cerrarModalFiltros();
                             }
 
@@ -5764,16 +5771,18 @@
                                     // que se vuelve a aplicar en el acto. Un rango a mano o "Todo" no dependen de él.
                                     function reaplicarPeriodoFiltro() {
                                         if (tipoFiltroActual === 'todo' || tipoFiltroActual === 'personalizado') return;
-                                        aplicarAtajoFiltro(tipoFiltroActual);
+                                        aplicarAtajoFiltro(tipoFiltroActual, true);
                                     }
 
-                                    function aplicarAtajoFiltro(tipo) {
+                                    function aplicarAtajoFiltro(tipo, diferir = false) {
                                         tipoFiltroActual = tipo;
                                         offsetFiltroActual = 0;
-                                        procesarDesplazamiento();
+                                        procesarDesplazamiento(diferir);
                                     }
 
-                                    function procesarDesplazamiento() {
+                                    // Con diferir (desde el Panel de control) se ponen las fechas pero no se repinta:
+                                    // repintar cierra la hoja. Se aplica al cerrarla, junto con lo demás que se toque.
+                                    function procesarDesplazamiento(diferir = false) {
                                         // Por aquí pasan los atajos de la hoja de Filtro y las flechas ◀ ▶: en cuanto
                                         // se toca cualquiera de los dos, el recorte pasa a ser cosa del usuario.
                                         filtroPorDefectoPuesto = false;
@@ -5858,7 +5867,14 @@
                                                                                     inputInicio.value = '';
                                                                                     inputFin.value = '';
                                                                                 }
-                                                                                
+
+                                                                                if (diferir) {
+                                                                                    // Un atajo manda sobre unas fechas escritas a mano antes
+                                                                                    rangoManualPendiente = false;
+                                                                                    cambiosPanelPendientes = true;
+                                                                                    actualizarRangoFiltroIos();
+                                                                                    return;
+                                                                                }
                                                                                 aplicarFiltrosYRenderizar();
                                                                             }
 
@@ -8633,7 +8649,7 @@
 
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 // Este repintado ya recoge los tipos de la gráfica que estuvieran pendientes
-                                tiposGraficaPendientes = false;
+                                cambiosPanelPendientes = false;
                                 actualizarRangoFiltroIos();
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
                                     window.filtroMovimientosActivo = null;
