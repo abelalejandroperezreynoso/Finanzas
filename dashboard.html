@@ -2866,7 +2866,6 @@
                                         const donde = ambito || {};
                                         const todo = donde.vista === 'todo';
                                         const tolerancia = donde.tolerancia || 0;
-                                        const optimo = tolerancia === TOLERANCIA_OPTIMA_TREEMAP;
                                         const recorte = periodo || {};
                                         const desdeFiltro = recorte.desde || '';
                                         const hastaFiltro = recorte.hasta || '';
@@ -3001,8 +3000,6 @@
                                                 // pérdida, así que corta la cuenta y no suma. Cuáles son y cuánto
                                                 // les falta lo dice el avance del histórico, en Configuración.
                                                 let cortada = cierre.valor === null;
-                                                // Para el óptimo: lo acumulado vendiendo en orden y el mejor punto de corte
-                                                let acumulado = 0, acumuladoCosto = 0, mejor = 0, mejorCosto = 0;
 
                                                 for (const lote of lista) {
                                                     // Una compra ya vendida del todo no estorba: no hay nada suyo
@@ -3032,22 +3029,10 @@
 
                                                     if (cortada) continue;
 
-                                                    if (optimo) {
-                                                        acumulado += valor - costo;
-                                                        acumuladoCosto += costo;
-                                                        if (acumulado > mejor) { mejor = acumulado; mejorCosto = acumuladoCosto; }
-                                                        continue;
-                                                    }
-
                                                     if (valor < costo * (1 - tolerancia / 100)) { cortada = true; continue; }
 
                                                     ganancia += (valor - costo) * peso;
                                                     costoAccesible += costo * peso;
-                                                }
-
-                                                if (optimo) {
-                                                    ganancia += mejor * peso;
-                                                    costoAccesible += mejorCosto * peso;
                                                 }
                                             });
 
@@ -3894,8 +3879,6 @@
                                             ? (nombre ? `USD/MXN · ${nombre}` : 'Tus pesos en dólares')
                                             : esTodo
                                             ? (nombre ? `Rendimiento · ${nombre}` : 'Rendimiento total')
-                                            : (ambito && ambito.tolerancia === TOLERANCIA_OPTIMA_TREEMAP)
-                                            ? (nombre ? `Óptimo · ${nombre}` : 'Lo más que puedes ganar')
                                             : (ambito && ambito.tolerancia > 0)
                                             ? (nombre ? `Pérdida ≤${ambito.tolerancia}% · ${nombre}` : `Lo que sale perdiendo ≤${ambito.tolerancia}%`)
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
@@ -9846,12 +9829,7 @@
                             // compra no puede perder más de lo que costó y así entran todas. Entre medias, lo que
                             // sacarías aceptando perder hasta ese porcentaje en alguna compra. "Todo" sigue su
                             // propio cálculo (incluye la caja y lo que no tiene precio); el resto usa el corte.
-                            // "Óptimo" (-1) no es un porcentaje fijo: para cada empresa elige hasta qué compra
-                            // vender —siempre de la más vieja a la más nueva— para que la ganancia neta sea la
-                            // mayor posible. Puede pasar por una compra en pérdida si las de después la compensan
-                            // de sobra, y se detiene antes de las que ya sólo restan.
-                            var TOLERANCIA_OPTIMA_TREEMAP = -1; // var: la curva lo lee desde más arriba en el archivo
-                            const TOLERANCIAS_TREEMAP_INVERSIONES = [0, TOLERANCIA_OPTIMA_TREEMAP, 5, 10, 15, 20, 30, 40, 50, 75, 100];
+                            const TOLERANCIAS_TREEMAP_INVERSIONES = [0, 5, 10, 15, 20, 30, 40, 50, 75, 100];
                             let toleranciaTreemapInversiones = (function () {
                                 const guardada = parseInt(localStorage.getItem('toleranciaTreemapInversiones'), 10);
                                 if (TOLERANCIAS_TREEMAP_INVERSIONES.indexOf(guardada) >= 0) return guardada;
@@ -9859,8 +9837,21 @@
                             })();
                             vistaTreemapInversiones = toleranciaTreemapInversiones >= 100 ? 'todo' : 'accesible';
 
+                            // Cuál de los niveles deja más dinero en la mano —ganancia neta: lo que se saca
+                            // menos lo que costó— en el trozo del portafolio que se está mirando. A igual
+                            // ganancia gana el nivel más bajo, que es el que acepta menos pérdida. Se mide con el
+                            // mismo corte en todos los niveles, también en Todo, para compararlos parejo.
+                            function mejorToleranciaTreemap(cats) {
+                                let mejor = 0, mejorGanancia = -Infinity;
+                                TOLERANCIAS_TREEMAP_INVERSIONES.forEach(t => {
+                                    const ganancia = cats.reduce((acc, cat) =>
+                                        acc + lotesAccesiblesTreemap(cat, t).reduce((a, l) => a + (l.valor - l.costo), 0), 0);
+                                    if (ganancia > mejorGanancia + 0.005) { mejor = t; mejorGanancia = ganancia; }
+                                });
+                                return mejor;
+                            }
+
                             function etiquetaToleranciaTreemap(tolerancia) {
-                                if (tolerancia === TOLERANCIA_OPTIMA_TREEMAP) return 'Óptimo';
                                 if (tolerancia >= 100) return 'Todo';
                                 if (tolerancia <= 0) return 'Accesible';
                                 return `Pérdida ≤${tolerancia}%`;
@@ -10498,7 +10489,7 @@
                             // dólares a propósito, para que el tipo de cambio no se cuele en lo que hizo la
                             // empresa; aquí la pregunta es otra —cuánto puedo sacar sin perder— y sacar es sacar
                             // pesos, así que el tipo de cambio al que compraste sí cuenta.
-                            function lotesAccesiblesTreemap(cat) {
+                            function lotesAccesiblesTreemap(cat, tolerancia = toleranciaTreemapInversiones) {
                                 const precio = cat.ticker ? cachePreciosMercado[cat.ticker] : null;
                                 if (!precio) return [];
 
@@ -10521,23 +10512,9 @@
                                     const costo = compradas > 0 ? costoLote * (vivas / compradas) : costoLote;
                                     const valor = vivas * precio * (globalUsdToMxn || 1);
 
-                                    // Corta en la primera compra que pierda más de lo tolerado (0% en "Accesible").
-                                    // En el óptimo no corta aquí: se queda con todas y elige el corte abajo.
-                                    if (toleranciaTreemapInversiones !== TOLERANCIA_OPTIMA_TREEMAP
-                                        && valor < costo * (1 - toleranciaTreemapInversiones / 100)) break;
+                                    // Corta en la primera compra que pierda más de lo tolerado (0% en "Accesible")
+                                    if (valor < costo * (1 - tolerancia / 100)) break;
                                     accesibles.push({ registro: u, costo: costo, valor: valor });
-                                }
-
-                                // Óptimo: de todos los cortes posibles (vender las primeras 1, 2, 3… compras), el
-                                // que deja más ganancia neta. A igual ganancia, el que vende menos. Si ninguno
-                                // gana, no se vende nada.
-                                if (toleranciaTreemapInversiones === TOLERANCIA_OPTIMA_TREEMAP) {
-                                    let acumulado = 0, mejor = 0, corte = 0;
-                                    accesibles.forEach((l, i) => {
-                                        acumulado += l.valor - l.costo;
-                                        if (acumulado > mejor + 0.005) { mejor = acumulado; corte = i + 1; }
-                                    });
-                                    return accesibles.slice(0, corte);
                                 }
 
                                 return accesibles;
@@ -11296,7 +11273,17 @@
                                     // aparte, Todo ↔ Accesible, que se toca en cualquier capa.
                                     const trozoVista = {
                                         texto: etiquetaToleranciaTreemap(toleranciaTreemapInversiones),
-                                        opciones: TOLERANCIAS_TREEMAP_INVERSIONES.map(t => [String(t), etiquetaToleranciaTreemap(t)]),
+                                        // La estrella (★ como texto, con el selector que evita que iOS la pinte como
+                                        // emoji) marca el nivel que más ganancia deja en lo que se está mirando.
+                                        opciones: (() => {
+                                            const catsDelNivel = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
+                                                && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id))
+                                                && (!sectorAbierto || sectoresDeCategoriaTreemap(c).indexOf(sectorAbierto) >= 0)
+                                                && (!empresaAbierta || String(c.id) === String(empresaAbierta.id)));
+                                            const mejor = mejorToleranciaTreemap(catsDelNivel);
+                                            return TOLERANCIAS_TREEMAP_INVERSIONES.map(t =>
+                                                [String(t), etiquetaToleranciaTreemap(t) + (t === mejor ? '  \u2605\uFE0E' : '')]);
+                                        })(),
                                         valor: String(toleranciaTreemapInversiones),
                                         alElegir: cambiarToleranciaTreemapInversiones
                                     };
@@ -11390,9 +11377,7 @@
                                     const mesFuturo = (indice !== null && meses && meses[indice] && meses[indice].esFuturo);
                                     // Vacío en "Accesible" no es lo mismo que vacío en "Todo": ahí sí hay
                                     // posiciones, lo que no hay es nada que salga sin realizar una pérdida.
-                                    const sinPerder = toleranciaTreemapInversiones === TOLERANCIA_OPTIMA_TREEMAP
-                                        ? 'sin que la venta acabe en pérdida'
-                                        : toleranciaTreemapInversiones > 0
+                                    const sinPerder = toleranciaTreemapInversiones > 0
                                         ? `sin perder más del ${toleranciaTreemapInversiones}% en alguna compra`
                                         : 'sin vender en pérdida';
                                     const motivo = (vistaAccesible && empresaAbierta)
