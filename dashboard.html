@@ -5963,6 +5963,8 @@
                                         if (!velo) return;
                                         velo.classList.add('oculto');
                                         setTimeout(() => velo.remove(), 300);
+                                        // La cifra grande baja de ceros a su valor mientras se desvanece el velo
+                                        if (typeof animarSaldoInicial === 'function') setTimeout(animarSaldoInicial, 120);
                                     }
                                     setTimeout(ocultarSplashCarga, 15000);
 
@@ -11022,6 +11024,14 @@
                             // se quedan quietos. Al terminar se deja el texto plano, para que la medición del
                             // ancho y el resto de la app lo vean como siempre.
                             const DURACION_SALDO_ANIMADO = 450;
+                            var saldoInicialPendiente = null;
+
+                            // La llama ocultarSplashCarga: con el velo ya fuera, la cifra baja de ceros a su valor
+                            function animarSaldoInicial() {
+                                const pendiente = saldoInicialPendiente;
+                                saldoInicialPendiente = null;
+                                if (pendiente) pintarSaldoAnimado(pendiente.el, pendiente.texto, pendiente.sufijo);
+                            }
                             function pintarSaldoAnimado(el, texto, sufijo) {
                                 const pintarPlano = () => {
                                     el.textContent = texto;
@@ -11035,6 +11045,26 @@
                                     ajustarSaldoAlAncho();
                                 };
 
+                                // Al arrancar, mientras está la pantalla de carga, la cifra se queda en ceros y
+                                // se guarda la de verdad: la animación se lanza al quitarse el velo, que es
+                                // cuando se puede ver (animarSaldoInicial).
+                                const velo = document.getElementById('splashCarga');
+                                const arrancando = !!velo && !velo.classList.contains('oculto');
+                                if (el.dataset.textoSaldo === undefined || saldoInicialPendiente) {
+                                    const ceros = texto.replace(/\d/g, '0');
+                                    if (el.dataset.textoSaldo === undefined) {
+                                        el.dataset.textoSaldo = ceros;
+                                        el.dataset.sufijoSaldo = sufijo || '';
+                                        el.textContent = ceros;
+                                        ajustarSaldoAlAncho();
+                                    }
+                                    if (arrancando) {
+                                        saldoInicialPendiente = { el, texto, sufijo };
+                                        return;
+                                    }
+                                    saldoInicialPendiente = null;
+                                }
+
                                 const previo = el.dataset.textoSaldo;
                                 const previoSufijo = el.dataset.sufijoSaldo || '';
                                 // La cifra se vuelve a pintar en cada repintado del mapa: si no cambió no se toca
@@ -11047,9 +11077,7 @@
                                 let sinMovimiento = false;
                                 try { sinMovimiento = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* sin soporte */ }
 
-                                // La primera vez, sin cambio, o con otra moneda (es otra cifra, no un cambio de
-                                // valor): sin animación.
-                                if (previo === undefined || previoSufijo !== (sufijo || '') || sinMovimiento) {
+                                if (sinMovimiento) {
                                     pintarPlano();
                                     return;
                                 }
