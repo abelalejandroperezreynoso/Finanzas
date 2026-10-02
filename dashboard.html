@@ -11383,10 +11383,15 @@
                                 // Si a alguna empresa con acciones vivas no se le pudo traer el precio, el título
                                 // lo avisa con un triángulo. Tocarlo dice cuáles son (y no cambia de modo).
                                 const errores = window.cacheErroresMercado || {};
-                                const sinPrecio = (datosCategorias || [])
-                                    .filter(c => c.tipo === 'inversion' && c.ticker && (c.totalAcciones || 0) > 0.00001 && errores[c.ticker])
-                                    .map(c => c.ticker);
-                                if (sinPrecio.length === 0) return;
+                                const guardados = window.preciosGuardadosUsados || {};
+                                const vivas = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker && (c.totalAcciones || 0) > 0.00001);
+                                const sinPrecio = vivas.filter(c => errores[c.ticker]).map(c => c.ticker);
+                                const conGuardado = vivas.filter(c => !errores[c.ticker] && guardados[c.ticker] !== undefined).map(c => {
+                                    const f = guardados[c.ticker] ? new Date(guardados[c.ticker]) : null;
+                                    const cuando = f && !isNaN(f) ? ` (${f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} ${f.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : '';
+                                    return c.ticker + cuando;
+                                });
+                                if (sinPrecio.length === 0 && conGuardado.length === 0) return;
 
                                 const aviso = document.createElement('span');
                                 aviso.title = 'Empresas sin precio';
@@ -11394,7 +11399,10 @@
                                 aviso.innerHTML = '<svg viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.4v.1"/></svg>';
                                 aviso.onclick = (e) => {
                                     e.stopPropagation();
-                                    alert(`No se pudo obtener el precio de: ${sinPrecio.join(', ')}.\n\nSus valores se calculan con lo que costaron hasta que el precio llegue. Prueba de nuevo en un rato.`);
+                                    const partes = [];
+                                    if (conGuardado.length) partes.push(`Se usa el último precio guardado de: ${conGuardado.join(', ')}.`);
+                                    if (sinPrecio.length) partes.push(`Sin ningún precio (se calculan con lo que costaron): ${sinPrecio.join(', ')}.`);
+                                    alert(`No se pudo traer el precio actual.\n\n${partes.join('\n\n')}\n\nSe volverá a intentar en la próxima actualización.`);
                                 };
                                 titulo.appendChild(aviso);
                             }
@@ -17901,6 +17909,7 @@
                                         delete window.cacheErroresMercado[ticker];
                                     }
                                 }
+                                window.preciosGuardadosUsados = {};
 
                                 // 2. Volvemos a pedirlos todos a la vez
                                 refrescarPreciosDeMercado();
@@ -17922,6 +17931,20 @@
                                 }
                             }
 
+                                                    // El último precio traído de cada empresa se guarda en el teléfono, con su fecha,
+                                                    // para tener con qué calcular cuando ninguna fuente responde.
+                                                    const CLAVE_ULTIMOS_PRECIOS = 'ultimosPreciosMercado';
+                                                    function leerUltimosPrecios() {
+                                                        try { return JSON.parse(localStorage.getItem(CLAVE_ULTIMOS_PRECIOS)) || {}; } catch (e) { return {}; }
+                                                    }
+                                                    function guardarUltimoPrecio(ticker, precio) {
+                                                        try {
+                                                            const todos = leerUltimosPrecios();
+                                                            todos[ticker] = { precio, fecha: new Date().toISOString() };
+                                                            localStorage.setItem(CLAVE_ULTIMOS_PRECIOS, JSON.stringify(todos));
+                                                        } catch (e) { /* sin espacio: se queda sin guardar */ }
+                                                    }
+
                                                     async function buscarPrecioFinnhub(ticker, elementId, totalAcciones = 0, totalInvertido = 0, totalInvertidoUsd = 0, tcPromedioExacto = 0, mesesPromedioExacto = 0) {
                                                                                     const FinnhubToken = TOKEN_FINNHUB;
                                                                                     
@@ -17934,7 +17957,10 @@
                                                                                         
                                                                                     };
                                 
-                                if (cachePreciosMercado[ticker]) {
+                                // Un precio sacado de lo guardado en el teléfono no cuenta como fresco: se vuelve a
+                                // intentar traer en cada actualización.
+                                window.preciosGuardadosUsados = window.preciosGuardadosUsados || {};
+                                if (cachePreciosMercado[ticker] && !window.preciosGuardadosUsados[ticker]) {
                                     mostrarDatosMercado(cachePreciosMercado[ticker]);
                                     return;
                                 }
@@ -17987,6 +18013,8 @@
                                     if (precio > 0) {
                                         cachePreciosMercado[ticker] = precio;
                                         delete window.cacheErroresMercado[ticker];
+                                        delete window.preciosGuardadosUsados[ticker];
+                                        guardarUltimoPrecio(ticker, precio);
                                         mostrarDatosMercado(precio);
                                         // Durante el arranque no: el render que viene detrás ya lleva este precio.
                                         if (!arranqueEnCurso) debouncedRefreshUI();
@@ -17994,7 +18022,18 @@
                                     }
                                 }
 
-                                // Ninguna fuente dio precio
+                                // Ninguna fuente dio precio. Si el teléfono guarda el último que se trajo, se usa
+                                // ése para los cálculos; el título de Inversiones lo avisa con el triángulo.
+                                const guardado = leerUltimosPrecios()[ticker];
+                                if (guardado && guardado.precio > 0) {
+                                    cachePreciosMercado[ticker] = guardado.precio;
+                                    delete window.cacheErroresMercado[ticker];
+                                    window.preciosGuardadosUsados[ticker] = guardado.fecha || '';
+                                    mostrarDatosMercado(guardado.precio);
+                                    if (!arranqueEnCurso) debouncedRefreshUI();
+                                    return;
+                                }
+
                                 const motivo = huboErrorDeConexion ? 'Error de conexión API' : 'Ticker no válido o sin datos';
                                 window.cacheErroresMercado[ticker] = motivo;
                                 mostrarDatosMercado(null, motivo);
