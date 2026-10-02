@@ -11306,8 +11306,9 @@
                                     };
                                     const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
                                     if (empresaAbierta) {
+                                        // Dentro de una empresa los recuadros son sus compras, y la fecha de cada uno ya lo dice
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${empresaAbierta.ticker || empresaAbierta.nombre}`, () => subirNivelTreemap(),
-                                            [{ texto: 'Compras' }, trozoVista]);
+                                            [trozoVista]);
                                     } else if (sectorAbierto) {
                                         // Dentro de un sector lo que se ve son sus empresas, sin más: no hace falta decirlo
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${sectorAbierto}`, () => subirNivelTreemap(),
