@@ -10884,6 +10884,11 @@
                                 const controlesPortafolio = document.getElementById('controlesPortafolioTreemap');
                                 if (controlesPortafolio) controlesPortafolio.style.display = esPortafolio ? 'flex' : 'none';
 
+                                // En el modo Inversiones no hay salidas ni entradas que elegir: esa pastilla se va.
+                                // De ahí se sale tocando el título de la página.
+                                const pastillaDireccionInv = document.getElementById('pastillaDireccionTreemap');
+                                if (pastillaDireccionInv) pastillaDireccionInv.style.display = esPortafolio ? 'none' : '';
+
                                 // La fila de filtros no cabe entera en un teléfono, así que se arrastra de lado.
                                 // El borde se desvanece sólo por donde queda algo por ver: es lo único que avisa
                                 // de que hay más filtros fuera de la pantalla, y con el portafolio puesto son
