@@ -166,10 +166,6 @@
                    de filtros. Como clase y no en línea, para conservar el realce del ratón. */
                 .btn-claro { background-color: #ffffff; color: #000000; }
                 .btn-claro:hover { background-color: #e6e6e6; }
-                .resumen-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; text-align: center; }
-.caja-resumen { background: #333; padding: 15px 5px; border-radius: 8px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
-.caja-resumen h4 { margin: 0 0 10px 0; font-size: 0.75em; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.caja-resumen span { font-size: clamp(0.85em, 4vw, 1.1em); font-weight: bold; display: block; word-break: break-all; }
 
 .movimiento-info { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
 .movimiento-info strong, .movimiento-info small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1263,7 +1259,7 @@
     </div>
 
     <div class="card" style="padding: 0; margin: 0; background: #000000;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; background: #000000; padding: 0; border-radius: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; background: #000000; padding: 0 0 15px 0; border-radius: 8px;">
     <button onclick="desplazarFiltro(-1)" style="width: auto; background: none; border: none; color: #ffffff; font-size: 1.4em; padding: 5px 10px; cursor: pointer; margin: 0;">◀</button>
 
     <button onclick="abrirModalFiltros()" style="flex: 1; min-width: 0; background: #1c1c1c; border: none; border-radius: 50px; color: #ffffff; padding: 10px; font-size: 0.9em; font-weight: bold; display: flex; justify-content: center; align-items: center; overflow: hidden; margin: 0 10px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -1271,30 +1267,6 @@
     </button>
 
     <button onclick="desplazarFiltro(1)" style="width: auto; background: none; border: none; color: #ffffff; font-size: 1.4em; padding: 5px 10px; cursor: pointer; margin: 0;">▶</button>
-    </div>
-    <button id="btnToggleResumen" onclick="toggleResumen()" style="background: none; border: none; color: #888; width: 100%; padding: 5px 0 15px 0; font-size: 1.4em; cursor: pointer; transition: color 0.2s;">
-    ▼
-    </button>
-
-    <div id="contenedorResumen" style="display: none;">
-    <div class="resumen-grid">
-    <div class="caja-resumen"><h4>Entradas (+)</h4><span id="resumenIngresos" class="exito">$0.00</span></div>
-    <div class="caja-resumen"><h4>Salidas (-)</h4><span id="resumenGastos" class="error">$0.00</span></div>
-    <div class="caja-resumen"><h4>Flujo</h4><span id="resumenBalance">$0.00</span></div>
-    <div class="caja-resumen"><h4>Optimización</h4><span id="resumenOptimizacion" class="exito">0.0%</span></div>
-    </div>
-
-    <div id="contenedorSimulador" style="margin-top: 15px; border-top: 1px dashed #444; padding-top: 15px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-    <span style="font-size: 0.8em; color: #888; font-weight: bold; text-transform: uppercase;">Simulador: Excluir Gastos</span>
-    <div style="display: flex; align-items: center;">
-    <input type="checkbox" id="simularSoloFuturo" onchange="aplicarFiltrosYRenderizar()" checked style="width: auto; margin: 0 5px 0 0; transform: scale(1.1); cursor: pointer;">
-    <label for="simularSoloFuturo" style="margin: 0; font-size: 0.75em; color: #ccc; cursor: pointer;">Solo en proyección</label>
-    </div>
-    </div>
-    <div id="botonesSimulador" class="filtros-scroll">
-    </div>
-    </div>
     </div>
     </div>
 
@@ -4142,7 +4114,6 @@
                     });
                 }
 
-                let categoriasExcluidasSimulacion = new Set();
 
                 function obtenerFechaLocalCortada(fechaISO) {
                     if (!fechaISO) return '';
@@ -4413,141 +4384,6 @@
                     sinHora.setHours(0, 0, 0, 0);
                     return sinHora < hoy;
                 }
-
-                function toggleSimulacionCategoria(idCat) {
-                                if (categoriasExcluidasSimulacion.has(String(idCat))) {
-                                    categoriasExcluidasSimulacion.delete(String(idCat));
-                                } else {
-                                    categoriasExcluidasSimulacion.add(String(idCat));
-                                }
-                                renderizarBotonesSimulador();
-                                aplicarFiltrosYRenderizar();
-                            }
-
-                            function renderizarBotonesSimulador() {
-                            const contenedor = document.getElementById('botonesSimulador');
-                            if (!contenedor) return;
-
-                            // 1. Extraemos gastos recurrentes de cuentas incluidas en el total
-                            const recurrentes = datosCategorias.filter(c => {
-                            if (c.diasRecurrencia <= 0 || c.tipo !== 'gasto') return false;
-                            const cuentaAsociada = datosCuentas.find(cuenta => String(cuenta.id) === String(c.cuenta_id));
-                            if (cuentaAsociada && cuentaAsociada.incluir_en_total === false) return false;
-                            return true;
-                            });
-
-                            if (recurrentes.length === 0) {
-                            contenedor.innerHTML = '<span style="font-size: 0.8em; color: #666;">No hay gastos recurrentes en tus cuentas principales para simular.</span>';
-                            return;
-                            }
-
-                            const inicio = document.getElementById('filtroInicio').value;
-                            const fin = document.getElementById('filtroFin').value;
-
-                            const checkboxSoloFuturo = document.getElementById('simularSoloFuturo');
-                            const soloFuturo = checkboxSoloFuturo ? checkboxSoloFuturo.checked : false;
-
-                            let totalIngresosPeriodo = 0;
-
-                            if (soloFuturo) {
-                            const hace30 = new Date();
-                            hace30.setDate(hace30.getDate() - 30);
-                            const hace30Str = hace30.toISOString().slice(0, 10);
-
-                            datosGrafica.forEach(g => {
-                            const f = g.fecha.slice(0, 10);
-                            if (f >= hace30Str) {
-                            totalIngresosPeriodo += parseFloat(g.ingresos);
-                            }
-                            });
-
-                            if (totalIngresosPeriodo === 0) {
-                            datosGrafica.forEach(g => totalIngresosPeriodo += parseFloat(g.ingresos));
-                            }
-                            } else {
-                            datosGrafica.forEach(g => {
-                            const f = g.fecha.slice(0, 10);
-                            if ((!inicio || f >= inicio) && (!fin || f <= fin)) {
-                            totalIngresosPeriodo += parseFloat(g.ingresos);
-                            }
-                            });
-                            }
-
-                            const gastosCatPeriodo = {};
-                            if (!soloFuturo) {
-                            datosUsoCompleto.forEach(u => {
-                            const f = u.fecha.slice(0, 10);
-                            if ((!inicio || f >= inicio) && (!fin || f <= fin)) {
-                            const monto = parseFloat(u.monto);
-                            if (monto < 0) {
-                            gastosCatPeriodo[u.categoria_id] = (gastosCatPeriodo[u.categoria_id] || 0) + Math.abs(monto);
-                            }
-                            }
-                            });
-                            }
-
-                            recurrentes.forEach(cat => {
-                            let gastado = 0;
-
-                            if (soloFuturo) {
-                            if (cat.siguienteFechaRecurrencia && cat.diasRecurrencia > 0) {
-                            let fechaIteracion = new Date(cat.siguienteFechaRecurrencia);
-                            fechaIteracion.setHours(0, 0, 0, 0);
-                            const hoy = new Date();
-                            hoy.setHours(0, 0, 0, 0);
-                            let limite = new Date(hoy);
-                            limite.setDate(limite.getDate() + 30);
-
-                            while (fechaIteracion <= limite) {
-                            if (fechaIteracion >= hoy) {
-                            gastado += parseFloat(cat.montoSugerido || 0);
-                            }
-                            const sig = siguienteOcurrencia(cat, fechaIteracion);
-                            if (!sig || sig <= fechaIteracion) break;
-                            fechaIteracion = sig;
-                            }
-                            }
-                            } else {
-                            gastado = gastosCatPeriodo[cat.id] || 0;
-                            }
-
-                            cat.impactoOptimizacion = totalIngresosPeriodo > 0 ? (gastado / totalIngresosPeriodo) * 100 : 0;
-                            cat.gastadoRealPeriodo = gastado;
-                            });
-
-                            // 4. Ordenamos de mayor a menor impacto (desempate por monto sugerido si no hubo cobros en este periodo)
-                            recurrentes.sort((a, b) => {
-                            if (b.impactoOptimizacion !== a.impactoOptimizacion) {
-                            return b.impactoOptimizacion - a.impactoOptimizacion;
-                            }
-                            return parseFloat(b.montoSugerido || 0) - parseFloat(a.montoSugerido || 0);
-                            });
-
-                            let html = '';
-                            recurrentes.forEach(cat => {
-                            let porcentajeTexto = "";
-
-                            // Formateamos para mostrar "+X%" (cuánto sumaría a tu optimización)
-                            if (cat.impactoOptimizacion > 0) {
-                            const impacto = cat.impactoOptimizacion;
-                            porcentajeTexto = impacto < 0.1 ? '<0.1%' : `+${impacto.toFixed(1)}%`;
-                            } else {
-                            // Si en el periodo filtrado (ej. "Hoy") no se ha pagado este gasto, su impacto es cero
-                            porcentajeTexto = '+0%';
-                            }
-
-                            const excluido = categoriasExcluidasSimulacion.has(String(cat.id));
-                            const estilo = excluido
-                            ? `background: #222; color: #666; border: 1px solid #444; text-decoration: line-through; opacity: 0.6;`
-                            : `background: rgba(255, 92, 92, 0.15); color: #ff5c5c; border: 1px solid #ff5c5c;`;
-
-                            html += `<button onclick="toggleSimulacionCategoria('${cat.id}')" class="btn-filtro-cat" style="${estilo} margin-right: 8px; margin-bottom: 8px; transition: all 0.2s;">
-                            ${cat.nombre} <span style="opacity: 0.75; font-weight: normal; margin-left: 4px;">(${porcentajeTexto})</span>
-                            </button>`;
-                            });
-
-                            contenedor.innerHTML = html;
-                            }
 
                             // Tipos que se dibujan como un segmento propio dentro de las barras mensuales, para
                             // separarlos del gasto o ingreso corriente sin añadir más barras. El color sale del
@@ -7620,7 +7456,6 @@
                                                                     renderizarListaCategorias(datosCategorias, 'Categorías');
                                                                 }
 
-                                                                renderizarBotonesSimulador();
                                                                         actualizarCategoriasRegistro();
                                                                         datosCuentas.forEach(c => actualizarUIValorActualCuenta(c.id));
 
@@ -8539,15 +8374,8 @@
                                     const cuentasExcluidas = new Set(datosCuentas.filter(c => c.incluir_en_total === false).map(c => String(c.id)));
                                     const categoriasExcluidas = new Set(datosCategorias.filter(c => cuentasExcluidas.has(String(c.cuenta_id))).map(c => String(c.id)));
 
-                                    const checkboxSoloFuturo = document.getElementById('simularSoloFuturo');
-                                    const soloFuturo = checkboxSoloFuturo ? checkboxSoloFuturo.checked : false;
-
-                                    const categoriasOcultasHistorial = soloFuturo
-                                        ? new Set([...categoriasExcluidas])
-                                        : new Set([...categoriasExcluidasSimulacion, ...categoriasExcluidas]);
-
                                     const filtradosRegs = datosRegistros.filter(r => {
-                                        if (categoriasOcultasHistorial.has(String(r.categoria_id))) return false;
+                                        if (categoriasExcluidas.has(String(r.categoria_id))) return false;
                                         const f = obtenerFechaLocalCortada(r.fecha);
                                         return (!inicio || f >= inicio) && (!fin || f <= fin);
                                     });
@@ -8557,10 +8385,10 @@
                                         return (!inicio || f >= inicio) && (!fin || f <= fin);
                                     });
 
-                                    if (categoriasOcultasHistorial.size > 0) {
+                                    if (categoriasExcluidas.size > 0) {
                                         const restasPorFecha = {};
                                         datosUsoCompleto.forEach(u => {
-                                            if (categoriasOcultasHistorial.has(String(u.categoria_id))) {
+                                            if (categoriasExcluidas.has(String(u.categoria_id))) {
                                                 const f = obtenerFechaLocalCortada(u.fecha);
                                                 if (!restasPorFecha[f]) restasPorFecha[f] = { ingresos: 0, gastos: 0 };
                                                 const monto = parseFloat(u.monto);
@@ -8602,8 +8430,8 @@
                                         const mapaFuturo = {};
 
                                         datosCategorias.forEach(cat => {
-                                            // Validamos que sea recurrente y que NO esté apagada en el simulador
-                                            if (cat.diasRecurrencia > 0 && cat.siguienteFechaRecurrencia && !categoriasExcluidasSimulacion.has(String(cat.id))) {
+                                            // Validamos que sea recurrente
+                                            if (cat.diasRecurrencia > 0 && cat.siguienteFechaRecurrencia) {
                                                 const cuentaAsociada = datosCuentas.find(c => String(c.id) === String(cat.cuenta_id));
                                                 
                                                 if (cuentaAsociada && !cuentaAsociada.incluir_en_total) {
@@ -8675,10 +8503,10 @@
                                             .filter(g => g.fecha < inicio)
                                             .reduce((acc, g) => acc + (parseFloat(g.ingresos) - parseFloat(g.gastos)), 0);
                                             
-                                        // Ajuste del flujo si apagaste gastos del pasado o hay cuentas excluidas
-                                        if (categoriasOcultasHistorial.size > 0) {
+                                        // Ajuste del flujo si hay cuentas excluidas
+                                        if (categoriasExcluidas.size > 0) {
                                             const ajusteAntes = datosUsoCompleto
-                                                .filter(u => categoriasOcultasHistorial.has(String(u.categoria_id)) && u.fecha.slice(0, 10) < inicio)
+                                                .filter(u => categoriasExcluidas.has(String(u.categoria_id)) && u.fecha.slice(0, 10) < inicio)
                                                 .reduce((acc, u) => acc + parseFloat(u.monto), 0);
                                             flujoAnterior -= ajusteAntes;
                                         }
@@ -8686,54 +8514,10 @@
                                     
                                     const balanceInicialParaGrafico = saldoBaseTotal + flujoAnterior;
 
-                                    // 2. Calcular Rendimiento del Período
-                                    let tIP = 0, tGP = 0;
-                                    filtradosGraf.forEach(g => {
-                                        tIP += parseFloat(g.ingresos);
-                                        tGP += parseFloat(g.gastos);
-                                    });
-                                    
-                                    const flujo = tIP - tGP;
-                                    document.getElementById('resumenIngresos').textContent = `${fMoneda(tIP)}`;
-                                    document.getElementById('resumenGastos').textContent = `${fMoneda(tGP)}`;
-                                    
-                                    const balanceEl = document.getElementById('resumenBalance');
-                                    balanceEl.textContent = `${fMoneda(flujo)}`;
-                                    balanceEl.className = flujo >= 0 ? 'exito' : 'error';
-
-                                    let optimizacionTexto = "0.0%";
-                                    let claseOpt = "exito";
-                                    if (tIP > 0) {
-                                        const porcentaje = (flujo / tIP) * 100;
-                                        optimizacionTexto = `${porcentaje.toFixed(1)}%`;
-                                        claseOpt = porcentaje >= 0 ? 'exito' : 'error';
-                                    } else if (tGP > 0) {
-                                        optimizacionTexto = `-100.0%`;
-                                        claseOpt = "error";
-                                    }
-                                    
-                                    const optEl = document.getElementById('resumenOptimizacion');
-                                    if (optEl) {
-                                        optEl.textContent = optimizacionTexto;
-                                        optEl.className = claseOpt;
-                                    }
-
                                     // 3. Saldo Total Disponible
                                     let saldoTotal = datosCuentas
                                         .filter(c => c.incluir_en_total !== false)
                                         .reduce((acc, c) => acc + (c.balanceReal || 0), 0);
-                                        
-                                    // Sumar lo ahorrado si apagaste gastos recurrentes (sólo en cuentas activas)
-                                    if (!soloFuturo && categoriasExcluidasSimulacion.size > 0) {
-                                        const cuentasActivas = new Set(datosCuentas.filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
-                                        const ahorroSimulado = datosUsoCompleto
-                                            .filter(u => {
-                                                const cat = datosCategorias.find(c => String(c.id) === String(u.categoria_id));
-                                                return categoriasExcluidasSimulacion.has(String(u.categoria_id)) && cat && cuentasActivas.has(String(cat.cuenta_id));
-                                            })
-                                            .reduce((acc, u) => acc + parseFloat(u.monto), 0);
-                                        saldoTotal -= ahorroSimulado;
-                                    }
                                     
                                     document.getElementById('saldoTotalDisponible').textContent = fMoneda(saldoTotal, fNumSaldo);
                                     ajustarSaldoAlAncho();
@@ -8759,9 +8543,6 @@
                                                                                     }
                                                                                 }
                                                                                 // ====================================================================================
-
-                                        // NUEVO: Recalculamos los porcentajes de los botones del simulador
-                                                                                renderizarBotonesSimulador();
                                                                                 
                                                                                 cerrarModalFiltros();
                                                                             }
@@ -9301,16 +9082,12 @@
                                         }
 
                             // Reglas de visibilidad que aplica la gráfica a los movimientos históricos: respeta las
-                            // cuentas fuera del total, las categorías apagadas en el simulador y el filtro activo.
+                            // cuentas fuera del total y el filtro activo.
                             function construirFiltroRegistrosGrafica() {
-                                const checkboxSoloFuturo = document.getElementById('simularSoloFuturo');
-                                const soloFuturo = checkboxSoloFuturo ? checkboxSoloFuturo.checked : false;
-
                                 const cuentasOcultas = new Set(datosCuentas.filter(c => c.incluir_en_total === false).map(c => String(c.id)));
                                 const catsOcultas = new Set(datosCategorias.filter(c => cuentasOcultas.has(String(c.cuenta_id))).map(c => String(c.id)));
 
                                 return function (u) {
-                                    if (!soloFuturo && categoriasExcluidasSimulacion.has(String(u.categoria_id))) return false;
                                     if (catsOcultas.has(String(u.categoria_id))) return false;
 
                                     const fActivo = window.filtroMovimientosActivo;
@@ -16720,32 +16497,19 @@
                                         });
                                         // --- FIN DE LA CORRECCIÓN ---
 
-                                        // Aplicamos el simulador para limpiar el historial de la cuenta si es necesario
-                                        let registrosCuenta = categoriasExcluidasSimulacion.size > 0
-                                            ? registrosCuentaBruto.filter(r => !categoriasExcluidasSimulacion.has(String(r.categoria_id)))
-                                            : registrosCuentaBruto;
-
                                         const inicio = document.getElementById('filtroInicio').value;
                                         const fin = document.getElementById('filtroFin').value;
-                                        registrosCuenta = registrosCuenta.filter(r => {
+                                        const registrosCuenta = registrosCuentaBruto.filter(r => {
                                             const f = obtenerFechaLocalCortada(r.fecha);
                                             return (!inicio || f >= inicio) && (!fin || f <= fin);
                                         });
 
                                     // 2. Procesamos e indexamos los datos
-                                    let tIP = 0, tGP = 0;
                                     const mapaFechas = {};
                                     const datosAgrupadosParaGrafico = [];
 
                                     registrosCuenta.forEach(r => {
                                         const monto = parseFloat(r.monto) || 0;
-                                        
-                                        if (monto >= 0) {
-                                            tIP += monto;
-                                        } else {
-                                            tGP += Math.abs(monto);
-                                        }
-
                                         const fShort = obtenerFechaLocalCortada(r.fecha);
                                         if (!mapaFechas[fShort]) {
                                             mapaFechas[fShort] = { fecha: fShort, ingresos: 0, gastos: 0 };
@@ -16759,32 +16523,6 @@
                                     });
 
                                     datosAgrupadosParaGrafico.sort((a, b) => a.fecha.localeCompare(b.fecha));
-
-                                    // 3. Renderizamos las métricas
-                                    document.getElementById('resumenIngresos').textContent = `${fMoneda(tIP)}`;
-                                    document.getElementById('resumenGastos').textContent = `${fMoneda(tGP)}`;
-                                    
-                                    const flujo = tIP - tGP;
-                                    const balanceEl = document.getElementById('resumenBalance');
-                                    balanceEl.textContent = `${fMoneda(flujo)}`;
-                                    balanceEl.className = flujo >= 0 ? 'exito' : 'error';
-
-                                    let optimizacionTexto = "0.0%";
-                                    let claseOpt = "exito";
-                                    if (tIP > 0) {
-                                        const porcentaje = (flujo / tIP) * 100;
-                                        optimizacionTexto = `${porcentaje.toFixed(1)}%`;
-                                        claseOpt = porcentaje >= 0 ? 'exito' : 'error';
-                                    } else if (tGP > 0) {
-                                        optimizacionTexto = `-100.0%`;
-                                        claseOpt = "error";
-                                    }
-                                    
-                                    const optEl = document.getElementById('resumenOptimizacion');
-                                    if (optEl) {
-                                        optEl.textContent = optimizacionTexto;
-                                        optEl.className = claseOpt;
-                                    }
 
                                     const balanceInicialParaGrafico = parseFloat(cuenta.saldo_inicial || 0);
 
@@ -16953,21 +16691,6 @@
                                                         e.preventDefault();
                                                     }
                                                 }, true);
-
-                            function toggleResumen() {
-                            const contenedor = document.getElementById('contenedorResumen');
-                            const btn = document.getElementById('btnToggleResumen');
-
-                            if (contenedor.style.display === 'none') {
-                            contenedor.style.display = 'block';
-                            btn.innerHTML = '▲';
-                            btn.style.color = '#ccc';
-                            } else {
-                            contenedor.style.display = 'none';
-                            btn.innerHTML = '▼';
-                            btn.style.color = '#888';
-                            }
-                            }
 
                                                                                                                                                     // En los modales que caben en pantalla se bloquea el touchmove para que el
                                                                                                                                                     // fondo no se mueva por detrás. Antes la excepción era una lista de ids escrita
