@@ -1776,8 +1776,11 @@
             <button id="btnModoMensual" class="btn-shortcut" onclick="cambiarModoGrafica('mensual')">📊 Barras Mensuales</button>
         </div>
 
+        <!-- En el modo Inversiones la gráfica es la curva del portafolio, no las barras: esta parte se esconde -->
+        <div id="seccionTiposGrafica">
         <label style="display: block; margin-bottom: 8px;">Tipos en las barras mensuales:</label>
         <div id="checksTiposGrafica" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;"></div>
+        </div>
 
         <hr style="border-color:#444; margin: 15px 0;">
 
@@ -4844,6 +4847,8 @@
                             // no tiene estado inicial que animar y aparecería de golpe.
                             requestAnimationFrame(() => requestAnimationFrame(() => hoja.classList.add('hoja-abierta')));
                             document.body.classList.add('modal-abierto');
+                            const seccionTipos = document.getElementById('seccionTiposGrafica');
+                            if (seccionTipos) seccionTipos.style.display = tipoTreemapCategorias === 'inversion' ? 'none' : '';
                             const indicador = document.getElementById('indicadorFiltroContexto');
                             const textoIndicador = document.getElementById('textoFiltroContexto');
                             if (indicador && textoIndicador) {
