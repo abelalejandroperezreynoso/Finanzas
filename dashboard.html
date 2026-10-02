@@ -10813,30 +10813,23 @@
                                 repintarTreemapCategorias();
                             }
 
-                            // La agrupación y el "Mostrar" ya no tienen pastilla: se van alternando juntos al
-                            // tocarlos en el título del mapa, en el orden
-                            // Empresas → Sectores → Accesible → Sectores accesibles → Empresas…
-                            const CICLO_TITULO_TREEMAP_INVERSIONES = [
-                                ['empresa', 'todo'], ['personalizado', 'todo'], ['empresa', 'accesible'], ['personalizado', 'accesible']
-                            ];
+                            // La agrupación y el "Mostrar" ya no tienen pastilla: cada uno se alterna por su
+                            // lado tocándolo en el título del mapa (Empresas ↔ Sectores, Todo ↔ Accesible).
                             function alternarAgrupacionTreemapInversiones() {
-                                const i = CICLO_TITULO_TREEMAP_INVERSIONES.findIndex(([agrupacion, vista]) =>
-                                    agrupacion === agrupacionTreemapInversiones && vista === vistaTreemapInversiones);
-                                const [agrupacion, vista] = CICLO_TITULO_TREEMAP_INVERSIONES[(i + 1) % CICLO_TITULO_TREEMAP_INVERSIONES.length];
-                                vistaTreemapInversiones = vista;
-                                localStorage.setItem('vistaTreemapInversiones', vistaTreemapInversiones);
-                                cambiarAgrupacionTreemapInversiones(agrupacion);
+                                const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
+                                cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
                             }
 
-                            // Arriba del todo, en la capa de cuentas, no hay agrupación que elegir: sólo Todo ↔ Accesible
                             function alternarVistaTreemapInversiones() {
                                 cambiarVistaTreemapInversiones(vistaTreemapInversiones === 'accesible' ? 'todo' : 'accesible');
                             }
 
-                            // Pinta un título de dos partes: la de la izquierda es el "volver" (o nada) y la
-                            // de la derecha, la agrupación, que se toca para cambiarla. Lleva el icono de
-                            // flechas arriba/abajo de iOS para que se note que se puede tocar.
-                            function pintarTituloConAgrupacionTreemap(tituloEl, textoIzquierda, textoAgrupacion, alVolver, alTocar = alternarAgrupacionTreemapInversiones) {
+                            const ICONO_ALTERNAR_TREEMAP = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
+
+                            // Pinta el título del portafolio: a la izquierda el "volver" (o sólo el nombre) y
+                            // luego los trozos separados por " · ". Los que se pueden tocar van en verde con
+                            // el icono de flechas arriba/abajo de iOS; los demás, en blanco y quietos.
+                            function pintarTituloTreemapInversiones(tituloEl, textoIzquierda, alVolver, trozos) {
                                 tituloEl.textContent = '';
                                 tituloEl.onclick = null;
                                 tituloEl.style.cursor = '';
@@ -10847,17 +10840,20 @@
                                     izquierda.style.cursor = 'pointer';
                                     izquierda.onclick = alVolver;
                                 }
-
-                                const agrupacion = document.createElement('span');
-                                agrupacion.style.cursor = 'pointer';
-                                agrupacion.style.color = '#3ecf8e';
-                                agrupacion.onclick = alTocar;
-                                agrupacion.innerHTML = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
-                                agrupacion.insertBefore(document.createTextNode(textoAgrupacion), agrupacion.firstChild);
-
                                 tituloEl.appendChild(izquierda);
-                                tituloEl.appendChild(document.createTextNode(' · '));
-                                tituloEl.appendChild(agrupacion);
+
+                                trozos.forEach(trozo => {
+                                    tituloEl.appendChild(document.createTextNode(' · '));
+                                    const el = document.createElement('span');
+                                    el.textContent = trozo.texto;
+                                    if (trozo.alTocar) {
+                                        el.style.cursor = 'pointer';
+                                        el.style.color = '#3ecf8e';
+                                        el.onclick = trozo.alTocar;
+                                        el.insertAdjacentHTML('beforeend', ICONO_ALTERNAR_TREEMAP);
+                                    }
+                                    tituloEl.appendChild(el);
+                                });
                             }
 
                             function cambiarMonedaTreemapInversiones(moneda) {
@@ -11076,7 +11072,6 @@
                                 const vistaAccesible = esPortafolio && vistaTreemapInversiones === 'accesible';
                                 const vistaMensual = esPortafolio && rendimientoTreemapInversiones === 'mensual';
                                 const porSector = esPortafolio && agrupaPorSectorTreemap();
-                                const porSectorPropio = porSector && agrupacionTreemapInversiones === 'personalizado';
 
                                 // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de sectores las agrupa de otra manera, la de empresas
@@ -11222,30 +11217,25 @@
                                     // que el mapa muestra lo comprado en ese periodo.
                                     // Lo accesible se dice en el título de todas las capas: el mapa se ve muy
                                     // distinto —todo en ganancia— y hay que saber por qué antes de leerlo.
+                                    // En el portafolio el título se arma por trozos: el "volver" (o el nombre), lo
+                                    // que reparte la capa —la agrupación se toca para cambiarla donde aplica— y,
+                                    // aparte, Todo ↔ Accesible, que se toca en cualquier capa.
+                                    const trozoVista = { texto: vistaAccesible ? 'Accesible' : 'Todo', alTocar: alternarVistaTreemapInversiones };
+                                    const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
                                     if (empresaAbierta) {
-                                        tituloEl.textContent = `‹ ${empresaAbierta.ticker || empresaAbierta.nombre} · ${vistaAccesible ? 'Accesible' : 'Compras'}`;
+                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${empresaAbierta.ticker || empresaAbierta.nombre}`, () => subirNivelTreemap(),
+                                            [{ texto: 'Compras' }, trozoVista]);
                                     } else if (sectorAbierto) {
-                                        tituloEl.textContent = `‹ ${sectorAbierto} · ${vistaAccesible ? 'Accesible' : 'Empresas'}`;
+                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${sectorAbierto}`, () => subirNivelTreemap(),
+                                            [{ texto: 'Empresas' }, trozoVista]);
                                     } else if (cuentaAbierta) {
-                                        // Con los sectores puestos el título dice las dos cosas —qué reparte la
-                                        // capa y con qué vara—, porque las dos cambian lo que se está viendo.
-                                        // Con los tuyos puestos el título lo dice: el mismo recuadro repartido de
-                                        // dos maneras distintas son dos mapas, y hay que saber cuál se está viendo.
-                                        const nombreVara = 'Sectores';
-                                        const queReparte = porSector
-                                            ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
-                                            : (vistaAccesible ? 'Accesible' : 'Empresas');
-                                        pintarTituloConAgrupacionTreemap(tituloEl, `‹ ${cuentaAbierta.nombre}`, queReparte, () => subirNivelTreemap());
+                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaAbierta.nombre}`, () => subirNivelTreemap(),
+                                            [trozoAgrupacion, trozoVista]);
                                     } else if (esPortafolio && !hayCapaCuentas) {
-                                        // Sin capa de cuentas la agrupación se aplica aquí mismo, así que el título
-                                        // también la lleva para poder cambiarla.
-                                        const nombreVara = 'Sectores';
-                                        const queReparte = porSector
-                                            ? (vistaAccesible ? `${nombreVara} accesibles` : nombreVara)
-                                            : (vistaAccesible ? 'Accesible' : 'Empresas');
-                                        pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', queReparte, null);
+                                        // Sin capa de cuentas la agrupación se aplica aquí mismo
+                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoAgrupacion, trozoVista]);
                                     } else if (esPortafolio) {
-                                        pintarTituloConAgrupacionTreemap(tituloEl, 'Portafolio', vistaAccesible ? 'Accesible' : 'Todo', null, alternarVistaTreemapInversiones);
+                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoVista]);
                                     } else if (mesSeleccionado) {
                                         const [anio, mm] = mesSeleccionado.ym.split('-');
                                         tituloEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${anio}`;
