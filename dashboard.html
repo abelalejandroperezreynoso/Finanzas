@@ -15123,25 +15123,37 @@
                                     .filter(x => x.ahorro >= 100)
                                     .sort((x, y) => y.ahorro - x.ahorro);
                                 if (topes.length === 0) return '';
-                                const ahorroTotal = topes.reduce((acc, x) => acc + x.ahorro, 0);
+                                // Un tope que ya se rebasó en el mes de los topes deja de ser una promesa: lo que
+                                // aporta al ahorro es lo que de verdad quedó (puede ser negativo y restar).
+                                topes.forEach(x => {
+                                    x.llevas = gastadoSig[x.cat.id] || 0;
+                                    x.fallado = hayAvance && x.llevas > x.tope + 0.005;
+                                    x.aporte = x.fallado ? x.gasto - x.llevas : x.ahorro;
+                                });
+                                const ahorroTotal = topes.reduce((acc, x) => acc + x.aporte, 0);
 
                                 // Con muchas, la hoja se aprieta y, si aun así no cabe, se desplaza hacia abajo
                                 const larga = topes.length > 6;
                                 return `<section class="diapositiva${larga ? ' diapositiva-larga' : ''}" style="${fondo('#1f6f4a', '#1b3a6b')}${larga ? ' gap:10px;' : ''}">
                                     <div class="etiqueta">Topes para ${nombreSig}</div>
-                                    <div class="cifra" style="color:#3ecf8e;">${redondo(ahorroTotal)}</div>
+                                    <div class="cifra" style="color:${ahorroTotal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${ahorroTotal < 0 ? '-' : ''}${redondo(ahorroTotal)}</div>
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
                                     ${topes.map(x => {
-                                        // Lo que va del mes de los topes, en texto: rojo sólo si ya pasó el tope
-                                        const llevas = gastadoSig[x.cat.id] || 0;
-                                        const avance = hayAvance
-                                            ? ` · <span style="${llevas > x.tope ? 'color:#ff5c5c;' : ''}">${enCurso ? 'llevas' : `en ${nombreSig}`} ${redondo(llevas)}</span>`
-                                            : '';
+                                        // Si ya se rebasó, en el lugar del tope va lo gastado, en rojo, y cuánto se
+                                        // pasó; el tope se queda a la izquierda como referencia
+                                        const llevaTexto = enCurso ? 'llevas' : `en ${nombreSig}`;
+                                        const izquierda = x.fallado
+                                            ? `gastaste ${redondo(x.gasto)} · tope ${redondo(x.tope)}`
+                                            : `gastaste ${redondo(x.gasto)}${hayAvance ? ` · ${llevaTexto} ${redondo(x.llevas)}` : ''}`;
+                                        const derecha = x.fallado
+                                            ? `<strong style="font-size:1.15em; color:#ff5c5c;">${redondo(x.llevas)}</strong>
+                                               <div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">+${Math.round(((x.llevas - x.tope) / x.tope) * 100)}%</div>`
+                                            : `<strong style="font-size:1.15em;">${redondo(x.tope)}</strong>
+                                               <div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`;
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
-                                            <div class="nota" style="font-size:0.8em;">gastaste ${redondo(x.gasto)}${avance}</div></div>
-                                        <div style="text-align:right; white-space:nowrap;"><strong style="font-size:1.15em;">${redondo(x.tope)}</strong>
-                                            <div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div></div>
+                                            <div class="nota" style="font-size:0.8em;">${izquierda}</div></div>
+                                        <div style="text-align:right; white-space:nowrap;">${derecha}</div>
                                     </div>`;
                                     }).join('')}
                                 </section>`;
