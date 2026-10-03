@@ -14589,8 +14589,19 @@
                                     if (tasa !== null && tasa < 20) acciones.push(`Para ahorrar el 20% gasta como máximo <strong>${fMoneda(ingresosBase * 0.8)}</strong> en ${nombreSig}.`);
                                     else acciones.push(`Mantén tus gastos por debajo de <strong>${fMoneda(r.gastos)}</strong> para repetir tu ahorro.`);
                                 }
-                                const sinPrioridad = Object.keys(r.porCategoria).filter(id => { const c = catPorId[String(id)]; return c && !c.prioridad; }).length;
-                                if (sinPrioridad > 0) acciones.push(`Asigna prioridad a <strong>${sinPrioridad}</strong> categoría${sinPrioridad === 1 ? '' : 's'} de gasto para ver mejor qué recortar.`);
+                                // Las que no tienen prioridad, por nombre y de la que más gastó a la que menos
+                                const sinPrioridad = Object.keys(r.porCategoria)
+                                    .filter(id => { const c = catPorId[String(id)]; return c && !c.prioridad; })
+                                    .sort((x, y) => r.porCategoria[y] - r.porCategoria[x])
+                                    .map(id => escaparHtml(catPorId[String(id)].nombre));
+                                if (sinPrioridad.length > 0) {
+                                    const nombres = sinPrioridad.length > 4
+                                        ? `${sinPrioridad.slice(0, 4).join(', ')} y ${sinPrioridad.length - 4} más`
+                                        : sinPrioridad.length > 1
+                                        ? `${sinPrioridad.slice(0, -1).join(', ')} y ${sinPrioridad[sinPrioridad.length - 1]}`
+                                        : sinPrioridad[0];
+                                    acciones.push(`Asigna prioridad a <strong>${nombres}</strong> para ver mejor qué recortar.`);
+                                }
                                 if (quedo > 0.005) acciones.push(`Te quedaron <strong>${fMoneda(quedo)}</strong> de ahorro sin invertir este mes.`);
 
                                 return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
