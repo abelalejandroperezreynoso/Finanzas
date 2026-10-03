@@ -1151,6 +1151,14 @@
                     overflow: hidden;
                 }
                 .presentacion-barras span.vista { background: rgba(255, 255, 255, 0.9); }
+                /* Una hoja con más renglones de los que caben: empieza arriba y se desplaza */
+                .diapositiva.diapositiva-larga {
+                    justify-content: flex-start;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                    overscroll-behavior: contain;
+                }
+                .diapositiva.diapositiva-larga > :last-child { margin-bottom: 24px; }
                 .presentacion-meses {
                     position: absolute;
                     left: 50%;
@@ -15102,13 +15110,15 @@
                                     .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
                                     .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100) }))
                                     .map(x => ({ ...x, ahorro: x.gasto - x.tope }))
-                                    .filter(x => x.ahorro > 0.005)
-                                    .sort((x, y) => y.ahorro - x.ahorro)
-                                    .slice(0, 6);
+                                    // Todas las que dejen un ahorro que valga la pena, sin tope de cantidad
+                                    .filter(x => x.ahorro >= 100)
+                                    .sort((x, y) => y.ahorro - x.ahorro);
                                 if (topes.length === 0) return '';
                                 const ahorroTotal = topes.reduce((acc, x) => acc + x.ahorro, 0);
 
-                                return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
+                                // Con muchas, la hoja se aprieta y, si aun así no cabe, se desplaza hacia abajo
+                                const larga = topes.length > 6;
+                                return `<section class="diapositiva${larga ? ' diapositiva-larga' : ''}" style="${fondo('#1f6f4a', '#1b3a6b')}${larga ? ' gap:10px;' : ''}">
                                     <div class="etiqueta">Topes para ${nombreSig}</div>
                                     <div class="cifra" style="color:#3ecf8e;">${redondo(ahorroTotal)}</div>
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
@@ -15397,8 +15407,13 @@
                                 const capa = document.getElementById('presentacionReporte');
                                 if (capa.dataset.gestos) return;
                                 capa.dataset.gestos = '1';
-                                let x0 = null, y0 = null;
-                                capa.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+                                let x0 = null, y0 = null, desplazada = false;
+                                capa.addEventListener('touchstart', e => {
+                                    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+                                    // En una hoja que se desplaza, bajar el dedo es volver arriba, no cerrar
+                                    const hoja = e.target.closest('.diapositiva-larga');
+                                    desplazada = !!hoja && hoja.scrollHeight > hoja.clientHeight + 2;
+                                }, { passive: true });
                                 capa.addEventListener('touchend', e => {
                                     if (x0 === null) return;
                                     const dx = e.changedTouches[0].clientX - x0;
@@ -15407,7 +15422,7 @@
                                     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
                                         irADiapositiva(diapositivaActual + (dx < 0 ? 1 : -1));
                                         capa.dataset.ignorarClic = '1';
-                                    } else if (dy > 120 && Math.abs(dy) > Math.abs(dx)) {
+                                    } else if (dy > 120 && Math.abs(dy) > Math.abs(dx) && !desplazada) {
                                         cerrarPresentacionReporte();
                                         capa.dataset.ignorarClic = '1';
                                     }
