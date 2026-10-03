@@ -15096,7 +15096,6 @@
 
                                 // Pagos e ingresos recurrentes previstos dentro del mes siguiente
                                 const cuentasActivas = new Set((datosCuentas || []).filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
-                                const pagos = [];
                                 let totalPagos = 0, totalIngresos = 0;
                                 (datosCategorias || []).forEach(cat => {
                                     if (!(cat.diasRecurrencia > 0) || !cat.siguienteFechaRecurrencia || cat.desactivar_prediccion) return;
@@ -15115,82 +15114,52 @@
                                     if (!veces) return;
                                     if (cat.tipo === 'gasto') {
                                         totalPagos += monto * veces;
-                                        pagos.push({ nombre: cat.nombre, monto: monto * veces, veces });
                                     } else {
                                         totalIngresos += monto * veces;
                                     }
                                 });
-                                pagos.sort((x, y) => y.monto - x.monto);
 
-                                // Acciones, de la más útil a la menos; se enseñan como mucho cuatro
-                                const acciones = [];
-                                // Tope concreto a las dos categorías de deseo o comodidad donde más se gastó:
-                                // la mitad a lo prescindible y tres cuartos a lo útil, redondeado a centenas
-                                const nombreMesActual = NOMBRES_MESES[m - 1];
-                                const recortables = Object.keys(r.porCategoria)
-                                    .map(id => ({ id, cat: catPorId[String(id)], gasto: r.porCategoria[id], veces: r.vecesPorCategoria[id] || 0 }))
+                                // El plan, como un presupuesto: lo que entra, lo que ya está comprometido y lo
+                                // que conviene apartar; lo que sobra se reparte por semana y es la cifra grande.
+                                const ingresosBase = totalIngresos > 0.005 ? totalIngresos : Math.max(0, r.ingresos);
+                                const meta = Math.max(ingresosBase * 0.2, tasa !== null && tasa >= 20 ? ahorro : 0);
+                                const libre = ingresosBase - meta - totalPagos;
+                                const semanas = finSig.getDate() / 7;
+                                const redondo = n => fMoneda(Math.round(Math.abs(n)), fNumSaldo);
+                                const fila = (texto, monto, color, signo, fuerte) => `<div style="display:flex; justify-content:space-between; align-items:baseline; font-size:${fuerte ? '1.1em' : '1.02em'};${fuerte ? ' border-top:1px solid rgba(255,255,255,0.2); padding-top:10px; font-weight:700;' : ''}">
+                                    <span>${texto}</span><strong style="color:${color};">${signo}${redondo(monto)}</strong></div>`;
+
+                                // Topes: las dos categorías de deseo o comodidad donde más se gastó. La mitad a
+                                // lo prescindible y tres cuartos a lo útil, redondeado a centenas.
+                                const topes = Object.keys(r.porCategoria)
+                                    .map(id => ({ cat: catPorId[String(id)], gasto: r.porCategoria[id] }))
                                     .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
                                     .sort((x, y) => y.gasto - x.gasto)
                                     .slice(0, 2)
-                                    .map(x => {
-                                        const tope = Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100);
-                                        return { ...x, tope, ahorro: Math.max(0, x.gasto - tope) };
-                                    })
-                                    .filter(x => x.ahorro > 0.005);
-                                if (recortables.length > 0) {
-                                    const detalle = x => `<strong>${escaparHtml(x.cat.nombre)}</strong> a ${fMoneda(x.tope)} (en ${nombreMesActual} fueron ${fMoneda(x.gasto)}${x.veces > 1 ? ` en ${x.veces} veces, ~${fMoneda(x.gasto / x.veces)} cada una` : ''})`;
-                                    acciones.push(`Ponle tope a ${recortables.map(detalle).join(' y ')}: ahorrarías <strong>${fMoneda(recortables.reduce((s, x) => s + x.ahorro, 0))}</strong>.`);
-                                }
-                                let subida = null;
-                                Object.keys(r.porCategoria).forEach(id => {
-                                    const antes = rp.porCategoria[id] || 0;
-                                    const ahora = r.porCategoria[id];
-                                    if (antes > 0 && ahora - antes >= 300 && (ahora - antes) / antes >= 0.15) {
-                                        if (!subida || ahora - antes > subida.diferencia) subida = { id, diferencia: ahora - antes, pct: ((ahora - antes) / antes) * 100 };
-                                    }
-                                });
-                                if (subida) {
-                                    const cat = catPorId[String(subida.id)];
-                                    acciones.push(`Vigila <strong>${escaparHtml(cat ? cat.nombre : '—')}</strong>: subió ${subida.pct.toFixed(0)}% (${fMoneda(subida.diferencia)} más que el mes anterior).`);
-                                }
-                                // Cuánto apartar y cuánto queda por semana para lo que no es un pago recurrente
-                                if (r.ingresos > 0) {
-                                    const ingresosBase = totalIngresos > 0 ? totalIngresos : r.ingresos;
-                                    const meta = Math.max(ingresosBase * 0.2, tasa !== null && tasa >= 20 ? ahorro : 0);
-                                    const libre = ingresosBase - meta - totalPagos;
-                                    const semanas = (finSig.getDate()) / 7;
-                                    if (libre > 0.005) {
-                                        acciones.push(`Aparta <strong>${fMoneda(meta)}</strong> en cuanto cobres. ${totalPagos > 0.005 ? 'Tras tus pagos recurrentes te' : 'Te'} quedan ${fMoneda(libre)} para lo demás: <strong>${fMoneda(libre / semanas)} por semana</strong>.`);
-                                    } else {
-                                        acciones.push(`Tus pagos recurrentes (${fMoneda(totalPagos)}) y apartar ${fMoneda(meta)} de ahorro superan lo que esperas ganar en ${nombreSig}: te faltan <strong>${fMoneda(-libre)}</strong>.`);
-                                    }
-                                }
-                                // Las que no tienen prioridad, por nombre y de la que más gastó a la que menos
-                                const sinPrioridad = Object.keys(r.porCategoria)
-                                    .filter(id => { const c = catPorId[String(id)]; return c && !c.prioridad; })
-                                    .sort((x, y) => r.porCategoria[y] - r.porCategoria[x])
-                                    .map(id => escaparHtml(catPorId[String(id)].nombre));
-                                if (sinPrioridad.length > 0) {
-                                    const nombres = sinPrioridad.length > 4
-                                        ? `${sinPrioridad.slice(0, 4).join(', ')} y ${sinPrioridad.length - 4} más`
-                                        : sinPrioridad.length > 1
-                                        ? `${sinPrioridad.slice(0, -1).join(', ')} y ${sinPrioridad[sinPrioridad.length - 1]}`
-                                        : sinPrioridad[0];
-                                    acciones.push(`Asigna prioridad a <strong>${nombres}</strong> para ver mejor qué recortar.`);
-                                }
-                                if (quedo > 0.005) acciones.push(`Te quedaron <strong>${fMoneda(quedo)}</strong> de ahorro sin invertir este mes.`);
+                                    .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100) }))
+                                    .filter(x => x.gasto - x.tope > 0.005);
+
+                                const cabecera = ingresosBase > 0.005
+                                    ? (libre > 0.005
+                                        ? `<div class="cifra">${redondo(libre / semanas)}</div>
+                                           <div class="nota" style="margin-top:-8px;">por semana para lo demás</div>`
+                                        : `<div class="cifra" style="color:#ff5c5c;">-${redondo(libre)}</div>
+                                           <div class="nota" style="margin-top:-8px;">te faltarían para cubrir pagos y ahorro</div>`)
+                                    : '';
 
                                 return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
                                     <div class="etiqueta">Para ${nombreSig}</div>
-                                    ${totalPagos > 0.005 ? `<div>
-                                        <div class="nota" style="margin-bottom:4px;">Pagos recurrentes que vienen</div>
-                                        <div class="cifra" style="font-size:2.2em; color:#ff5c5c;">${fMoneda(totalPagos)}</div>
-                                        <div class="nota" style="font-size:0.9em;">${pagos.slice(0, 4).map(p => `${escaparHtml(p.nombre)} ${fMoneda(p.monto)}${p.veces > 1 ? ` (${p.veces}×)` : ''}`).join(' · ')}${pagos.length > 4 ? ` · y ${pagos.length - 4} más` : ''}</div>
+                                    ${cabecera}
+                                    ${ingresosBase > 0.005 ? fila('Ingresos esperados', ingresosBase, '#3ecf8e', '+') : ''}
+                                    ${totalPagos > 0.005 ? fila('Pagos recurrentes', totalPagos, '#ff5c5c', '-') : ''}
+                                    ${ingresosBase > 0.005 ? fila('Aparta al cobrar', meta, '#4da6ff', '-') : ''}
+                                    ${ingresosBase > 0.005 ? fila('Para lo demás', libre, libre >= 0 ? '#ffffff' : '#ff5c5c', libre >= 0 ? '' : '-', true) : ''}
+                                    ${topes.length ? `<div style="margin-top:6px;">
+                                        <div class="etiqueta" style="margin-bottom:8px;">Topes sugeridos</div>
+                                        ${topes.map(x => `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+                                            <span>${escaparHtml(x.cat.nombre)}</span>
+                                            <span><strong>${redondo(x.tope)}</strong> <span class="nota" style="font-size:0.8em;">antes ${redondo(x.gasto)}</span></span></div>`).join('')}
                                     </div>` : ''}
-                                    ${totalIngresos > 0.005 ? `<div><div class="nota" style="margin-bottom:4px;">Ingresos esperados</div><div class="cifra" style="font-size:2.2em; color:#3ecf8e;">${fMoneda(totalIngresos)}</div></div>` : ''}
-                                    ${acciones.slice(0, 4).map((t, i) => `<div style="display:flex; gap:12px; align-items:flex-start; font-size:1.02em; line-height:1.4;">
-                                        <span style="flex-shrink:0; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.16); display:flex; align-items:center; justify-content:center; font-size:0.8em; font-weight:700;">${i + 1}</span>
-                                        <span>${t}</span></div>`).join('')}
                                 </section>`;
                             }
 
