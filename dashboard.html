@@ -14741,7 +14741,8 @@
                                 (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
                                 const r = { movimientos: 0, aportado: 0, retirado: 0, compradoUsd: 0, vendidoUsd: 0, compras: {}, ventas: {}, rendimientoMes: null };
                                 (datosUsoCompleto || []).forEach(u => {
-                                    if (!u.fecha || obtenerFechaLocalCortada(u.fecha).slice(0, 7) !== ym) return;
+                                    // Sin mes (ym nulo) cuenta toda la historia
+                                    if (ym && (!u.fecha || obtenerFechaLocalCortada(u.fecha).slice(0, 7) !== ym)) return;
                                     const cat = catPorId[String(u.categoria_id)];
                                     if (!cat || cat.tipo !== 'inversion') return;
                                     r.movimientos++;
@@ -14807,6 +14808,16 @@
                                 r.tcCompra = r.costoUsd > 0 ? r.costoMxn / r.costoUsd : null;
                                 r.aporteInversionesMxn = (r.valorUsd - r.costoUsd) * tcHoy;
                                 r.aporteTipoCambioMxn = r.costoUsd * tcHoy - r.costoMxn;
+
+                                // De dónde salió lo invertido: lo que mandaste desde el banco en toda la historia,
+                                // los pesos que siguen en la caja sin comprar nada, y lo que falta para llegar al
+                                // costo de las acciones de hoy, que es la ganancia de ventas pasadas reinvertida.
+                                const historia = resumirInversionesMes(null, true);
+                                r.aportadoHistorico = historia.aportado;
+                                r.retiradoHistorico = historia.retirado;
+                                r.netoBanco = historia.aportado - historia.retirado;
+                                r.cajaCostoMxn = Object.values(window.cajaUsdPorCuenta || {}).reduce((s2, c) => s2 + (c && c.usd > 0.005 ? (c.mxnBase || 0) : 0), 0);
+                                r.reinvertidoVentasMxn = r.costoMxn + r.cajaCostoMxn - r.netoBanco;
                                 r.mejores = conPct.slice().sort((x, y) => y.pct - x.pct).slice(0, 3);
                                 r.peores = conPct.slice().sort((x, y) => x.pct - y.pct).slice(0, 3).filter(p => p.pct < 0);
                                 // Lo que se puede sacar sin vender en pérdida, y el nivel de pérdida que más deja
@@ -14850,6 +14861,23 @@
                                             <div class="nota">${total >= 0 ? 'de ganancia' : 'de pérdida'} en pesos sobre lo que pagaste.</div></div>`;
                                     })() : ''}
                                 </section>`);
+
+                                // Lo invertido, paso a paso: del banco al costo de las acciones de hoy
+                                if (r.costoUsd > 0) {
+                                    const fila = (titulo, n, opciones = {}) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;${opciones.total ? ' border-top:1px solid rgba(255,255,255,0.25); padding-top:10px;' : ''}">
+                                        <div style="min-width:0; font-size:${opciones.total ? '1.1em; font-weight:700' : '1em'};">${titulo}</div>
+                                        <div style="white-space:nowrap; font-size:${opciones.total ? '1.35em' : '1.1em'}; font-weight:700;${opciones.color ? ` color:${opciones.color};` : ''}">${opciones.signo ? (n >= 0 ? '+' : '-') : ''}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}</div></div>`;
+                                    d.push(`<section class="diapositiva" style="${fondo('#3a2a6b', '#000')}">
+                                        <div class="etiqueta">Lo invertido</div>
+                                        ${fila('Aportaste', r.aportadoHistorico)}
+                                        ${r.retiradoHistorico > 0.5 ? fila('Retiraste', -r.retiradoHistorico, { signo: true, color: rojo }) : ''}
+                                        ${fila('Salió de tu banco', r.netoBanco, { total: true })}
+                                        ${Math.abs(r.reinvertidoVentasMxn) > 0.5 ? fila(r.reinvertidoVentasMxn >= 0 ? 'Ganancia de ventas que reinvertiste' : 'Pérdida de ventas pasadas', r.reinvertidoVentasMxn, { signo: true, color: r.reinvertidoVentasMxn >= 0 ? verde : rojo }) : ''}
+                                        ${r.cajaCostoMxn > 0.5 ? fila('Sin invertir en la Caja GBM', -r.cajaCostoMxn, { signo: true }) : ''}
+                                        ${fila('Costo de tus acciones hoy', r.costoMxn, { total: true })}
+                                        <div class="nota">En pesos, desde tu primera aportación.</div>
+                                    </section>`);
+                                }
 
                                 // Las inversiones: lo que costaron tus acciones en dólares, lo que valen hoy y
                                 // cuánto de tu ganancia en pesos se debe a que subieron o bajaron
