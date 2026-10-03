@@ -14804,6 +14804,15 @@
                                 const cats = posiciones.map(p => p.cat);
                                 r.accesibleMxn = cats.reduce((s2, c) => s2 + lotesAccesiblesTreemap(c, 0).reduce((a2, l) => a2 + l.valor, 0), 0);
                                 r.mejorNivel = mejorToleranciaTreemap(cats);
+                                // Lo que se sacaría en el nivel con estrella, y la ganancia neta que deja
+                                r.optimoMxn = 0;
+                                r.optimoGananciaMxn = 0;
+                                if (r.mejorNivel !== null) {
+                                    cats.forEach(c => lotesAccesiblesTreemap(c, r.mejorNivel).forEach(l => {
+                                        r.optimoMxn += l.valor;
+                                        r.optimoGananciaMxn += l.valor - l.costo;
+                                    }));
+                                }
                                 return r;
                             }
 
@@ -14880,15 +14889,29 @@
                                     </section>`);
                                 }
 
-                                // Lo accesible y el nivel con estrella
-                                const nombresNivel = { 0: 'Accesible', 100: 'Todo' };
-                                const nivel = r.mejorNivel === null ? null : (nombresNivel[r.mejorNivel] || `Pérdida ≤${r.mejorNivel}%`);
-                                d.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#000')}">
-                                    <div class="etiqueta">Podrías sacar hoy sin perder</div>
-                                    <div class="cifra" style="color:${verde};">${fMoneda(Math.round(r.accesibleMxn), fNumSaldo)}</div>
-                                    <div class="nota">vendiendo tus compras de la más vieja a la más nueva mientras ninguna vaya en pérdida.</div>
-                                    ${nivel ? `<div class="nota" style="color:#fff;">★ El nivel que hoy deja más ganancia: <strong>${nivel}</strong>.</div>` : '<div class="nota">Hoy ningún nivel de pérdida deja ganancia neta.</div>'}
-                                </section>`);
+                                // Lo óptimo: lo que se saca en el nivel con estrella, el que deja más ganancia neta.
+                                // Si ningún nivel deja ganancia, se queda lo que se puede sacar sin perder.
+                                if (r.mejorNivel !== null) {
+                                    const como = r.mejorNivel >= 100
+                                        ? 'vendiendo todo tu portafolio.'
+                                        : r.mejorNivel <= 0
+                                        ? 'vendiendo tus compras de la más vieja a la más nueva mientras ninguna vaya en pérdida.'
+                                        : `vendiendo tus compras de la más vieja a la más nueva, aceptando que alguna pierda hasta un ${r.mejorNivel}%.`;
+                                    d.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#000')}">
+                                        <div class="etiqueta">Lo óptimo para sacar hoy</div>
+                                        <div class="cifra" style="color:${verde};">${fMoneda(Math.round(r.optimoMxn), fNumSaldo)}</div>
+                                        <div class="nota">${como}</div>
+                                        <div class="nota" style="color:#fff;">Te llevarías <strong>${fMoneda(Math.round(r.optimoGananciaMxn), fNumSaldo)}</strong> de ganancia neta, más que en cualquier otro nivel.</div>
+                                        <div class="nota">★ Nivel: ${etiquetaToleranciaTreemap(r.mejorNivel)}.</div>
+                                    </section>`);
+                                } else {
+                                    d.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#000')}">
+                                        <div class="etiqueta">Podrías sacar hoy sin perder</div>
+                                        <div class="cifra" style="color:${verde};">${fMoneda(Math.round(r.accesibleMxn), fNumSaldo)}</div>
+                                        <div class="nota">vendiendo tus compras de la más vieja a la más nueva mientras ninguna vaya en pérdida.</div>
+                                        <div class="nota">Hoy ningún nivel de pérdida deja ganancia neta.</div>
+                                    </section>`);
+                                }
 
                                 // Cierre
                                 const frases = [];
