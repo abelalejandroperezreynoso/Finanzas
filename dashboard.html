@@ -14861,21 +14861,49 @@
                                     const movInvPrevio = resumirInversionesMes(previo, true);
                                     const invertidoPrevio = Math.max(0, movInvPrevio.aportado - movInvPrevio.retirado);
                                     const salioTotal = r.gastos + invertido;
-                                    // Cada renglón con su cambio contra el mes anterior, en chico debajo del monto
+                                    // Cada renglón con su punto de color y su cambio contra el mes anterior
                                     const filaSalio = (texto, monto, color, anterior) => {
-                                        const pct = cambio(monto, anterior);
-                                        const comparado = pct === null ? `No hubo en ${nombrePrevio}` : Math.abs(pct) < 0.5 ? 'Igual' : `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(0)}% vs. ${nombrePrevio}`;
+                                        const pct = anterior === undefined ? undefined : cambio(monto, anterior);
+                                        const comparado = pct === undefined ? '' : pct === null ? `No hubo en ${nombrePrevio}` : Math.abs(pct) < 0.5 ? 'Igual' : `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(0)}% vs. ${nombrePrevio}`;
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; font-size:1.1em;">
-                                            <span>${texto}</span>
-                                            <div style="text-align:right;"><strong style="color:${color};">${fMoneda(monto)}</strong>
-                                                <div class="nota" style="font-size:0.75em;">${comparado}</div></div></div>`;
+                                            <span style="display:flex; align-items:center; gap:10px;"><span style="width:12px; height:12px; border-radius:50%; background:${color};"></span>${texto}</span>
+                                            <div style="text-align:right;"><strong style="color:${color === '#3a3a3c' ? '#fff' : color};">${fMoneda(monto)}</strong>
+                                                ${comparado ? `<div class="nota" style="font-size:0.75em;">${comparado}</div>` : ''}</div></div>`;
                                     };
+
+                                    // La barra: el primer tramo mide lo que entró este mes y el segundo, si hizo falta,
+                                    // lo que salió de meses pasados. Se llenan en orden —gastos y luego inversión— y lo
+                                    // que no se usó de los ingresos queda en gris.
+                                    const COLOR_GASTO = '#ff5c5c', COLOR_INVERSION = '#ffffff', COLOR_SOBRO = '#3a3a3c';
+                                    const capacidad = Math.max(0, r.ingresos);
+                                    const gastoMes = Math.min(r.gastos, capacidad);
+                                    const invMes = Math.min(invertido, capacidad - gastoMes);
+                                    const sobro = capacidad - gastoMes - invMes;
+                                    const gastoPasado = r.gastos - gastoMes;
+                                    const invPasado = invertido - invMes;
+                                    const dePasados = gastoPasado + invPasado;
+                                    const tramo = segmentos => `<div style="display:flex; height:16px; border-radius:8px; overflow:hidden; gap:3px;">
+                                        ${segmentos.filter(([v]) => v > 0.005).map(([v, c]) => `<div style="flex:${v}; background:${c};"></div>`).join('')}</div>`;
+                                    const barra = [];
+                                    if (capacidad > 0.005) barra.push([capacidad, tramo([[gastoMes, COLOR_GASTO], [invMes, COLOR_INVERSION], [sobro, COLOR_SOBRO]]), `Ingresos de ${nombreMes}`, capacidad]);
+                                    if (dePasados > 0.005) barra.push([dePasados, tramo([[gastoPasado, COLOR_GASTO], [invPasado, COLOR_INVERSION]]), 'De meses pasados', dePasados]);
+                                    const barraHtml = barra.length ? `<div>
+                                        <div style="display:flex; gap:8px;">${barra.map(([v, html]) => `<div style="flex:${v}; min-width:0;">${html}</div>`).join('')}</div>
+                                        <!-- Las etiquetas van a los extremos, no bajo cada tramo: el de meses pasados
+                                             suele ser angosto y su texto no cabría debajo -->
+                                        <div style="display:flex; justify-content:space-between; gap:12px; margin-top:6px;">${barra.map(([, , texto, monto], k) => `<div class="nota" style="text-align:${k === 1 ? 'right' : 'left'};">
+                                            <div style="font-size:0.75em; white-space:nowrap;">${texto}</div>
+                                            <div style="font-size:0.85em; color:#fff; font-weight:600;">${fMoneda(monto)}</div></div>`).join('')}</div>
+                                    </div>` : '';
+
                                     diapositivas.push(`<section class="diapositiva" style="${fondo('#6b1d1d', '#000')}">
                                         <div class="etiqueta">Salió</div>
                                         <div class="cifra">${fMoneda(salioTotal)}</div>
                                         <div class="nota" style="margin-top:-8px;">${frasePct(cambio(salioTotal, rp.gastos + invertidoPrevio), 'más', 'menos')}</div>
-                                        ${filaSalio('Gastos', r.gastos, '#ff5c5c', rp.gastos)}
-                                        ${invertido > 0.005 ? filaSalio('Inversión', invertido, '#ffffff', invertidoPrevio) : ''}
+                                        ${barraHtml}
+                                        ${filaSalio('Gastos', r.gastos, COLOR_GASTO, rp.gastos)}
+                                        ${invertido > 0.005 ? filaSalio('Inversión', invertido, COLOR_INVERSION, invertidoPrevio) : ''}
+                                        ${sobro > 0.005 ? filaSalio('Sobró', sobro, COLOR_SOBRO) : ''}
                                     </section>`);
 
                                     // Lo ahorrado que no se fue a inversiones; lo usa el plan del mes siguiente
