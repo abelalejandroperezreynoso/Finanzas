@@ -14229,34 +14229,91 @@
                                 abrirPresentacionReporte(meses.find(ym => ym < ymHoy) || meses[0]);
                             }
 
-                            // En la pantalla principal, deslizar hacia la derecha abre el reporte. No cuenta
-                            // si el dedo empieza en algo que ya se arrastra de lado (gráficas, tiras de filtros
-                            // o de días) ni con una hoja abierta encima.
+                            // En la pantalla principal, deslizar hacia la derecha abre el reporte. La
+                            // presentación sigue al dedo mientras se arrastra —entra desde la izquierda y el
+                            // inicio se corre un poco detrás—, y al soltar termina de abrirse o regresa según
+                            // lo lejos o lo rápido que se haya deslizado. No cuenta si el dedo empieza en algo
+                            // que ya se arrastra de lado (gráficas, tiras) ni con una hoja abierta encima.
                             (function activarDeslizarParaReporte() {
                                 const inicio = document.getElementById('sec-inicio');
-                                if (!inicio) return;
-                                let x0 = null, y0 = null, t0 = 0;
+                                const capa = document.getElementById('presentacionReporte');
+                                if (!inicio || !capa) return;
                                 const ocupado = el => !!el.closest('canvas, input, select, textarea, .filtros-treemap, .ios-tira-dias, .filtros-scroll, .swipe-content, [data-sin-deslizar]');
+                                const CURVA = 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)';
+                                let x0 = null, y0 = null, xPrevia = 0, tPrevio = 0, velocidad = 0;
+                                let modo = null; // null = sin decidir, 'lado' = arrastrando, 'nada' = es scroll
+
+                                const colocar = (dx, conTransicion) => {
+                                    const ancho = window.innerWidth;
+                                    const d = Math.max(0, Math.min(ancho, dx));
+                                    capa.style.transition = conTransicion ? CURVA : 'none';
+                                    inicio.style.transition = conTransicion ? CURVA : 'none';
+                                    capa.style.transform = `translateX(${d - ancho}px)`;
+                                    // El inicio se corre un tercio de lo que avanza la presentación
+                                    inicio.style.transform = d > 0 ? `translateX(${d * 0.3}px)` : '';
+                                };
+
+                                const limpiar = () => {
+                                    capa.style.transition = '';
+                                    capa.style.transform = '';
+                                    inicio.style.transition = '';
+                                    inicio.style.transform = '';
+                                };
+
                                 inicio.addEventListener('touchstart', e => {
                                     x0 = null;
+                                    modo = null;
                                     if (e.touches.length !== 1 || ocupado(e.target)) return;
-                                    if (document.body.classList.contains('modal-abierto')) return;
-                                    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+                                    if (document.body.classList.contains('modal-abierto') || capa.classList.contains('activa')) return;
+                                    x0 = e.touches[0].clientX;
+                                    y0 = e.touches[0].clientY;
+                                    xPrevia = x0;
+                                    tPrevio = Date.now();
+                                    velocidad = 0;
                                 }, { passive: true });
-                                inicio.addEventListener('touchend', e => {
-                                    if (x0 === null) return;
-                                    const dx = e.changedTouches[0].clientX - x0;
-                                    const dy = e.changedTouches[0].clientY - y0;
-                                    x0 = null;
-                                    // Un gesto claro de lado: hacia la derecha, más largo que alto y no demasiado lento
-                                    if (dx > 90 && Math.abs(dy) < dx * 0.5 && Date.now() - t0 < 700) {
-                                        const capa = document.getElementById('presentacionReporte');
-                                        capa.classList.remove('desde-izquierda');
-                                        void capa.offsetWidth;
-                                        capa.classList.add('desde-izquierda');
-                                        abrirReportesMensuales();
+
+                                inicio.addEventListener('touchmove', e => {
+                                    if (x0 === null || modo === 'nada') return;
+                                    const x = e.touches[0].clientX;
+                                    const dx = x - x0;
+                                    const dy = e.touches[0].clientY - y0;
+                                    if (modo === null) {
+                                        // Se decide con los primeros píxeles: de lado y hacia la derecha es el
+                                        // gesto; cualquier otra cosa se deja al scroll de la página.
+                                        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+                                        if (dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                                            modo = 'lado';
+                                            abrirReportesMensuales();
+                                            capa.classList.remove('desde-izquierda');
+                                        } else {
+                                            modo = 'nada';
+                                            return;
+                                        }
                                     }
-                                }, { passive: true });
+                                    e.preventDefault();
+                                    const ahora = Date.now();
+                                    if (ahora > tPrevio) velocidad = (x - xPrevia) / (ahora - tPrevio);
+                                    xPrevia = x;
+                                    tPrevio = ahora;
+                                    colocar(dx, false);
+                                }, { passive: false });
+
+                                const soltar = e => {
+                                    if (x0 === null) return;
+                                    const eraLado = modo === 'lado';
+                                    const dx = (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : xPrevia) - x0;
+                                    x0 = null;
+                                    modo = null;
+                                    if (!eraLado) return;
+                                    const abrir = dx > window.innerWidth * 0.35 || (velocidad > 0.5 && dx > 40);
+                                    colocar(abrir ? window.innerWidth : 0, true);
+                                    setTimeout(() => {
+                                        if (!abrir) cerrarPresentacionReporte();
+                                        limpiar();
+                                    }, 360);
+                                };
+                                inicio.addEventListener('touchend', soltar, { passive: true });
+                                inicio.addEventListener('touchcancel', soltar, { passive: true });
                             })();
 
                             function resumirMesReporte(ym) {
