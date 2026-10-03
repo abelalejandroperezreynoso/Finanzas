@@ -1075,6 +1075,30 @@
                     white-space: nowrap;
                 }
                 .rango-ios-pastilla.marcador { color: #98989d; }
+                /* Campo de texto dentro de un renglón: sin caja, alineado a la derecha, como en Ajustes */
+                .rango-ios-fila .campo-fila-ios {
+                    flex: 1;
+                    min-width: 0;
+                    width: auto;
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                    background: none;
+                    color: #ffffff;
+                    font-size: 1em;
+                    font-family: inherit;
+                    text-align: right;
+                }
+                .rango-ios-fila .campo-fila-ios:focus { outline: none; }
+                .rango-ios-fila .campo-fila-ios::placeholder { color: #98989d; }
+                /* Botón redondo secundario de la hoja (cancelar), a la izquierda y en gris */
+                .hoja-ios-accion.hoja-ios-secundaria {
+                    grid-column: 1;
+                    justify-self: start;
+                    background-color: rgba(118, 118, 128, 0.24);
+                    color: #ffffff;
+                }
+                .hoja-ios-accion.hoja-ios-secundaria:hover { background-color: rgba(118, 118, 128, 0.36); }
                 /* Control segmentado al estilo de iOS 26: cápsula translúcida y la opción elegida en
                    una pastilla de vidrio que se desliza de un lado a otro. */
                 .segmentado-ios {
@@ -2073,25 +2097,57 @@
             </div>
         </div>
 
-<div class="modal-overlay" id="modalCategoria">
-            <div class="modal-content">
-                <h3 id="tituloCat" style="margin-top: 0; color: #ffffff;">Nueva Categoría</h3>
-                <select id="catCuentaSelect"></select>
-                <input type="text" id="catNombre" placeholder="Nombre (Ej: Comida)">
-                    <select id="catTipo" onchange="mostrarOcultarTicker()">
-                        <option value="gasto">Gasto (-)</option>
-                        <option value="ingreso">Ingreso (+)</option>
-                        <option value="prestamo">Préstamo Emitido (-)</option>
-                        <option value="deuda">Deuda Adquirida (+)</option>
-                        <option value="inversion">Inversión (+/-)</option>
-                    </select>
-                    <input type="text" id="catTicker" placeholder="Ticker / Clave (Ej: AAPL)" style="display: none;">
+<!-- Editar / crear categoría: hoja de iOS como la del Panel de control. Los campos van como
+     renglones de una tarjeta; los <select> invisibles encima de cada renglón abren la rueda nativa
+     y la pastilla de la derecha dice lo elegido (actualizarEspejosCategoria). -->
+<div class="modal-overlay hoja-ios" id="modalCategoria" onclick="if (event.target === this) cerrarModalCategoria();">
+            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="tituloCat">
+                <div class="hoja-ios-tirador"></div>
+                <div class="hoja-ios-encabezado">
+                    <button type="button" class="hoja-ios-accion hoja-ios-secundaria" onclick="cerrarModalCategoria()" aria-label="Cancelar" title="Cancelar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                    </button>
+                    <h3 id="tituloCat">Nueva Categoría</h3>
+                    <button type="button" class="hoja-ios-accion" id="btnGuardarCatIcono" onclick="guardarCategoria()" aria-label="Guardar" title="Guardar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.6l4.7 4.7L19 7"/></svg>
+                    </button>
+                    <!-- El texto de este botón lo sigue cambiando el código ("Guardando...") y su
+                         disabled evita guardar dos veces; no se ve. -->
+                    <button type="button" id="btnGuardarCat" style="display: none;">Añadir Categoría</button>
+                </div>
+                <div class="hoja-ios-cuerpo">
+                    <div class="rango-ios-grupo">
+                        <label class="rango-ios-fila">
+                            <span>Cuenta</span>
+                            <span class="rango-ios-pastilla" id="espejoCatCuenta">—</span>
+                            <select id="catCuentaSelect" onchange="actualizarEspejosCategoria()"></select>
+                        </label>
+                        <label class="rango-ios-fila">
+                            <span>Nombre</span>
+                            <input type="text" id="catNombre" class="campo-fila-ios" placeholder="Ej: Comida">
+                        </label>
+                        <label class="rango-ios-fila">
+                            <span>Tipo</span>
+                            <span class="rango-ios-pastilla" id="espejoCatTipo">—</span>
+                            <select id="catTipo" onchange="mostrarOcultarTicker(); actualizarEspejosCategoria()">
+                                <option value="gasto">Gasto (-)</option>
+                                <option value="ingreso">Ingreso (+)</option>
+                                <option value="prestamo">Préstamo Emitido (-)</option>
+                                <option value="deuda">Deuda Adquirida (+)</option>
+                                <option value="inversion">Inversión (+/-)</option>
+                            </select>
+                        </label>
+                        <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
+                            <span>Ticker</span>
+                            <input type="text" id="catTicker" class="campo-fila-ios" placeholder="Ej: AAPL" autocapitalize="characters">
+                        </label>
+                    </div>
 
                     <!-- Los sectores que tú le pones a la empresa. Finnhub da uno solo y no siempre
                          es el que tú tienes en la cabeza: Apple vende hardware y vende software, y
                          de las dos cosas vive. Puestos aquí mandan sobre el suyo. -->
-                    <div id="bloqueSectoresCat" style="display: none; margin-top: 10px;">
-                        <label style="display:block; color:#ccc; font-size:0.85em; margin-bottom:6px;">Sectores propios</label>
+                    <div id="bloqueSectoresCat" style="display: none; margin-bottom: 26px;">
+                        <div class="rango-ios-encabezado">Sectores propios</div>
                         <div id="chipsSectoresCat" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
                         <!-- Nada de <datalist>: en Safari de iPhone no enseña nada, que es justo donde
                              se usa esta app. Las sugerencias son pastillas que se tocan y ya. -->
@@ -2105,23 +2161,22 @@
                         <small id="ayudaSectoresCat" style="display:block; color:#666; font-size:0.78em; line-height:1.4;"></small>
                     </div>
 
-                    <!-- Lo esencial queda arriba; el resto vive detrás de este botón -->
-                    <button type="button" id="btnToggleAvanzadosCat" onclick="toggleAjustesAvanzadosCat()"
-                        style="margin-top: 5px; background: none; border: none; color: #888; font-size: 0.85em; font-weight: normal; text-align: left; padding: 6px 0;">⚙️ Mostrar ajustes avanzados</button>
-
-                    <div id="ajustesAvanzadosCat" style="display: none;">
-                        <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 5px; background: #333; padding: 10px; border-radius: 6px;">
-                                        <input type="checkbox" id="desactivarPrediccionCat" style="width: auto; margin: 0 10px 0 0; transform: scale(1.2); cursor: pointer;">
-                                        <label for="desactivarPrediccionCat" style="margin: 0; cursor: pointer; color: #ccc;">Omitir 100% de predicciones</label>
-                                    </div>
-                    </div>
-
-                                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                                                        <button onclick="guardarCategoria()" id="btnGuardarCat" style="flex: 2;">Añadir Categoría</button>
-                                    <button onclick="cerrarModalCategoria()" style="flex: 1; background:#666;">Cancelar</button>
-                                </div>
-                            </div>
+                    <!-- Antes vivía detrás de "Mostrar ajustes avanzados"; en la hoja cabe a la vista -->
+                    <div id="ajustesAvanzadosCat">
+                        <div class="rango-ios-encabezado">Predicciones</div>
+                        <div class="rango-ios-grupo">
+                            <label class="rango-ios-fila">
+                                <span>Omitir predicciones</span>
+                                <span class="ios-switch">
+                                    <input type="checkbox" id="desactivarPrediccionCat">
+                                    <span class="ios-switch-pista"></span>
+                                </span>
+                            </label>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
                         <div class="modal-overlay" id="modalInfoRecurrente">
                             <div class="modal-content" style="text-align: center;">
@@ -5210,8 +5265,8 @@
                             // Arrastre de la hoja de filtros: se agarra por el tirador, el encabezado o,
                             // con el dedo, por el cuerpo cuando ya está arriba del todo. Como no hay
                             // botón de cerrar, este gesto es la única salida junto al fondo y Escape.
-                            (function habilitarArrastreHojaFiltros() {
-                                const hoja = document.getElementById('modalFiltros');
+                            function habilitarArrastreHoja(idHoja, cerrarHoja) {
+                                const hoja = document.getElementById(idHoja);
                                 if (!hoja) return;
                                 const contenido = hoja.querySelector('.modal-content');
                                 const cuerpo = hoja.querySelector('.hoja-ios-cuerpo');
@@ -5259,7 +5314,7 @@
                                     const pasoElUmbral = desplazamiento > Math.max(80, contenido.offsetHeight * 0.25);
                                     const fueUnTiron = velocidad > 0.5 && desplazamiento > 40;
                                     if (pasoElUmbral || fueUnTiron) {
-                                        cerrarModalFiltros();
+                                        cerrarHoja();
                                     }
                                     desplazamiento = 0;
                                     velocidad = 0;
@@ -5320,9 +5375,12 @@
                                 document.addEventListener('mousemove', e => mover(e.clientY));
                                 document.addEventListener('mouseup', soltar);
                                 document.addEventListener('keydown', e => {
-                                    if (e.key === 'Escape' && hoja.classList.contains('activa')) cerrarModalFiltros();
+                                    if (e.key === 'Escape' && hoja.classList.contains('activa')) cerrarHoja();
                                 });
-                            })();
+                            }
+                            // Las hojas de iOS se cierran también arrastrándolas hacia abajo
+                            habilitarArrastreHoja('modalFiltros', () => cerrarModalFiltros());
+                            habilitarArrastreHoja('modalCategoria', () => cerrarModalCategoria());
 
                             function abrirModalCuenta() {
                                 document.getElementById('modalCuenta').classList.add('activa');
@@ -5333,13 +5391,50 @@
                                 document.body.classList.remove('modal-abierto');
                             }
 
-                            function abrirModalCategoria() {
-                                document.getElementById('modalCategoria').classList.add('activa');
+                            // Abrir y cerrar una hoja de iOS: un fotograma con la hoja visible pero abajo y
+                            // luego sube; al cerrar, baja y se quita cuando termina de bajar.
+                            function abrirHojaIos(hoja) {
+                                if (!hoja) return;
+                                clearTimeout(hoja._temporizadorCierre);
+                                hoja.classList.add('activa');
+                                hoja.classList.remove('hoja-arrastrando');
+                                hoja.querySelector('.modal-content').style.transform = '';
+                                const cuerpo = hoja.querySelector('.hoja-ios-cuerpo');
+                                if (cuerpo) cuerpo.scrollTop = 0;
+                                requestAnimationFrame(() => requestAnimationFrame(() => hoja.classList.add('hoja-abierta')));
                                 document.body.classList.add('modal-abierto');
                             }
+                            function cerrarHojaIos(hoja) {
+                                if (!hoja || !hoja.classList.contains('activa')) return;
+                                hoja.classList.remove('hoja-arrastrando');
+                                hoja.querySelector('.modal-content').style.transform = '';
+                                hoja.classList.remove('hoja-abierta');
+                                document.body.classList.remove('modal-abierto');
+                                clearTimeout(hoja._temporizadorCierre);
+                                hoja._temporizadorCierre = setTimeout(() => hoja.classList.remove('activa'), 400);
+                            }
+
+                            // Las pastillas de Cuenta y Tipo dicen lo que tienen sus selects. Los valores se
+                            // ponen por código al abrir, así que se repintan al abrir y en cada cambio.
+                            function actualizarEspejosCategoria() {
+                                [['catCuentaSelect', 'espejoCatCuenta'], ['catTipo', 'espejoCatTipo']].forEach(([idSel, idEsp]) => {
+                                    const sel = document.getElementById(idSel);
+                                    const esp = document.getElementById(idEsp);
+                                    if (!sel || !esp) return;
+                                    const op = sel.selectedOptions && sel.selectedOptions[0];
+                                    const texto = op && sel.value ? op.textContent.trim() : '';
+                                    esp.textContent = texto || 'Elegir';
+                                    esp.classList.toggle('marcador', !texto);
+                                });
+                            }
+
+                            function abrirModalCategoria() {
+                                actualizarEspejosCategoria();
+                                abrirHojaIos(document.getElementById('modalCategoria'));
+                                requestAnimationFrame(actualizarEspejosCategoria);
+                            }
                                                                                                                                                     function cerrarModalCategoria() {
-                                                                                                                                                    document.getElementById('modalCategoria').classList.remove('activa');
-                                                                                                                                                    document.body.classList.remove('modal-abierto');
+                                                                                                                                                    cerrarHojaIos(document.getElementById('modalCategoria'));
                                                                                                                                                     }
 
                                                                                                                                                     function cerrarModalDetallesMovimiento() {
@@ -8329,7 +8424,10 @@
                                                         const inputTicker = document.getElementById('catTicker');
                                                         const bloqueSectores = document.getElementById('bloqueSectoresCat');
 
-                                                        if (inputTicker) {
+                                                        const filaTicker = document.getElementById('filaTickerCat');
+                                                        if (filaTicker) {
+                                                            filaTicker.style.display = tipo === 'inversion' ? '' : 'none';
+                                                        } else if (inputTicker) {
                                                             inputTicker.style.display = tipo === 'inversion' ? 'block' : 'none';
                                                         }
                                                         // Un gasto no tiene industria: los sectores sólo aparecen donde significan algo
@@ -8339,6 +8437,8 @@
                                                     }
 
                                                 async function guardarCategoria() {
+                                    // El ✓ de la hoja no se apaga solo: mientras se guarda, no se vuelve a guardar
+                                    if (document.getElementById('btnGuardarCat').disabled) return;
                                     const selectCuenta = document.getElementById('catCuentaSelect');
                                     const c_id = selectCuenta ? selectCuenta.value : '';
                                     const nombre = document.getElementById('catNombre').value.trim();
