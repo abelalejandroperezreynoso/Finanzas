@@ -15392,14 +15392,44 @@
                                     }
                                     const r = (data && data[0]) || { consultas_mes: 0, costo_mes: 0, consultas_total: 0, costo_total: 0 };
                                     const usd = n => `$${Number(n || 0).toFixed(2)} USD`;
+                                    // Lo que queda: el último saldo anotado menos lo gastado desde entonces
+                                    const hayAnotado = r.saldo_anotado !== null && r.saldo_anotado !== undefined;
+                                    const restante = hayAnotado ? Math.max(0, Number(r.saldo_anotado) - Number(r.gastado_desde_saldo || 0)) : null;
+                                    const cuandoAnotado = hayAnotado && r.saldo_anotado_en
+                                        ? new Date(r.saldo_anotado_en).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
+                                        : '';
+                                    const bloqueSaldo = hayAnotado
+                                        ? `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:10px;">
+                                               <span>Saldo restante</span><strong style="color:${restante < 1 ? '#ff5c5c' : '#3ecf8e'}; font-size:1.25em;">≈ ${usd(restante)}</strong></div>
+                                           <div style="color:#666; font-size:0.85em; margin:-6px 0 12px;">De ${usd(r.saldo_anotado)} que anotaste el ${escaparHtml(cuandoAnotado)}</div>`
+                                        : '';
                                     const fila = (texto, consultas, costo) => `<div style="display:flex; justify-content:space-between; gap:12px;">
                                         <span>${texto}</span><span><strong style="color:#fff;">${usd(costo)}</strong> <span style="color:#888;">· ${consultas} ${Number(consultas) === 1 ? 'consulta' : 'consultas'}</span></span></div>`;
-                                    caja.innerHTML = fila('Este mes', r.consultas_mes, r.costo_mes)
+                                    caja.innerHTML = bloqueSaldo
+                                        + fila('Este mes', r.consultas_mes, r.costo_mes)
                                         + fila('Desde el inicio', r.consultas_total, r.costo_total)
-                                        + `<div style="color:#666; font-size:0.85em; margin-top:6px;">De toda la app · estimado con los tokens de cada consulta</div>`;
+                                        + `<div style="color:#666; font-size:0.85em; margin-top:6px;">De toda la app · estimado con los tokens de cada consulta</div>`
+                                        + `<button type="button" onclick="anotarSaldoIa()" style="width:100%; margin:12px 0 0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border:none; border-radius:6px;">${hayAnotado ? 'Actualizar saldo' : 'Anotar saldo de Anthropic'}</button>`;
                                 } catch (e) {
                                     caja.textContent = 'No se pudo cargar el consumo.';
                                 }
+                            }
+
+                            // El saldo se copia de console.anthropic.com (Créditos de la organización). Se anota
+                            // el que hay ahora, no la recarga: así lo ya gastado no se descuenta dos veces.
+                            async function anotarSaldoIa() {
+                                const texto = window.prompt('¿Cuánto saldo muestra ahora console.anthropic.com en "Créditos de la organización"? (USD)');
+                                if (texto === null) return;
+                                const saldo = parseFloat(String(texto).replace(/[^0-9.]/g, ''));
+                                if (!(saldo >= 0)) { alert('Escribe una cantidad, por ejemplo 4.97'); return; }
+                                const { error } = await clienteSupabase.from('saldo_ia').insert([{ saldo_usd: saldo, user_id: currentUser.id }]);
+                                if (error) {
+                                    alert(/saldo_ia/i.test(error.message || '')
+                                        ? 'Falta preparar la base: ejecuta migracion_saldo_ia.sql en Supabase.'
+                                        : explicarFalloAlGuardar(error, 'el saldo'));
+                                    return;
+                                }
+                                cargarConsumoIa();
                             }
 
                             // ---- Topes con IA ----
