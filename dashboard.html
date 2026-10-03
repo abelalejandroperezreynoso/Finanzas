@@ -14504,7 +14504,10 @@
                                         </section>`);
                                     }
 
-                                    // 8. Cierre
+                                    // 8. Plan para el mes siguiente
+                                    diapositivas.push(diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo));
+
+                                    // 9. Cierre
                                     const cg = cambio(r.gastos, rp.gastos);
                                     const frases = [];
                                     if (tasa !== null) frases.push(tasa >= 20 ? `Ahorraste el ${tasa.toFixed(0)}% de tus ingresos. Buen mes.` : tasa >= 0 ? `Ahorraste el ${tasa.toFixed(0)}% de tus ingresos.` : 'Este mes gastaste más de lo que entró.');
@@ -14526,6 +14529,82 @@
                                 capa.setAttribute('aria-hidden', 'false');
                                 irADiapositiva(0);
                                 activarGestosPresentacion();
+                            }
+
+                            // ---- Plan para el mes siguiente ----
+                            // Lo que viene (pagos e ingresos recurrentes que la app ya predice) y unas pocas
+                            // acciones concretas sacadas del mes que se acaba de ver.
+                            function diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo) {
+                                const [a, m] = ym.split('-').map(n => parseInt(n, 10));
+                                const inicioSig = new Date(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1);
+                                const finSig = new Date(inicioSig.getFullYear(), inicioSig.getMonth() + 1, 0, 23, 59, 59);
+                                const nombreSig = NOMBRES_MESES[inicioSig.getMonth()];
+
+                                // Pagos e ingresos recurrentes previstos dentro del mes siguiente
+                                const cuentasActivas = new Set((datosCuentas || []).filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
+                                const pagos = [];
+                                let totalPagos = 0, totalIngresos = 0;
+                                (datosCategorias || []).forEach(cat => {
+                                    if (!(cat.diasRecurrencia > 0) || !cat.siguienteFechaRecurrencia || cat.desactivar_prediccion) return;
+                                    if (!cuentasActivas.has(String(cat.cuenta_id))) return;
+                                    if (cat.tipo !== 'gasto' && cat.tipo !== 'ingreso') return;
+                                    const monto = parseFloat(cat.montoSugerido) || 0;
+                                    if (!(monto > 0)) return;
+                                    let f = new Date(cat.siguienteFechaRecurrencia);
+                                    let veces = 0;
+                                    for (let i = 0; i < 400 && f <= finSig; i++) {
+                                        if (f >= inicioSig) veces++;
+                                        const sig = siguienteOcurrencia(cat, f);
+                                        if (!sig || sig <= f) break;
+                                        f = sig;
+                                    }
+                                    if (!veces) return;
+                                    if (cat.tipo === 'gasto') {
+                                        totalPagos += monto * veces;
+                                        pagos.push({ nombre: cat.nombre, monto: monto * veces, veces });
+                                    } else {
+                                        totalIngresos += monto * veces;
+                                    }
+                                });
+                                pagos.sort((x, y) => y.monto - x.monto);
+
+                                // Acciones, de la más útil a la menos; se enseñan como mucho cuatro
+                                const acciones = [];
+                                const recortable = (r.porPrioridad.prescindible || 0) + (r.porPrioridad.util || 0);
+                                if (recortable > 0.005) acciones.push(`Recorta a la mitad lo de comodidad y deseo y ahorrarías unos <strong>${fMoneda(recortable / 2)}</strong> más.`);
+                                let subida = null;
+                                Object.keys(r.porCategoria).forEach(id => {
+                                    const antes = rp.porCategoria[id] || 0;
+                                    const ahora = r.porCategoria[id];
+                                    if (antes > 0 && ahora - antes >= 300 && (ahora - antes) / antes >= 0.15) {
+                                        if (!subida || ahora - antes > subida.diferencia) subida = { id, diferencia: ahora - antes, pct: ((ahora - antes) / antes) * 100 };
+                                    }
+                                });
+                                if (subida) {
+                                    const cat = catPorId[String(subida.id)];
+                                    acciones.push(`Vigila <strong>${escaparHtml(cat ? cat.nombre : '—')}</strong>: subió ${subida.pct.toFixed(0)}% (${fMoneda(subida.diferencia)} más que el mes anterior).`);
+                                }
+                                if (r.ingresos > 0) {
+                                    const ingresosBase = totalIngresos > 0 ? totalIngresos : r.ingresos;
+                                    if (tasa !== null && tasa < 20) acciones.push(`Para ahorrar el 20% gasta como máximo <strong>${fMoneda(ingresosBase * 0.8)}</strong> en ${nombreSig}.`);
+                                    else acciones.push(`Mantén tus gastos por debajo de <strong>${fMoneda(r.gastos)}</strong> para repetir tu ahorro.`);
+                                }
+                                const sinPrioridad = Object.keys(r.porCategoria).filter(id => { const c = catPorId[String(id)]; return c && !c.prioridad; }).length;
+                                if (sinPrioridad > 0) acciones.push(`Asigna prioridad a <strong>${sinPrioridad}</strong> categoría${sinPrioridad === 1 ? '' : 's'} de gasto para ver mejor qué recortar.`);
+                                if (quedo > 0.005) acciones.push(`Te quedaron <strong>${fMoneda(quedo)}</strong> de ahorro sin invertir este mes.`);
+
+                                return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
+                                    <div class="etiqueta">Para ${nombreSig}</div>
+                                    ${totalPagos > 0.005 ? `<div>
+                                        <div class="nota" style="margin-bottom:4px;">Pagos recurrentes que vienen</div>
+                                        <div class="cifra" style="font-size:2.2em; color:#ff5c5c;">${fMoneda(totalPagos)}</div>
+                                        <div class="nota" style="font-size:0.9em;">${pagos.slice(0, 4).map(p => `${escaparHtml(p.nombre)} ${fMoneda(p.monto)}${p.veces > 1 ? ` (${p.veces}×)` : ''}`).join(' · ')}${pagos.length > 4 ? ` · y ${pagos.length - 4} más` : ''}</div>
+                                    </div>` : ''}
+                                    ${totalIngresos > 0.005 ? `<div><div class="nota" style="margin-bottom:4px;">Ingresos esperados</div><div class="cifra" style="font-size:2.2em; color:#3ecf8e;">${fMoneda(totalIngresos)}</div></div>` : ''}
+                                    ${acciones.slice(0, 4).map((t, i) => `<div style="display:flex; gap:12px; align-items:flex-start; font-size:1.02em; line-height:1.4;">
+                                        <span style="flex-shrink:0; width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.16); display:flex; align-items:center; justify-content:center; font-size:0.8em; font-weight:700;">${i + 1}</span>
+                                        <span>${t}</span></div>`).join('')}
+                                </section>`;
                             }
 
                             // ---- Reporte de inversiones ----
