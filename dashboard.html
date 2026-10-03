@@ -1105,6 +1105,9 @@
                     user-select: none;
                 }
                 .presentacion-reporte.activa { display: block; }
+                /* Abierta deslizando el inicio hacia la derecha: entra desde la izquierda */
+                .presentacion-reporte.desde-izquierda { animation: presentacionDesdeIzquierda 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
+                @keyframes presentacionDesdeIzquierda { from { transform: translateX(-100%); } to { transform: none; } }
                 .presentacion-barras {
                     position: absolute;
                     top: calc(10px + env(safe-area-inset-top));
@@ -2036,19 +2039,6 @@
     </div>
     <!-- FIN CALENDARIO -->
 
-    <!-- INICIO REPORTES MENSUALES -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Reportes mensuales</h3>
-        <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
-            Cada mes en una presentación: ingresos, gastos, ahorro, gastos por prioridad y en qué se fue el dinero, comparado con el mes anterior.
-        </p>
-        <button onclick="abrirReportesMensuales()" aria-label="Ver reportes mensuales"
-                style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>
-            Ver reportes
-        </button>
-    </div>
-    <!-- FIN REPORTES MENSUALES -->
 
     <!-- INICIO PRECIOS DE MERCADO -->
     <!-- Lo que queda aquí es lo que no es un dibujo: los dos botones que traen precios.
@@ -14232,12 +14222,42 @@
                                 return { meses, ymHoy };
                             }
 
-                            // Desde Configuración se abre directo la presentación, en el último mes completo.
-                            // El mes se cambia en la portada.
+                            // Se abre directo la presentación, en el último mes completo. El mes se cambia en
+                            // la portada.
                             function abrirReportesMensuales() {
                                 const { meses, ymHoy } = mesesConReporte();
                                 abrirPresentacionReporte(meses.find(ym => ym < ymHoy) || meses[0]);
                             }
+
+                            // En la pantalla principal, deslizar hacia la derecha abre el reporte. No cuenta
+                            // si el dedo empieza en algo que ya se arrastra de lado (gráficas, tiras de filtros
+                            // o de días) ni con una hoja abierta encima.
+                            (function activarDeslizarParaReporte() {
+                                const inicio = document.getElementById('sec-inicio');
+                                if (!inicio) return;
+                                let x0 = null, y0 = null, t0 = 0;
+                                const ocupado = el => !!el.closest('canvas, input, select, textarea, .filtros-treemap, .ios-tira-dias, .filtros-scroll, .swipe-content, [data-sin-deslizar]');
+                                inicio.addEventListener('touchstart', e => {
+                                    x0 = null;
+                                    if (e.touches.length !== 1 || ocupado(e.target)) return;
+                                    if (document.body.classList.contains('modal-abierto')) return;
+                                    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+                                }, { passive: true });
+                                inicio.addEventListener('touchend', e => {
+                                    if (x0 === null) return;
+                                    const dx = e.changedTouches[0].clientX - x0;
+                                    const dy = e.changedTouches[0].clientY - y0;
+                                    x0 = null;
+                                    // Un gesto claro de lado: hacia la derecha, más largo que alto y no demasiado lento
+                                    if (dx > 90 && Math.abs(dy) < dx * 0.5 && Date.now() - t0 < 700) {
+                                        const capa = document.getElementById('presentacionReporte');
+                                        capa.classList.remove('desde-izquierda');
+                                        void capa.offsetWidth;
+                                        capa.classList.add('desde-izquierda');
+                                        abrirReportesMensuales();
+                                    }
+                                }, { passive: true });
+                            })();
 
                             function resumirMesReporte(ym) {
                                 const cuentasActivas = new Set((datosCuentas || []).filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
