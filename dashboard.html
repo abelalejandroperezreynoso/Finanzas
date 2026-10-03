@@ -14365,11 +14365,15 @@
                                 const diapositivas = [];
                                 const fondo = (c1, c2) => `background: radial-gradient(120% 80% at 0% 0%, ${c1} 0%, transparent 60%), radial-gradient(120% 80% at 100% 100%, ${c2} 0%, transparent 60%), #000;`;
 
+                                // En el modo Inversiones el reporte es otro: el del portafolio
+                                const enInversiones = tipoTreemapCategorias === 'inversion';
+                                const inv = enInversiones ? resumirInversionesMes(ym) : null;
+
                                 // 1. Portada
-                                diapositivas.push(`<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
-                                    <div class="etiqueta">Reporte mensual</div>
+                                diapositivas.push(`<section class="diapositiva" style="${enInversiones ? fondo('#1b3a6b', '#1f6f4a') : fondo('#1f6f4a', '#1b3a6b')}">
+                                    <div class="etiqueta">${enInversiones ? 'Reporte de inversiones' : 'Reporte mensual'}</div>
                                     <h2 style="font-size: 3em;">${nombreMes}<br>${a}</h2>
-                                    <div class="nota">${r.movimientos} movimientos. Toca a la derecha para avanzar.</div>
+                                    <div class="nota">${enInversiones ? inv.movimientos : r.movimientos} movimientos. Toca a la derecha para avanzar.</div>
                                     <!-- Cambiar de mes: abre la rueda nativa y rehace la presentación -->
                                     <label class="selector-mes-pres">
                                         <span>Cambiar de mes</span>
@@ -14383,7 +14387,9 @@
                                     </label>
                                 </section>`);
 
-                                if (r.movimientos === 0) {
+                                if (enInversiones) {
+                                    diapositivasInversion(inv, nombreMes, a, fondo).forEach(d => diapositivas.push(d));
+                                } else if (r.movimientos === 0) {
                                     diapositivas.push(`<section class="diapositiva"><h2>Sin movimientos</h2><div class="nota">No hay nada registrado en ${nombreMes}.</div></section>`);
                                 } else {
                                     // 2. Ingresos
@@ -14494,6 +14500,171 @@
                                 capa.setAttribute('aria-hidden', 'false');
                                 irADiapositiva(0);
                                 activarGestosPresentacion();
+                            }
+
+                            // ---- Reporte de inversiones ----
+                            // Lo del mes (aportaciones, compras, ventas, rendimiento del mes si hay histórico)
+                            // y la foto de hoy del portafolio (valor, ganancia, mejores y peores, accesible).
+                            function resumirInversionesMes(ym) {
+                                const catPorId = {};
+                                (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
+                                const r = { movimientos: 0, aportado: 0, retirado: 0, compradoUsd: 0, vendidoUsd: 0, compras: {}, ventas: {}, rendimientoMes: null };
+                                (datosUsoCompleto || []).forEach(u => {
+                                    if (!u.fecha || obtenerFechaLocalCortada(u.fecha).slice(0, 7) !== ym) return;
+                                    const cat = catPorId[String(u.categoria_id)];
+                                    if (!cat || cat.tipo !== 'inversion') return;
+                                    r.movimientos++;
+                                    const t = tipoMovInversion(u);
+                                    const monto = parseFloat(u.monto) || 0;
+                                    const usd = (parseFloat(u.cantidad_acciones) || 0) * (parseFloat(u.costo_accion) || 0);
+                                    if (t === 'aportacion') r.aportado += Math.abs(monto);
+                                    else if (t === 'retiro') r.retirado += Math.abs(monto);
+                                    else if (esCompraInversion(u)) {
+                                        r.compradoUsd += usd;
+                                        const k = cat.ticker || cat.nombre;
+                                        r.compras[k] = (r.compras[k] || 0) + usd;
+                                        // La compra directa con pesos también es dinero que entró al portafolio
+                                        if (t === 'compra_directa') r.aportado += Math.abs(monto);
+                                    } else if (esVentaInversion(u)) {
+                                        r.vendidoUsd += usd;
+                                        const k = cat.ticker || cat.nombre;
+                                        r.ventas[k] = (r.ventas[k] || 0) + usd;
+                                        if (t === 'venta_directa') r.retirado += Math.abs(monto);
+                                    }
+                                });
+
+                                // Cuánto rindió el portafolio dentro del mes, con la misma curva de "Todo": la
+                                // ganancia al cierre del mes menos la del cierre del mes anterior. Sólo si el
+                                // histórico de precios ya está cargado.
+                                try {
+                                    if (historicoPreciosListo) {
+                                        const [a, m] = ym.split('-').map(n => parseInt(n, 10));
+                                        const ultimoPrevio = new Date(a, m - 1, 0);
+                                        const ultimoMes = new Date(a, m, 0);
+                                        const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                        const serie = serieHistoricaAccesible({ vista: 'todo' }, { desde: iso(ultimoPrevio), hasta: iso(ultimoMes) });
+                                        if (serie && serie.ganancias && serie.ganancias.length > 1) {
+                                            r.rendimientoMes = serie.ganancias[serie.ganancias.length - 1] - serie.ganancias[0];
+                                            r.monedaRendimiento = serie.enPesos ? 'MXN' : 'USD';
+                                        }
+                                    }
+                                } catch (e) { /* sin curva: la diapositiva no sale */ }
+
+                                // La foto de hoy: valor, costo y rendimiento por empresa, en dólares
+                                const posiciones = (datosCategorias || [])
+                                    .filter(c => c.tipo === 'inversion' && c.ticker && (c.totalAcciones || 0) > 0.00001)
+                                    .map(c => {
+                                        const precio = cachePreciosMercado[c.ticker];
+                                        const costo = c.costoBaseInvertidoUsd || 0;
+                                        const valor = precio ? c.totalAcciones * precio : 0;
+                                        return { ticker: c.ticker, valor, costo, pct: costo > 0 && precio ? ((valor - costo) / costo) * 100 : null, cat: c };
+                                    });
+                                r.posiciones = posiciones;
+                                r.valorMxn = calcularTotalInversionesMxn();
+                                const conPct = posiciones.filter(p => p.pct !== null);
+                                r.costoUsd = conPct.reduce((s2, p) => s2 + p.costo, 0);
+                                r.valorUsd = conPct.reduce((s2, p) => s2 + p.valor, 0);
+                                r.mejores = conPct.slice().sort((x, y) => y.pct - x.pct).slice(0, 3);
+                                r.peores = conPct.slice().sort((x, y) => x.pct - y.pct).slice(0, 3).filter(p => p.pct < 0);
+                                // Lo que se puede sacar sin vender en pérdida, y el nivel de pérdida que más deja
+                                const cats = posiciones.map(p => p.cat);
+                                r.accesibleMxn = cats.reduce((s2, c) => s2 + lotesAccesiblesTreemap(c, 0).reduce((a2, l) => a2 + l.valor, 0), 0);
+                                r.mejorNivel = mejorToleranciaTreemap(cats);
+                                return r;
+                            }
+
+                            function diapositivasInversion(r, nombreMes, a, fondo) {
+                                const d = [];
+                                const verde = '#3ecf8e', rojo = '#ff5c5c';
+                                const signo = n => n >= 0 ? '+' : '-';
+
+                                // Valor del portafolio hoy y ganancia total
+                                const ganancia = r.valorUsd - r.costoUsd;
+                                const pctTotal = r.costoUsd > 0 ? (ganancia / r.costoUsd) * 100 : 0;
+                                d.push(`<section class="diapositiva" style="${fondo('#1b4d6b', '#000')}">
+                                    <div class="etiqueta">Tu portafolio hoy</div>
+                                    <div class="cifra">${fMoneda(Math.round(r.valorMxn), fNumSaldo)}</div>
+                                    <div class="nota">en pesos, a precio y tipo de cambio de hoy.</div>
+                                    ${r.costoUsd > 0 ? `<div class="cifra" style="font-size:2em; color:${ganancia >= 0 ? verde : rojo};">${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD</div>
+                                    <div class="nota">${ganancia >= 0 ? 'de ganancia' : 'de pérdida'} sobre lo que costó (${signo(pctTotal)}${Math.abs(pctTotal).toFixed(1)}%).</div>` : ''}
+                                </section>`);
+
+                                // Rendimiento dentro del mes
+                                if (r.rendimientoMes !== null) {
+                                    d.push(`<section class="diapositiva" style="${fondo(r.rendimientoMes >= 0 ? '#155e3c' : '#6b1d1d', '#000')}">
+                                        <div class="etiqueta">En ${nombreMes} tu portafolio</div>
+                                        <div class="cifra" style="color:${r.rendimientoMes >= 0 ? verde : rojo};">${signo(r.rendimientoMes)}${fMoneda(Math.abs(r.rendimientoMes))}</div>
+                                        <div class="nota">${r.rendimientoMes >= 0 ? 'ganó' : 'perdió'} en ${r.monedaRendimiento}, sumando lo que subieron o bajaron tus acciones y lo que vendiste.</div>
+                                    </section>`);
+                                }
+
+                                // Dinero que entró y salió del portafolio en el mes
+                                if (r.aportado > 0.005 || r.retirado > 0.005) {
+                                    d.push(`<section class="diapositiva" style="${fondo('#3a2a6b', '#000')}">
+                                        <div class="etiqueta">Movimiento de dinero</div>
+                                        ${r.aportado > 0.005 ? `<div><div class="nota" style="margin-bottom:4px;">Aportaste</div><div class="cifra" style="font-size:2.4em; color:${verde};">${fMoneda(r.aportado)}</div></div>` : ''}
+                                        ${r.retirado > 0.005 ? `<div><div class="nota" style="margin-bottom:4px;">Retiraste</div><div class="cifra" style="font-size:2.4em;">${fMoneda(r.retirado)}</div></div>` : ''}
+                                        <div class="nota">en pesos, entre tu banco y el broker.</div>
+                                    </section>`);
+                                }
+
+                                // Compras y ventas del mes
+                                const lista = (obj, color) => {
+                                    const claves = Object.keys(obj).sort((x, y) => obj[y] - obj[x]).slice(0, 5);
+                                    const max = claves.length ? obj[claves[0]] : 1;
+                                    return claves.map(k => `<div style="display:flex; flex-direction:column; gap:6px;">
+                                        <div style="display:flex; justify-content:space-between;"><span>${escaparHtml(k)}</span><strong>${fMoneda(obj[k])} USD</strong></div>
+                                        <div class="barra-h"><div style="width:${(obj[k] / max) * 100}%; background:${color};"></div></div></div>`).join('');
+                                };
+                                if (r.compradoUsd > 0.005) {
+                                    d.push(`<section class="diapositiva" style="${fondo('#155e3c', '#000')}">
+                                        <div class="etiqueta">Compraste</div>
+                                        <div class="cifra" style="font-size:2.6em;">${fMoneda(r.compradoUsd)} USD</div>
+                                        ${lista(r.compras, verde)}
+                                    </section>`);
+                                }
+                                if (r.vendidoUsd > 0.005) {
+                                    d.push(`<section class="diapositiva" style="${fondo('#6b4a1b', '#000')}">
+                                        <div class="etiqueta">Vendiste</div>
+                                        <div class="cifra" style="font-size:2.6em;">${fMoneda(r.vendidoUsd)} USD</div>
+                                        ${lista(r.ventas, '#f5a623')}
+                                    </section>`);
+                                }
+
+                                // Mejores y peores posiciones
+                                if (r.mejores.length) {
+                                    const fila = p => `<div style="display:flex; justify-content:space-between; font-size:1.15em;"><span>${escaparHtml(p.ticker)}</span>
+                                        <strong style="color:${p.pct >= 0 ? verde : rojo};">${signo(p.pct)}${Math.abs(p.pct).toFixed(1)}%</strong></div>`;
+                                    d.push(`<section class="diapositiva" style="${fondo('#1f6f4a', '#6b1d1d')}">
+                                        <div class="etiqueta">Las que mejor van</div>
+                                        ${r.mejores.map(fila).join('')}
+                                        ${r.peores.length ? `<div class="etiqueta" style="margin-top:14px;">Las que peor van</div>${r.peores.map(fila).join('')}` : ''}
+                                        <div class="nota">Rendimiento total en dólares, desde que las compraste.</div>
+                                    </section>`);
+                                }
+
+                                // Lo accesible y el nivel con estrella
+                                const nombresNivel = { 0: 'Accesible', 100: 'Todo' };
+                                const nivel = r.mejorNivel === null ? null : (nombresNivel[r.mejorNivel] || `Pérdida ≤${r.mejorNivel}%`);
+                                d.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#000')}">
+                                    <div class="etiqueta">Podrías sacar hoy sin perder</div>
+                                    <div class="cifra" style="color:${verde};">${fMoneda(Math.round(r.accesibleMxn), fNumSaldo)}</div>
+                                    <div class="nota">vendiendo tus compras de la más vieja a la más nueva mientras ninguna vaya en pérdida.</div>
+                                    ${nivel ? `<div class="nota" style="color:#fff;">★ El nivel que hoy deja más ganancia: <strong>${nivel}</strong>.</div>` : '<div class="nota">Hoy ningún nivel de pérdida deja ganancia neta.</div>'}
+                                </section>`);
+
+                                // Cierre
+                                const frases = [];
+                                if (r.rendimientoMes !== null) frases.push(`${nombreMes} ${r.rendimientoMes >= 0 ? 'sumó' : 'restó'} ${fMoneda(Math.abs(r.rendimientoMes))} ${r.monedaRendimiento} a tu portafolio.`);
+                                if (r.aportado > 0.005) frases.push(`Aportaste ${fMoneda(r.aportado)}.`);
+                                if (r.mejores.length) frases.push(`${r.mejores[0].ticker} es tu mejor posición (${signo(r.mejores[0].pct)}${Math.abs(r.mejores[0].pct).toFixed(0)}%).`);
+                                d.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#1f6f4a')}">
+                                    <div class="etiqueta">En resumen</div>
+                                    <h2>${nombreMes} ${a}</h2>
+                                    ${frases.map(f => `<div class="nota" style="font-size:1.2em; color:#fff;">${f}</div>`).join('')}
+                                    <div class="nota">Toca la ✕ para volver.</div>
+                                </section>`);
+                                return d;
                             }
 
                             function irADiapositiva(n) {
