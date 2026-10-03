@@ -14858,15 +14858,15 @@
 
                                 // Lo invertido, paso a paso: del banco al costo de las acciones de hoy
                                 if (r.costoUsd > 0) {
-                                    const fila = (titulo, n, opciones = {}) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;${opciones.total ? ' border-top:1px solid rgba(255,255,255,0.25); padding-top:10px;' : ''}">
-                                        <div style="min-width:0; font-size:${opciones.total ? '1.1em; font-weight:700' : '1em'};">${titulo}</div>
-                                        <div style="white-space:nowrap; font-size:${opciones.total ? '1.35em' : '1.1em'}; font-weight:700;${opciones.color ? ` color:${opciones.color};` : ''}">${opciones.signo ? (n >= 0 ? '+' : '-') : ''}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}</div></div>`;
+                                    const fila = (titulo, n, opciones = {}) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;">
+                                        <div style="min-width:0;">${titulo}</div>
+                                        <div style="white-space:nowrap; font-size:1.1em; font-weight:700;${opciones.color ? ` color:${opciones.color};` : ''}">${opciones.signo ? (n >= 0 ? '+' : '-') : ''}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}</div></div>`;
                                     d.push(`<section class="diapositiva" style="${fondo('#3a2a6b', '#000')}">
-                                        <div class="etiqueta">Lo invertido</div>
+                                        <div class="etiqueta">Lo invertido en acciones</div>
+                                        <div class="cifra">${fMoneda(Math.round(r.costoMxn), fNumSaldo)} <span style="font-size:0.35em; letter-spacing:0;">MXN</span></div>
                                         ${fila('Salió de tu banco', r.netoBanco)}
                                         ${Math.abs(r.reinvertidoVentasMxn) > 0.5 ? fila('Ventas reinvertidas', r.reinvertidoVentasMxn, { signo: true, color: r.reinvertidoVentasMxn >= 0 ? verde : rojo }) : ''}
                                         ${r.cajaCostoMxn > 0.5 ? fila('En la Caja GBM', -r.cajaCostoMxn, { signo: true }) : ''}
-                                        ${fila('En acciones', r.costoMxn, { total: true })}
                                     </section>`);
                                 }
 
