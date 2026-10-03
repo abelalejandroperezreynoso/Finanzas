@@ -1,0 +1,30 @@
+# Publica en Supabase las Edge Functions de supabase/functions cada vez que
+# cambian en main. Necesita dos secretos del repositorio:
+#   SUPABASE_ACCESS_TOKEN  token personal de supabase.com/dashboard/account/tokens
+#   SUPABASE_PROJECT_REF   el identificador del proyecto (https://<ref>.supabase.co)
+name: Publicar funciones de Supabase
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**']
+  workflow_dispatch:
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Publicar cada función
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          for carpeta in supabase/functions/*/; do
+            nombre=$(basename "$carpeta")
+            echo "Publicando $nombre"
+            supabase functions deploy "$nombre" --project-ref "$SUPABASE_PROJECT_REF"
+          done
