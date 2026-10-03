@@ -14999,25 +14999,6 @@
                                         </section>`);
                                     }
 
-                                    // 6. Dónde se fue el dinero
-                                    const top = Object.keys(r.porCategoria).sort((x, y) => r.porCategoria[y] - r.porCategoria[x]).slice(0, 5);
-                                    if (top.length) {
-                                        const maximo = r.porCategoria[top[0]];
-                                        const mayor = catPorId[String(top[0])];
-                                        diapositivas.push(`<section class="diapositiva" style="${fondo('#6b4a1b', '#000')}">
-                                            <div class="etiqueta">Dónde se fue el dinero</div>
-                                            <h2>${escaparHtml(mayor ? mayor.nombre : '—')} se llevó ${((maximo / r.gastos) * 100).toFixed(0)}%</h2>
-                                            ${top.map(id => {
-                                                const cat = catPorId[String(id)];
-                                                const monto = r.porCategoria[id];
-                                                return `<div style="display:flex; flex-direction:column; gap:6px;">
-                                                    <div style="display:flex; justify-content:space-between;"><span>${escaparHtml(cat ? cat.nombre : '—')}</span><strong>${fMoneda(monto)}</strong></div>
-                                                    <div class="barra-h"><div style="width:${(monto / maximo) * 100}%; background:#f5a623;"></div></div>
-                                                </div>`;
-                                            }).join('')}
-                                        </section>`);
-                                    }
-
                                     // 6b. Categorías que mejoraron y que empeoraron contra el mes anterior: una
                                     // diapositiva para cada lado, con las diez que más cambiaron
                                     const cambiosCat = [...new Set([...Object.keys(r.porCategoria), ...Object.keys(rp.porCategoria)])]
