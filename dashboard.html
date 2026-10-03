@@ -2143,10 +2143,12 @@
                             <span class="rango-ios-pastilla" id="espejoCatPrioridad">—</span>
                             <select id="catPrioridad" onchange="actualizarEspejosCategoria()">
                                 <option value="">Sin asignar</option>
-                                <option value="vital">Necesidad vital</option>
-                                <option value="operativa">Necesidad operativa</option>
-                                <option value="util">No necesario pero útil</option>
-                                <option value="prescindible">Prescindible / Deseo</option>
+                                <!-- En la rueda cada nivel lleva una pista corta para elegir bien; en la
+                                     pastilla se enseña sólo el nombre (data-corto). -->
+                                <option value="vital" data-corto="Necesidad vital">Necesidad vital — para vivir: comida, vivienda, salud, transporte al trabajo</option>
+                                <option value="operativa" data-corto="Necesidad operativa">Necesidad operativa — obligaciones: deudas, seguros, servicios, impuestos</option>
+                                <option value="util" data-corto="No necesario pero útil">No necesario pero útil — comodidad: ahorra tiempo o da confort</option>
+                                <option value="prescindible" data-corto="Prescindible / Deseo">Prescindible / Deseo — gustos: ocio, antojos, caprichos</option>
                             </select>
                         </label>
                         <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
@@ -5437,7 +5439,7 @@
                                     const esp = document.getElementById(idEsp);
                                     if (!sel || !esp) return;
                                     const op = sel.selectedOptions && sel.selectedOptions[0];
-                                    const texto = op && sel.value ? op.textContent.trim() : '';
+                                    const texto = op && sel.value ? (op.dataset.corto || op.textContent.trim()) : '';
                                     esp.textContent = texto || (idSel === 'catPrioridad' ? 'Sin asignar' : 'Elegir');
                                     esp.classList.toggle('marcador', !texto);
                                 });
