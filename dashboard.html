@@ -14898,15 +14898,6 @@
                                     </section>`);
                                 }
 
-                                // Rendimiento dentro del mes
-                                if (r.rendimientoMes !== null) {
-                                    d.push(`<section class="diapositiva" style="${fondo(r.rendimientoMes >= 0 ? '#155e3c' : '#6b1d1d', '#000')}">
-                                        <div class="etiqueta">En ${nombreMes} tu portafolio</div>
-                                        <div class="cifra" style="color:${r.rendimientoMes >= 0 ? verde : rojo};">${signo(r.rendimientoMes)}${fMoneda(Math.abs(r.rendimientoMes))}</div>
-                                        <div class="nota">${r.rendimientoMes >= 0 ? 'ganó' : 'perdió'} en ${r.monedaRendimiento}, sumando lo que subieron o bajaron tus acciones y lo que vendiste.</div>
-                                    </section>`);
-                                }
-
                                 // Dinero que entró y salió del portafolio en el mes
                                 if (r.aportado > 0.005 || r.retirado > 0.005) {
                                     d.push(`<section class="diapositiva" style="${fondo('#3a2a6b', '#000')}">
