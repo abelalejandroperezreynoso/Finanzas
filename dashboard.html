@@ -1151,6 +1151,39 @@
                     overflow: hidden;
                 }
                 .presentacion-barras span.vista { background: rgba(255, 255, 255, 0.9); }
+                .presentacion-meses {
+                    position: absolute;
+                    left: 50%;
+                    bottom: calc(18px + env(safe-area-inset-bottom));
+                    transform: translateX(-50%);
+                    z-index: 3;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px;
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.14);
+                    -webkit-backdrop-filter: blur(20px);
+                    backdrop-filter: blur(20px);
+                    color: #fff;
+                    font-weight: 600;
+                    font-size: 0.95em;
+                    white-space: nowrap;
+                }
+                .presentacion-meses span { min-width: 128px; text-align: center; }
+                .presentacion-meses button {
+                    width: 36px !important;
+                    height: 36px;
+                    padding: 0 !important;
+                    margin: 0;
+                    border-radius: 50%;
+                    background: transparent !important;
+                    color: #fff;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .presentacion-meses button:disabled { opacity: 0.3; }
                 .presentacion-cerrar {
                     position: absolute;
                     top: calc(22px + env(safe-area-inset-top));
@@ -1176,7 +1209,7 @@
                     flex: 0 0 100%;
                     height: 100%;
                     box-sizing: border-box;
-                    padding: calc(80px + env(safe-area-inset-top)) 28px calc(40px + env(safe-area-inset-bottom));
+                    padding: calc(80px + env(safe-area-inset-top)) 28px calc(84px + env(safe-area-inset-bottom));
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
@@ -2489,6 +2522,16 @@
                                                         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
                                                     </button>
                                                     <div class="presentacion-pista" id="pistaPresentacion"></div>
+                                                    <!-- Cambiar de mes sin salir de la hoja que se está viendo -->
+                                                    <div class="presentacion-meses" id="mesesPresentacion">
+                                                        <button type="button" id="btnMesAnteriorPres" onclick="cambiarMesPresentacion(1)" aria-label="Mes anterior">
+                                                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+                                                        </button>
+                                                        <span id="textoMesPresentacion"></span>
+                                                        <button type="button" id="btnMesSiguientePres" onclick="cambiarMesPresentacion(-1)" aria-label="Mes siguiente">
+                                                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+                                                        </button>
+                                                    </div>
                                                 </div>
 
                                                 <!-- Detalles de una categoría: hoja de iOS. ✕ a la izquierda, el nombre al centro y el
@@ -14800,7 +14843,24 @@
                             let diapositivaActual = 0;
                             let totalDiapositivas = 0;
 
-                            function abrirPresentacionReporte(ym) {
+                            // Mes que se está viendo, para los botones de abajo
+                            var ymPresentacionActual = null;
+
+                            // Los meses van del más nuevo al más viejo: +1 es el anterior, -1 el siguiente.
+                            // Se queda en la misma hoja: se busca por su título y, si ese mes no la tiene,
+                            // se queda en la misma posición.
+                            function cambiarMesPresentacion(paso) {
+                                const { meses } = mesesConReporte();
+                                const i = meses.indexOf(ymPresentacionActual);
+                                const destino = meses[i + paso];
+                                if (i < 0 || !destino) return;
+                                const actual = document.querySelectorAll('#pistaPresentacion > .diapositiva')[diapositivaActual];
+                                const etiqueta = actual && actual.querySelector('.etiqueta');
+                                abrirPresentacionReporte(destino, { titulo: etiqueta ? etiqueta.textContent.trim() : '', indice: diapositivaActual });
+                            }
+
+                            function abrirPresentacionReporte(ym, mantener) {
+                                ymPresentacionActual = ym;
                                 const [a, m] = ym.split('-').map(n => parseInt(n, 10));
                                 const previo = m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`;
                                 const nombreMes = NOMBRES_MESES[m - 1];
@@ -14999,7 +15059,29 @@
                                 const capa = document.getElementById('presentacionReporte');
                                 capa.classList.add('activa');
                                 capa.setAttribute('aria-hidden', 'false');
-                                irADiapositiva(0);
+
+                                // Los botones de mes: el nombre y hasta dónde se puede ir
+                                const { meses: mesesDisponibles } = mesesConReporte();
+                                const posMes = mesesDisponibles.indexOf(ym);
+                                document.getElementById('textoMesPresentacion').textContent = `${nombreMes} ${a}`;
+                                document.getElementById('btnMesAnteriorPres').disabled = posMes < 0 || posMes >= mesesDisponibles.length - 1;
+                                document.getElementById('btnMesSiguientePres').disabled = posMes <= 0;
+
+                                // Al cambiar de mes se vuelve a la misma hoja, sin la animación de pasar hojas
+                                let indiceInicial = 0;
+                                if (mantener) {
+                                    const titulos = [...pista.children].map(d => ((d.querySelector('.etiqueta') || {}).textContent || '').trim());
+                                    const primeraPalabra = t => t.split(' ')[0];
+                                    let k = titulos.indexOf(mantener.titulo);
+                                    if (k < 0 && mantener.titulo) k = titulos.findIndex(t => primeraPalabra(t) === primeraPalabra(mantener.titulo));
+                                    indiceInicial = k >= 0 ? k : Math.min(mantener.indice || 0, totalDiapositivas - 1);
+                                    pista.style.transition = 'none';
+                                }
+                                irADiapositiva(indiceInicial);
+                                if (mantener) {
+                                    void pista.offsetWidth;
+                                    pista.style.transition = '';
+                                }
                                 activarGestosPresentacion();
                             }
 
@@ -15405,7 +15487,7 @@
                                 });
                                 capa.addEventListener('click', e => {
                                     if (capa.dataset.ignorarClic) { delete capa.dataset.ignorarClic; return; }
-                                    if (e.target.closest('.presentacion-cerrar, .selector-mes-pres')) return;
+                                    if (e.target.closest('.presentacion-cerrar, .selector-mes-pres, .presentacion-meses')) return;
                                     irADiapositiva(diapositivaActual + (e.clientX > window.innerWidth / 3 ? 1 : -1));
                                 });
                                 document.addEventListener('keydown', e => {
