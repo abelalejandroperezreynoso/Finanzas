@@ -14864,7 +14864,7 @@
                                     // Cada renglón con su punto de color y su cambio contra el mes anterior
                                     const filaSalio = (texto, monto, color, anterior) => {
                                         const pct = anterior === undefined ? undefined : cambio(monto, anterior);
-                                        const comparado = pct === undefined ? '' : pct === null ? `No hubo en ${nombrePrevio}` : Math.abs(pct) < 0.5 ? 'Igual' : `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(0)}% vs. ${nombrePrevio}`;
+                                        const comparado = pct === undefined ? '' : pct === null ? 'Nuevo' : Math.abs(pct) < 0.5 ? '0%' : `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(0)}%`;
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; font-size:1.1em;">
                                             <span style="display:flex; align-items:center; gap:10px;"><span style="width:12px; height:12px; border-radius:50%; background:${color};"></span>${texto}</span>
                                             <div style="text-align:right;"><strong style="color:${color === '#3a3a3c' ? '#fff' : color};">${fMoneda(monto)}</strong>
