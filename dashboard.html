@@ -923,8 +923,8 @@
                 }
                 /* El logo de la empresa, con la inicial del ticker debajo. La imagen se apila
                    encima de la inicial en vez de sustituirla: mientras no hay perfil —o cuando
-                   la imagen no carga, que sin red es siempre, porque la sirve Finnhub desde otro
-                   dominio y el service worker no la guarda— se ve la inicial y la tarjeta
+                   la imagen no carga, por ejemplo sin red la primera vez que aparece una empresa;
+                   después el service worker ya la tiene guardada— se ve la inicial y la tarjeta
                    conserva su forma. El onerror de la imagen la quita y deja la inicial a la vista. */
                 .logo-empresa {
                     position: relative;
@@ -3795,8 +3795,8 @@
                                     }
 
                                     // El logo, con la inicial del ticker debajo. La imagen la sirve Finnhub
-                                    // desde otro dominio, así que el service worker no la guarda: sin red no
-                                    // carga. El onerror la quita y deja ver la inicial, que es la misma pieza
+                                    // desde otro dominio; el service worker la guarda la primera vez en su
+                                    // propia caché y ya no la vuelve a bajar. El onerror la quita y deja ver la inicial, que es la misma pieza
                                     // que se ve mientras no haya perfil, de modo que la tarjeta nunca cambia de
                                     // tamaño ni enseña el icono roto del navegador.
                                     function logoEmpresaHtml(ticker, lado = 28) {

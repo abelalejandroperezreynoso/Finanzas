@@ -2,7 +2,11 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v97';
+const CACHE_NAME = 'gastos-app-v98';
+
+// Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
+// cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
+const CACHE_LOGOS = 'logos-empresas-v1';
 
 // El armazón de la app: todo lo que hace falta para que abra y se vea, sin datos todavía.
 // Se guarda entero durante la instalación para que el primer arranque desde el icono no dependa
@@ -71,7 +75,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((nombres) => {
-            const viejas = nombres.filter((nombre) => nombre !== CACHE_NAME);
+            const viejas = nombres.filter((nombre) => nombre !== CACHE_NAME && nombre !== CACHE_LOGOS);
             viejas.forEach((nombre) => console.log('Borrando caché antigua:', nombre));
             // Que hubiera cachés viejas es lo que distingue una actualización de una instalación
             // desde cero. En la primera instalación no hay a quién avisar —nadie está mirando una
@@ -103,6 +107,25 @@ self.addEventListener('fetch', (event) => {
     if (request.method !== 'GET') return;
 
     const url = new URL(request.url);
+
+    // Imágenes de otro dominio: son los logos de las empresas, que sirve Finnhub. Se guardan la
+    // primera vez y a partir de ahí salen siempre de la caché, sin red. Llegan como respuesta
+    // "opaca" (sin permiso para leerla), pero para pintarla en un <img> no hace falta leerla.
+    // Si el perfil de una empresa cambia de logo, la dirección es otra y se baja la nueva.
+    if (request.destination === 'image' && url.origin !== self.location.origin) {
+        event.respondWith(
+            caches.open(CACHE_LOGOS).then((cache) => cache.match(request).then((guardada) => {
+                if (guardada) return guardada;
+                return fetch(request).then((respuesta) => {
+                    if (respuesta && (respuesta.ok || respuesta.type === 'opaque')) {
+                        event.waitUntil(cache.put(request, respuesta.clone()).catch(() => {}));
+                    }
+                    return respuesta;
+                });
+            }))
+        );
+        return;
+    }
 
     // Datos vivos y cualquier otro origen: derechos a la red, sin tocar la caché.
     if (DOMINIOS_SIEMPRE_RED.some((dominio) => url.hostname.endsWith(dominio))) return;
