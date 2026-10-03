@@ -14832,7 +14832,6 @@
 
                                 // Valor del portafolio hoy y ganancia total
                                 const ganancia = r.valorUsd - r.costoUsd;
-                                const pctTotal = r.costoUsd > 0 ? (ganancia / r.costoUsd) * 100 : 0;
                                 d.push(`<section class="diapositiva" style="${fondo('#1b4d6b', '#000')}">
                                     <div class="etiqueta">Tu portafolio hoy</div>
                                     <div class="cifra">${fMoneda(Math.round(r.valorMxn), fNumSaldo)}</div>
@@ -14841,12 +14840,14 @@
                                         // Ganancia en pesos y de dónde salió: las acciones y el tipo de cambio
                                         const total = r.aporteInversionesMxn + r.aporteTipoCambioMxn;
                                         const pesos = n => `${signo(n)}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}`;
-                                        const fila = (titulo, detalle, n) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;">
+                                        // Los tres porcentajes son sobre los pesos que pagaste, así que también suman
+                                        const pct = n => r.costoMxn > 0 ? `${signo(n)}${Math.abs((n / r.costoMxn) * 100).toFixed(1)}%` : '';
+                                        const fila = (titulo, detalle, n) => `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                             <div style="min-width:0;"><div style="font-size:1.05em;">${titulo}</div><div class="nota" style="font-size:0.85em;">${detalle}</div></div>
-                                            <strong style="font-size:1.25em; color:${n >= 0 ? verde : rojo}; white-space:nowrap;">${pesos(n)}</strong></div>`;
-                                        return `<div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)}</div>
+                                            <div style="text-align:right; white-space:nowrap; color:${n >= 0 ? verde : rojo};"><strong style="font-size:1.25em;">${pesos(n)}</strong><div style="font-size:0.9em; font-weight:600;">${pct(n)}</div></div></div>`;
+                                        return `<div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)} <span style="font-size:0.55em;">(${pct(total)})</span></div>
                                             <div class="nota">${total >= 0 ? 'de ganancia' : 'de pérdida'} en pesos sobre lo que pagaste.</div></div>
-                                            ${fila('Tus inversiones', `${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD (${signo(pctTotal)}${Math.abs(pctTotal).toFixed(1)}%)`, r.aporteInversionesMxn)}
+                                            ${fila('Tus inversiones', `${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD`, r.aporteInversionesMxn)}
                                             ${fila('El tipo de cambio', r.tcCompra ? `Compraste a ${r.tcCompra.toFixed(2)} en promedio, hoy está en ${r.tcHoy.toFixed(2)}` : '', r.aporteTipoCambioMxn)}`;
                                     })() : ''}
                                 </section>`);
