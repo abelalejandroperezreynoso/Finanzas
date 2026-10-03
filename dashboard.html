@@ -3989,11 +3989,14 @@
                                         if (!chartArea || !scales.y) return transparente;
                                         const datos = (context.chart.data.datasets[context.datasetIndex || 0] || {}).data || [];
                                         if (datos.length === 0) return transparente;
-                                        const maximo = Math.max(0, ...datos), minimo = Math.min(0, ...datos);
-                                        const arriba = scales.y.getPixelForValue(maximo);
-                                        const abajo = scales.y.getPixelForValue(minimo);
+                                        // El cero se toma dentro del recuadro: con pocos puntos el eje no suele
+                                        // llegar a cero, y apagarse hacia un cero que queda muy por debajo dejaba
+                                        // el relleno casi sólido, sin degradado a la vista.
+                                        const pxCero = Math.min(chartArea.bottom, Math.max(chartArea.top, scales.y.getPixelForValue(0)));
+                                        const arriba = Math.min(scales.y.getPixelForValue(Math.max(...datos)), pxCero);
+                                        const abajo = Math.max(scales.y.getPixelForValue(Math.min(...datos)), pxCero);
                                         if (!(abajo - arriba > 0)) return transparente;
-                                        const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - arriba) / (abajo - arriba)));
+                                        const cero = Math.min(1, Math.max(0, (pxCero - arriba) / (abajo - arriba)));
                                         const grad = ctx.createLinearGradient(0, arriba, 0, abajo);
                                         grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
                                         grad.addColorStop(cero, 'rgba(62, 207, 142, 0)');
