@@ -14932,12 +14932,12 @@
                                     };
 
                                     // La barra: el primer tramo mide lo que entró este mes y el segundo, si hizo falta,
-                                    // lo que salió de meses pasados. Se llenan en orden —gastos y luego inversión— y lo
+                                    // lo que salió de meses pasados. Se llenan en orden —inversión y luego gastos— y lo
                                     // que no se usó de los ingresos queda en gris.
                                     const COLOR_GASTO = '#ff5c5c', COLOR_INVERSION = '#ffffff', COLOR_SOBRO = '#3a3a3c';
                                     const capacidad = Math.max(0, r.ingresos);
-                                    const gastoMes = Math.min(r.gastos, capacidad);
-                                    const invMes = Math.min(invertido, capacidad - gastoMes);
+                                    const invMes = Math.min(invertido, capacidad);
+                                    const gastoMes = Math.min(r.gastos, capacidad - invMes);
                                     const sobro = capacidad - gastoMes - invMes;
                                     const gastoPasado = r.gastos - gastoMes;
                                     const invPasado = invertido - invMes;
@@ -14945,8 +14945,8 @@
                                     const tramo = segmentos => `<div style="display:flex; height:16px; border-radius:8px; overflow:hidden; gap:3px;">
                                         ${segmentos.filter(([v]) => v > 0.005).map(([v, c]) => `<div style="flex:${v}; background:${c};"></div>`).join('')}</div>`;
                                     const barra = [];
-                                    if (capacidad > 0.005) barra.push([capacidad, tramo([[gastoMes, COLOR_GASTO], [invMes, COLOR_INVERSION], [sobro, COLOR_SOBRO]]), `Ingresos de ${nombreMes}`, capacidad]);
-                                    if (dePasados > 0.005) barra.push([dePasados, tramo([[gastoPasado, COLOR_GASTO], [invPasado, COLOR_INVERSION]]), 'De meses pasados', dePasados]);
+                                    if (capacidad > 0.005) barra.push([capacidad, tramo([[invMes, COLOR_INVERSION], [gastoMes, COLOR_GASTO], [sobro, COLOR_SOBRO]]), `Ingresos de ${nombreMes}`, capacidad]);
+                                    if (dePasados > 0.005) barra.push([dePasados, tramo([[invPasado, COLOR_INVERSION], [gastoPasado, COLOR_GASTO]]), 'De meses pasados', dePasados]);
                                     const barraHtml = barra.length ? `<div>
                                         <div style="display:flex; gap:8px;">${barra.map(([v, html]) => `<div style="flex:${v}; min-width:0;">${html}</div>`).join('')}</div>
                                         <!-- Las etiquetas van a los extremos, no bajo cada tramo: el de meses pasados
