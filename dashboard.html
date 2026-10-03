@@ -176,6 +176,14 @@
         .seccion.activa { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* Deslizar hacia abajo para recargar: la ruedita de iOS (8 rayitas) arriba del inicio */
+        .recarga-ios { position: fixed; top: calc(env(safe-area-inset-top) + 14px); left: 50%; width: 28px; height: 28px; margin-left: -14px; z-index: 50; opacity: 0; pointer-events: none; color: #8e8e93; }
+        .recarga-ios svg { width: 100%; height: 100%; display: block; }
+        .recarga-ios line { stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; transition: opacity 0.12s; }
+        .recarga-ios.girando svg { animation: girarRecargaIos 0.8s steps(8) infinite; }
+        .recarga-ios.girando line { transition: none; }
+        @keyframes girarRecargaIos { to { transform: rotate(360deg); } }
+
         /* --- Movimiento recién guardado ---
            Al volver a Gestión de Datos el registro nuevo no aparece de golpe: baja hasta su
            sitio y se queda un momento encendido, para que se vea dónde quedó dentro del
@@ -1638,6 +1646,8 @@
     <img src="icono-192.png" alt="" class="splash-icono">
     <div class="splash-barra"><div class="splash-relleno" id="splashRelleno"></div></div>
 </div>
+
+    <div id="recargaIos" class="recarga-ios" aria-hidden="true"><svg viewBox="0 0 28 28"></svg></div>
 
     <div class="main-container">
 
@@ -14311,6 +14321,88 @@
                                         if (!abrir) cerrarPresentacionReporte();
                                         limpiar();
                                     }, 360);
+                                };
+                                inicio.addEventListener('touchend', soltar, { passive: true });
+                                inicio.addEventListener('touchcancel', soltar, { passive: true });
+                            })();
+
+                            // ---- Deslizar hacia abajo para recargar (como en iOS) ----
+                            // Con la página arriba del todo, jalar hacia abajo baja el inicio con resistencia y
+                            // van apareciendo las rayitas de la ruedita; pasado el umbral gira y recarga la página.
+                            (function activarDeslizarParaRecargar() {
+                                const inicio = document.getElementById('sec-inicio');
+                                const rueda = document.getElementById('recargaIos');
+                                if (!inicio || !rueda) return;
+                                const svg = rueda.querySelector('svg');
+                                // 8 rayitas, de las 12 en punto en sentido horario
+                                svg.innerHTML = Array.from({ length: 8 }, (_, i) =>
+                                    `<line x1="14" y1="3.5" x2="14" y2="8.5" transform="rotate(${i * 45} 14 14)"></line>`).join('');
+                                const rayas = Array.from(svg.querySelectorAll('line'));
+                                const ocupado = el => !!el.closest('canvas, input, select, textarea, .filtros-treemap, .ios-tira-dias, .filtros-scroll, .swipe-content, [data-sin-deslizar]');
+                                const UMBRAL = 70;      // lo que hay que bajar el inicio para que recargue
+                                const REPOSO = 56;      // donde se queda el inicio mientras gira
+                                const CURVA = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)';
+                                let y0 = null, x0 = 0, modo = null, recargando = false, d = 0;
+
+                                // Resistencia tipo goma: al principio sigue al dedo, luego cuesta cada vez más
+                                const resistir = dy => dy <= 0 ? 0 : 160 * (1 - 1 / (dy * 0.55 / 160 + 1));
+
+                                const pintar = (desp, conTransicion) => {
+                                    d = desp;
+                                    inicio.style.transition = conTransicion ? CURVA : 'none';
+                                    inicio.style.transform = desp > 0 ? `translateY(${desp}px)` : '';
+                                    const avance = Math.min(1, desp / UMBRAL);
+                                    rueda.style.opacity = desp > 8 ? String(Math.min(1, avance * 1.4)) : '0';
+                                    if (!rueda.classList.contains('girando')) {
+                                        // Las rayitas salen una a una conforme se jala
+                                        const visibles = Math.round(avance * 8);
+                                        rayas.forEach((l, i) => { l.style.opacity = i < visibles ? '1' : '0'; });
+                                    }
+                                };
+
+                                inicio.addEventListener('touchstart', e => {
+                                    y0 = null;
+                                    modo = null;
+                                    if (recargando || e.touches.length !== 1 || ocupado(e.target)) return;
+                                    if (window.scrollY > 0 || document.body.classList.contains('modal-abierto')) return;
+                                    const capa = document.getElementById('presentacionReporte');
+                                    if (capa && capa.classList.contains('activa')) return;
+                                    y0 = e.touches[0].clientY;
+                                    x0 = e.touches[0].clientX;
+                                }, { passive: true });
+
+                                inicio.addEventListener('touchmove', e => {
+                                    if (y0 === null || modo === 'nada') return;
+                                    const dy = e.touches[0].clientY - y0;
+                                    const dx = e.touches[0].clientX - x0;
+                                    if (modo === null) {
+                                        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+                                        if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.2 && window.scrollY <= 0) modo = 'abajo';
+                                        else { modo = 'nada'; return; }
+                                    }
+                                    // Sin el rebote nativo: el desplazamiento lo lleva el gesto
+                                    e.preventDefault();
+                                    pintar(resistir(dy), false);
+                                }, { passive: false });
+
+                                const soltar = () => {
+                                    if (y0 === null) return;
+                                    const eraAbajo = modo === 'abajo';
+                                    y0 = null;
+                                    modo = null;
+                                    if (!eraAbajo) return;
+                                    if (d >= UMBRAL) {
+                                        recargando = true;
+                                        // Al girar en sentido horario, la rayita de adelante es la más fuerte y la estela se apaga
+                                        rayas.forEach((l, i) => { l.style.opacity = String(0.3 + i * 0.1); });
+                                        rueda.classList.add('girando');
+                                        pintar(REPOSO, true);
+                                        // Un respiro para que se vea girar antes de recargar
+                                        setTimeout(() => location.reload(), 450);
+                                    } else {
+                                        pintar(0, true);
+                                        setTimeout(() => { if (!recargando && modo === null) inicio.style.transition = ''; }, 420);
+                                    }
                                 };
                                 inicio.addEventListener('touchend', soltar, { passive: true });
                                 inicio.addEventListener('touchcancel', soltar, { passive: true });
