@@ -15121,11 +15121,11 @@
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
                                     ${topes.map(x => {
                                         // Siempre el tope arriba a la derecha. Debajo, el ahorro en verde o, si ya se
-                                        // rebasó, lo gastado de verdad en rojo con cuánto se pasó
+                                        // rebasó, lo gastado de verdad en rojo
                                         const llevaTexto = enCurso ? 'llevas' : `en ${nombreSig}`;
                                         const izquierda = `gastaste ${redondo(x.gasto)}${hayAvance && !x.fallado ? ` · ${llevaTexto} ${redondo(x.llevas)}` : ''}`;
                                         const derecha = `<strong style="font-size:1.15em;">${redondo(x.tope)}</strong>` + (x.fallado
-                                            ? `<div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">${redondo(x.llevas)} (+${Math.round(((x.llevas - x.tope) / x.tope) * 100)}%)</div>`
+                                            ? `<div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">${redondo(x.llevas)}</div>`
                                             : `<div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`);
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
