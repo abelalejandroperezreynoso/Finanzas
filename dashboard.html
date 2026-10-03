@@ -14856,16 +14856,19 @@
                                     const movInv = resumirInversionesMes(ym, true);
                                     const invertido = Math.max(0, movInv.aportado - movInv.retirado);
 
-                                    // 3. Gastos, y aparte lo invertido, para que se vea todo lo que salió
+                                    // 3. Todo lo que salió de tus cuentas: gastos más lo invertido, comparado con el
+                                    // mes anterior; debajo, cuánto fue cada cosa
+                                    const movInvPrevio = resumirInversionesMes(previo, true);
+                                    const invertidoPrevio = Math.max(0, movInvPrevio.aportado - movInvPrevio.retirado);
+                                    const salioTotal = r.gastos + invertido;
+                                    const filaSalio = (texto, monto, color) => `<div style="display:flex; justify-content:space-between; align-items:baseline; font-size:1.1em;">
+                                        <span>${texto}</span><strong style="color:${color};">${fMoneda(monto)}</strong></div>`;
                                     diapositivas.push(`<section class="diapositiva" style="${fondo('#6b1d1d', '#000')}">
                                         <div class="etiqueta">Salió</div>
-                                        <div class="cifra" style="color:#ff5c5c;">${fMoneda(r.gastos)}</div>
-                                        <div class="nota">en gastos. ${frasePct(cambio(r.gastos, rp.gastos), 'más', 'menos')}</div>
-                                        ${invertido > 0.005 ? `<div>
-                                            <div class="nota" style="margin-bottom:4px;">Además invertiste</div>
-                                            <div class="cifra" style="font-size:2.2em; color:#4da6ff;">${fMoneda(invertido)}</div>
-                                            <div class="nota">No cuenta como gasto: el dinero sigue siendo tuyo. En total salieron ${fMoneda(r.gastos + invertido)} de tus cuentas.</div>
-                                        </div>` : ''}
+                                        <div class="cifra">${fMoneda(salioTotal)}</div>
+                                        <div class="nota" style="margin-top:-8px;">${frasePct(cambio(salioTotal, rp.gastos + invertidoPrevio), 'más', 'menos')}</div>
+                                        ${filaSalio('Gastos', r.gastos, '#ff5c5c')}
+                                        ${invertido > 0.005 ? filaSalio('Inversión', invertido, '#ffffff') : ''}
                                     </section>`);
 
                                     // 4. Ahorro, y cuánto de él se fue a inversiones. Lo invertido se toma del
