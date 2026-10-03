@@ -2140,9 +2140,9 @@
     <!-- FIN CALENDARIO -->
 
     <!-- INICIO CONSUMO DE IA -->
-    <!-- Cuánto se ha gastado en la IA de los topes. El costo es una estimación con los
-         tokens de cada consulta y el precio del modelo; la cifra oficial está en la consola
-         de Anthropic. El administrador ve el de toda la app; los demás, sólo el suyo. -->
+    <!-- Cuánto se ha gastado en la IA de los topes, de toda la app. El costo es una
+         estimación con los tokens de cada consulta y el precio del modelo; la cifra oficial
+         está en la consola de Anthropic. -->
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
         <div id="consumoIa" style="font-size: 0.9em; color: #ccc; line-height: 1.7;">—</div>
@@ -15134,13 +15134,13 @@
                                         caja.innerHTML = '<span style="color:#888;">Falta preparar la base: ejecuta migracion_consumo_ia.sql en Supabase.</span>';
                                         return;
                                     }
-                                    const r = (data && data[0]) || { alcance: 'propio', consultas_mes: 0, costo_mes: 0, consultas_total: 0, costo_total: 0 };
+                                    const r = (data && data[0]) || { consultas_mes: 0, costo_mes: 0, consultas_total: 0, costo_total: 0 };
                                     const usd = n => `$${Number(n || 0).toFixed(2)} USD`;
                                     const fila = (texto, consultas, costo) => `<div style="display:flex; justify-content:space-between; gap:12px;">
                                         <span>${texto}</span><span><strong style="color:#fff;">${usd(costo)}</strong> <span style="color:#888;">· ${consultas} ${Number(consultas) === 1 ? 'consulta' : 'consultas'}</span></span></div>`;
                                     caja.innerHTML = fila('Este mes', r.consultas_mes, r.costo_mes)
                                         + fila('Desde el inicio', r.consultas_total, r.costo_total)
-                                        + `<div style="color:#666; font-size:0.85em; margin-top:6px;">${r.alcance === 'app' ? 'De toda la app' : 'Sólo tus consultas'} · estimado; la cifra oficial está en console.anthropic.com</div>`;
+                                        + `<div style="color:#666; font-size:0.85em; margin-top:6px;">De toda la app · estimado con los tokens de cada consulta</div>`;
                                 } catch (e) {
                                     caja.textContent = 'No se pudo cargar el consumo.';
                                 }
