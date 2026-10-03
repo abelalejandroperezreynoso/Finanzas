@@ -14813,8 +14813,6 @@
                                 // los pesos que siguen en la caja sin comprar nada, y lo que falta para llegar al
                                 // costo de las acciones de hoy, que es la ganancia de ventas pasadas reinvertida.
                                 const historia = resumirInversionesMes(null, true);
-                                r.aportadoHistorico = historia.aportado;
-                                r.retiradoHistorico = historia.retirado;
                                 r.netoBanco = historia.aportado - historia.retirado;
                                 r.cajaCostoMxn = Object.values(window.cajaUsdPorCuenta || {}).reduce((s2, c) => s2 + (c && c.usd > 0.005 ? (c.mxnBase || 0) : 0), 0);
                                 r.reinvertidoVentasMxn = r.costoMxn + r.cajaCostoMxn - r.netoBanco;
@@ -14853,11 +14851,7 @@
                                         const pesos = n => `${signo(n)}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}`;
                                         // Sobre los pesos que pagaste, igual que los de las diapositivas siguientes
                                         const pct = n => r.costoMxn > 0 ? `${signo(n)}${Math.abs((n / r.costoMxn) * 100).toFixed(1)}%` : '';
-                                        // Lo que se puso para llegar ahí: los pesos que costaron las acciones que hay hoy
-                                        return `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;">
-                                                <div style="min-width:0;"><div style="font-size:1.05em;">Invertido</div><div class="nota" style="font-size:0.85em;">Lo que pagaste por las acciones que tienes hoy</div></div>
-                                                <strong style="font-size:1.25em; white-space:nowrap;">${fMoneda(Math.round(r.costoMxn), fNumSaldo)}</strong></div>
-                                            <div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)} <span style="font-size:0.55em;">(${pct(total)})</span></div>
+                                        return `<div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)} <span style="font-size:0.55em;">(${pct(total)})</span></div>
                                             <div class="nota">${total >= 0 ? 'de ganancia' : 'de pérdida'} en pesos sobre lo que pagaste.</div></div>`;
                                     })() : ''}
                                 </section>`);
@@ -14869,13 +14863,10 @@
                                         <div style="white-space:nowrap; font-size:${opciones.total ? '1.35em' : '1.1em'}; font-weight:700;${opciones.color ? ` color:${opciones.color};` : ''}">${opciones.signo ? (n >= 0 ? '+' : '-') : ''}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}</div></div>`;
                                     d.push(`<section class="diapositiva" style="${fondo('#3a2a6b', '#000')}">
                                         <div class="etiqueta">Lo invertido</div>
-                                        ${fila('Aportaste', r.aportadoHistorico)}
-                                        ${r.retiradoHistorico > 0.5 ? fila('Retiraste', -r.retiradoHistorico, { signo: true, color: rojo }) : ''}
-                                        ${fila('Salió de tu banco', r.netoBanco, { total: true })}
-                                        ${Math.abs(r.reinvertidoVentasMxn) > 0.5 ? fila(r.reinvertidoVentasMxn >= 0 ? 'Ganancia de ventas que reinvertiste' : 'Pérdida de ventas pasadas', r.reinvertidoVentasMxn, { signo: true, color: r.reinvertidoVentasMxn >= 0 ? verde : rojo }) : ''}
-                                        ${r.cajaCostoMxn > 0.5 ? fila('Sin invertir en la Caja GBM', -r.cajaCostoMxn, { signo: true }) : ''}
-                                        ${fila('Costo de tus acciones hoy', r.costoMxn, { total: true })}
-                                        <div class="nota">En pesos, desde tu primera aportación.</div>
+                                        ${fila('Salió de tu banco', r.netoBanco)}
+                                        ${Math.abs(r.reinvertidoVentasMxn) > 0.5 ? fila('Ventas reinvertidas', r.reinvertidoVentasMxn, { signo: true, color: r.reinvertidoVentasMxn >= 0 ? verde : rojo }) : ''}
+                                        ${r.cajaCostoMxn > 0.5 ? fila('En la Caja GBM', -r.cajaCostoMxn, { signo: true }) : ''}
+                                        ${fila('En acciones', r.costoMxn, { total: true })}
                                     </section>`);
                                 }
 
