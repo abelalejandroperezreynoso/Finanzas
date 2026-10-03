@@ -14834,8 +14834,8 @@
                                 const ganancia = r.valorUsd - r.costoUsd;
                                 d.push(`<section class="diapositiva" style="${fondo('#1b4d6b', '#000')}">
                                     <div class="etiqueta">Tu portafolio hoy</div>
-                                    <div class="cifra">${fMoneda(Math.round(r.valorMxn), fNumSaldo)}</div>
-                                    <div class="nota">en pesos, a precio y tipo de cambio de hoy.</div>
+                                    <div class="cifra">${fMoneda(Math.round(r.valorMxn), fNumSaldo)} <span style="font-size:0.35em; letter-spacing:0;">MXN</span></div>
+                                    <div style="font-size:1.3em; font-weight:600; color:#bbb; margin-top:-8px;">${fMoneda(r.valorMxn / (r.tcHoy || 1))} USD</div>
                                     ${r.costoUsd > 0 ? (() => {
                                         // Ganancia en pesos y de dónde salió: las acciones y el tipo de cambio
                                         const total = r.aporteInversionesMxn + r.aporteTipoCambioMxn;
