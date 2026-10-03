@@ -14871,57 +14871,8 @@
                                         ${invertido > 0.005 ? filaSalio('Inversión', invertido, '#ffffff') : ''}
                                     </section>`);
 
-                                    // 4. Ahorro, y cuánto de él se fue a inversiones. Lo invertido se toma del
-                                    // portafolio (aportaciones menos retiros del mes), cuente o no su cuenta en el
-                                    // saldo total: es dinero que salió de tus cuentas hacia el broker.
+                                    // Lo ahorrado que no se fue a inversiones; lo usa el plan del mes siguiente
                                     const quedo = ahorro - invertido;
-                                    const anillo = tasa === null ? '' : (() => {
-                                        const c = 2 * Math.PI * 52;
-                                        const tAhorro = Math.max(0, Math.min(100, tasa));
-                                        // Lo invertido se dibuja como parte de lo ahorrado: si se invirtió más de lo
-                                        // que se ahorró, el anillo se llena hasta el ahorro y no más, para que coincida
-                                        // con el porcentaje del centro. Lo que vino de meses pasados va en la leyenda.
-                                        const tInv = Math.max(0, Math.min(tAhorro, (invertido / r.ingresos) * 100));
-                                        // Dos tramos: lo invertido (azul) y lo que quedó en tus cuentas (verde)
-                                        const tQuedo = Math.max(0, tAhorro - tInv);
-                                        return `<svg viewBox="0 0 120 120" width="170" height="170" style="align-self:center;">
-                                            <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="12"/>
-                                            ${tQuedo > 0 ? `<circle cx="60" cy="60" r="52" fill="none" stroke="${tasa >= 0 ? '#3ecf8e' : '#ff5c5c'}" stroke-width="12"
-                                                stroke-dasharray="${((tInv + tQuedo) / 100) * c} ${c}" transform="rotate(-90 60 60)"/>` : ''}
-                                            ${tInv > 0 ? `<circle cx="60" cy="60" r="52" fill="none" stroke="#4da6ff" stroke-width="12"
-                                                stroke-dasharray="${(tInv / 100) * c} ${c}" transform="rotate(-90 60 60)"/>` : ''}
-                                            <text x="60" y="68" text-anchor="middle" fill="#fff" font-size="24" font-weight="800">${tasa.toFixed(0)}%</text>
-                                        </svg>`;
-                                    })();
-                                    const filaLeyenda = (color, texto, monto, sangria) => `<div style="display:flex; justify-content:space-between; align-items:center;${sangria ? ' padding-left:22px; font-size:0.92em; color:#ccc;' : ''}">
-                                                <span style="display:flex; align-items:center; gap:10px;">${color ? `<span style="width:12px; height:12px; border-radius:50%; background:${color};"></span>` : ''}${texto}</span>
-                                                <strong>${fMoneda(monto)}</strong></div>`;
-                                    // Si se invirtió más de lo ahorrado, la leyenda dice de dónde salió lo invertido:
-                                    // una parte del ahorro del mes y el resto de lo que ya estaba guardado
-                                    const leyenda = invertido <= 0.005 ? '' : `
-                                        <div style="display:flex; flex-direction:column; gap:10px; font-size:1.05em;">
-                                            ${quedo >= 0
-                                                ? filaLeyenda('#4da6ff', 'Invertiste', invertido) + filaLeyenda('#3ecf8e', 'Quedó en tus cuentas', quedo)
-                                                : filaLeyenda('#4da6ff', 'Invertiste', invertido)
-                                                    + (ahorro > 0.005 ? filaLeyenda('', 'Del ahorro de este mes', ahorro, true) : '')
-                                                    + filaLeyenda('', 'De ahorros anteriores', Math.min(invertido, -quedo), true)}
-                                        </div>`;
-                                    const notaAhorro = tasa === null ? 'No hubo ingresos este mes.'
-                                        : invertido > 0.005
-                                        ? (quedo >= 0
-                                            ? `Guardaste el ${tasa.toFixed(1)}% de lo que entró, y el ${((invertido / r.ingresos) * 100).toFixed(1)}% lo pusiste a trabajar en inversiones.`
-                                            : ahorro > 0.005
-                                                ? `Invertiste todo lo que ahorraste este mes y ${fMoneda(-quedo)} más de lo que ya tenías guardado.`
-                                                : `Lo que invertiste salió de lo que ya tenías guardado.`)
-                                        : `Guardaste el ${tasa.toFixed(1)}% de lo que entró.`;
-                                    diapositivas.push(`<section class="diapositiva" style="${fondo(ahorro >= 0 ? '#1b4d6b' : '#6b1d1d', '#000')}">
-                                        <div class="etiqueta">${ahorro >= 0 ? 'Ahorraste este mes' : 'Gastaste de más'}</div>
-                                        <div class="cifra">${fMoneda(Math.abs(ahorro))}</div>
-                                        <div class="nota" style="margin-top:-8px;">Entró ${fMoneda(r.ingresos)} y gastaste ${fMoneda(r.gastos)}.</div>
-                                        ${anillo}
-                                        ${leyenda}
-                                        <div class="nota">${notaAhorro}</div>
-                                    </section>`);
 
                                     // 5. Prioridades
                                     if (r.gastos > 0.005) {
