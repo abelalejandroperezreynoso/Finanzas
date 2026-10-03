@@ -14320,7 +14320,7 @@
                                 const cuentasActivas = new Set((datosCuentas || []).filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
                                 const catPorId = {};
                                 (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
-                                const r = { ingresos: 0, gastos: 0, porCategoria: {}, porPrioridad: {}, otros: {}, movimientos: 0 };
+                                const r = { ingresos: 0, gastos: 0, porCategoria: {}, vecesPorCategoria: {}, porPrioridad: {}, otros: {}, movimientos: 0 };
                                 (datosUsoCompleto || []).forEach(u => {
                                     if (!u.fecha || obtenerFechaLocalCortada(u.fecha).slice(0, 7) !== ym) return;
                                     const cat = catPorId[String(u.categoria_id)];
@@ -14334,6 +14334,7 @@
                                         const gasto = -monto;
                                         r.gastos += gasto;
                                         r.porCategoria[cat.id] = (r.porCategoria[cat.id] || 0) + gasto;
+                                        r.vecesPorCategoria[cat.id] = (r.vecesPorCategoria[cat.id] || 0) + 1;
                                         const p = cat.prioridad || 'sin';
                                         r.porPrioridad[p] = (r.porPrioridad[p] || 0) + gasto;
                                     } else {
@@ -14570,8 +14571,23 @@
 
                                 // Acciones, de la más útil a la menos; se enseñan como mucho cuatro
                                 const acciones = [];
-                                const recortable = (r.porPrioridad.prescindible || 0) + (r.porPrioridad.util || 0);
-                                if (recortable > 0.005) acciones.push(`Recorta a la mitad lo de comodidad y deseo y ahorrarías unos <strong>${fMoneda(recortable / 2)}</strong> más.`);
+                                // Tope concreto a las dos categorías de deseo o comodidad donde más se gastó:
+                                // la mitad a lo prescindible y tres cuartos a lo útil, redondeado a centenas
+                                const nombreMesActual = NOMBRES_MESES[m - 1];
+                                const recortables = Object.keys(r.porCategoria)
+                                    .map(id => ({ id, cat: catPorId[String(id)], gasto: r.porCategoria[id], veces: r.vecesPorCategoria[id] || 0 }))
+                                    .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
+                                    .sort((x, y) => y.gasto - x.gasto)
+                                    .slice(0, 2)
+                                    .map(x => {
+                                        const tope = Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100);
+                                        return { ...x, tope, ahorro: Math.max(0, x.gasto - tope) };
+                                    })
+                                    .filter(x => x.ahorro > 0.005);
+                                if (recortables.length > 0) {
+                                    const detalle = x => `<strong>${escaparHtml(x.cat.nombre)}</strong> a ${fMoneda(x.tope)} (en ${nombreMesActual} fueron ${fMoneda(x.gasto)}${x.veces > 1 ? ` en ${x.veces} veces, ~${fMoneda(x.gasto / x.veces)} cada una` : ''})`;
+                                    acciones.push(`Ponle tope a ${recortables.map(detalle).join(' y ')}: ahorrarías <strong>${fMoneda(recortables.reduce((s, x) => s + x.ahorro, 0))}</strong>.`);
+                                }
                                 let subida = null;
                                 Object.keys(r.porCategoria).forEach(id => {
                                     const antes = rp.porCategoria[id] || 0;
@@ -14584,10 +14600,17 @@
                                     const cat = catPorId[String(subida.id)];
                                     acciones.push(`Vigila <strong>${escaparHtml(cat ? cat.nombre : '—')}</strong>: subió ${subida.pct.toFixed(0)}% (${fMoneda(subida.diferencia)} más que el mes anterior).`);
                                 }
+                                // Cuánto apartar y cuánto queda por semana para lo que no es un pago recurrente
                                 if (r.ingresos > 0) {
                                     const ingresosBase = totalIngresos > 0 ? totalIngresos : r.ingresos;
-                                    if (tasa !== null && tasa < 20) acciones.push(`Para ahorrar el 20% gasta como máximo <strong>${fMoneda(ingresosBase * 0.8)}</strong> en ${nombreSig}.`);
-                                    else acciones.push(`Mantén tus gastos por debajo de <strong>${fMoneda(r.gastos)}</strong> para repetir tu ahorro.`);
+                                    const meta = Math.max(ingresosBase * 0.2, tasa !== null && tasa >= 20 ? ahorro : 0);
+                                    const libre = ingresosBase - meta - totalPagos;
+                                    const semanas = (finSig.getDate()) / 7;
+                                    if (libre > 0.005) {
+                                        acciones.push(`Aparta <strong>${fMoneda(meta)}</strong> en cuanto cobres. ${totalPagos > 0.005 ? 'Tras tus pagos recurrentes te' : 'Te'} quedan ${fMoneda(libre)} para lo demás: <strong>${fMoneda(libre / semanas)} por semana</strong>.`);
+                                    } else {
+                                        acciones.push(`Tus pagos recurrentes (${fMoneda(totalPagos)}) y apartar ${fMoneda(meta)} de ahorro superan lo que esperas ganar en ${nombreSig}: te faltan <strong>${fMoneda(-libre)}</strong>.`);
+                                    }
                                 }
                                 // Las que no tienen prioridad, por nombre y de la que más gastó a la que menos
                                 const sinPrioridad = Object.keys(r.porCategoria)
