@@ -15092,13 +15092,13 @@
                                 const gastadoSig = hayAvance ? resumirMesReporte(ymSig).porCategoria : {};
 
                                 // La hoja se centra en los topes: a qué categorías de deseo o comodidad ponerles
-                                // un límite y cuánto se ahorraría respetándolo. La mitad de lo gastado a lo
-                                // prescindible y tres cuartos a lo útil, redondeado a centenas.
+                                // un límite y cuánto se ahorraría respetándolo. Un cuarto de lo gastado a lo
+                                // prescindible y la mitad a lo útil, redondeado a centenas.
                                 const redondo = n => fMoneda(Math.round(Math.abs(n)), fNumSaldo);
                                 const topes = Object.keys(r.porCategoria)
                                     .map(id => ({ cat: catPorId[String(id)], gasto: r.porCategoria[id] }))
                                     .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
-                                    .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100) }))
+                                    .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.25 : 0.5) / 100) * 100) }))
                                     .map(x => ({ ...x, ahorro: x.gasto - x.tope }))
                                     // Todas las que dejen un ahorro que valga la pena, sin tope de cantidad
                                     .filter(x => x.ahorro >= 100)
