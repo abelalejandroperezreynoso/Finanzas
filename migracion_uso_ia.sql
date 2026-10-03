@@ -2,7 +2,7 @@
 -- USO DE LA IA: un registro por cada consulta que hace un usuario
 -- ============================================================================
 --
--- La clave de Anthropic es una sola para toda la app, así que la función topes-ia
+-- La clave de Anthropic es una sola para toda la app, así que la función asistente
 -- limita cuántas veces la puede usar cada usuario (una vez cada 24 horas). Para eso
 -- cuenta aquí las consultas del usuario antes de llamar a la IA y anota la nueva
 -- cuando sale bien. Cada usuario sólo ve y crea sus propios registros.

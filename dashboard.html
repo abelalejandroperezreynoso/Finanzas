@@ -172,6 +172,36 @@
 /* La descripción, en un solo renglón: lo que no quepa se corta con puntos suspensivos */
 .movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
+        /* Asistente: chat al estilo de Mensajes de iOS */
+        .chat-mensajes { display: flex; flex-direction: column; gap: 10px; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+        .chat-usuario { align-self: flex-end; max-width: 82%; background: #0a84ff; color: #fff; padding: 9px 14px; border-radius: 18px 18px 4px 18px; font-size: 0.98em; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+        .chat-asistente { align-self: stretch; color: #e5e5ea; font-size: 0.98em; line-height: 1.5; word-wrap: break-word; }
+        .chat-asistente ul { margin: 4px 0; padding-left: 20px; }
+        .chat-asistente strong { color: #fff; }
+        .chat-error { align-self: stretch; color: #ff5c5c; font-size: 0.85em; }
+        .chat-propuesta { align-self: stretch; background: #1c1c1e; border: 1px solid #2c2c2e; border-radius: 14px; padding: 12px 14px; }
+        .chat-propuesta .titulo { font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .chat-propuesta .detalle { font-size: 0.85em; color: #aeaeb2; line-height: 1.6; }
+        .chat-propuesta .detalle b { color: #fff; font-weight: 600; }
+        .chat-propuesta .acciones { display: flex; gap: 8px; margin-top: 10px; }
+        .chat-propuesta .acciones button { flex: 1; margin: 0; padding: 9px; border-radius: 10px; border: none; font-weight: 600; font-size: 0.9em; }
+        .chat-propuesta .estado { margin-top: 8px; font-size: 0.85em; font-weight: 600; }
+        .chat-sugerencias { display: flex; flex-direction: column; gap: 8px; margin-top: 30px; }
+        .chat-sugerencias button { margin: 0; text-align: left; background: #1c1c1e; color: #e5e5ea; border: 1px solid #2c2c2e; border-radius: 14px; padding: 12px 14px; font-size: 0.92em; font-weight: 500; }
+        .chat-escribiendo { align-self: flex-start; display: flex; gap: 4px; padding: 10px 14px; background: #262628; border-radius: 18px; }
+        .chat-escribiendo span { width: 7px; height: 7px; border-radius: 50%; background: #8e8e93; animation: chatPunto 1.2s infinite; }
+        .chat-escribiendo span:nth-child(2) { animation-delay: 0.2s; }
+        .chat-escribiendo span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes chatPunto { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+        .chat-barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; align-items: flex-end; gap: 8px;
+            padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(0, 0, 0, 0.85);
+            -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: 0.5px solid #2c2c2e; }
+        .chat-barra textarea { flex: 1; margin: 0; resize: none; background: #1c1c1e; color: #fff; border: 1px solid #2c2c2e; border-radius: 20px;
+            padding: 9px 14px; font-size: 16px; line-height: 1.35; max-height: 120px; font-family: inherit; box-sizing: border-box; }
+        .chat-barra button { flex-shrink: 0; width: 36px !important; height: 36px; margin: 0 0 2px; padding: 0 !important; border-radius: 50%;
+            border: none; background: #0a84ff; color: #fff; display: flex; align-items: center; justify-content: center; }
+        .chat-barra button:disabled { background: #3a3a3c; }
+
         /* Modo Salud del inicio: su panel en lugar de la gráfica y el mapa de dinero */
         #panelSalud { display: none; }
         #sec-inicio.modo-salud #panelSalud { display: block; }
@@ -1750,6 +1780,10 @@
                                     </svg>
                                 </button>
 
+                    <!-- El asistente con IA: un chat que consulta y propone cambios en tus datos -->
+                    <button onclick="abrirAsistente()" aria-label="Asistente" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"></path></svg>
+            </button>
                     <button onclick="cambiarSeccion('sec-lista')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
             </button>
@@ -2101,6 +2135,33 @@
     <h3 style="font-size: 0.9em; color: #888; text-align: left; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Sugerencias de Próximos Pagos</h3>
     <ul id="listaSugerenciasReg" class="lista-items"></ul>
     </div>
+    </div>
+
+    <!-- Asistente: chat con la IA. Consulta tus datos y propone cambios; cada cambio se
+         confirma aquí antes de guardarse. La conversación se guarda en este teléfono. -->
+    <div id="sec-asistente" class="seccion">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+            <h2 class="titulo-seccion" style="margin: 0;">Asistente</h2>
+            <div style="display: flex; align-items: center;">
+                <button type="button" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación"
+                    style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+                </button>
+                <button type="button" onclick="cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0])" aria-label="Cerrar"
+                    style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+        </div>
+        <div id="chatMensajes" class="chat-mensajes"></div>
+        <div class="chat-barra">
+            <textarea id="chatTexto" rows="1" placeholder="Pregunta o pide un cambio…"
+                oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 120)+'px'"
+                onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); enviarMensajeAsistente(); }"></textarea>
+            <button type="button" id="chatEnviar" onclick="enviarMensajeAsistente()" aria-label="Enviar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+            </button>
+        </div>
     </div>
 
     <div id="sec-ajustes" class="seccion">
@@ -15123,6 +15184,201 @@
                                 activarGestosPresentacion();
                             }
 
+                            // ---- Asistente (chat con la IA) ----
+                            // chatApi guarda los mensajes tal cual los devuelve la función —con sus bloques de
+                            // pensamiento y de herramientas—, porque la IA los necesita de vuelta sin cambios.
+                            // chatUi es lo que se pinta: burbujas, propuestas y su estado. Las dos se guardan
+                            // en este teléfono, por usuario.
+                            var chatApi = [];
+                            var chatUi = [];
+                            var chatEnviando = false;
+                            const claveChat = () => `chatAsistente:${currentUser ? currentUser.id : 'anonimo'}`;
+
+                            function cargarChatAsistente() {
+                                try {
+                                    const guardado = JSON.parse(localStorage.getItem(claveChat()) || 'null');
+                                    chatApi = (guardado && Array.isArray(guardado.api)) ? guardado.api : [];
+                                    chatUi = (guardado && Array.isArray(guardado.ui)) ? guardado.ui : [];
+                                } catch (e) { chatApi = []; chatUi = []; }
+                            }
+
+                            function guardarChatAsistente() {
+                                try { localStorage.setItem(claveChat(), JSON.stringify({ api: chatApi, ui: chatUi })); } catch (e) { /* sin espacio: sigue en memoria */ }
+                            }
+
+                            function abrirAsistente() {
+                                cargarChatAsistente();
+                                cambiarSeccion('sec-asistente');
+                                pintarChatAsistente();
+                            }
+
+                            function nuevaConversacionAsistente() {
+                                if (chatEnviando) return;
+                                if (chatUi.length && !confirm('¿Empezar una conversación nueva? La actual se borra de este teléfono.')) return;
+                                chatApi = [];
+                                chatUi = [];
+                                guardarChatAsistente();
+                                pintarChatAsistente();
+                            }
+
+                            // Markdown mínimo: negritas, listas y saltos de línea. Primero se escapa todo.
+                            function textoChatHtml(texto) {
+                                const lineas = escaparHtml(texto || '').split('\n');
+                                let html = '', enLista = false;
+                                lineas.forEach(l => {
+                                    const conFormato = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^#{1,4}\s+(.*)$/, '<strong>$1</strong>');
+                                    const item = conFormato.match(/^\s*[-*•]\s+(.*)$/);
+                                    if (item) {
+                                        if (!enLista) { html += '<ul>'; enLista = true; }
+                                        html += `<li>${item[1]}</li>`;
+                                    } else {
+                                        if (enLista) { html += '</ul>'; enLista = false; }
+                                        // La lista ya deja su propio espacio: el renglón vacío de después sobra
+                                        if (conFormato.trim() === '' && html.endsWith('</ul>')) return;
+                                        html += conFormato + '<br>';
+                                    }
+                                });
+                                if (enLista) html += '</ul>';
+                                return html.replace(/(<br>)+$/, '');
+                            }
+
+                            function detallePropuestaHtml(p) {
+                                const flecha = (antes, despues) => `${escaparHtml(String(antes ?? '—'))} → <b>${escaparHtml(String(despues ?? '—'))}</b>`;
+                                const filas = [];
+                                if (p.tipo === 'cambio_movimiento') {
+                                    const c = p.cambios || {}, a = p.antes || {};
+                                    if ('monto' in c) filas.push(`Monto: ${flecha(fMoneda(Math.abs(a.monto)), fMoneda(Math.abs(c.monto)))}`);
+                                    if ('cantidad' in c) filas.push(`Cantidad: ${flecha(a.cantidad, c.cantidad)}`);
+                                    if ('fecha' in c) filas.push(`Fecha: ${flecha((a.fecha || '').slice(0, 10), c.fecha)}`);
+                                    if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
+                                    if ('categoria_id' in c) filas.push(`Categoría: ${flecha(a.categoria, p.categoria_nueva)}`);
+                                    filas.unshift(`Movimiento: ${escaparHtml(a.categoria || '')} · ${escaparHtml((a.fecha || '').slice(0, 10))} · ${escaparHtml(fMoneda(Math.abs(a.monto || 0)))}`);
+                                } else if (p.tipo === 'cambio_categoria') {
+                                    const c = p.cambios || {}, a = p.antes || {};
+                                    filas.push(`Categoría: ${escaparHtml(a.nombre || '')}`);
+                                    if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
+                                    if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
+                                    if ('prioridad' in c) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
+                                } else if (p.tipo === 'nuevo_movimiento') {
+                                    const d = p.datos || {};
+                                    filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
+                                    filas.push(d.cantidad !== undefined ? `Cantidad: <b>${escaparHtml(String(d.cantidad))}</b>` : `Monto: <b>${escaparHtml(fMoneda(Math.abs(d.monto)))}</b> (${d.monto < 0 ? 'salida' : 'entrada'})`);
+                                    filas.push(`Fecha: <b>${escaparHtml(d.fecha || '')}</b>`);
+                                    if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
+                                }
+                                return filas.join('<br>');
+                            }
+
+                            function pintarChatAsistente() {
+                                const caja = document.getElementById('chatMensajes');
+                                if (!caja) return;
+                                if (chatUi.length === 0 && !chatEnviando) {
+                                    const sugerencias = ['¿En qué gasté más este mes?', 'Compara mis gastos de este mes con el anterior', '¿Qué gastos podría recortar?', '¿Cuánto llevo invertido?'];
+                                    caja.innerHTML = `<div class="chat-asistente" style="color:#8e8e93;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
+                                        <div class="chat-sugerencias">${sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('')}</div>`;
+                                    return;
+                                }
+                                caja.innerHTML = chatUi.map((m, i) => {
+                                    if (m.rol === 'usuario') return `<div class="chat-usuario">${escaparHtml(m.texto)}</div>`;
+                                    if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
+                                    if (m.rol === 'error') return `<div class="chat-error">${escaparHtml(m.texto)}</div>`;
+                                    if (m.rol === 'propuesta') {
+                                        const p = m.propuesta || {};
+                                        const pie = m.estado === 'pendiente'
+                                            ? `<div class="acciones">
+                                                   <button type="button" style="background:#2c2c2e; color:#fff;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
+                                                   <button type="button" style="background:#3ecf8e; color:#000;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
+                                               </div>`
+                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#3ecf8e' : m.estado === 'aplicando' ? '#8e8e93' : '#ff5c5c'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : 'Cancelado'}</div>`;
+                                        return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
+                                    }
+                                    return '';
+                                }).join('') + (chatEnviando ? '<div class="chat-escribiendo"><span></span><span></span><span></span></div>' : '');
+                                requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+                            }
+
+                            async function enviarMensajeAsistente(textoFijo) {
+                                const campo = document.getElementById('chatTexto');
+                                const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
+                                if (!texto || chatEnviando) return;
+                                if (campo) { campo.value = ''; campo.style.height = 'auto'; }
+
+                                const mensaje = { role: 'user', content: [{ type: 'text', text: texto }] };
+                                chatApi.push(mensaje);
+                                chatUi.push({ rol: 'usuario', texto });
+                                chatEnviando = true;
+                                document.getElementById('chatEnviar').disabled = true;
+                                pintarChatAsistente();
+
+                                try {
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset() }
+                                    });
+                                    if (error) {
+                                        let detalle = '';
+                                        try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
+                                        throw new Error(detalle || 'No se pudo hablar con la IA. Revisa que la función asistente esté desplegada en Supabase.');
+                                    }
+                                    chatApi.push(...(data.nuevos || []));
+                                    if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
+                                    (data.propuestas || []).forEach(p => chatUi.push({ rol: 'propuesta', propuesta: p, estado: 'pendiente' }));
+                                } catch (e) {
+                                    // El mensaje no llegó a la IA: se saca del historial y se devuelve al campo
+                                    const k = chatApi.lastIndexOf(mensaje);
+                                    if (k >= 0) chatApi.splice(k, 1);
+                                    chatUi.push({ rol: 'error', texto: e.message || 'No se pudo enviar.' });
+                                    if (campo && !campo.value) campo.value = texto;
+                                } finally {
+                                    chatEnviando = false;
+                                    document.getElementById('chatEnviar').disabled = false;
+                                    guardarChatAsistente();
+                                    pintarChatAsistente();
+                                }
+                            }
+
+                            // Las fechas que propone la IA son días (AAAA-MM-DD): se guardan a mediodía de la
+                            // zona del teléfono, para que ningún desfase las mueva al día anterior
+                            const fechaDeDiaLocal = dia => new Date(`${dia}T12:00:00`).toISOString();
+
+                            async function decidirPropuestaAsistente(indice, confirmar) {
+                                const m = chatUi[indice];
+                                if (!m || m.estado !== 'pendiente') return;
+                                const p = m.propuesta;
+                                if (!confirmar) {
+                                    m.estado = 'cancelada';
+                                    chatApi.push({ role: 'user', content: [{ type: 'text', text: `(Cancelé la propuesta: ${p.resumen})` }] });
+                                    guardarChatAsistente();
+                                    pintarChatAsistente();
+                                    return;
+                                }
+                                m.estado = 'aplicando';
+                                pintarChatAsistente();
+                                let res;
+                                if (p.tipo === 'cambio_movimiento') {
+                                    const cambios = { ...p.cambios };
+                                    if (cambios.fecha) cambios.fecha = fechaDeDiaLocal(cambios.fecha);
+                                    res = await clienteSupabase.from('registros').update(cambios).eq('id', p.registro_id);
+                                    // Un movimiento que cambia deja de estar auditado, como al editarlo a mano
+                                    if (!res.error) clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).eq('id', p.registro_id).then(() => {}, () => {});
+                                } else if (p.tipo === 'cambio_categoria') {
+                                    res = await clienteSupabase.from('categorias').update(p.cambios).eq('id', p.categoria_id);
+                                } else if (p.tipo === 'nuevo_movimiento') {
+                                    res = await clienteSupabase.from('registros').insert([{ ...p.datos, fecha: fechaDeDiaLocal(p.datos.fecha), user_id: currentUser.id }]);
+                                } else {
+                                    res = { error: { message: 'Tipo de propuesta desconocido' } };
+                                }
+                                if (res.error) {
+                                    m.estado = 'fallida';
+                                    chatUi.push({ rol: 'error', texto: explicarFalloAlGuardar(res.error, 'el cambio') });
+                                } else {
+                                    m.estado = 'aplicada';
+                                    chatApi.push({ role: 'user', content: [{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }] });
+                                    refrescarTodo().catch(e => console.warn('Refrescar tras el asistente', e));
+                                }
+                                guardarChatAsistente();
+                                pintarChatAsistente();
+                            }
+
                             // ---- Consumo de IA (tarjeta de Configuración) ----
                             async function cargarConsumoIa() {
                                 const caja = document.getElementById('consumoIa');
@@ -15147,7 +15403,7 @@
                             }
 
                             // ---- Topes con IA ----
-                            // Manda a la función topes-ia (Supabase) las categorías de gasto del mes con su
+                            // Manda a la función asistente (Supabase, modo topes) las categorías de gasto del mes con su
                             // descripción, prioridad y los últimos tres meses; la IA (Claude) contesta un tope y
                             // una razón por categoría, y se guardan en la categoría marcados con el mes al que
                             // aplican. La clave de la IA vive en Supabase, nunca en el teléfono.
@@ -15181,7 +15437,7 @@
                                         }));
                                     if (categorias.length === 0) { alert('No hay gastos suficientes en este mes para proponer topes.'); return; }
 
-                                    const { data, error } = await clienteSupabase.functions.invoke('topes-ia', { body: { mes: ym, meses, categorias } });
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', { body: { modo: 'topes', mes: ym, meses, categorias } });
                                     if (error) {
                                         // Sin la función desplegada el error es de red o 404; con ella, viene el
                                         // mensaje que la función mandó
@@ -15189,7 +15445,7 @@
                                         try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
                                         alert(detalle
                                             ? `No se pudieron calcular los topes: ${detalle}`
-                                            : 'No se pudo hablar con la IA.\n\nRevisa que la función topes-ia esté desplegada en Supabase y que tenga el secreto ANTHROPIC_API_KEY.');
+                                            : 'No se pudo hablar con la IA.\n\nRevisa que la función asistente esté desplegada en Supabase y que tenga el secreto ANTHROPIC_API_KEY.');
                                         return;
                                     }
 

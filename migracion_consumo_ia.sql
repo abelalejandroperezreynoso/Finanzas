@@ -2,7 +2,7 @@
 -- CONSUMO DE LA IA: tokens y costo de cada consulta, y el resumen para Configuración
 -- ============================================================================
 --
--- La función topes-ia anota en uso_ia cuántos tokens gastó cada consulta y lo que
+-- La función asistente anota en uso_ia cuántos tokens gastó cada consulta y lo que
 -- costó según el precio del modelo. La tarjeta de Configuración lee el resumen con
 -- resumen_uso_ia(): el total de toda la app, igual para todos los usuarios. Sólo
 -- devuelve sumas; nadie ve las consultas de otro usuario.
