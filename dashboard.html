@@ -15409,7 +15409,12 @@
                                         + fila('Este mes', r.consultas_mes, r.costo_mes)
                                         + fila('Desde el inicio', r.consultas_total, r.costo_total)
                                         + `<div style="color:#666; font-size:0.85em; margin-top:6px;">De toda la app · estimado con los tokens de cada consulta</div>`
-                                        + `<button type="button" onclick="anotarSaldoIa()" style="width:100%; margin:12px 0 0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border:none; border-radius:6px;">${hayAnotado ? 'Actualizar saldo' : 'Anotar saldo de Anthropic'}</button>`;
+                                        + `<div style="display:flex; gap:8px; margin-top:12px;">
+                                               <label style="flex:2; margin:0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border-radius:6px; text-align:center; cursor:pointer;">
+                                                   Saldo desde captura<input type="file" accept="image/*" style="display:none;" onchange="saldoIaDesdeCaptura(this)">
+                                               </label>
+                                               <button type="button" onclick="anotarSaldoIa()" style="flex:1; margin:0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border:none; border-radius:6px;">Escribirlo</button>
+                                           </div>`;
                                 } catch (e) {
                                     caja.textContent = 'No se pudo cargar el consumo.';
                                 }
@@ -15428,6 +15433,50 @@
                                         ? 'Falta preparar la base: ejecuta migracion_saldo_ia.sql en Supabase.'
                                         : explicarFalloAlGuardar(error, 'el saldo'));
                                     return;
+                                }
+                                cargarConsumoIa();
+                            }
+
+                            // La captura se achica antes de mandarla (máximo 1400 px de lado, JPEG): basta para
+                            // leer una cifra y gasta muchos menos tokens que la foto original
+                            function imagenReducidaBase64(archivo) {
+                                return new Promise((resolver, rechazar) => {
+                                    const url = window.URL.createObjectURL(archivo);
+                                    const img = new window.Image();
+                                    img.onload = () => {
+                                        const escala = Math.min(1, 1400 / Math.max(img.width, img.height));
+                                        const lienzo = document.createElement('canvas');
+                                        lienzo.width = Math.round(img.width * escala);
+                                        lienzo.height = Math.round(img.height * escala);
+                                        lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
+                                        window.URL.revokeObjectURL(url);
+                                        resolver(lienzo.toDataURL('image/jpeg', 0.85).split(',')[1]);
+                                    };
+                                    img.onerror = () => { window.URL.revokeObjectURL(url); rechazar(new Error('No se pudo abrir la imagen')); };
+                                    img.src = url;
+                                });
+                            }
+
+                            async function saldoIaDesdeCaptura(campo) {
+                                const archivo = campo.files && campo.files[0];
+                                campo.value = '';
+                                if (!archivo) return;
+                                const caja = document.getElementById('consumoIa');
+                                if (caja) caja.textContent = 'Leyendo la captura…';
+                                try {
+                                    const data = await imagenReducidaBase64(archivo);
+                                    const { data: res, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        body: { modo: 'saldo', imagen: { media_type: 'image/jpeg', data } }
+                                    });
+                                    if (error) {
+                                        let detalle = '';
+                                        try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
+                                        alert(detalle || 'No se pudo leer la captura. Revisa tu conexión e inténtalo de nuevo.');
+                                    } else {
+                                        alert(`Saldo anotado: $${Number(res.saldo_usd).toFixed(2)} USD`);
+                                    }
+                                } catch (e) {
+                                    alert('No se pudo abrir la imagen.');
                                 }
                                 cargarConsumoIa();
                             }

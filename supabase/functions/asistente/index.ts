@@ -5,6 +5,8 @@
 //                 Ningún cambio se aplica aquí: la propuesta vuelve a la app, el usuario la
 //                 confirma y es la app la que la guarda con su propia sesión.
 //   modo "topes"  Topes de gasto para el mes siguiente, para la hoja de topes del reporte.
+//   modo "saldo"  Lee el saldo de créditos en una captura de console.anthropic.com y lo anota
+//                 en saldo_ia, para la tarjeta de consumo de Configuración.
 //
 // La clave de Anthropic vive como secreto (ANTHROPIC_API_KEY) y nunca llega al teléfono. Todo
 // se consulta con la sesión de quien llama, así que la seguridad de la base (RLS) impide ver
@@ -370,6 +372,18 @@ const ESQUEMA_TOPES = {
   additionalProperties: false,
 };
 
+const ESQUEMA_SALDO = {
+  type: "object",
+  properties: {
+    encontrado: { type: "boolean" },
+    saldo_usd: { type: "number" },
+  },
+  required: ["encontrado", "saldo_usd"],
+  additionalProperties: false,
+};
+
+const TIPOS_IMAGEN = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 // ---------------------------------------------------------------------------------------------
 
 Deno.serve(async (req) => {
@@ -401,6 +415,40 @@ Deno.serve(async (req) => {
   };
 
   try {
+    if (entrada.modo === "saldo") {
+      const img = entrada.imagen ?? {};
+      if (!TIPOS_IMAGEN.has(img.media_type) || typeof img.data !== "string" || img.data.length > 5_000_000) {
+        return responder({ error: "La imagen no es válida." }, 400);
+      }
+      const p = parametrosBase("low");
+      p.max_tokens = 2000;
+      p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_SALDO } };
+      p.messages = [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: img.media_type, data: img.data } },
+          {
+            type: "text",
+            text: "Es una captura de la consola de Anthropic. Busca el saldo de créditos disponible " +
+              "(\"Créditos de la organización\", \"Credit balance\" o similar) en dólares. No uses el gasto del mes ni el límite. " +
+              "Si no aparece con claridad, responde encontrado=false y saldo_usd=0.",
+          },
+        ],
+      }];
+      const r = await client.beta.messages.create(p);
+      await anotar("saldo", r.model, [r.usage]);
+      if (r.stop_reason === "refusal") return responder({ error: "La IA no pudo leer la captura." }, 422);
+      const bloque = r.content.find((b: Json) => b.type === "text") as Json;
+      const datos = bloque ? JSON.parse(bloque.text) : { encontrado: false };
+      const saldo = Number(datos.saldo_usd);
+      if (!datos.encontrado || !(saldo >= 0)) {
+        return responder({ error: "No encontré el saldo en la captura. Toma la captura donde se vea \"Créditos de la organización\"." }, 422);
+      }
+      const guardado = await sb.from("saldo_ia").insert({ user_id: userId, saldo_usd: saldo });
+      if (guardado.error) return responder({ error: "Falta preparar la base: ejecuta migracion_saldo_ia.sql en Supabase." }, 500);
+      return responder({ saldo_usd: saldo });
+    }
+
     if (entrada.modo === "topes") {
       const categorias = Array.isArray(entrada.categorias) ? entrada.categorias.slice(0, 80) : [];
       if (categorias.length === 0) return responder({ topes: [] });
