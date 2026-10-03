@@ -14842,12 +14842,15 @@
                                     </section>`);
                                 }
 
+                                // El ticker con el logo de la empresa a la izquierda, como en la lista de inversiones
+                                const conLogo = (k, lado) => `<span style="display:inline-flex; align-items:center; gap:10px; min-width:0;">${logoEmpresaHtml(k, lado)}<span>${escaparHtml(k)}</span></span>`;
+
                                 // Compras y ventas del mes
                                 const lista = (obj, color) => {
                                     const claves = Object.keys(obj).sort((x, y) => obj[y] - obj[x]).slice(0, 5);
                                     const max = claves.length ? obj[claves[0]] : 1;
                                     return claves.map(k => `<div style="display:flex; flex-direction:column; gap:6px;">
-                                        <div style="display:flex; justify-content:space-between;"><span>${escaparHtml(k)}</span><strong>${fMoneda(obj[k])} USD</strong></div>
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">${conLogo(k, 28)}<strong>${fMoneda(obj[k])} USD</strong></div>
                                         <div class="barra-h"><div style="width:${(obj[k] / max) * 100}%; background:${color};"></div></div></div>`).join('');
                                 };
                                 if (r.compradoUsd > 0.005) {
@@ -14867,7 +14870,7 @@
 
                                 // Mejores y peores posiciones
                                 if (r.mejores.length) {
-                                    const fila = p => `<div style="display:flex; justify-content:space-between; font-size:1.15em;"><span>${escaparHtml(p.ticker)}</span>
+                                    const fila = p => `<div style="display:flex; justify-content:space-between; align-items:center; font-size:1.15em;">${conLogo(p.ticker, 30)}
                                         <strong style="color:${p.pct >= 0 ? verde : rojo};">${signo(p.pct)}${Math.abs(p.pct).toFixed(1)}%</strong></div>`;
                                     d.push(`<section class="diapositiva" style="${fondo('#1f6f4a', '#6b1d1d')}">
                                         <div class="etiqueta">Las que mejor van</div>
