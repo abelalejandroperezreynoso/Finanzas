@@ -15037,7 +15037,8 @@
                                     diapositivaCambios('Gastaste más en', cambiosCat.filter(x => x.dif > 0).sort((x, y) => y.dif - x.dif), '#ff5c5c', '#6b1d1d');
 
                                     // 8. Plan para el mes siguiente
-                                    diapositivas.push(diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo));
+                                    const hojaPlan = diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo);
+                                    if (hojaPlan) diapositivas.push(hojaPlan);
 
                                     // 9. Cierre
                                     const cg = cambio(r.gastos, rp.gastos);
@@ -15085,81 +15086,38 @@
                                 activarGestosPresentacion();
                             }
 
-                            // ---- Plan para el mes siguiente ----
-                            // Lo que viene (pagos e ingresos recurrentes que la app ya predice) y unas pocas
-                            // acciones concretas sacadas del mes que se acaba de ver.
+                            // ---- Topes para el mes siguiente ----
+                            // Sale del mes que se acaba de ver: en qué categorías de deseo o comodidad
+                            // conviene ponerse un límite. Sin ninguna, la hoja no se enseña.
                             function diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo) {
                                 const [a, m] = ym.split('-').map(n => parseInt(n, 10));
-                                const inicioSig = new Date(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1);
-                                const finSig = new Date(inicioSig.getFullYear(), inicioSig.getMonth() + 1, 0, 23, 59, 59);
-                                const nombreSig = NOMBRES_MESES[inicioSig.getMonth()];
+                                const nombreSig = NOMBRES_MESES[new Date(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1).getMonth()];
 
-                                // Pagos e ingresos recurrentes previstos dentro del mes siguiente
-                                const cuentasActivas = new Set((datosCuentas || []).filter(c => c.incluir_en_total !== false).map(c => String(c.id)));
-                                let totalPagos = 0, totalIngresos = 0;
-                                (datosCategorias || []).forEach(cat => {
-                                    if (!(cat.diasRecurrencia > 0) || !cat.siguienteFechaRecurrencia || cat.desactivar_prediccion) return;
-                                    if (!cuentasActivas.has(String(cat.cuenta_id))) return;
-                                    if (cat.tipo !== 'gasto' && cat.tipo !== 'ingreso') return;
-                                    const monto = parseFloat(cat.montoSugerido) || 0;
-                                    if (!(monto > 0)) return;
-                                    let f = new Date(cat.siguienteFechaRecurrencia);
-                                    let veces = 0;
-                                    for (let i = 0; i < 400 && f <= finSig; i++) {
-                                        if (f >= inicioSig) veces++;
-                                        const sig = siguienteOcurrencia(cat, f);
-                                        if (!sig || sig <= f) break;
-                                        f = sig;
-                                    }
-                                    if (!veces) return;
-                                    if (cat.tipo === 'gasto') {
-                                        totalPagos += monto * veces;
-                                    } else {
-                                        totalIngresos += monto * veces;
-                                    }
-                                });
-
-                                // El plan, como un presupuesto: lo que entra, lo que ya está comprometido y lo
-                                // que conviene apartar; lo que sobra se reparte por semana y es la cifra grande.
-                                const ingresosBase = totalIngresos > 0.005 ? totalIngresos : Math.max(0, r.ingresos);
-                                const meta = Math.max(ingresosBase * 0.2, tasa !== null && tasa >= 20 ? ahorro : 0);
-                                const libre = ingresosBase - meta - totalPagos;
-                                const semanas = finSig.getDate() / 7;
+                                // La hoja se centra en los topes: a qué categorías de deseo o comodidad ponerles
+                                // un límite y cuánto se ahorraría respetándolo. La mitad de lo gastado a lo
+                                // prescindible y tres cuartos a lo útil, redondeado a centenas.
                                 const redondo = n => fMoneda(Math.round(Math.abs(n)), fNumSaldo);
-                                const fila = (texto, monto, color, signo, fuerte) => `<div style="display:flex; justify-content:space-between; align-items:baseline; font-size:${fuerte ? '1.1em' : '1.02em'};${fuerte ? ' border-top:1px solid rgba(255,255,255,0.2); padding-top:10px; font-weight:700;' : ''}">
-                                    <span>${texto}</span><strong style="color:${color};">${signo}${redondo(monto)}</strong></div>`;
-
-                                // Topes: las dos categorías de deseo o comodidad donde más se gastó. La mitad a
-                                // lo prescindible y tres cuartos a lo útil, redondeado a centenas.
                                 const topes = Object.keys(r.porCategoria)
                                     .map(id => ({ cat: catPorId[String(id)], gasto: r.porCategoria[id] }))
                                     .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
-                                    .sort((x, y) => y.gasto - x.gasto)
-                                    .slice(0, 2)
                                     .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.5 : 0.75) / 100) * 100) }))
-                                    .filter(x => x.gasto - x.tope > 0.005);
-
-                                const cabecera = ingresosBase > 0.005
-                                    ? (libre > 0.005
-                                        ? `<div class="cifra">${redondo(libre / semanas)}</div>
-                                           <div class="nota" style="margin-top:-8px;">por semana para lo demás</div>`
-                                        : `<div class="cifra" style="color:#ff5c5c;">-${redondo(libre)}</div>
-                                           <div class="nota" style="margin-top:-8px;">te faltarían para cubrir pagos y ahorro</div>`)
-                                    : '';
+                                    .map(x => ({ ...x, ahorro: x.gasto - x.tope }))
+                                    .filter(x => x.ahorro > 0.005)
+                                    .sort((x, y) => y.ahorro - x.ahorro)
+                                    .slice(0, 6);
+                                if (topes.length === 0) return '';
+                                const ahorroTotal = topes.reduce((acc, x) => acc + x.ahorro, 0);
 
                                 return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
-                                    <div class="etiqueta">Para ${nombreSig}</div>
-                                    ${cabecera}
-                                    ${ingresosBase > 0.005 ? fila('Ingresos esperados', ingresosBase, '#3ecf8e', '+') : ''}
-                                    ${totalPagos > 0.005 ? fila('Pagos recurrentes', totalPagos, '#ff5c5c', '-') : ''}
-                                    ${ingresosBase > 0.005 ? fila('Aparta al cobrar', meta, '#4da6ff', '-') : ''}
-                                    ${ingresosBase > 0.005 ? fila('Para lo demás', libre, libre >= 0 ? '#ffffff' : '#ff5c5c', libre >= 0 ? '' : '-', true) : ''}
-                                    ${topes.length ? `<div style="margin-top:6px;">
-                                        <div class="etiqueta" style="margin-bottom:8px;">Topes sugeridos</div>
-                                        ${topes.map(x => `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
-                                            <span>${escaparHtml(x.cat.nombre)}</span>
-                                            <span><strong>${redondo(x.tope)}</strong> <span class="nota" style="font-size:0.8em;">antes ${redondo(x.gasto)}</span></span></div>`).join('')}
-                                    </div>` : ''}
+                                    <div class="etiqueta">Topes para ${nombreSig}</div>
+                                    <div class="cifra" style="color:#3ecf8e;">${redondo(ahorroTotal)}</div>
+                                    <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
+                                    ${topes.map(x => `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                                        <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
+                                            <div class="nota" style="font-size:0.8em;">gastaste ${redondo(x.gasto)}</div></div>
+                                        <div style="text-align:right; white-space:nowrap;"><strong style="font-size:1.15em;">${redondo(x.tope)}</strong>
+                                            <div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div></div>
+                                    </div>`).join('')}
                                 </section>`;
                             }
 
