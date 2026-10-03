@@ -14905,9 +14905,8 @@
                                 if (r.mejores.length) {
                                     const fila = p => `<div style="display:flex; justify-content:space-between; align-items:center; font-size:1.15em;">${conLogo(p.ticker, 30)}
                                         <strong style="color:${p.pct >= 0 ? verde : rojo};">${signo(p.pct)}${Math.abs(p.pct).toFixed(1)}%</strong></div>`;
-                                    // La ganadora va en grande: logo, nombre, porcentaje y lo que ha ganado
+                                    // La ganadora va en grande: logo, nombre y porcentaje
                                     const g = r.mejores[0];
-                                    const gananciaG = g.valor - g.costo;
                                     d.push(`<section class="diapositiva" style="${fondo('#1f6f4a', '#6b1d1d')}">
                                         <div class="etiqueta">Tu ganadora</div>
                                         <div style="display:flex; align-items:center; gap:16px;">
@@ -14918,10 +14917,8 @@
                                             </div>
                                         </div>
                                         <div class="cifra" style="color:${g.pct >= 0 ? verde : rojo};">${signo(g.pct)}${Math.abs(g.pct).toFixed(1)}%</div>
-                                        <div class="nota">${signo(gananciaG)}${fMoneda(Math.abs(gananciaG))} USD ${gananciaG >= 0 ? 'de ganancia' : 'de pérdida'} desde que la compraste.</div>
                                         ${r.mejores.length > 1 ? `<div class="etiqueta" style="margin-top:14px;">Le siguen</div>${r.mejores.slice(1).map(fila).join('')}` : ''}
                                         ${r.peores.length ? `<div class="etiqueta" style="margin-top:14px;">Las que peor van</div>${r.peores.map(fila).join('')}` : ''}
-                                        <div class="nota">Rendimiento total en dólares, desde que las compraste.</div>
                                     </section>`);
                                 }
 
