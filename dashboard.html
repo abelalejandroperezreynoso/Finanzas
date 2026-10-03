@@ -172,6 +172,19 @@
 /* La descripción, en un solo renglón: lo que no quepa se corta con puntos suspensivos */
 .movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
+        /* Modo Salud del inicio: su panel en lugar de la gráfica y el mapa de dinero */
+        #panelSalud { display: none; }
+        #sec-inicio.modo-salud #panelSalud { display: block; }
+        #sec-inicio.modo-salud #cardTendencia,
+        #sec-inicio.modo-salud #cardTreemapCategorias { display: none !important; }
+        .lista-salud { list-style: none; margin: 16px 1rem 0; padding: 0; background: #1c1c1e; border-radius: 14px; overflow: hidden; }
+        .lista-salud li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-top: 0.5px solid #38383a; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .lista-salud li:first-child { border-top: none; }
+        .lista-salud li.activa { background: rgba(191, 90, 242, 0.18); }
+        .lista-salud .nombre { color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lista-salud .sub { color: #8e8e93; font-size: 0.8em; margin-top: 2px; }
+        .lista-salud .total { color: #fff; font-weight: 700; font-size: 1.1em; text-align: right; white-space: nowrap; }
+
         .seccion { display: none; animation: fadeIn 0.3s; }
         .seccion.activa { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -780,6 +793,11 @@
                         #registroForm .btn-toggle.active-salida {
                             background-color: #ff5c5c;
                             color: #ffffff;
+                        }
+
+                        #registroForm .btn-toggle.active-salud {
+                            background-color: #bf5af2;
+                            color: #000000;
                         }
 
                         /* Botones de abajo con el mismo redondeo que las tarjetas */
@@ -1653,8 +1671,8 @@
 
         <div id="sec-inicio" class="seccion activa">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-                    <!-- Tocar el título alterna entre el resumen general y el modo Inversiones -->
-                    <h2 id="tituloInicio" class="titulo-seccion" onclick="alternarModoInversiones()" style="margin: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;">Finanzas</h2>
+                    <!-- Tocar el título pasa de Finanzas a Inversiones y, si hay categorías de Salud, a Salud -->
+                    <h2 id="tituloInicio" class="titulo-seccion" onclick="alternarModoInicio()" style="margin: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;">Finanzas</h2>
                     <div style="display: flex; align-items: center;">
                     
                     <!-- NUEVO: Botón de Quitar Filtro (Página Principal) -->
@@ -1683,7 +1701,7 @@
             <button onclick="cambiarSeccion('sec-ajustes')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             </button>
-            <button onclick="cambiarSeccion('sec-registro', document.getElementById('navBtnAdd'))" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
+            <button onclick="abrirRegistroDesdeInicio()" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
             </div>
@@ -1706,7 +1724,21 @@
     </div>
     </div>
 
-    <div class="card" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
+    <!-- Modo Salud: lo que se registró de la categoría elegida en el periodo, día a día (o mes a
+         mes en periodos largos), y debajo todas las categorías de Salud para elegir otra. Sustituye
+         a la gráfica y al mapa de dinero, que en este modo se esconden. -->
+    <div class="card" id="panelSalud" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem; gap: 10px;">
+            <h3 id="tituloGraficoSalud" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Salud</h3>
+            <span id="promedioSalud" style="font-size: 0.9em; font-weight: bold; color: #bf5af2; text-align: right; white-space: nowrap;"></span>
+        </div>
+        <div style="position: relative; height: 140px; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
+            <canvas id="graficoSalud" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
+        </div>
+        <ul id="listaSalud" class="lista-salud"></ul>
+    </div>
+
+    <div class="card" id="cardTendencia" style="padding: 1rem 0 0.5rem 0; overflow: hidden; margin-bottom: 15px; background: #000000;">
     <!-- La cara de siempre: el balance día a día, o los meses en barras. Se va entera —título,
          lienzo y desglose— cuando el mapa de abajo se pone en Inversiones. -->
     <div id="caraTendencia">
@@ -1839,6 +1871,7 @@
     <button id="btnCatDeuda" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('deuda')">Deudas</button>
     <button id="btnCatPrestamo" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('prestamo')">Préstamos</button>
     <button id="btnCatInversion" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('inversion')">Inversiones</button>
+    <button id="btnCatSalud" class="btn-filtro-cat" onclick="filtrarCategoriasPorTipo('salud')">Salud</button>
     </div>
 
     <ul id="listaCategorias" class="lista-items"></ul>
@@ -1895,6 +1928,8 @@
         <div class="toggle-container">
         <button type="button" id="btnEntrada" class="btn-toggle" onclick="seleccionarTipoRegistro('entrada')">Entrada (+)</button>
         <button type="button" id="btnSalida" class="btn-toggle" onclick="seleccionarTipoRegistro('salida')">Salida (-)</button>
+        <!-- Sólo aparece si hay categorías de Salud: registra una cantidad, no dinero -->
+        <button type="button" id="btnSaludReg" class="btn-toggle" style="display: none;" onclick="seleccionarTipoRegistro('salud')">Salud</button>
         </div>
 
         <!-- En GBM lo primero que se decide es qué operación es —pasar pesos a dólares, o dólares a
@@ -2302,6 +2337,8 @@
                                 <option value="prestamo">Préstamo Emitido (-)</option>
                                 <option value="deuda">Deuda Adquirida (+)</option>
                                 <option value="inversion">Inversión (+/-)</option>
+                                <!-- No es dinero: cuenta cuántas veces o cuánto de algo (un síntoma, agua, sueño) -->
+                                <option value="salud">Salud (cantidad)</option>
                             </select>
                         </label>
                         <!-- Prioridad del gasto, técnica de las 4 "N". Sólo en las categorías de gasto. -->
@@ -4944,6 +4981,7 @@
                             case 'prestamo': return '#3abff8';
                             case 'deuda': return '#f39c12';
                             case 'inversion': return '#ffffff'; /* Cambiado a blanco */
+                            case 'salud': return '#bf5af2';
                             default: return '#ffffff';
                             }
                             }
@@ -5862,6 +5900,7 @@
                         function direccionCompatibleConTipo(tipo, direccionActual) {
                             if (tipo === 'ingreso') return 'entrada';
                             if (tipo === 'gasto') return 'salida';
+                            if (tipo === 'salud') return 'salud';
                             if (direccionActual) return direccionActual;
                             return tipo === 'deuda' ? 'entrada' : 'salida';
                         }
@@ -6477,17 +6516,36 @@
                 // Limpiar estados previos
                 btnEntrada.classList.remove('active-entrada');
                 btnSalida.classList.remove('active-salida');
+                const btnSalud = document.getElementById('btnSaludReg');
+                if (btnSalud) btnSalud.classList.remove('active-salud');
 
                 // Activar el botón correspondiente
                 if (tipo === 'entrada') {
                     btnEntrada.classList.add('active-entrada');
                 } else if (tipo === 'salida') {
                     btnSalida.classList.add('active-salida');
+                } else if (tipo === 'salud' && btnSalud) {
+                    btnSalud.classList.add('active-salud');
                 }
             }
+            ajustarFormularioSalud(tipo === 'salud');
 
             // Ejecutar la lógica de filtrado de categorías que ya tenías
             actualizarCategoriasRegistro();
+        }
+
+        // En Salud no hay dinero: el campo pide una cantidad y la cuenta no hace falta,
+        // porque la lista enseña todas las categorías de Salud de cualquier cuenta.
+        function ajustarFormularioSalud(esSalud) {
+            const etiqueta = document.getElementById('labelRegMonto');
+            const campo = document.getElementById('regMonto');
+            const cuenta = document.getElementById('regCuentaSelect');
+            if (etiqueta) etiqueta.textContent = esSalud ? 'Cantidad' : 'Monto';
+            if (campo) {
+                campo.step = esSalud ? 'any' : '0.01';
+                campo.placeholder = esSalud ? '1' : '0.00';
+            }
+            if (cuenta) cuenta.required = !esSalud;
         }
 
         // --- GESTIÓN DE CUENTAS ---
@@ -6624,7 +6682,11 @@
 
                                     selCat.innerHTML = '<option value="" disabled selected>Categoría...</option>';
 
-                                    if (!cuentaId || !direccion) {
+                                    // El botón de Salud sólo existe si hay categorías de Salud
+                                    const btnSaludReg = document.getElementById('btnSaludReg');
+                                    if (btnSaludReg) btnSaludReg.style.display = categoriasSalud().length > 0 ? '' : 'none';
+
+                                    if (!direccion || (!cuentaId && direccion !== 'salud')) {
                                         selCat.innerHTML = '<option value="" disabled selected>Selecciona cuenta y dirección primero...</option>';
                                         selCat.dataset.valorPrevio = '';
                                         verificarMostrarCostoAccion();
@@ -6632,6 +6694,8 @@
                                     }
 
                                     const categoriasFiltradas = (datosCategorias || []).filter(cat => {
+                                        // Salud no depende de la cuenta: salen todas sus categorías
+                                        if (direccion === 'salud') return cat.tipo === 'salud';
                                         if (String(cat.cuenta_id) !== String(cuentaId)) return false;
                                         
                                         if (direccion === 'entrada') {
@@ -6651,7 +6715,8 @@
                                             { id: 'gasto', label: 'Gastos' },
                                             { id: 'deuda', label: 'Deudas' },
                                             { id: 'prestamo', label: 'Préstamos' },
-                                            { id: 'inversion', label: 'Inversiones' }
+                                            { id: 'inversion', label: 'Inversiones' },
+                                            { id: 'salud', label: 'Salud' }
                                         ];
 
                                         deGruposConfig.forEach(grupo => {
@@ -7167,6 +7232,7 @@
                             function direccionDeCategoria(cat) {
                                 if (!cat) return '';
                                 if (cat.tipo === 'ingreso') return 'entrada';
+                                if (cat.tipo === 'salud') return 'salud';
                                 // Un gasto es salida, y las de dos caras —inversión, préstamo, deuda— abren
                                 // por ahí también: comprar, prestar y pagar es lo que se captura de ellas
                                 // casi siempre, y la otra cara está a un toque.
@@ -7232,7 +7298,15 @@
 
         const cat = datosCategorias.find(c => String(c.id) === String(idCat));
         const inputMonto = document.getElementById('regMonto');
-        
+
+        // En Salud se propone la última cantidad que se registró, o 1 la primera vez
+        if (cat && cat.tipo === 'salud') {
+            const ultimo = datosSalud.find(r => String(r.categoria_id) === String(cat.id));
+            inputMonto.value = ultimo && cantidadDeRegistro(ultimo) > 0 ? cantidadDeRegistro(ultimo) : 1;
+            inputMonto.dataset.autofill = 'true';
+            return;
+        }
+
         if (cat && cat.montoSugerido) {
                 // Autocompleta el monto sugerido para ahorrarle tiempo al usuario
                 inputMonto.value = cat.montoSugerido;
@@ -8010,6 +8084,8 @@
                             if (catActualData && catActualData.desactivar_prediccion) {
                             continue; // Si tiene las predicciones apagadas, la saltamos por completo
                             }
+                            // Salud no es dinero: no hay pago que predecir
+                            if (catActualData && catActualData.tipo === 'salud') continue;
                             // --------------------------------------------
 
                             const fechas = registrosPorCat[catId].sort((a, b) => a - b);
@@ -8279,7 +8355,8 @@
                         { id: 'gasto', titulo: 'Gastos (-)' },
                         { id: 'deuda', titulo: 'Deudas (+)' },
                         { id: 'prestamo', titulo: 'Préstamos (-)' },
-                        { id: 'inversion', titulo: 'Inversiones' }
+                        { id: 'inversion', titulo: 'Inversiones' },
+                        { id: 'salud', titulo: 'Salud' }
                     ];
 
                                 // Iteramos por cada grupo para renderizarlos por separado
@@ -8316,6 +8393,9 @@
                                                                                                                                     const usdCaja = cajaDeCuenta ? cajaDeCuenta.usd : 0;
                                                                                                                                     divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(usdCaja * globalUsdToMxn)}</strong>`;
                                                                                                                                     divBadgePlusvalia = `<span style="display: inline-block; font-size: 0.75em; padding: 3px 6px; border-radius: 4px; background: #4da6ff; border: none; color: #000000; font-weight: bold; white-space: nowrap; margin-top: 2px;">💵 ${fMoneda(usdCaja)} USD</span>`;
+                                                                                                                                } else if (cat.tipo === 'salud') {
+                                                                                                                                    // No es dinero: la tarjeta enseña cuánto se ha registrado en total
+                                                                                                                                    divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fCantidadSalud(totalSaludDeCategoria(cat.id))}</strong>`;
                                                                                                                                 } else if (cat.tipo === 'inversion' && cat.ticker) {
                                                                                                                                     if (cachePreciosMercado[cat.ticker]) {
                                                                                                                                         const precioUsd = cachePreciosMercado[cat.ticker];
@@ -8555,7 +8635,7 @@
                                                         }
 
                                                         // 4. Resetear los colores de los botones de filtro de categorías ("Todas", "Ingresos", etc.)
-                                                        const botones = ['Todas', 'Gasto', 'Ingreso', 'Deuda', 'Prestamo', 'Inversion'];
+                                                        const botones = ['Todas', 'Gasto', 'Ingreso', 'Deuda', 'Prestamo', 'Inversion', 'Salud'];
                                                         botones.forEach(b => {
                                                             const btn = document.getElementById('btnCat' + b);
                                                             if (btn) {
@@ -8611,7 +8691,7 @@
                                 }
 
                                         // 1. Restaurar todos los botones al estilo por defecto (gris)
-                                        const botones = ['Todas', 'Gasto', 'Ingreso', 'Deuda', 'Prestamo', 'Inversion'];
+                                        const botones = ['Todas', 'Gasto', 'Ingreso', 'Deuda', 'Prestamo', 'Inversion', 'Salud'];
                                         botones.forEach(b => {
                                             const btn = document.getElementById('btnCat' + b);
                                             if (btn) {
@@ -8627,6 +8707,7 @@
                                         if (tipo === 'deuda') btnActivo = document.getElementById('btnCatDeuda');
                                         if (tipo === 'prestamo') btnActivo = document.getElementById('btnCatPrestamo');
                                         if (tipo === 'inversion') btnActivo = document.getElementById('btnCatInversion');
+                                        if (tipo === 'salud') btnActivo = document.getElementById('btnCatSalud');
 
                                         if (btnActivo) {
                                                                                             btnActivo.style.background = tipo === 'todas' ? '#ffffff' : obtenerColorCategoria(tipo);
@@ -8641,7 +8722,7 @@
                                                                                             renderizarListaCategorias(datosCategorias, 'Categorías');
                                                                                         } else {
                                                                                             const filtradas = datosCategorias.filter(cat => cat.tipo === tipo);
-                                                                                            const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones' };
+                                                                                            const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones', 'salud': 'Salud' };
                                                                                             renderizarListaCategorias(filtradas, `Categorías: ${tituloMap[tipo]}`);
                                                                                         }
                                                                                     }
@@ -8664,6 +8745,9 @@
                                                         if (bloqueSectores) {
                                                             bloqueSectores.style.display = tipo === 'inversion' ? 'block' : 'none';
                                                         }
+                                                        // Las predicciones son de dinero: una categoría de Salud no las tiene
+                                                        const ajustesAvanzados = document.getElementById('ajustesAvanzadosCat');
+                                                        if (ajustesAvanzados) ajustesAvanzados.style.display = tipo === 'salud' ? 'none' : '';
                                                     }
 
                                                 async function guardarCategoria() {
@@ -8776,7 +8860,11 @@
                                             btnGuardar.textContent = textoOriginal;
                                             btnGuardar.disabled = false;
 
-                                            if (res.error) {
+                                            if (res.error && tipo === 'salud' && /check|tipo|enum|invalid input value/i.test(res.error.message || '')) {
+                                                // La base todavía no conoce el tipo Salud
+                                                alert('No se pudo crear la categoría de Salud: falta preparar la base.\n\n' +
+                                                    'Abre Supabase → SQL Editor y ejecuta migracion_salud.sql del repositorio. Después vuelve a intentarlo.');
+                                            } else if (res.error) {
                                                 alert(explicarFalloAlGuardar(res.error, 'la categoría'));
                                             } else {
                                                                 const nuevaCat = (res.data && res.data[0]) ? res.data[0] : null;
@@ -8913,8 +9001,61 @@
         return [...regs, ...registrosRecienGuardados].sort((a, b) => msDeFechaRegistro(b) - msDeFechaRegistro(a));
     }
 
+    // --- SALUD: registros que no son dinero ---
+    // Una categoría de tipo 'salud' cuenta algo que no se mide en pesos (un síntoma, agua,
+    // horas de sueño). Sus registros guardan el monto en 0 —así ningún saldo ni gráfica de
+    // dinero se entera de ellos— y la cantidad en su propia columna. Se piden aparte y
+    // completos: el historial sólo trae los últimos movimientos y el resumen de Salud
+    // necesita todos. Si la base todavía no tiene la columna, Salud se queda vacío y el
+    // resto de la app sigue igual.
+    var datosSalud = [];
+
+    function categoriasSalud() {
+        return (datosCategorias || []).filter(c => c.tipo === 'salud');
+    }
+
+    function esCategoriaSalud(idCat) {
+        const cat = (datosCategorias || []).find(c => String(c.id) === String(idCat));
+        return !!cat && cat.tipo === 'salud';
+    }
+
+    async function cargarRegistrosSalud() {
+        const ids = categoriasSalud().map(c => c.id);
+        if (ids.length === 0) { datosSalud = []; return; }
+        const { data, error } = await clienteSupabase
+            .from('registros')
+            .select('id, categoria_id, fecha, cantidad, descripcion')
+            .in('categoria_id', ids)
+            .order('fecha', { ascending: false })
+            .limit(100000);
+        if (error) {
+            console.warn('No se pudieron leer los registros de Salud', error.message);
+            datosSalud = [];
+            return;
+        }
+        datosSalud = data || [];
+    }
+
+    function cantidadDeRegistro(r) {
+        const n = parseFloat(r && r.cantidad);
+        return isFinite(n) ? n : 0;
+    }
+
+    function totalSaludDeCategoria(idCat) {
+        return datosSalud
+            .filter(r => String(r.categoria_id) === String(idCat))
+            .reduce((acc, r) => acc + cantidadDeRegistro(r), 0);
+    }
+
+    // Sin signo de pesos y sin decimales de sobra: 3, 2.5, 1,200
+    function fCantidadSalud(n) {
+        return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    }
+
     // --- ANÁLISIS Y DATOS BASE ---
     async function cargarDatosBase() {
+        // Los de Salud van por su lado y en paralelo; se esperan antes de pintar
+        const saludListo = cargarRegistrosSalud().catch(e => console.warn('Salud', e));
         const { data: regs, error: errRegs } = await clienteSupabase
                 .from('registros')
                 .select('*, cantidad_acciones, categorias(nombre, tipo)')
@@ -8935,6 +9076,7 @@
                 });
                 
             datosGrafica = graf || [];
+            await saludListo;
 
             // --- NUEVO: Restaurar el filtro si estábamos viendo algo específico ---
             if (window.filtroMovimientosActivo) {
@@ -9119,7 +9261,7 @@
                                                                     // ---> NUEVO: Revisamos si hay un filtro de tipo de categoría activo guardado en memoria
                                                                     if (window.filtroTipoCategoriaActivo && window.filtroTipoCategoriaActivo !== 'todas') {
                                                                         const filtradas = datosCategorias.filter(cat => cat.tipo === window.filtroTipoCategoriaActivo);
-                                                                        const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones' };
+                                                                        const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones', 'salud': 'Salud' };
                                                                         renderizarListaCategorias(filtradas, `Categorías: ${tituloMap[window.filtroTipoCategoriaActivo]}`);
                                                                     } else {
                                                                         renderizarListaCategorias(datosCategorias, 'Categorías');
@@ -9353,6 +9495,7 @@
                                     
                                     saldoTotalFinanzas = saldoTotal;
                                     actualizarSaldoPrincipal();
+                                    pintarPanelSalud();
 
                                     // 4. Renderizamos UI (Pasamos el nuevo parámetro a la gráfica)
                                         actualizarResumenEHistorial(filtradosRegs);
@@ -9368,7 +9511,7 @@
                                                                                     // ---> APLICAMOS LA MISMA MEMORIA AQUÍ <---
                                                                                     if (window.filtroTipoCategoriaActivo && window.filtroTipoCategoriaActivo !== 'todas') {
                                                                                         const filtradas = datosCategorias.filter(cat => cat.tipo === window.filtroTipoCategoriaActivo);
-                                                                                        const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones' };
+                                                                                        const tituloMap = { 'gasto': 'Gastos', 'ingreso': 'Ingresos', 'deuda': 'Deudas', 'prestamo': 'Préstamos', 'inversion': 'Inversiones', 'salud': 'Salud' };
                                                                                         renderizarListaCategorias(filtradas, `Categorías: ${tituloMap[window.filtroTipoCategoriaActivo]}`);
                                                                                     } else {
                                                                                         renderizarListaCategorias(datosCategorias, 'Categorías');
@@ -9629,6 +9772,10 @@
                                                                                                 let badgePlusvalia = "";
                                                                                                 let montoArribaHtml = `<strong class="${esEntrada ? 'exito' : 'error'}" style="white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${esEntrada ? '+' : '-'}${fMoneda(montoAbsoluto)}</strong>`;
                                                                                                 let montoAbajoHtml = "";
+                                                                                                // Salud no es dinero: se enseña la cantidad, en el color de Salud
+                                                                                                if (tipoCat === 'salud') {
+                                                                                                    montoArribaHtml = `<strong style="color: ${colorTipo}; white-space: nowrap; display: flex; align-items: center; min-height: 24px; margin-bottom: 2px; margin-top: 0;">×${fCantidadSalud(cantidadDeRegistro(r))}</strong>`;
+                                                                                                }
 
                                                                                                 const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
 
@@ -11607,6 +11754,204 @@
                                 cambiarTipoTreemapCategorias('inversion');
                             }
 
+                            // ---- Modo Salud ----
+                            // El título recorre Finanzas → Inversiones → Salud → Finanzas. Salud sólo entra
+                            // en la vuelta si hay alguna categoría de Salud; si no, se salta.
+                            var modoSaludInicio = (function () {
+                                try { return localStorage.getItem('modoInicio') === 'salud'; } catch (e) { return false; }
+                            })();
+                            var categoriaSaludSeleccionada = (function () {
+                                try { return localStorage.getItem('categoriaSaludSeleccionada') || ''; } catch (e) { return ''; }
+                            })();
+                            var graficoSalud = null;
+                            (function () {
+                                const sec = document.getElementById('sec-inicio');
+                                if (sec) sec.classList.toggle('modo-salud', modoSaludInicio);
+                            })();
+
+                            function alternarModoInicio() {
+                                if (modoSaludInicio) {
+                                    // Salud → Finanzas (el mapa ya está en "todos" desde que se entró)
+                                    fijarModoSalud(false);
+                                    return;
+                                }
+                                if (tipoTreemapCategorias === 'inversion') {
+                                    // Inversiones → Salud, o → Finanzas si no hay categorías de Salud
+                                    cambiarTipoTreemapCategorias('inversion');
+                                    if (categoriasSalud().length > 0) fijarModoSalud(true);
+                                    return;
+                                }
+                                cambiarTipoTreemapCategorias('inversion');
+                            }
+
+                            function fijarModoSalud(activo) {
+                                modoSaludInicio = !!activo;
+                                try { localStorage.setItem('modoInicio', modoSaludInicio ? 'salud' : ''); } catch (e) { /* sin almacenamiento */ }
+                                const sec = document.getElementById('sec-inicio');
+                                if (sec) sec.classList.toggle('modo-salud', modoSaludInicio);
+                                actualizarTituloInicio();
+                                actualizarSaldoPrincipal();
+                                if (modoSaludInicio) pintarPanelSalud();
+                            }
+
+                            // El "+" de arriba: en Salud abre el formulario ya puesto en la categoría que se mira
+                            function abrirRegistroDesdeInicio() {
+                                cambiarSeccion('sec-registro', document.getElementById('navBtnAdd'));
+                                if (modoSaludInicio && categoriaSaludSeleccionada && esCategoriaSalud(categoriaSaludSeleccionada)) {
+                                    cargarSugerenciaEnFormulario(categoriaSaludSeleccionada);
+                                    sugerirMontoCategoria();
+                                }
+                            }
+
+                            function seleccionarCategoriaSalud(idCat) {
+                                categoriaSaludSeleccionada = String(idCat);
+                                try { localStorage.setItem('categoriaSaludSeleccionada', categoriaSaludSeleccionada); } catch (e) { /* sin almacenamiento */ }
+                                actualizarSaldoPrincipal();
+                                pintarPanelSalud();
+                            }
+
+                            const isoDiaSalud = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+                            // El periodo es el mismo del selector de arriba. El anterior, para comparar: el mes
+                            // anterior si se mira un mes, y si no, un tramo igual de largo justo antes.
+                            function periodosSalud() {
+                                const ini = (document.getElementById('filtroInicio') || {}).value || '';
+                                const fin = (document.getElementById('filtroFin') || {}).value || '';
+                                let iniPrev = '', finPrev = '';
+                                if (ini && fin) {
+                                    const dIni = new Date(ini + 'T00:00:00');
+                                    const dFin = new Date(fin + 'T00:00:00');
+                                    if (typeof tipoFiltroActual !== 'undefined' && tipoFiltroActual === 'mes') {
+                                        iniPrev = isoDiaSalud(new Date(dIni.getFullYear(), dIni.getMonth() - 1, 1));
+                                        finPrev = isoDiaSalud(new Date(dIni.getFullYear(), dIni.getMonth(), 0));
+                                    } else {
+                                        const dias = Math.round((dFin - dIni) / 86400000) + 1;
+                                        const pf = new Date(dIni); pf.setDate(pf.getDate() - 1);
+                                        const pi = new Date(pf); pi.setDate(pi.getDate() - dias + 1);
+                                        iniPrev = isoDiaSalud(pi);
+                                        finPrev = isoDiaSalud(pf);
+                                    }
+                                }
+                                return { ini, fin, iniPrev, finPrev };
+                            }
+
+                            // Totales por categoría en el periodo y en el anterior, y cuál es la elegida
+                            function resumenSalud() {
+                                const { ini, fin, iniPrev, finPrev } = periodosSalud();
+                                const dentro = (d, a, b) => (!a || d >= a) && (!b || d <= b);
+                                const porCat = categoriasSalud().map(cat => ({ cat, total: 0, previo: 0, dias: new Set(), registros: [] }));
+                                const porId = {};
+                                porCat.forEach(x => { porId[String(x.cat.id)] = x; });
+                                datosSalud.forEach(r => {
+                                    const x = porId[String(r.categoria_id)];
+                                    if (!x) return;
+                                    const dia = obtenerFechaLocalCortada(r.fecha);
+                                    if (!dia) return;
+                                    const n = cantidadDeRegistro(r);
+                                    if (dentro(dia, ini, fin)) {
+                                        x.total += n;
+                                        x.dias.add(dia);
+                                        x.registros.push({ dia, n });
+                                    } else if (iniPrev && dentro(dia, iniPrev, finPrev)) {
+                                        x.previo += n;
+                                    }
+                                });
+                                let seleccion = porId[categoriaSaludSeleccionada] || null;
+                                if (!seleccion && porCat.length) {
+                                    seleccion = porCat.slice().sort((a, b) => b.total - a.total)[0];
+                                    categoriaSaludSeleccionada = String(seleccion.cat.id);
+                                }
+                                return { porCat, seleccion, ini, fin, hayPrevio: !!iniPrev };
+                            }
+
+                            function pintarPanelSalud() {
+                                if (!modoSaludInicio) return;
+                                if (categoriasSalud().length === 0) {
+                                    // Se borró la última categoría de Salud: de vuelta a Finanzas
+                                    fijarModoSalud(false);
+                                    return;
+                                }
+                                const resumen = resumenSalud();
+                                const sel = resumen.seleccion;
+                                const hoy = obtenerFechaLocalCortada(new Date().toISOString());
+
+                                document.getElementById('tituloGraficoSalud').textContent = sel ? sel.cat.nombre : 'Salud';
+
+                                // Tramo de la gráfica: el periodo elegido; sin periodo, desde el primer registro
+                                // de la categoría hasta hoy
+                                const primerDia = sel && datosSalud.length
+                                    ? datosSalud.filter(r => String(r.categoria_id) === String(sel.cat.id)).map(r => obtenerFechaLocalCortada(r.fecha)).filter(Boolean).sort()[0]
+                                    : null;
+                                const desde = new Date((resumen.ini || primerDia || hoy) + 'T00:00:00');
+                                const hasta = new Date((resumen.fin || hoy) + 'T00:00:00');
+                                const diasTramo = Math.max(1, Math.round((hasta - desde) / 86400000) + 1);
+                                const porDia = diasTramo <= 62;
+
+                                const etiquetas = [], valores = [], claves = [];
+                                if (porDia) {
+                                    for (let d = new Date(desde); d <= hasta; d.setDate(d.getDate() + 1)) {
+                                        claves.push(isoDiaSalud(d));
+                                        etiquetas.push(String(d.getDate()));
+                                    }
+                                } else {
+                                    for (let d = new Date(desde.getFullYear(), desde.getMonth(), 1); d <= hasta; d.setMonth(d.getMonth() + 1)) {
+                                        claves.push(isoDiaSalud(d).slice(0, 7));
+                                        etiquetas.push(d.toLocaleDateString('es-MX', { month: 'short' }).replace('.', ''));
+                                    }
+                                }
+                                const indice = {};
+                                claves.forEach((k, i) => { indice[k] = i; valores.push(0); });
+                                (sel ? sel.registros : []).forEach(({ dia, n }) => {
+                                    const k = porDia ? dia : dia.slice(0, 7);
+                                    if (indice[k] !== undefined) valores[indice[k]] += n;
+                                });
+
+                                // Promedio sobre los días (o meses) que ya pasaron del tramo
+                                const transcurridos = claves.filter(k => k <= (porDia ? hoy : hoy.slice(0, 7))).length || 1;
+                                const total = sel ? sel.total : 0;
+                                document.getElementById('promedioSalud').textContent = total > 0
+                                    ? `${fCantidadSalud(Math.round((total / transcurridos) * 10) / 10)} ${porDia ? 'al día' : 'al mes'}`
+                                    : '';
+
+                                const lienzo = document.getElementById('graficoSalud');
+                                if (graficoSalud) { graficoSalud.destroy(); graficoSalud = null; }
+                                if (lienzo && typeof Chart !== 'undefined') {
+                                    graficoSalud = new Chart(lienzo, {
+                                        type: 'bar',
+                                        data: { labels: etiquetas, datasets: [{ data: valores, backgroundColor: '#bf5af2', borderRadius: 4, maxBarThickness: 18 }] },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            animation: { duration: 300 },
+                                            plugins: {
+                                                legend: { display: false },
+                                                tooltip: { callbacks: { label: c => fCantidadSalud(c.raw) } }
+                                            },
+                                            scales: {
+                                                x: { grid: { display: false }, border: { display: false }, ticks: { color: '#8e8e93', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } } },
+                                                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.08)' }, border: { display: false }, ticks: { color: '#8e8e93', precision: 0, maxTicksLimit: 4, font: { size: 10 } } }
+                                            }
+                                        }
+                                    });
+                                }
+
+                                // Todas las categorías de Salud, de la que más se registró a la que menos
+                                const lista = document.getElementById('listaSalud');
+                                const textoPrevio = (typeof tipoFiltroActual !== 'undefined' && tipoFiltroActual === 'mes') ? 'mes anterior' : 'periodo anterior';
+                                lista.innerHTML = resumen.porCat.slice().sort((a, b) => b.total - a.total || a.cat.nombre.localeCompare(b.cat.nombre)).map(x => {
+                                    const dias = x.dias.size;
+                                    const dif = x.total - x.previo;
+                                    const comparacion = resumen.hayPrevio && (x.total > 0 || x.previo > 0)
+                                        // Sin verde ni rojo: más no siempre es peor (un síntoma) ni mejor (agua)
+                                        ? `<div class="sub">${dif === 0 ? `Igual que el ${textoPrevio}` : `${dif > 0 ? '+' : '-'}${fCantidadSalud(Math.abs(dif))} vs. ${textoPrevio}`}</div>`
+                                        : '';
+                                    return `<li class="${sel && x === sel ? 'activa' : ''}" onclick="seleccionarCategoriaSalud('${escaparHtml(String(x.cat.id))}')">
+                                        <div style="min-width:0;"><div class="nombre">${escaparHtml(x.cat.nombre)}</div><div class="sub">${dias === 1 ? '1 día' : `${dias} días`} con registro</div></div>
+                                        <div><div class="total">${fCantidadSalud(x.total)}</div>${comparacion}</div>
+                                    </li>`;
+                                }).join('');
+                            }
+
                             // El número grande sigue al título: en Finanzas es el saldo disponible y en
                             // Inversiones lo que vale hoy el portafolio entero, en la moneda elegida para el mapa.
                             var saldoTotalFinanzas = 0;
@@ -11632,6 +11977,13 @@
                             function actualizarSaldoPrincipal() {
                                 const el = document.getElementById('saldoTotalDisponible');
                                 if (!el) return;
+                                // En Salud la cifra es cuánto se registró de la categoría elegida en el periodo
+                                if (modoSaludInicio) {
+                                    el.style.cursor = '';
+                                    const resumen = resumenSalud();
+                                    pintarSaldoAnimado(el, fCantidadSalud(resumen.seleccion ? resumen.seleccion.total : 0), '');
+                                    return;
+                                }
                                 const enInversiones = tipoTreemapCategorias === 'inversion';
                                 // Sólo se puede tocar para cambiar de moneda en Inversiones
                                 el.style.cursor = enInversiones ? 'pointer' : '';
@@ -11777,6 +12129,7 @@
                             function actualizarTituloInicio() {
                                 const titulo = document.getElementById('tituloInicio');
                                 if (!titulo) return;
+                                if (modoSaludInicio) { titulo.textContent = 'Salud'; return; }
                                 const enInversiones = tipoTreemapCategorias === 'inversion';
                                 titulo.textContent = enInversiones ? 'Inversiones' : 'Finanzas';
                                 if (!enInversiones) return;
@@ -14175,7 +14528,7 @@
                             </div>
                             </div>` : '';
 
-                            const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión' };
+                            const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
                             const nombresPrioridad = { vital: 'Necesidad vital', operativa: 'Necesidad operativa', util: 'No necesario pero útil', prescindible: 'Prescindible / Deseo' };
                             const cuentaCat = (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
                             const htmlContenido = `
@@ -14278,6 +14631,8 @@
                                     modo = null;
                                     if (e.touches.length !== 1 || ocupado(e.target)) return;
                                     if (document.body.classList.contains('modal-abierto') || capa.classList.contains('activa')) return;
+                                    // El reporte es de dinero: en Salud no se abre
+                                    if (modoSaludInicio) return;
                                     x0 = e.touches[0].clientX;
                                     y0 = e.touches[0].clientY;
                                     xPrevia = x0;
@@ -17924,7 +18279,9 @@
         const htmlContenido = `
         <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${nombreCat}</strong><br>
         <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${descripcionMov}</strong><br>
-        <span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong>${notaMonto}<br>
+        ${tipoCat === 'salud'
+            ? `<span style="color: #aaa;">Cantidad:</span> <strong style="color: #fff;">${fCantidadSalud(cantidadDeRegistro(r))}</strong><br>`
+            : `<span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong>${notaMonto}<br>`}
         <span style="color: #aaa;">Fecha:</span> <strong style="color: #fff;">${fechaLocal}</strong>
         ${infoTopInversion}
         ${detallesInversion}
@@ -18104,6 +18461,23 @@
                             monto_usd: montoUsd,
                             user_id: currentUser.id
                         };
+
+                        // Salud no es dinero: el monto se queda en 0 (así no toca saldos ni gráficas) y lo
+                        // escrito en el campo es la cantidad. La columna sólo viaja en estos registros, para
+                        // que un movimiento de dinero se guarde igual aunque falte la migración de Salud.
+                        if (catSeleccionada && catSeleccionada.tipo === 'salud') {
+                            const cantidadSalud = parseFloat(document.getElementById('regMonto').value);
+                            if (!(cantidadSalud > 0)) {
+                                alert("⚠️ Escribe la cantidad (mayor que cero).");
+                                return;
+                            }
+                            body.monto = 0;
+                            body.cantidad = cantidadSalud;
+                            body.costo_accion = 0;
+                            body.cantidad_acciones = 0;
+                            body.monto_usd = 0;
+                            body.tipo_movimiento = null;
+                        }
             
             // 2. Desactivar botón temporalmente para evitar doble clic
             const btnCrear = document.getElementById('btnCrearRegistro');
@@ -18172,7 +18546,10 @@
                             // movimiento, su categoría acaba de convertirse en la más usada y hasta este
                             // momento no había nada frecuente que precargar.
                             preseleccionarFrecuentes(true);
-                        } else {
+                        } else if ('cantidad' in body && /cantidad/i.test(res.error.message || '')) {
+                alert('No se pudo guardar el registro de Salud: falta preparar la base.\n\n' +
+                    'Abre Supabase → SQL Editor y ejecuta migracion_salud.sql del repositorio. Después vuelve a intentarlo.');
+            } else {
                 alert(explicarFalloAlGuardar(res.error, 'el movimiento'));
             }
         });
@@ -18216,13 +18593,15 @@
                                                 let direccionEdit = montoNum >= 0 ? 'entrada' : 'salida';
                                                 if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'aportacion') direccionEdit = 'salida';
                                                 if (r.tipo_movimiento === 'venta' || r.tipo_movimiento === 'retiro') direccionEdit = 'entrada';
+                                                if (cat.tipo === 'salud') direccionEdit = 'salud';
                                                 seleccionarTipoRegistro(direccionEdit);
                                     
                                     document.getElementById('regCategoriaSelect').value = r.categoria_id;
                                     document.getElementById('regCategoriaSelect').dataset.valorPrevio = r.categoria_id;
                                 }
 
-                                document.getElementById('regMonto').value = Math.abs(r.monto);
+                                // En Salud el campo es la cantidad, no el monto (que siempre es 0)
+                                document.getElementById('regMonto').value = cat && cat.tipo === 'salud' ? cantidadDeRegistro(r) : Math.abs(r.monto);
                                 
                                 // --- INICIO DE LA CORRECCIÓN ---
                                                                 const fechaLimpia = r.fecha.replace(' ', 'T');
@@ -18422,7 +18801,7 @@
                                                         document.getElementById('regCuentaSelect').value = cat.cuenta_id;
 
                                                         // 2. Definir la dirección visual del flujo (Entrada / Salida)
-                                                        const direccion = (cat.tipo === 'ingreso' || cat.tipo === 'deuda') ? 'entrada' : 'salida';
+                                                        const direccion = cat.tipo === 'salud' ? 'salud' : (cat.tipo === 'ingreso' || cat.tipo === 'deuda') ? 'entrada' : 'salida';
                                                         seleccionarTipoRegistro(direccion);
 
                                                         // 3. Asignar la Categoría específica
