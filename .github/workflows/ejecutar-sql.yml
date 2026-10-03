@@ -1,0 +1,57 @@
+# Ejecuta en Supabase los archivos .sql nuevos o modificados de supabase/sql al
+# subirlos a main. También se puede correr a mano (Run workflow) con la ruta de un
+# archivo .sql. El repositorio es público: nunca se imprime el resultado de una
+# consulta, solo si salió bien o el mensaje de error.
+name: Ejecutar SQL en Supabase
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/sql/**.sql']
+  workflow_dispatch:
+    inputs:
+      archivo:
+        description: 'Ruta del archivo .sql a ejecutar'
+        required: true
+
+jobs:
+  ejecutar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Elegir los archivos
+        env:
+          ARCHIVO: ${{ github.event.inputs.archivo }}
+          ANTES: ${{ github.event.before }}
+        run: |
+          if [ -n "$ARCHIVO" ]; then
+            printf '%s\n' "$ARCHIVO" > lista.txt
+          else
+            git diff --name-only --diff-filter=AM "$ANTES" "$GITHUB_SHA" -- 'supabase/sql/*.sql' | sort > lista.txt
+          fi
+          cat lista.txt
+      - name: Ejecutar
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          fallo=0
+          while IFS= read -r archivo; do
+            [ -z "$archivo" ] && continue
+            if [ ! -f "$archivo" ]; then echo "No existe: $archivo"; fallo=1; continue; fi
+            echo "Ejecutando $archivo"
+            codigo=$(jq -Rs '{query: .}' "$archivo" | curl -sS -o respuesta.json -w '%{http_code}' \
+              -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" --data @-)
+            if [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]; then
+              echo "  Bien ($codigo)"
+            else
+              echo "  Error ($codigo): $(jq -r '.message // .error // .' respuesta.json 2>/dev/null | head -c 2000)"
+              fallo=1
+            fi
+            rm -f respuesta.json
+          done < lista.txt
+          exit $fallo
