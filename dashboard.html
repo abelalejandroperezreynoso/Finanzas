@@ -14406,22 +14406,48 @@
                                         <div class="nota">en gastos. ${frasePct(cambio(r.gastos, rp.gastos), 'más', 'menos')}</div>
                                     </section>`);
 
-                                    // 4. Ahorro
+                                    // 4. Ahorro, y cuánto de él se fue a inversiones. Lo invertido se toma del
+                                    // portafolio (aportaciones menos retiros del mes), cuente o no su cuenta en el
+                                    // saldo total: es dinero que salió de tus cuentas hacia el broker.
+                                    const movInv = resumirInversionesMes(ym, true);
+                                    const invertido = Math.max(0, movInv.aportado - movInv.retirado);
+                                    const quedo = ahorro - invertido;
                                     const anillo = tasa === null ? '' : (() => {
-                                        const t = Math.max(0, Math.min(100, tasa));
                                         const c = 2 * Math.PI * 52;
+                                        const tInv = Math.max(0, Math.min(100, (invertido / r.ingresos) * 100));
+                                        const tAhorro = Math.max(0, Math.min(100, tasa));
+                                        // Dos tramos: lo invertido (azul) y lo que quedó en tus cuentas (verde)
+                                        const tQuedo = Math.max(0, tAhorro - tInv);
                                         return `<svg viewBox="0 0 120 120" width="170" height="170" style="align-self:center;">
                                             <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="12"/>
-                                            <circle cx="60" cy="60" r="52" fill="none" stroke="${tasa >= 0 ? '#3ecf8e' : '#ff5c5c'}" stroke-width="12" stroke-linecap="round"
-                                                stroke-dasharray="${(t / 100) * c} ${c}" transform="rotate(-90 60 60)"/>
+                                            ${tQuedo > 0 ? `<circle cx="60" cy="60" r="52" fill="none" stroke="${tasa >= 0 ? '#3ecf8e' : '#ff5c5c'}" stroke-width="12"
+                                                stroke-dasharray="${((tInv + tQuedo) / 100) * c} ${c}" transform="rotate(-90 60 60)"/>` : ''}
+                                            ${tInv > 0 ? `<circle cx="60" cy="60" r="52" fill="none" stroke="#4da6ff" stroke-width="12"
+                                                stroke-dasharray="${(tInv / 100) * c} ${c}" transform="rotate(-90 60 60)"/>` : ''}
                                             <text x="60" y="68" text-anchor="middle" fill="#fff" font-size="24" font-weight="800">${tasa.toFixed(0)}%</text>
                                         </svg>`;
                                     })();
+                                    const leyenda = invertido > 0.005 ? `
+                                        <div style="display:flex; flex-direction:column; gap:10px; font-size:1.05em;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="display:flex; align-items:center; gap:10px;"><span style="width:12px; height:12px; border-radius:50%; background:#4da6ff;"></span>Invertiste</span>
+                                                <strong>${fMoneda(invertido)}</strong></div>
+                                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                                <span style="display:flex; align-items:center; gap:10px;"><span style="width:12px; height:12px; border-radius:50%; background:${quedo >= 0 ? '#3ecf8e' : '#ff5c5c'};"></span>${quedo >= 0 ? 'Quedó en tus cuentas' : 'Salió de ahorros anteriores'}</span>
+                                                <strong>${fMoneda(Math.abs(quedo))}</strong></div>
+                                        </div>` : '';
+                                    const notaAhorro = tasa === null ? 'No hubo ingresos este mes.'
+                                        : invertido > 0.005
+                                        ? (quedo >= 0
+                                            ? `Guardaste el ${tasa.toFixed(1)}% de lo que entró, y el ${((invertido / r.ingresos) * 100).toFixed(1)}% lo pusiste a trabajar en inversiones.`
+                                            : `Invertiste más de lo que ahorraste este mes: la diferencia salió de ahorros anteriores.`)
+                                        : `Guardaste el ${tasa.toFixed(1)}% de lo que entró.`;
                                     diapositivas.push(`<section class="diapositiva" style="${fondo(ahorro >= 0 ? '#1b4d6b' : '#6b1d1d', '#000')}">
                                         <div class="etiqueta">${ahorro >= 0 ? 'Ahorraste' : 'Gastaste de más'}</div>
                                         <div class="cifra">${fMoneda(Math.abs(ahorro))}</div>
                                         ${anillo}
-                                        <div class="nota">${tasa === null ? 'No hubo ingresos este mes.' : `Guardaste el ${tasa.toFixed(1)}% de lo que entró.`}</div>
+                                        ${leyenda}
+                                        <div class="nota">${notaAhorro}</div>
                                     </section>`);
 
                                     // 5. Prioridades
@@ -14505,7 +14531,7 @@
                             // ---- Reporte de inversiones ----
                             // Lo del mes (aportaciones, compras, ventas, rendimiento del mes si hay histórico)
                             // y la foto de hoy del portafolio (valor, ganancia, mejores y peores, accesible).
-                            function resumirInversionesMes(ym) {
+                            function resumirInversionesMes(ym, soloMovimientos = false) {
                                 const catPorId = {};
                                 (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
                                 const r = { movimientos: 0, aportado: 0, retirado: 0, compradoUsd: 0, vendidoUsd: 0, compras: {}, ventas: {}, rendimientoMes: null };
@@ -14532,6 +14558,9 @@
                                         if (t === 'venta_directa') r.retirado += Math.abs(monto);
                                     }
                                 });
+
+                                // El reporte de Finanzas sólo necesita el dinero que entró y salió del portafolio
+                                if (soloMovimientos) return r;
 
                                 // Cuánto rindió el portafolio dentro del mes, con la misma curva de "Todo": la
                                 // ganancia al cierre del mes menos la del cierre del mes anterior. Sólo si el
