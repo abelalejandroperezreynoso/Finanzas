@@ -15099,7 +15099,18 @@
                             // conviene ponerse un límite. Sin ninguna, la hoja no se enseña.
                             function diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo) {
                                 const [a, m] = ym.split('-').map(n => parseInt(n, 10));
-                                const nombreSig = NOMBRES_MESES[new Date(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1).getMonth()];
+                                const inicioSig = new Date(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1);
+                                const nombreSig = NOMBRES_MESES[inicioSig.getMonth()];
+
+                                // Lo que va del mes de los topes: si es el mes en curso, cuánto llevas en cada
+                                // categoría y a qué ritmo; si ya pasó, cómo terminó. Si todavía no empieza, nada.
+                                const ymSig = `${inicioSig.getFullYear()}-${String(inicioSig.getMonth() + 1).padStart(2, '0')}`;
+                                const ymHoy = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
+                                const enCurso = ymSig === ymHoy;
+                                const hayAvance = ymSig <= ymHoy;
+                                const gastadoSig = hayAvance ? resumirMesReporte(ymSig).porCategoria : {};
+                                const diasMesSig = new Date(inicioSig.getFullYear(), inicioSig.getMonth() + 1, 0).getDate();
+                                const fraccionMes = enCurso ? new Date().getDate() / diasMesSig : 1;
 
                                 // La hoja se centra en los topes: a qué categorías de deseo o comodidad ponerles
                                 // un límite y cuánto se ahorraría respetándolo. La mitad de lo gastado a lo
@@ -15117,17 +15128,29 @@
                                 const ahorroTotal = topes.reduce((acc, x) => acc + x.ahorro, 0);
 
                                 // Con muchas, la hoja se aprieta y, si aun así no cabe, se desplaza hacia abajo
-                                const larga = topes.length > 6;
+                                const larga = topes.length > (hayAvance ? 4 : 6);
                                 return `<section class="diapositiva${larga ? ' diapositiva-larga' : ''}" style="${fondo('#1f6f4a', '#1b3a6b')}${larga ? ' gap:10px;' : ''}">
                                     <div class="etiqueta">Topes para ${nombreSig}</div>
                                     <div class="cifra" style="color:#3ecf8e;">${redondo(ahorroTotal)}</div>
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
-                                    ${topes.map(x => `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                                    ${topes.map(x => {
+                                        // Barra de avance contra el tope: verde si vas bien, ámbar si vas más rápido
+                                        // de lo que el mes permite, rojo si ya lo pasaste
+                                        const llevas = gastadoSig[x.cat.id] || 0;
+                                        const color = llevas > x.tope ? '#ff5c5c' : llevas > x.tope * fraccionMes + 0.005 ? '#f5a623' : '#3ecf8e';
+                                        const avance = hayAvance ? `<div style="margin-top:6px;">
+                                                <div style="height:6px; border-radius:3px; background:rgba(255,255,255,0.12); overflow:hidden;">
+                                                    <div style="width:${Math.min(100, (llevas / x.tope) * 100)}%; height:100%; background:${color};"></div></div>
+                                                <div class="nota" style="font-size:0.75em; margin-top:3px;">${enCurso ? 'Llevas' : `En ${nombreSig}:`} <span style="color:${color}; font-weight:600;">${redondo(llevas)}</span> de ${redondo(x.tope)}</div>
+                                            </div>` : '';
+                                        return `<div>
+                                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
                                             <div class="nota" style="font-size:0.8em;">gastaste ${redondo(x.gasto)}</div></div>
                                         <div style="text-align:right; white-space:nowrap;"><strong style="font-size:1.15em;">${redondo(x.tope)}</strong>
                                             <div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div></div>
-                                    </div>`).join('')}
+                                        </div>${avance}</div>`;
+                                    }).join('')}
                                 </section>`;
                             }
 
