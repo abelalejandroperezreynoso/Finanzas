@@ -14798,6 +14798,15 @@
                                 const conPct = posiciones.filter(p => p.pct !== null);
                                 r.costoUsd = conPct.reduce((s2, p) => s2 + p.costo, 0);
                                 r.valorUsd = conPct.reduce((s2, p) => s2 + p.valor, 0);
+                                // La ganancia en pesos se parte en dos: lo que hicieron las acciones (su ganancia
+                                // en dólares, pasada a pesos de hoy) y lo que movió el tipo de cambio (los dólares
+                                // que costaron, valuados hoy contra los pesos que pagaste por ellos). Suman exacto.
+                                const tcHoy = globalUsdToMxn || 1;
+                                r.costoMxn = conPct.reduce((s2, p) => s2 + (p.cat.costoBaseInvertido || 0), 0);
+                                r.tcHoy = tcHoy;
+                                r.tcCompra = r.costoUsd > 0 ? r.costoMxn / r.costoUsd : null;
+                                r.aporteInversionesMxn = (r.valorUsd - r.costoUsd) * tcHoy;
+                                r.aporteTipoCambioMxn = r.costoUsd * tcHoy - r.costoMxn;
                                 r.mejores = conPct.slice().sort((x, y) => y.pct - x.pct).slice(0, 3);
                                 r.peores = conPct.slice().sort((x, y) => x.pct - y.pct).slice(0, 3).filter(p => p.pct < 0);
                                 // Lo que se puede sacar sin vender en pérdida, y el nivel de pérdida que más deja
@@ -14828,8 +14837,18 @@
                                     <div class="etiqueta">Tu portafolio hoy</div>
                                     <div class="cifra">${fMoneda(Math.round(r.valorMxn), fNumSaldo)}</div>
                                     <div class="nota">en pesos, a precio y tipo de cambio de hoy.</div>
-                                    ${r.costoUsd > 0 ? `<div class="cifra" style="font-size:2em; color:${ganancia >= 0 ? verde : rojo};">${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD</div>
-                                    <div class="nota">${ganancia >= 0 ? 'de ganancia' : 'de pérdida'} sobre lo que costó (${signo(pctTotal)}${Math.abs(pctTotal).toFixed(1)}%).</div>` : ''}
+                                    ${r.costoUsd > 0 ? (() => {
+                                        // Ganancia en pesos y de dónde salió: las acciones y el tipo de cambio
+                                        const total = r.aporteInversionesMxn + r.aporteTipoCambioMxn;
+                                        const pesos = n => `${signo(n)}${fMoneda(Math.round(Math.abs(n)), fNumSaldo)}`;
+                                        const fila = (titulo, detalle, n) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;">
+                                            <div style="min-width:0;"><div style="font-size:1.05em;">${titulo}</div><div class="nota" style="font-size:0.85em;">${detalle}</div></div>
+                                            <strong style="font-size:1.25em; color:${n >= 0 ? verde : rojo}; white-space:nowrap;">${pesos(n)}</strong></div>`;
+                                        return `<div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)}</div>
+                                            <div class="nota">${total >= 0 ? 'de ganancia' : 'de pérdida'} en pesos sobre lo que pagaste.</div></div>
+                                            ${fila('Tus inversiones', `${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD (${signo(pctTotal)}${Math.abs(pctTotal).toFixed(1)}%)`, r.aporteInversionesMxn)}
+                                            ${fila('El tipo de cambio', r.tcCompra ? `Compraste a ${r.tcCompra.toFixed(2)} en promedio, hoy está en ${r.tcHoy.toFixed(2)}` : '', r.aporteTipoCambioMxn)}`;
+                                    })() : ''}
                                 </section>`);
 
                                 // Rendimiento dentro del mes
