@@ -14861,14 +14861,21 @@
                                     const movInvPrevio = resumirInversionesMes(previo, true);
                                     const invertidoPrevio = Math.max(0, movInvPrevio.aportado - movInvPrevio.retirado);
                                     const salioTotal = r.gastos + invertido;
-                                    const filaSalio = (texto, monto, color) => `<div style="display:flex; justify-content:space-between; align-items:baseline; font-size:1.1em;">
-                                        <span>${texto}</span><strong style="color:${color};">${fMoneda(monto)}</strong></div>`;
+                                    // Cada renglón con su cambio contra el mes anterior, en chico debajo del monto
+                                    const filaSalio = (texto, monto, color, anterior) => {
+                                        const pct = cambio(monto, anterior);
+                                        const comparado = pct === null ? `No hubo en ${nombrePrevio}` : Math.abs(pct) < 0.5 ? 'Igual' : `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(0)}% vs. ${nombrePrevio}`;
+                                        return `<div style="display:flex; justify-content:space-between; align-items:flex-start; font-size:1.1em;">
+                                            <span>${texto}</span>
+                                            <div style="text-align:right;"><strong style="color:${color};">${fMoneda(monto)}</strong>
+                                                <div class="nota" style="font-size:0.75em;">${comparado}</div></div></div>`;
+                                    };
                                     diapositivas.push(`<section class="diapositiva" style="${fondo('#6b1d1d', '#000')}">
                                         <div class="etiqueta">Salió</div>
                                         <div class="cifra">${fMoneda(salioTotal)}</div>
                                         <div class="nota" style="margin-top:-8px;">${frasePct(cambio(salioTotal, rp.gastos + invertidoPrevio), 'más', 'menos')}</div>
-                                        ${filaSalio('Gastos', r.gastos, '#ff5c5c')}
-                                        ${invertido > 0.005 ? filaSalio('Inversión', invertido, '#ffffff') : ''}
+                                        ${filaSalio('Gastos', r.gastos, '#ff5c5c', rp.gastos)}
+                                        ${invertido > 0.005 ? filaSalio('Inversión', invertido, '#ffffff', invertidoPrevio) : ''}
                                     </section>`);
 
                                     // Lo ahorrado que no se fue a inversiones; lo usa el plan del mes siguiente
