@@ -14587,6 +14587,31 @@
                                         </section>`);
                                     }
 
+                                    // 6b. Categorías que mejoraron y que empeoraron contra el mes anterior: una
+                                    // diapositiva para cada lado, con las cinco que más cambiaron
+                                    const cambiosCat = [...new Set([...Object.keys(r.porCategoria), ...Object.keys(rp.porCategoria)])]
+                                        .map(id => ({ id, cat: catPorId[String(id)], antes: rp.porCategoria[id] || 0, ahora: r.porCategoria[id] || 0 }))
+                                        .filter(x => x.cat && Math.abs(x.ahora - x.antes) >= 1)
+                                        .map(x => ({ ...x, dif: x.ahora - x.antes }));
+                                    const diapositivaCambios = (titulo, lista, color, colorFondo) => {
+                                        if (!lista.length) return;
+                                        const total = lista.reduce((s2, x) => s2 + x.dif, 0);
+                                        const filas = lista.slice(0, 5).map(x => `<div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                                            <div style="min-width:0;"><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
+                                                <div class="nota" style="font-size:0.8em;">${fMoneda(Math.round(x.antes), fNumSaldo)} → ${fMoneda(Math.round(x.ahora), fNumSaldo)}</div></div>
+                                            <div style="text-align:right; white-space:nowrap; color:${color};"><strong style="font-size:1.1em;">${x.dif > 0 ? '+' : '-'}${fMoneda(Math.round(Math.abs(x.dif)), fNumSaldo)}</strong>
+                                                <div style="font-size:0.8em; font-weight:600;">${x.antes > 0.005 ? `${x.dif > 0 ? '+' : '-'}${Math.abs((x.dif / x.antes) * 100).toFixed(0)}%` : 'Nueva'}</div></div>
+                                        </div>`).join('');
+                                        diapositivas.push(`<section class="diapositiva" style="${fondo(colorFondo, '#000')}">
+                                            <div class="etiqueta">${titulo}</div>
+                                            <div class="cifra" style="color:${color};">${total > 0 ? '+' : '-'}${fMoneda(Math.round(Math.abs(total)), fNumSaldo)}</div>
+                                            <div class="nota" style="margin-top:-8px;">contra ${nombrePrevio}</div>
+                                            ${filas}
+                                        </section>`);
+                                    };
+                                    diapositivaCambios('Gastaste menos en', cambiosCat.filter(x => x.dif < 0).sort((x, y) => x.dif - y.dif), '#3ecf8e', '#155e3c');
+                                    diapositivaCambios('Gastaste más en', cambiosCat.filter(x => x.dif > 0).sort((x, y) => y.dif - x.dif), '#ff5c5c', '#6b1d1d');
+
                                     // 7. Otros movimientos
                                     const otros = [
                                         ['inversion:sale', 'Invertiste'], ['inversion:entra', 'Retiraste de inversiones'],
