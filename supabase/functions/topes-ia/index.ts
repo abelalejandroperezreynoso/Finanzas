@@ -21,6 +21,14 @@ const MAX_CATEGORIAS = 80;
 const CONSULTAS_POR_DIA = 1;
 const FUNCION = "topes-ia";
 
+// Precio por millón de tokens (USD), para estimar lo que costó cada consulta. Si el
+// servidor reintentó con otro modelo, se usa el precio del que respondió.
+const PRECIOS: Record<string, { entrada: number; salida: number }> = {
+  "claude-opus-5-5": { entrada: 4, salida: 20 },
+  "claude-opus-5": { entrada: 5, salida: 25 },
+  "claude-opus-4-8": { entrada: 5, salida: 25 },
+};
+
 const SISTEMA = `Eres un asesor de finanzas personales para una persona en México (montos en MXN).
 Recibes sus categorías de gasto de un mes: nombre, descripción que ella escribió (si la hay),
 prioridad según la técnica de las 4 N (vital, operativa, util, prescindible o sin asignar),
@@ -156,8 +164,22 @@ Deno.serve(async (req) => {
         tope: Math.max(0, Math.round(Number(t.tope) || 0)),
         razon: String(t.razon ?? "").slice(0, 160),
       }));
-    // Se anota sólo la consulta que salió bien: un error no gasta el turno del día
-    await supabase.from("uso_ia").insert({ user_id: sesion.user.id, funcion: FUNCION });
+    // Se anota sólo la consulta que salió bien (un error no gasta el turno del día), con
+    // sus tokens y su costo estimado para la tarjeta de consumo de Configuración
+    const entradaTokens = respuesta.usage?.input_tokens ?? 0;
+    const salidaTokens = respuesta.usage?.output_tokens ?? 0;
+    const precio = PRECIOS[respuesta.model] ?? PRECIOS["claude-opus-5-5"];
+    const costo = (entradaTokens * precio.entrada + salidaTokens * precio.salida) / 1_000_000;
+    const anotado = await supabase.from("uso_ia").insert({
+      user_id: sesion.user.id,
+      funcion: FUNCION,
+      modelo: respuesta.model,
+      tokens_entrada: entradaTokens,
+      tokens_salida: salidaTokens,
+      costo_usd: costo,
+    });
+    // Sin las columnas de consumo todavía, se anota al menos la consulta para el límite
+    if (anotado.error) await supabase.from("uso_ia").insert({ user_id: sesion.user.id, funcion: FUNCION });
     return responder({ topes });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
