@@ -2137,11 +2137,26 @@
                                 <option value="inversion">Inversión (+/-)</option>
                             </select>
                         </label>
+                        <!-- Prioridad del gasto, técnica de las 4 "N". Sólo en las categorías de gasto. -->
+                        <label class="rango-ios-fila" id="filaPrioridadCat" style="display: none;">
+                            <span>Prioridad</span>
+                            <span class="rango-ios-pastilla" id="espejoCatPrioridad">—</span>
+                            <select id="catPrioridad" onchange="actualizarEspejosCategoria()">
+                                <option value="">Sin asignar</option>
+                                <option value="vital">Necesidad vital</option>
+                                <option value="operativa">Necesidad operativa</option>
+                                <option value="util">No necesario pero útil</option>
+                                <option value="prescindible">Prescindible / Deseo</option>
+                            </select>
+                        </label>
                         <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
                             <span>Ticker</span>
                             <input type="text" id="catTicker" class="campo-fila-ios" placeholder="Ej: AAPL" autocapitalize="characters">
                         </label>
                     </div>
+
+                    <!-- Qué significa la prioridad elegida, como la nota al pie de una tarjeta de Ajustes -->
+                    <div id="notaPrioridadCat" style="display: none; font-size: 0.82em; color: #98989d; line-height: 1.4; margin: -16px 18px 26px;"></div>
 
                     <!-- Los sectores que tú le pones a la empresa. Finnhub da uno solo y no siempre
                          es el que tú tienes en la cabeza: Apple vende hardware y vende software, y
@@ -5417,16 +5432,34 @@
                             // Las pastillas de Cuenta y Tipo dicen lo que tienen sus selects. Los valores se
                             // ponen por código al abrir, así que se repintan al abrir y en cada cambio.
                             function actualizarEspejosCategoria() {
-                                [['catCuentaSelect', 'espejoCatCuenta'], ['catTipo', 'espejoCatTipo']].forEach(([idSel, idEsp]) => {
+                                [['catCuentaSelect', 'espejoCatCuenta'], ['catTipo', 'espejoCatTipo'], ['catPrioridad', 'espejoCatPrioridad']].forEach(([idSel, idEsp]) => {
                                     const sel = document.getElementById(idSel);
                                     const esp = document.getElementById(idEsp);
                                     if (!sel || !esp) return;
                                     const op = sel.selectedOptions && sel.selectedOptions[0];
                                     const texto = op && sel.value ? op.textContent.trim() : '';
-                                    esp.textContent = texto || 'Elegir';
+                                    esp.textContent = texto || (idSel === 'catPrioridad' ? 'Sin asignar' : 'Elegir');
                                     esp.classList.toggle('marcador', !texto);
                                 });
+
+                                // La nota de debajo explica el nivel elegido
+                                const nota = document.getElementById('notaPrioridadCat');
+                                const prioridad = document.getElementById('catPrioridad');
+                                const esGasto = document.getElementById('catTipo')?.value === 'gasto';
+                                if (nota && prioridad) {
+                                    const texto = DESCRIPCION_PRIORIDADES_GASTO[prioridad.value] || '';
+                                    nota.textContent = texto;
+                                    nota.style.display = esGasto && texto ? '' : 'none';
+                                }
                             }
+
+                            // Técnica de las 4 "N": qué entra en cada nivel de prioridad de un gasto
+                            var DESCRIPCION_PRIORIDADES_GASTO = {
+                                vital: 'Sobrevivencia: gastos indispensables para vivir, mantener tu vivienda o tu capacidad de generar ingresos.',
+                                operativa: 'Obligaciones: compromisos financieros que debes cumplir para mantener la estabilidad a largo plazo.',
+                                util: 'Comodidad: gastos que optimizan tu tiempo, confort o productividad, pero de los que podrías prescindir si es necesario.',
+                                prescindible: 'Estilo de vida: gastos puramente opcionales, destinados al entretenimiento, ocio o caprichos.'
+                            };
 
                             function abrirModalCategoria() {
                                 actualizarEspejosCategoria();
@@ -5461,6 +5494,7 @@
                                                         sectoresEnEdicionCat = [];
                                                         pintarSectoresEnEdicion();
                                                         document.getElementById('desactivarPrediccionCat').checked = false;
+                                                        document.getElementById('catPrioridad').value = '';
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
                                                         mostrarOcultarTicker();
@@ -8424,6 +8458,9 @@
                                                         const inputTicker = document.getElementById('catTicker');
                                                         const bloqueSectores = document.getElementById('bloqueSectoresCat');
 
+                                                        const filaPrioridad = document.getElementById('filaPrioridadCat');
+                                                        if (filaPrioridad) filaPrioridad.style.display = tipo === 'gasto' ? '' : 'none';
+                                                        if (typeof actualizarEspejosCategoria === 'function') actualizarEspejosCategoria();
                                                         const filaTicker = document.getElementById('filaTickerCat');
                                                         if (filaTicker) {
                                                             filaTicker.style.display = tipo === 'inversion' ? '' : 'none';
@@ -8481,6 +8518,8 @@
                                         tipo: tipo,
                                         ticker: tickerValor,
                                         sectores: sectoresValor,
+                                        // La prioridad sólo tiene sentido en un gasto; en lo demás se guarda nula
+                                        prioridad: tipo === 'gasto' ? (document.getElementById('catPrioridad').value || null) : null,
                                         desactivar_prediccion: desactivar_prediccion,
                                         user_id: currentUser.id
                                     };
@@ -8520,11 +8559,25 @@
                                             // ticker por una columna que a lo mejor el usuario ni tocó sería peor
                                             // que quedarse sin los sectores. Se vuelve a intentar sin ellos y se
                                             // dice qué falta, en lugar de tragarse el fallo en silencio.
+                                            // Lo mismo con `prioridad`, que también viene de su propia migración.
                                             let faltaMigracionSectores = false;
-                                            if (res.error && /sectores/i.test(res.error.message || '')) {
-                                                faltaMigracionSectores = true;
-                                                const { sectores, ...sinSectores } = body;
-                                                res = await conUnReintento(() => escribir(sinSectores), esEdicion ? null : filaYaCreada);
+                                            let faltaMigracionPrioridad = false;
+                                            let cuerpoSinFaltantes = body;
+                                            for (let intento = 0; intento < 2 && res.error; intento++) {
+                                                const mensaje = res.error.message || '';
+                                                if (/sectores/i.test(mensaje) && 'sectores' in cuerpoSinFaltantes) {
+                                                    faltaMigracionSectores = true;
+                                                    const { sectores, ...resto } = cuerpoSinFaltantes;
+                                                    cuerpoSinFaltantes = resto;
+                                                } else if (/prioridad/i.test(mensaje) && 'prioridad' in cuerpoSinFaltantes) {
+                                                    faltaMigracionPrioridad = true;
+                                                    const { prioridad, ...resto } = cuerpoSinFaltantes;
+                                                    cuerpoSinFaltantes = resto;
+                                                } else {
+                                                    break;
+                                                }
+                                                const cuerpo = cuerpoSinFaltantes;
+                                                res = await conUnReintento(() => escribir(cuerpo), esEdicion ? null : filaYaCreada);
                                             }
 
                                             btnGuardar.textContent = textoOriginal;
@@ -8557,6 +8610,11 @@
 
                                                                 // Sin sectores puestos el aviso sobraría: la categoría se guardó
                                                                 // entera y no se quedó nada fuera.
+                                                                if (faltaMigracionPrioridad && body.prioridad) {
+                                                                    alert('La categoría se guardó, pero su prioridad no.\n\n' +
+                                                                        'Falta la columna donde vive: abre Supabase → SQL Editor y ejecuta ' +
+                                                                        'migracion_prioridad_categoria.sql del repositorio. Después vuelve a ponerla.');
+                                                                }
                                                                 if (faltaMigracionSectores && sectoresValor) {
                                                                     alert('La categoría se guardó, pero sus sectores no.\n\n' +
                                                                         'Falta la columna donde viven: abre Supabase → SQL Editor y ejecuta ' +
@@ -8578,6 +8636,7 @@
                                                                     sectoresEnEdicionCat = sectoresPropiosDeCategoria(cat);
                                                                     pintarSectoresEnEdicion();
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
+                                                                    document.getElementById('catPrioridad').value = cat.prioridad || '';
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
                                                                     toggleAjustesAvanzadosCat(cat.desactivar_prediccion === true);
