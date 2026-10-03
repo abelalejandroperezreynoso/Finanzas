@@ -1151,6 +1151,20 @@
                     overflow: hidden;
                 }
                 .presentacion-barras span.vista { background: rgba(255, 255, 255, 0.9); }
+                /* El botón de los topes con IA: pastilla discreta bajo la lista */
+                .diapositiva .boton-ia {
+                    align-self: flex-start;
+                    width: auto !important;
+                    margin: 4px 0 0;
+                    padding: 9px 16px !important;
+                    border-radius: 999px;
+                    border: none;
+                    background: rgba(255, 255, 255, 0.14) !important;
+                    color: #fff;
+                    font-weight: 600;
+                    font-size: 0.9em;
+                }
+                .diapositiva .boton-ia:disabled { opacity: 0.6; }
                 /* Una hoja con más renglones de los que caben: empieza arriba y se desplaza */
                 .diapositiva.diapositiva-larga {
                     justify-content: flex-start;
@@ -2395,6 +2409,11 @@
                                 <option value="util" data-corto="No necesario pero útil">No necesario pero útil — comodidad: ahorra tiempo o da confort, internet o teléfono para ocio</option>
                                 <option value="prescindible" data-corto="Prescindible / Deseo">Prescindible / Deseo — gustos: ocio, antojos, caprichos</option>
                             </select>
+                        </label>
+                        <!-- Lo que es la categoría en tus palabras: la IA la lee al proponer topes -->
+                        <label class="rango-ios-fila" id="filaDescripcionCat" style="display: none;">
+                            <span>Descripción</span>
+                            <input type="text" id="catDescripcion" class="campo-fila-ios" placeholder="Ej: comida chatarra">
                         </label>
                         <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
                             <span>Ticker</span>
@@ -5777,6 +5796,7 @@
                                                         pintarSectoresEnEdicion();
                                                         document.getElementById('desactivarPrediccionCat').checked = false;
                                                         document.getElementById('catPrioridad').value = '';
+                                                        document.getElementById('catDescripcion').value = '';
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
                                                         mostrarOcultarTicker();
@@ -5937,7 +5957,7 @@
 
                             // Entrada sugiere Ingreso y Salida sugiere Gasto; el usuario puede cambiarlo
                             if (direccion) {
-                                document.getElementById('catTipo').value = direccion === 'entrada' ? 'ingreso' : 'gasto';
+                                document.getElementById('catTipo').value = direccion === 'entrada' ? 'ingreso' : direccion === 'salud' ? 'salud' : 'gasto';
                                 mostrarOcultarTicker();
                             }
 
@@ -8786,6 +8806,8 @@
 
                                                         const filaPrioridad = document.getElementById('filaPrioridadCat');
                                                         if (filaPrioridad) filaPrioridad.style.display = tipo === 'gasto' ? '' : 'none';
+                                                        const filaDescripcion = document.getElementById('filaDescripcionCat');
+                                                        if (filaDescripcion) filaDescripcion.style.display = tipo === 'gasto' ? '' : 'none';
                                                         if (typeof actualizarEspejosCategoria === 'function') actualizarEspejosCategoria();
                                                         const filaTicker = document.getElementById('filaTickerCat');
                                                         if (filaTicker) {
@@ -8850,6 +8872,10 @@
                                         // La prioridad sólo tiene sentido en un gasto; en lo demás se guarda nula
                                         prioridad: tipo === 'gasto' ? (document.getElementById('catPrioridad').value || null) : null,
                                         desactivar_prediccion: desactivar_prediccion,
+                                        // Sólo viaja si hay algo escrito: así una base sin la columna sigue guardando
+                                        ...((tipo === 'gasto' && document.getElementById('catDescripcion').value.trim())
+                                            ? { descripcion: document.getElementById('catDescripcion').value.trim() }
+                                            : (editIdCat && (datosCategorias.find(c => String(c.id) === String(editIdCat)) || {}).descripcion ? { descripcion: null } : {})),
                                         user_id: currentUser.id
                                     };
                                             
@@ -8891,10 +8917,15 @@
                                             // Lo mismo con `prioridad`, que también viene de su propia migración.
                                             let faltaMigracionSectores = false;
                                             let faltaMigracionPrioridad = false;
+                                            let faltaMigracionDescripcion = false;
                                             let cuerpoSinFaltantes = body;
-                                            for (let intento = 0; intento < 2 && res.error; intento++) {
+                                            for (let intento = 0; intento < 3 && res.error; intento++) {
                                                 const mensaje = res.error.message || '';
-                                                if (/sectores/i.test(mensaje) && 'sectores' in cuerpoSinFaltantes) {
+                                                if (/descripcion/i.test(mensaje) && 'descripcion' in cuerpoSinFaltantes) {
+                                                    faltaMigracionDescripcion = true;
+                                                    const { descripcion, ...resto } = cuerpoSinFaltantes;
+                                                    cuerpoSinFaltantes = resto;
+                                                } else if (/sectores/i.test(mensaje) && 'sectores' in cuerpoSinFaltantes) {
                                                     faltaMigracionSectores = true;
                                                     const { sectores, ...resto } = cuerpoSinFaltantes;
                                                     cuerpoSinFaltantes = resto;
@@ -8948,6 +8979,11 @@
                                                                         'Falta la columna donde vive: abre Supabase → SQL Editor y ejecuta ' +
                                                                         'migracion_prioridad_categoria.sql del repositorio. Después vuelve a ponerla.');
                                                                 }
+                                                                if (faltaMigracionDescripcion && body.descripcion) {
+                                                                    alert('La categoría se guardó, pero su descripción no.\n\n' +
+                                                                        'Falta la columna donde vive: abre Supabase → SQL Editor y ejecuta ' +
+                                                                        'migracion_topes_ia.sql del repositorio. Después vuelve a escribirla.');
+                                                                }
                                                                 if (faltaMigracionSectores && sectoresValor) {
                                                                     alert('La categoría se guardó, pero sus sectores no.\n\n' +
                                                                         'Falta la columna donde viven: abre Supabase → SQL Editor y ejecuta ' +
@@ -8970,6 +9006,7 @@
                                                                     pintarSectoresEnEdicion();
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
                                                                     document.getElementById('catPrioridad').value = cat.prioridad || '';
+                                                                    document.getElementById('catDescripcion').value = cat.descripcion || '';
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
                                                                     toggleAjustesAvanzadosCat(cat.desactivar_prediccion === true);
@@ -15075,6 +15112,86 @@
                                 activarGestosPresentacion();
                             }
 
+                            // ---- Topes con IA ----
+                            // Manda a la función topes-ia (Supabase) las categorías de gasto del mes con su
+                            // descripción, prioridad y los últimos tres meses; la IA (Claude) contesta un tope y
+                            // una razón por categoría, y se guardan en la categoría marcados con el mes al que
+                            // aplican. La clave de la IA vive en Supabase, nunca en el teléfono.
+                            function mesDesplazado(ym, delta) {
+                                const [a, m] = ym.split('-').map(n => parseInt(n, 10));
+                                const d = new Date(a, m - 1 + delta, 1);
+                                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                            }
+
+                            async function calcularTopesIa(ym, boton) {
+                                if (boton.disabled) return;
+                                const textoOriginal = boton.textContent;
+                                boton.disabled = true;
+                                boton.textContent = 'Pensando…';
+                                try {
+                                    const meses = [mesDesplazado(ym, -2), mesDesplazado(ym, -1), ym];
+                                    const resumenes = meses.map(resumirMesReporte);
+                                    const delMes = resumenes[2];
+                                    const catPorId = {};
+                                    (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
+                                    const categorias = Object.keys(delMes.porCategoria)
+                                        .map(id => catPorId[String(id)])
+                                        .filter(c => c && c.tipo === 'gasto' && delMes.porCategoria[c.id] >= 100)
+                                        .map(c => ({
+                                            id: String(c.id),
+                                            nombre: c.nombre,
+                                            descripcion: c.descripcion || null,
+                                            prioridad: c.prioridad || null,
+                                            gastos: resumenes.map(x => Math.round(x.porCategoria[c.id] || 0)),
+                                            veces: delMes.vecesPorCategoria[c.id] || 0
+                                        }));
+                                    if (categorias.length === 0) { alert('No hay gastos suficientes en este mes para proponer topes.'); return; }
+
+                                    const { data, error } = await clienteSupabase.functions.invoke('topes-ia', { body: { mes: ym, meses, categorias } });
+                                    if (error) {
+                                        // Sin la función desplegada el error es de red o 404; con ella, viene el
+                                        // mensaje que la función mandó
+                                        let detalle = '';
+                                        try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
+                                        alert(detalle
+                                            ? `No se pudieron calcular los topes: ${detalle}`
+                                            : 'No se pudo hablar con la IA.\n\nRevisa que la función topes-ia esté desplegada en Supabase y que tenga el secreto ANTHROPIC_API_KEY.');
+                                        return;
+                                    }
+
+                                    const ymSig = mesDesplazado(ym, 1);
+                                    const topes = (data && data.topes) || [];
+                                    const resultados = await Promise.all(topes.map(t => clienteSupabase
+                                        .from('categorias')
+                                        .update({ tope_ia: t.tope, tope_ia_razon: t.razon, tope_ia_mes: ymSig })
+                                        .eq('id', t.id)));
+                                    const fallo = resultados.find(x => x.error);
+                                    if (fallo) {
+                                        alert(/tope_ia/i.test(fallo.error.message || '')
+                                            ? 'La IA respondió, pero falta preparar la base para guardar sus topes.\n\nAbre Supabase → SQL Editor y ejecuta migracion_topes_ia.sql del repositorio.'
+                                            : explicarFalloAlGuardar(fallo.error, 'los topes'));
+                                        return;
+                                    }
+                                    topes.forEach(t => {
+                                        const cat = catPorId[String(t.id)];
+                                        if (cat) Object.assign(cat, { tope_ia: t.tope, tope_ia_razon: t.razon, tope_ia_mes: ymSig });
+                                    });
+
+                                    // Se rehace la presentación en la misma hoja, ya con los topes de la IA
+                                    const actual = document.querySelectorAll('#pistaPresentacion > .diapositiva')[diapositivaActual];
+                                    const etiqueta = actual && actual.querySelector('.etiqueta');
+                                    abrirPresentacionReporte(ymPresentacionActual || ym, { titulo: etiqueta ? etiqueta.textContent.trim() : '', indice: diapositivaActual });
+                                } catch (e) {
+                                    console.error('Topes con IA', e);
+                                    alert('No se pudo hablar con la IA. Revisa tu conexión e inténtalo de nuevo.');
+                                } finally {
+                                    if (document.body.contains(boton)) {
+                                        boton.disabled = false;
+                                        boton.textContent = textoOriginal;
+                                    }
+                                }
+                            }
+
                             // ---- Topes para el mes siguiente ----
                             // Sale del mes que se acaba de ver: en qué categorías de deseo o comodidad
                             // conviene ponerse un límite. Sin ninguna, la hoja no se enseña.
@@ -15091,19 +15208,36 @@
                                 const hayAvance = ymSig <= ymHoy;
                                 const gastadoSig = hayAvance ? resumirMesReporte(ymSig).porCategoria : {};
 
-                                // La hoja se centra en los topes: a qué categorías de deseo o comodidad ponerles
-                                // un límite y cuánto se ahorraría respetándolo. Un cuarto de lo gastado a lo
-                                // prescindible y la mitad a lo útil, redondeado a centenas.
+                                // La hoja se centra en los topes: a qué categorías ponerles un límite y cuánto se
+                                // ahorraría respetándolo. Si la IA ya propuso topes para ese mes, mandan los suyos
+                                // (con su razón); si no, la regla: un cuarto de lo gastado a lo prescindible y la
+                                // mitad a lo útil, redondeado a centenas.
                                 const redondo = n => fMoneda(Math.round(Math.abs(n)), fNumSaldo);
-                                const topes = Object.keys(r.porCategoria)
+                                const gastos = Object.keys(r.porCategoria)
                                     .map(id => ({ cat: catPorId[String(id)], gasto: r.porCategoria[id] }))
-                                    .filter(x => x.cat && (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
-                                    .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.25 : 0.5) / 100) * 100) }))
+                                    .filter(x => x.cat && x.cat.tipo === 'gasto');
+                                const conIa = gastos.some(x => x.cat.tope_ia_mes === ymSig && x.cat.tope_ia !== null && x.cat.tope_ia !== undefined);
+                                const topes = (conIa
+                                    ? gastos
+                                        .filter(x => x.cat.tope_ia_mes === ymSig && x.cat.tope_ia !== null && x.cat.tope_ia !== undefined)
+                                        .map(x => ({ ...x, tope: Math.max(0, parseFloat(x.cat.tope_ia) || 0), razon: x.cat.tope_ia_razon || '' }))
+                                    : gastos
+                                        .filter(x => (x.cat.prioridad === 'prescindible' || x.cat.prioridad === 'util') && x.gasto >= 200)
+                                        .map(x => ({ ...x, tope: Math.max(100, Math.round(x.gasto * (x.cat.prioridad === 'prescindible' ? 0.25 : 0.5) / 100) * 100) })))
                                     .map(x => ({ ...x, ahorro: x.gasto - x.tope }))
                                     // Todas las que dejen un ahorro que valga la pena, sin tope de cantidad
                                     .filter(x => x.ahorro >= 100)
                                     .sort((x, y) => y.ahorro - x.ahorro);
-                                if (topes.length === 0) return '';
+                                // Sin gastos no hay nada que topar; sin topes todavía se ofrece pedírselos a la IA
+                                if (gastos.length === 0) return '';
+                                const botonIa = `<button type="button" class="boton-ia" onclick="calcularTopesIa('${ym}', this)">${conIa ? 'Recalcular con IA' : '✨ Calcular con IA'}</button>`;
+                                if (topes.length === 0) {
+                                    return `<section class="diapositiva" style="${fondo('#1f6f4a', '#1b3a6b')}">
+                                        <div class="etiqueta">Topes para ${nombreSig}</div>
+                                        <div class="nota">${conIa ? 'La IA no ve recortes que valgan la pena.' : 'Ninguna categoría prescindible o útil deja un ahorro relevante.'}</div>
+                                        ${botonIa}
+                                    </section>`;
+                                }
                                 // Un tope que ya se rebasó en el mes de los topes deja de ser una promesa: lo que
                                 // aporta al ahorro es lo que de verdad quedó (puede ser negativo y restar).
                                 topes.forEach(x => {
@@ -15118,7 +15252,7 @@
                                 return `<section class="diapositiva${larga ? ' diapositiva-larga' : ''}" style="${fondo('#1f6f4a', '#1b3a6b')}${larga ? ' gap:10px;' : ''}">
                                     <div class="etiqueta">Topes para ${nombreSig}</div>
                                     <div class="cifra" style="color:${ahorroTotal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${ahorroTotal < 0 ? '-' : ''}${redondo(ahorroTotal)}</div>
-                                    <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
+                                    <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas${conIa ? ' · IA' : ''}</div>
                                     ${topes.map(x => {
                                         // Siempre el tope arriba a la derecha. Debajo, el ahorro en verde o, si ya se
                                         // rebasó, lo gastado de verdad en rojo
@@ -15129,10 +15263,12 @@
                                             : `<div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`);
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
-                                            <div class="nota" style="font-size:0.8em;">${izquierda}</div></div>
+                                            <div class="nota" style="font-size:0.8em;">${izquierda}</div>
+                                            ${x.razon ? `<div class="nota" style="font-size:0.75em; font-style:italic; margin-top:2px;">${escaparHtml(x.razon)}</div>` : ''}</div>
                                         <div style="text-align:right; white-space:nowrap;">${derecha}</div>
                                     </div>`;
                                     }).join('')}
+                                    ${botonIa}
                                 </section>`;
                             }
 
@@ -15434,7 +15570,7 @@
                                 });
                                 capa.addEventListener('click', e => {
                                     if (capa.dataset.ignorarClic) { delete capa.dataset.ignorarClic; return; }
-                                    if (e.target.closest('.presentacion-cerrar, .selector-mes-pres, .presentacion-meses')) return;
+                                    if (e.target.closest('.presentacion-cerrar, .selector-mes-pres, .presentacion-meses, .boton-ia')) return;
                                     irADiapositiva(diapositivaActual + (e.clientX > window.innerWidth / 3 ? 1 : -1));
                                 });
                                 document.addEventListener('keydown', e => {
