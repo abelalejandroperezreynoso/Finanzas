@@ -15120,17 +15120,13 @@
                                     <div class="cifra" style="color:${ahorroTotal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${ahorroTotal < 0 ? '-' : ''}${redondo(ahorroTotal)}</div>
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas</div>
                                     ${topes.map(x => {
-                                        // Si ya se rebasó, en el lugar del tope va lo gastado, en rojo, y cuánto se
-                                        // pasó; el tope se queda a la izquierda como referencia
+                                        // Siempre el tope arriba a la derecha. Debajo, el ahorro en verde o, si ya se
+                                        // rebasó, lo gastado de verdad en rojo con cuánto se pasó
                                         const llevaTexto = enCurso ? 'llevas' : `en ${nombreSig}`;
-                                        const izquierda = x.fallado
-                                            ? `gastaste ${redondo(x.gasto)} · tope ${redondo(x.tope)}`
-                                            : `gastaste ${redondo(x.gasto)}${hayAvance ? ` · ${llevaTexto} ${redondo(x.llevas)}` : ''}`;
-                                        const derecha = x.fallado
-                                            ? `<strong style="font-size:1.15em; color:#ff5c5c;">${redondo(x.llevas)}</strong>
-                                               <div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">+${Math.round(((x.llevas - x.tope) / x.tope) * 100)}%</div>`
-                                            : `<strong style="font-size:1.15em;">${redondo(x.tope)}</strong>
-                                               <div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`;
+                                        const izquierda = `gastaste ${redondo(x.gasto)}${hayAvance && !x.fallado ? ` · ${llevaTexto} ${redondo(x.llevas)}` : ''}`;
+                                        const derecha = `<strong style="font-size:1.15em;">${redondo(x.tope)}</strong>` + (x.fallado
+                                            ? `<div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">${redondo(x.llevas)} (+${Math.round(((x.llevas - x.tope) / x.tope) * 100)}%)</div>`
+                                            : `<div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`);
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
                                             <div class="nota" style="font-size:0.8em;">${izquierda}</div></div>
