@@ -2145,9 +2145,9 @@
                                 <option value="">Sin asignar</option>
                                 <!-- En la rueda cada nivel lleva una pista corta para elegir bien; en la
                                      pastilla se enseña sólo el nombre (data-corto). -->
-                                <option value="vital" data-corto="Necesidad vital">Necesidad vital — para vivir: comida, vivienda, salud, transporte al trabajo</option>
-                                <option value="operativa" data-corto="Necesidad operativa">Necesidad operativa — obligaciones: deudas, seguros, servicios, impuestos</option>
-                                <option value="util" data-corto="No necesario pero útil">No necesario pero útil — comodidad: ahorra tiempo o da confort</option>
+                                <option value="vital" data-corto="Necesidad vital">Necesidad vital — para vivir: comida, vivienda, salud, agua, luz, gas</option>
+                                <option value="operativa" data-corto="Necesidad operativa">Necesidad operativa — obligaciones: deudas, seguros, impuestos, internet o teléfono para trabajar</option>
+                                <option value="util" data-corto="No necesario pero útil">No necesario pero útil — comodidad: ahorra tiempo o da confort, internet o teléfono para ocio</option>
                                 <option value="prescindible" data-corto="Prescindible / Deseo">Prescindible / Deseo — gustos: ocio, antojos, caprichos</option>
                             </select>
                         </label>
@@ -5457,9 +5457,9 @@
 
                             // Técnica de las 4 "N": qué entra en cada nivel de prioridad de un gasto
                             var DESCRIPCION_PRIORIDADES_GASTO = {
-                                vital: 'Sobrevivencia: gastos indispensables para vivir, mantener tu vivienda o tu capacidad de generar ingresos.',
-                                operativa: 'Obligaciones: compromisos financieros que debes cumplir para mantener la estabilidad a largo plazo.',
-                                util: 'Comodidad: gastos que optimizan tu tiempo, confort o productividad, pero de los que podrías prescindir si es necesario.',
+                                vital: 'Sobrevivencia: gastos indispensables para vivir, mantener tu vivienda o tu capacidad de generar ingresos. Incluye los servicios básicos (agua, luz, gas): sin ellos la vivienda deja de funcionar.',
+                                operativa: 'Obligaciones: compromisos financieros que debes cumplir para mantener la estabilidad a largo plazo. Internet o teléfono van aquí si los necesitas para trabajar.',
+                                util: 'Comodidad: gastos que optimizan tu tiempo, confort o productividad, pero de los que podrías prescindir si es necesario. Internet o teléfono van aquí si son sólo para entretenimiento o comodidad.',
                                 prescindible: 'Estilo de vida: gastos puramente opcionales, destinados al entretenimiento, ocio o caprichos.'
                             };
 
