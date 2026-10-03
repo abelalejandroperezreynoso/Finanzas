@@ -3,8 +3,10 @@
 //
 // Vive en Supabase y no en la app porque la clave de Anthropic no puede ir en el teléfono:
 // cualquiera podría leerla. Aquí se guarda como secreto (ANTHROPIC_API_KEY) y sólo la
-// pueden usar los usuarios con sesión iniciada: Supabase rechaza la llamada sin su JWT.
+// pueden usar los usuarios con sesión iniciada: Supabase rechaza la llamada sin su JWT, y
+// cada usuario tiene un número limitado de consultas al día (tabla uso_ia).
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +15,11 @@ const CORS = {
 };
 
 const MAX_CATEGORIAS = 80;
+
+// La clave es una sola para toda la app: cada usuario puede consultar a la IA esta
+// cantidad de veces por cada 24 horas. Se cuenta en la tabla uso_ia.
+const CONSULTAS_POR_DIA = 1;
+const FUNCION = "topes-ia";
 
 const SISTEMA = `Eres un asesor de finanzas personales para una persona en México (montos en MXN).
 Recibes sus categorías de gasto de un mes: nombre, descripción que ella escribió (si la hay),
@@ -88,6 +95,31 @@ Deno.serve(async (req) => {
     veces: Math.round(Number(c.veces) || 0),
   }));
 
+  // El usuario que llama, con su propia sesión: así la tabla uso_ia sólo le deja
+  // contar y anotar sus propios registros
+  const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
+    global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+  });
+  const { data: sesion } = await supabase.auth.getUser();
+  if (!sesion?.user) return responder({ error: "Inicia sesión para usar la IA." }, 401);
+
+  const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: recientes, error: errorUso } = await supabase
+    .from("uso_ia")
+    .select("creado_en")
+    .eq("funcion", FUNCION)
+    .gte("creado_en", hace24h)
+    .order("creado_en", { ascending: true });
+  // Sin poder contar no se consulta: sin el límite, la clave quedaría abierta
+  if (errorUso) {
+    return responder({ error: "Falta preparar la base: ejecuta migracion_uso_ia.sql en Supabase." }, 500);
+  }
+  if ((recientes ?? []).length >= CONSULTAS_POR_DIA) {
+    const primera = new Date((recientes ?? [])[0].creado_en).getTime();
+    const horas = Math.max(1, Math.ceil((primera + 24 * 60 * 60 * 1000 - Date.now()) / (60 * 60 * 1000)));
+    return responder({ error: `Ya usaste la IA hoy. Podrás volver a calcular en ${horas} h.` }, 429);
+  }
+
   const client = new Anthropic();
   try {
     // fallbacks "default": si el modelo declina, el servidor reintenta con el que corresponda
@@ -124,6 +156,8 @@ Deno.serve(async (req) => {
         tope: Math.max(0, Math.round(Number(t.tope) || 0)),
         razon: String(t.razon ?? "").slice(0, 160),
       }));
+    // Se anota sólo la consulta que salió bien: un error no gasta el turno del día
+    await supabase.from("uso_ia").insert({ user_id: sesion.user.id, funcion: FUNCION });
     return responder({ topes });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
