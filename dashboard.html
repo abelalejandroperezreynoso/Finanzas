@@ -5718,6 +5718,53 @@
                                     // salir que hay algo que reponer.
                                     let filtroPorDefectoRetiradoEnGestion = false;
 
+                                    // El periodo del Panel de control se recuerda entre aperturas de la app: el tipo
+                                    // de atajo (siempre contado desde hoy, no desde donde se dejaron las flechas),
+                                    // "Calcular desde hoy" y, si era un rango hecho a mano, sus fechas.
+                                    const CLAVE_PERIODO_GUARDADO = 'periodoPanelControl';
+                                    function guardarPeriodoActual() {
+                                        // Gestión de Datos quita el recorte por su cuenta mientras está abierta: eso no
+                                        // es una elección y no se guarda.
+                                        if (filtroPorDefectoRetiradoEnGestion) return;
+                                        try {
+                                            localStorage.setItem(CLAVE_PERIODO_GUARDADO, JSON.stringify({
+                                                tipo: tipoFiltroActual,
+                                                desdeHoy: !!document.getElementById('checkDesdeHoy')?.checked,
+                                                inicio: document.getElementById('filtroInicio')?.value || '',
+                                                fin: document.getElementById('filtroFin')?.value || ''
+                                            }));
+                                        } catch (e) { /* sin memoria: se queda en esta visita */ }
+                                    }
+
+                                    // Devuelve true si había un periodo guardado y lo dejó puesto
+                                    function restaurarPeriodoGuardado() {
+                                        let guardado = null;
+                                        try { guardado = JSON.parse(localStorage.getItem(CLAVE_PERIODO_GUARDADO)); } catch (e) { guardado = null; }
+                                        if (!guardado || !guardado.tipo) return false;
+
+                                        const checkDesdeHoy = document.getElementById('checkDesdeHoy');
+                                        if (checkDesdeHoy) checkDesdeHoy.checked = !!guardado.desdeHoy;
+                                        filtroPorDefectoPuesto = false;
+                                        offsetFiltroActual = 0;
+
+                                        if (guardado.tipo === 'personalizado') {
+                                            tipoFiltroActual = 'personalizado';
+                                            document.getElementById('filtroInicio').value = guardado.inicio || '';
+                                            document.getElementById('filtroFin').value = guardado.fin || '';
+                                            return true;
+                                        }
+                                        if (['hoy', 'semana', 'mes', 'trimestre', 'semestre', 'año', 'todo'].indexOf(guardado.tipo) < 0) return false;
+
+                                        // Se calculan las fechas sin repintar: el arranque pinta después con todo listo
+                                        tipoFiltroActual = guardado.tipo;
+                                        procesarDesplazamiento(true);
+                                        cambiosPanelPendientes = false;
+                                        // El mes con "desde hoy" apagado es el arranque de siempre: que la app pueda
+                                        // seguir quitándolo y reponiéndolo como antes.
+                                        if (guardado.tipo === 'mes' && !guardado.desdeHoy) filtroPorDefectoPuesto = true;
+                                        return true;
+                                    }
+
                                     function aplicarRangoDeArranque() {
                                         const porDefecto = rangoPorDefecto();
                                         filtroPorDefectoPuesto = true;
@@ -5975,7 +6022,8 @@
             // como un rango suelto, las flechas ◀ ▶ no avanzarían y el atajo "Mes" no aparecería marcado.
             // Mismo criterio que el atajo "Mes": del día 1 al último del mes. La ✕ de quitar filtros no vuelve
             // aquí, sino a "Todo el Tiempo", así que son dos funciones distintas.
-            aplicarRangoDeArranque();
+            // Si se guardó un periodo la última vez, se repone ése; si no, el mes en curso.
+            if (!restaurarPeriodoGuardado()) aplicarRangoDeArranque();
 
             // La fecha del formulario de registro sí la mantenemos en el día de hoy
                                     const ahora = new Date();
@@ -8700,6 +8748,7 @@
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 // Este repintado ya recoge los tipos de la gráfica que estuvieran pendientes
                                 cambiosPanelPendientes = false;
+                                guardarPeriodoActual();
                                 actualizarRangoFiltroIos();
                                 if (forzarLimpieza === true || (forzarLimpieza && forzarLimpieza.type === 'click')) {
                                     window.filtroMovimientosActivo = null;
