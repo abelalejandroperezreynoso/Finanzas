@@ -14948,19 +14948,6 @@
                                     diapositivaCambios('Gastaste menos en', cambiosCat.filter(x => x.dif < 0).sort((x, y) => x.dif - y.dif), '#3ecf8e', '#155e3c');
                                     diapositivaCambios('Gastaste más en', cambiosCat.filter(x => x.dif > 0).sort((x, y) => y.dif - x.dif), '#ff5c5c', '#6b1d1d');
 
-                                    // 7. Otros movimientos
-                                    const otros = [
-                                        ['inversion:sale', 'Invertiste'], ['inversion:entra', 'Retiraste de inversiones'],
-                                        ['deuda:sale', 'Pagaste de deudas'], ['deuda:entra', 'Adquiriste en deuda'],
-                                        ['prestamo:sale', 'Prestaste'], ['prestamo:entra', 'Te pagaron de préstamos']
-                                    ].filter(([k]) => (r.otros[k] || 0) > 0.005);
-                                    if (otros.length) {
-                                        diapositivas.push(`<section class="diapositiva" style="${fondo('#1b3a6b', '#000')}">
-                                            <div class="etiqueta">Además</div>
-                                            ${otros.map(([k, nombre]) => `<div><div class="nota" style="margin-bottom:4px;">${nombre}</div><div class="cifra" style="font-size:2.2em;">${fMoneda(r.otros[k])}</div></div>`).join('')}
-                                        </section>`);
-                                    }
-
                                     // 8. Plan para el mes siguiente
                                     diapositivas.push(diapositivaPlanProximoMes(ym, r, rp, ahorro, tasa, quedo, catPorId, fondo));
 
