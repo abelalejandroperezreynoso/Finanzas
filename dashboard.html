@@ -14870,51 +14870,31 @@
                                     </section>`);
                                 }
 
-                                // Las inversiones: lo que costaron tus acciones en dólares, lo que valen hoy y
-                                // cuánto de tu ganancia en pesos se debe a que subieron o bajaron
+                                // De dónde salió la ganancia en pesos: una diapositiva para lo que hicieron las
+                                // acciones y otra para el tipo de cambio. Las dos con la misma forma: la cifra en
+                                // pesos, el antes y el después, y qué parte de la ganancia es.
+                                const totalGananciaMxn = r.aporteInversionesMxn + r.aporteTipoCambioMxn;
+                                const diapositivaEfecto = (titulo, colorFondo, efecto, filas) => {
+                                    const pctSobreCosto = ` <span style="font-size:0.35em; letter-spacing:0;">MXN${r.costoMxn > 0 ? ` (${signo(efecto)}${Math.abs((efecto / r.costoMxn) * 100).toFixed(1)}%)` : ''}</span>`;
+                                    const fila = (t, v) => `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;"><div>${t}</div><div style="font-size:1.1em; font-weight:700; white-space:nowrap;">${v}</div></div>`;
+                                    return `<section class="diapositiva" style="${fondo(colorFondo, '#000')}">
+                                        <div class="etiqueta">${titulo}</div>
+                                        <div class="cifra" style="color:${efecto >= 0 ? verde : rojo};">${signo(efecto)}${fMoneda(Math.round(Math.abs(efecto)), fNumSaldo)}${pctSobreCosto}</div>
+                                        ${filas.map(([t, v]) => fila(t, v)).join('')}
+                                        ${totalGananciaMxn > 0.5 && efecto > 0 ? `<div class="nota">${Math.round((efecto / totalGananciaMxn) * 100)}% de tu ganancia en pesos</div>` : ''}
+                                    </section>`;
+                                };
                                 if (r.costoUsd > 0) {
-                                    const efecto = r.aporteInversionesMxn;
-                                    const pctUsd = (ganancia / r.costoUsd) * 100;
-                                    const totalMxn = efecto + r.aporteTipoCambioMxn;
-                                    const color = efecto >= 0 ? verde : rojo;
-                                    const usd = (titulo, n) => `<div style="flex:1; min-width:0;"><div class="nota" style="margin-bottom:4px;">${titulo}</div>
-                                        <div style="font-size:1.7em; font-weight:800; letter-spacing:-0.02em; white-space:nowrap;">${fMoneda(Math.round(n), fNumSaldo)}</div></div>`;
-                                    d.push(`<section class="diapositiva" style="${fondo(efecto >= 0 ? '#155e3c' : '#6b1d1d', '#000')}">
-                                        <div class="etiqueta">Tus inversiones</div>
-                                        <div style="display:flex; gap:16px; align-items:flex-end;">
-                                            ${usd('Costaron (USD)', r.costoUsd)}
-                                            <div style="font-size:1.6em; color:#888; padding-bottom:6px;">→</div>
-                                            ${usd('Valen hoy (USD)', r.valorUsd)}
-                                        </div>
-                                        <div class="nota">Tus acciones ${ganancia >= 0 ? 'subieron' : 'bajaron'} ${fMoneda(Math.abs(ganancia))} USD (${signo(pctUsd)}${Math.abs(pctUsd).toFixed(1)}%) en dólares.</div>
-                                        <div class="cifra" style="color:${color};">${signo(efecto)}${fMoneda(Math.round(Math.abs(efecto)), fNumSaldo)} <span style="font-size:0.35em; letter-spacing:0;">MXN</span></div>
-                                        <div class="nota">${efecto >= 0 ? 'ganaste' : 'perdiste'} por cómo les fue a tus acciones${r.costoMxn > 0 ? ` (${signo(efecto)}${Math.abs((efecto / r.costoMxn) * 100).toFixed(1)}% sobre lo que pagaste)` : ''}, al tipo de cambio de hoy.</div>
-                                        ${totalMxn > 0.5 && efecto > 0 ? `<div class="nota" style="color:#fff;">Es el <strong>${Math.round((efecto / totalMxn) * 100)}%</strong> de tu ganancia en pesos.</div>` : ''}
-                                    </section>`);
+                                    d.push(diapositivaEfecto('Tus inversiones', r.aporteInversionesMxn >= 0 ? '#155e3c' : '#6b1d1d', r.aporteInversionesMxn, [
+                                        ['Costaron', `${fMoneda(Math.round(r.costoUsd), fNumSaldo)} USD`],
+                                        ['Valen hoy', `${fMoneda(Math.round(r.valorUsd), fNumSaldo)} USD`]
+                                    ]));
                                 }
-
-                                // El tipo de cambio: a cuánto compraste tus dólares, a cuánto están hoy y cuánto
-                                // de tu ganancia en pesos se debe sólo a eso
                                 if (r.costoUsd > 0 && r.tcCompra) {
-                                    const efecto = r.aporteTipoCambioMxn;
-                                    const difTc = r.tcHoy - r.tcCompra;
-                                    const pctTc = (difTc / r.tcCompra) * 100;
-                                    const totalMxn = r.aporteInversionesMxn + efecto;
-                                    const color = efecto >= 0 ? verde : rojo;
-                                    const tc = (titulo, n) => `<div style="flex:1; min-width:0;"><div class="nota" style="margin-bottom:4px;">${titulo}</div>
-                                        <div style="font-size:2em; font-weight:800; letter-spacing:-0.02em;">${fMoneda(n)}</div></div>`;
-                                    d.push(`<section class="diapositiva" style="${fondo('#6b5a1b', '#000')}">
-                                        <div class="etiqueta">El tipo de cambio</div>
-                                        <div style="display:flex; gap:16px; align-items:flex-end;">
-                                            ${tc('Compraste a', r.tcCompra)}
-                                            <div style="font-size:1.6em; color:#888; padding-bottom:6px;">→</div>
-                                            ${tc('Hoy está en', r.tcHoy)}
-                                        </div>
-                                        <div class="nota">El dólar ${difTc >= 0 ? 'subió' : 'bajó'} ${fMoneda(Math.abs(difTc))} (${signo(pctTc)}${Math.abs(pctTc).toFixed(1)}%) desde el promedio al que compraste.</div>
-                                        <div class="cifra" style="color:${color};">${signo(efecto)}${fMoneda(Math.round(Math.abs(efecto)), fNumSaldo)} <span style="font-size:0.35em; letter-spacing:0;">MXN</span></div>
-                                        <div class="nota">${efecto >= 0 ? 'ganaste' : 'perdiste'} sólo por el tipo de cambio${r.costoMxn > 0 ? ` (${signo(efecto)}${Math.abs((efecto / r.costoMxn) * 100).toFixed(1)}% sobre lo que pagaste)` : ''}.</div>
-                                        ${totalMxn > 0.5 && efecto > 0 ? `<div class="nota" style="color:#fff;">Es el <strong>${Math.round((efecto / totalMxn) * 100)}%</strong> de tu ganancia en pesos.</div>` : ''}
-                                    </section>`);
+                                    d.push(diapositivaEfecto('El tipo de cambio', '#6b5a1b', r.aporteTipoCambioMxn, [
+                                        ['Compraste a', fMoneda(r.tcCompra)],
+                                        ['Hoy está en', fMoneda(r.tcHoy)]
+                                    ]));
                                 }
 
                                 // Dinero que entró y salió del portafolio en el mes
