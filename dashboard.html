@@ -14845,7 +14845,11 @@
                                         const fila = (titulo, detalle, n) => `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                             <div style="min-width:0;"><div style="font-size:1.05em;">${titulo}</div><div class="nota" style="font-size:0.85em;">${detalle}</div></div>
                                             <div style="text-align:right; white-space:nowrap; color:${n >= 0 ? verde : rojo};"><strong style="font-size:1.25em;">${pesos(n)}</strong><div style="font-size:0.9em; font-weight:600;">${pct(n)}</div></div></div>`;
-                                        return `<div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)} <span style="font-size:0.55em;">(${pct(total)})</span></div>
+                                        // Lo que se puso para llegar ahí: los pesos que costaron las acciones que hay hoy
+                                        return `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;">
+                                                <div style="min-width:0;"><div style="font-size:1.05em;">Invertido</div><div class="nota" style="font-size:0.85em;">Lo que pagaste por las acciones que tienes hoy</div></div>
+                                                <strong style="font-size:1.25em; white-space:nowrap;">${fMoneda(Math.round(r.costoMxn), fNumSaldo)}</strong></div>
+                                            <div><div class="cifra" style="font-size:2em; color:${total >= 0 ? verde : rojo};">${pesos(total)} <span style="font-size:0.55em;">(${pct(total)})</span></div>
                                             <div class="nota">${total >= 0 ? 'de ganancia' : 'de pérdida'} en pesos sobre lo que pagaste.</div></div>
                                             ${fila('Tus inversiones', `${signo(ganancia)}${fMoneda(Math.abs(ganancia))} USD`, r.aporteInversionesMxn)}
                                             ${fila('El tipo de cambio', r.tcCompra ? `Compraste a ${r.tcCompra.toFixed(2)} en promedio, hoy está en ${r.tcHoy.toFixed(2)}` : '', r.aporteTipoCambioMxn)}`;
