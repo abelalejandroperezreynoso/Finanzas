@@ -1180,6 +1180,32 @@
                     line-height: 1.45;
                     color: rgba(255, 255, 255, 0.75);
                 }
+                .selector-mes-pres {
+                    position: relative;
+                    align-self: flex-start;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin: 0;
+                    padding: 10px 16px;
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.14);
+                    color: #fff;
+                    font-size: 0.95em;
+                    font-weight: 600;
+                }
+                .selector-mes-pres select {
+                    position: absolute;
+                    inset: 0;
+                    width: 100%;
+                    height: 100%;
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                    opacity: 0;
+                    -webkit-appearance: none;
+                    appearance: none;
+                }
                 .diapositiva .barra-h {
                     height: 12px;
                     border-radius: 6px;
@@ -2014,7 +2040,7 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Reportes mensuales</h3>
         <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
-            Cada mes resumido: ingresos, gastos, ahorro, gastos por prioridad y en qué se fue el dinero, comparado con el mes anterior.
+            Cada mes en una presentación: ingresos, gastos, ahorro, gastos por prioridad y en qué se fue el dinero, comparado con el mes anterior.
         </p>
         <button onclick="abrirReportesMensuales()" aria-label="Ver reportes mensuales"
                 style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
@@ -2414,33 +2440,6 @@
                                                             <button onclick="cerrarModalAuditoriaGbm()" style="width: auto; margin: 0; padding: 5px 0 5px 15px; background: none; border: none; color: #ffffff; font-size: 1.6em; cursor: pointer; line-height: 1;">✕</button>
                                                         </div>
                                                         <div id="contenidoAuditoriaGbm" style="text-align: left; font-size: 0.95em; line-height: 1.5; color: #ccc; margin-bottom: 20px;"></div>
-                                                    </div>
-                                                </div>
-
-                                                <!-- Reporte mensual: hoja de iOS con el mes a elegir arriba y el resumen debajo.
-                                                     Se calcula al abrirlo con los movimientos que ya tiene la app; no se guarda nada. -->
-                                                <div class="modal-overlay hoja-ios" id="modalReportes" onclick="if (event.target === this) cerrarReportesMensuales();">
-                                                    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Reporte mensual">
-                                                        <div class="hoja-ios-tirador"></div>
-                                                        <div class="hoja-ios-encabezado">
-                                                            <button type="button" class="hoja-ios-accion hoja-ios-secundaria" onclick="cerrarReportesMensuales()" aria-label="Cerrar" title="Cerrar">
-                                                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
-                                                            </button>
-                                                            <h3>Reporte mensual</h3>
-                                                        </div>
-                                                        <div class="hoja-ios-cuerpo">
-                                                            <div class="rango-ios-grupo">
-                                                                <label class="rango-ios-fila">
-                                                                    <span>Mes</span>
-                                                                    <span class="rango-ios-pastilla" id="espejoMesReporte">—</span>
-                                                                    <select id="selectMesReporte" onchange="pintarReporteMensual(this.value)"></select>
-                                                                </label>
-                                                            </div>
-                                                            <div class="rango-ios-grupo">
-                                                                <button type="button" class="fila-accion-ios" onclick="abrirPresentacionReporte()">▶︎ Ver como presentación</button>
-                                                            </div>
-                                                            <div id="contenidoReporte"></div>
-                                                        </div>
                                                     </div>
                                                 </div>
 
@@ -5587,7 +5586,6 @@
                             habilitarArrastreHoja('modalFiltros', () => cerrarModalFiltros());
                             habilitarArrastreHoja('modalCategoria', () => cerrarModalCategoria());
                             habilitarArrastreHoja('modalDetallesCategoria', () => cerrarModalDetallesCategoria());
-                            habilitarArrastreHoja('modalReportes', () => cerrarReportesMensuales());
 
                             function abrirModalCuenta() {
                                 document.getElementById('modalCuenta').classList.add('activa');
@@ -14223,27 +14221,22 @@
                             // ---- Reportes mensuales ----
                             // Se arman al momento con los movimientos cargados (datosUsoCompleto). Cuentan las
                             // cuentas que entran en el saldo total, igual que el resto del inicio.
-                            function abrirReportesMensuales() {
-                                const select = document.getElementById('selectMesReporte');
+                            // Los meses con movimientos, del más reciente al más viejo (sin pasar de hoy)
+                            function mesesConReporte() {
                                 const ymHoy = obtenerFechaLocalCortada(new Date().toISOString()).slice(0, 7);
                                 const meses = [...new Set((datosUsoCompleto || [])
                                     .filter(u => u.fecha)
                                     .map(u => obtenerFechaLocalCortada(u.fecha).slice(0, 7))
                                     .filter(ym => ym && ym <= ymHoy))].sort().reverse();
                                 if (meses.length === 0) meses.push(ymHoy);
-                                select.innerHTML = meses.map(ym => {
-                                    const [a, m] = ym.split('-');
-                                    const nombre = `${NOMBRES_MESES[parseInt(m, 10) - 1]} ${a}`;
-                                    return `<option value="${ym}">${nombre}${ym === ymHoy ? ' (en curso)' : ''}</option>`;
-                                }).join('');
-                                // Abre en el último mes completo, que es el que tiene un reporte cerrado
-                                select.value = meses.find(ym => ym < ymHoy) || meses[0];
-                                pintarReporteMensual(select.value);
-                                abrirHojaIos(document.getElementById('modalReportes'));
+                                return { meses, ymHoy };
                             }
 
-                            function cerrarReportesMensuales() {
-                                cerrarHojaIos(document.getElementById('modalReportes'));
+                            // Desde Configuración se abre directo la presentación, en el último mes completo.
+                            // El mes se cambia en la portada.
+                            function abrirReportesMensuales() {
+                                const { meses, ymHoy } = mesesConReporte();
+                                abrirPresentacionReporte(meses.find(ym => ym < ymHoy) || meses[0]);
                             }
 
                             function resumirMesReporte(ym) {
@@ -14274,108 +14267,11 @@
                                 return r;
                             }
 
-                            function pintarReporteMensual(ym) {
-                                const select = document.getElementById('selectMesReporte');
-                                const espejo = document.getElementById('espejoMesReporte');
-                                if (espejo && select) {
-                                    const op = select.selectedOptions[0];
-                                    espejo.textContent = op ? op.textContent : ym;
-                                }
-                                const [a, m] = ym.split('-').map(n => parseInt(n, 10));
-                                const previo = m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`;
-                                const r = resumirMesReporte(ym);
-                                const rp = resumirMesReporte(previo);
-                                const catPorId = {};
-                                (datosCategorias || []).forEach(c => { catPorId[String(c.id)] = c; });
-
-                                // Variación contra el mes anterior. En los gastos bajar es bueno (verde); en los
-                                // ingresos y el ahorro, subir.
-                                const variacion = (actual, anterior, subirEsBueno) => {
-                                    if (!(anterior > 0.005)) return '';
-                                    const pct = ((actual - anterior) / anterior) * 100;
-                                    if (Math.abs(pct) < 0.5) return ' <span style="color:#98989d; font-weight:400;">= mes ant.</span>';
-                                    const bueno = subirEsBueno ? pct > 0 : pct < 0;
-                                    return ` <span style="color:${bueno ? '#3ecf8e' : '#ff5c5c'}; font-weight:400;">${pct > 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(0)}%</span>`;
-                                };
-
-                                const ahorro = r.ingresos - r.gastos;
-                                const ahorroPrevio = rp.ingresos - rp.gastos;
-                                const tasa = r.ingresos > 0 ? (ahorro / r.ingresos) * 100 : null;
-
-                                let html = '';
-                                if (r.movimientos === 0) {
-                                    document.getElementById('contenidoReporte').innerHTML =
-                                        '<div style="color:#98989d; text-align:center; padding: 30px 10px;">Sin movimientos este mes.</div>';
-                                    return;
-                                }
-
-                                html += '<div class="rango-ios-encabezado">Resumen</div><div class="rango-ios-grupo">';
-                                html += filaDetalleIos('Ingresos', `<span style="color:#3ecf8e;">${fMoneda(r.ingresos)}</span>${variacion(r.ingresos, rp.ingresos, true)}`);
-                                html += filaDetalleIos('Gastos', `<span style="color:#ff5c5c;">${fMoneda(r.gastos)}</span>${variacion(r.gastos, rp.gastos, false)}`);
-                                html += filaDetalleIos('Ahorro', `${ahorro < 0 ? '-' : ''}${fMoneda(Math.abs(ahorro))}${ahorroPrevio > 0.005 && ahorro > 0 ? variacion(ahorro, ahorroPrevio, true) : ''}`, true);
-                                if (tasa !== null) html += filaDetalleIos('Tasa de ahorro', `<span style="color:${tasa >= 0 ? '#3ecf8e' : '#ff5c5c'};">${tasa.toFixed(1)}%</span>`);
-                                html += filaDetalleIos('Movimientos', String(r.movimientos));
-                                html += '</div>';
-
-                                // Gastos por prioridad (4 N)
-                                if (r.gastos > 0.005) {
-                                    const niveles = [
-                                        ['vital', 'Necesidad vital', '#3ecf8e'],
-                                        ['operativa', 'Necesidad operativa', '#4da6ff'],
-                                        ['util', 'No necesario pero útil', '#f5a623'],
-                                        ['prescindible', 'Prescindible / Deseo', '#ff5c5c'],
-                                        ['sin', 'Sin asignar', '#636366']
-                                    ].filter(([clave]) => (r.porPrioridad[clave] || 0) > 0.005);
-                                    html += '<div class="rango-ios-encabezado">Gastos por prioridad</div><div class="rango-ios-grupo">';
-                                    // Barra apilada con la parte de cada nivel
-                                    html += '<div class="rango-ios-fila" style="cursor:default;"><div style="display:flex; width:100%; height:10px; border-radius:5px; overflow:hidden; gap:2px;">'
-                                        + niveles.map(([clave, , color]) => `<div style="flex:${r.porPrioridad[clave]}; background:${color};"></div>`).join('')
-                                        + '</div></div>';
-                                    niveles.forEach(([clave, nombre, color]) => {
-                                        const monto = r.porPrioridad[clave];
-                                        const pct = (monto / r.gastos) * 100;
-                                        html += filaDetalleIos(`<span style="display:inline-flex; align-items:center; gap:8px;"><span class="punto-tipo-grafica" style="background:${color};"></span>${nombre}</span>`,
-                                            `${fMoneda(monto)} <span style="color:#98989d;">· ${pct.toFixed(0)}%</span>`);
-                                    });
-                                    html += '</div>';
-                                    if (r.porPrioridad.sin > 0.005) {
-                                        html += '<div style="font-size:0.82em; color:#98989d; line-height:1.4; margin:-16px 18px 26px;">Asigna una prioridad a tus categorías de gasto desde su hoja de edición para repartir "Sin asignar".</div>';
-                                    }
-                                }
-
-                                // Las categorías donde más se gastó, con su cambio contra el mes anterior
-                                const top = Object.keys(r.porCategoria).sort((x, y) => r.porCategoria[y] - r.porCategoria[x]).slice(0, 8);
-                                if (top.length) {
-                                    html += '<div class="rango-ios-encabezado">Dónde se fue el dinero</div><div class="rango-ios-grupo">';
-                                    top.forEach(id => {
-                                        const cat = catPorId[String(id)];
-                                        const monto = r.porCategoria[id];
-                                        html += filaDetalleIos(escaparHtml(cat ? cat.nombre : '—'), `${fMoneda(monto)}${variacion(monto, rp.porCategoria[id] || 0, false)}`);
-                                    });
-                                    html += '</div>';
-                                }
-
-                                // Movimientos que no son gasto ni ingreso corriente
-                                const otros = [
-                                    ['inversion:sale', 'Invertido'], ['inversion:entra', 'Retirado de inversiones'],
-                                    ['deuda:sale', 'Pagos de deuda'], ['deuda:entra', 'Deuda adquirida'],
-                                    ['prestamo:sale', 'Préstamos emitidos'], ['prestamo:entra', 'Cobros de préstamos']
-                                ].filter(([clave]) => (r.otros[clave] || 0) > 0.005);
-                                if (otros.length) {
-                                    html += '<div class="rango-ios-encabezado">Otros movimientos</div><div class="rango-ios-grupo">';
-                                    otros.forEach(([clave, nombre]) => { html += filaDetalleIos(nombre, fMoneda(r.otros[clave])); });
-                                    html += '</div>';
-                                }
-
-                                document.getElementById('contenidoReporte').innerHTML = html;
-                            }
-
                             // ---- Presentación del reporte (diapositivas a pantalla completa) ----
                             let diapositivaActual = 0;
                             let totalDiapositivas = 0;
 
-                            function abrirPresentacionReporte() {
-                                const ym = document.getElementById('selectMesReporte').value;
+                            function abrirPresentacionReporte(ym) {
                                 const [a, m] = ym.split('-').map(n => parseInt(n, 10));
                                 const previo = m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`;
                                 const nombreMes = NOMBRES_MESES[m - 1];
@@ -14397,6 +14293,17 @@
                                     <div class="etiqueta">Reporte mensual</div>
                                     <h2 style="font-size: 3em;">${nombreMes}<br>${a}</h2>
                                     <div class="nota">${r.movimientos} movimientos. Toca a la derecha para avanzar.</div>
+                                    <!-- Cambiar de mes: abre la rueda nativa y rehace la presentación -->
+                                    <label class="selector-mes-pres">
+                                        <span>Cambiar de mes</span>
+                                        <svg viewBox="0 0 12 16" width="10" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>
+                                        <select onchange="abrirPresentacionReporte(this.value)">
+                                            ${(() => { const { meses, ymHoy } = mesesConReporte(); return meses.map(x => {
+                                                const [aa, mm] = x.split('-');
+                                                return `<option value="${x}"${x === ym ? ' selected' : ''}>${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${aa}${x === ymHoy ? ' (en curso)' : ''}</option>`;
+                                            }).join(''); })()}
+                                        </select>
+                                    </label>
                                 </section>`);
 
                                 if (r.movimientos === 0) {
@@ -14548,7 +14455,7 @@
                                 });
                                 capa.addEventListener('click', e => {
                                     if (capa.dataset.ignorarClic) { delete capa.dataset.ignorarClic; return; }
-                                    if (e.target.closest('.presentacion-cerrar')) return;
+                                    if (e.target.closest('.presentacion-cerrar, .selector-mes-pres')) return;
                                     irADiapositiva(diapositivaActual + (e.clientX > window.innerWidth / 3 ? 1 : -1));
                                 });
                                 document.addEventListener('keydown', e => {
