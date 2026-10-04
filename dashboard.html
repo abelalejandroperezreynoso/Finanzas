@@ -15566,6 +15566,9 @@
                                         filas.push(`Tipo: ${flecha(nombresTipoCat[a.tipo] || a.tipo, nombresTipoCat[c.tipo] || c.tipo)}`);
                                     }
                                     if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
+                                    if (p.convertir_a_salud && p.convertir_a_salud.movimientos) {
+                                        filas.push(`Movimientos: <b>${p.convertir_a_salud.movimientos}</b> pasan a cantidad; ${escaparHtml(fMoneda(p.convertir_a_salud.total))} dejan de contar como dinero`);
+                                    }
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
@@ -16123,6 +16126,25 @@
                                     if (!res.error) clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).eq('id', p.registro_id).then(() => {}, () => {});
                                 } else if (p.tipo === 'cambio_categoria') {
                                     res = await clienteSupabase.from('categorias').update(p.cambios).eq('id', p.categoria_id);
+                                    // Pasar a Salud: cada movimiento guarda su monto como cantidad y queda en 0 pesos.
+                                    // Se agrupa por monto para hacerlo con pocas escrituras.
+                                    if (!res.error && p.convertir_a_salud) {
+                                        const { data: regs, error: e1 } = await clienteSupabase.from('registros').select('id, monto, cantidad').eq('categoria_id', p.categoria_id);
+                                        if (e1) res = { error: e1 };
+                                        else {
+                                            const grupos = {};
+                                            (regs || []).forEach(r => {
+                                                const cantidad = r.cantidad !== null && r.cantidad !== undefined ? Number(r.cantidad) : Math.abs(Number(r.monto) || 0);
+                                                (grupos[cantidad] = grupos[cantidad] || []).push(r.id);
+                                            });
+                                            for (const [cantidad, ids] of Object.entries(grupos)) {
+                                                for (let k = 0; k < ids.length && !res.error; k += 200) {
+                                                    const r2 = await clienteSupabase.from('registros').update({ monto: 0, cantidad: Number(cantidad) }).in('id', ids.slice(k, k + 200));
+                                                    if (r2.error) res = r2;
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     res = await clienteSupabase.from('registros').insert([{ ...p.datos, fecha: fechaDeDiaLocal(p.datos.fecha), user_id: currentUser.id }]);
                                 } else {
