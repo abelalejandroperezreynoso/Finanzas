@@ -180,11 +180,11 @@ const HERRAMIENTAS: Json[] = [
         categoria_id: { type: "string" },
         importe: { type: "number" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
-        descripcion: { type: "string" },
+        descripcion: { type: "string", description: "Qué fue, con el detalle que dio el usuario (por ejemplo \"Sushi\"); nunca vacía" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
-      required: ["categoria_id", "importe", "fecha", "resumen"],
+      required: ["categoria_id", "importe", "fecha", "descripcion", "resumen"],
       additionalProperties: false,
     },
   },
@@ -433,6 +433,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const importe = Math.abs(Number(entrada.importe));
       const dNueva = textoCompleto(entrada.descripcion, MAX_DESCRIPCION_MOVIMIENTO);
       if (dNueva.error) return { texto: dNueva.error, error: true };
+      if (!dNueva.texto) return { texto: "Falta la descripción: escribe qué fue el movimiento.", error: true };
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,

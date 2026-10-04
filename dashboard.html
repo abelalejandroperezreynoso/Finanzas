@@ -15670,7 +15670,7 @@
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
                                     filas.push(d.cantidad !== undefined ? `Cantidad: <b>${escaparHtml(String(d.cantidad))}</b>` : `Monto: <b>${escaparHtml(fMoneda(Math.abs(d.monto)))}</b> (${d.monto < 0 ? 'salida' : 'entrada'})`);
                                     filas.push(`Fecha: <b>${escaparHtml(d.fecha || '')}</b>`);
-                                    if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
+                                    filas.push(`Descripción: <b>${escaparHtml(d.descripcion || '(vacía)')}</b>`);
                                 }
                                 return filas.join('<br>');
                             }
