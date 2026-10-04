@@ -172,49 +172,56 @@
 /* La descripción, en un solo renglón: lo que no quepa se corta con puntos suspensivos */
 .movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
-        /* Asistente: chat al estilo de Mensajes de iOS */
+        /* Asistente: chat al estilo de la app de Claude (fondo crema, respuestas en serif,
+           tus mensajes en burbuja beige y la caja de escribir como tarjeta al pie) */
         /* El chat es una pantalla propia encima de todo: encabezado arriba, mensajes que se
            desplazan por dentro y la barra de escribir al pie. Así la barra nunca depende del
            scroll de la página (en iOS una barra fija se quedaba a media pantalla al abrir).
            Al deslizar para abrirlo o cerrarlo la misma capa se mueve con el dedo. */
-        #sec-asistente { position: fixed; top: 0; left: 0; right: 0; height: 100%; z-index: 2500; background: #fff;
+        #sec-asistente { position: fixed; top: 0; left: 0; right: 0; height: 100%; z-index: 2500; background: #faf9f5; color: #141413;
             flex-direction: column; padding: calc(20px + env(safe-area-inset-top)) 20px 0; box-sizing: border-box; overflow: hidden; }
         #sec-asistente.activa, #sec-asistente.arrastrando { display: flex; animation: none; }
+        #sec-asistente .titulo-seccion { color: #141413; }
+        #sec-asistente .encabezado-chat button { color: #141413 !important; }
+        html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 10px; margin: 0 -20px; padding: 0 20px 16px; }
+            display: flex; flex-direction: column; gap: 16px; margin: 0 -20px; padding: 4px 20px 20px; }
         .chat-mensajes > * { flex-shrink: 0; }
-        .chat-usuario { align-self: flex-end; max-width: 82%; background: #007aff; color: #fff; padding: 9px 14px; border-radius: 18px 18px 4px 18px; font-size: 0.98em; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
-        .chat-asistente { align-self: stretch; color: #1c1c1e; font-size: 0.98em; line-height: 1.5; word-wrap: break-word; }
-        .chat-asistente ul { margin: 4px 0; padding-left: 20px; }
-        .chat-asistente strong { color: #000; }
-        .chat-error { align-self: stretch; color: #d70015; font-size: 0.85em; }
-        .chat-propuesta { align-self: stretch; background: #f2f2f7; border: 1px solid #e5e5ea; border-radius: 14px; padding: 12px 14px; }
-        .chat-propuesta .titulo { font-weight: 700; color: #000; margin-bottom: 6px; }
-        .chat-propuesta .detalle { font-size: 0.85em; color: #3c3c43; line-height: 1.6; }
-        .chat-propuesta .detalle b { color: #000; font-weight: 600; }
-        .chat-propuesta .acciones { display: flex; gap: 8px; margin-top: 10px; }
-        .chat-propuesta .acciones button { flex: 1; margin: 0; padding: 9px; border-radius: 10px; border: none; font-weight: 600; font-size: 0.9em; }
-        .chat-propuesta .estado { margin-top: 8px; font-size: 0.85em; font-weight: 600; }
-        .chat-sugerencias { display: flex; flex-direction: column; gap: 8px; margin-top: 30px; }
-        .chat-sugerencias button { margin: 0; text-align: left; background: #f2f2f7; color: #000; border: 1px solid #e5e5ea; border-radius: 14px; padding: 12px 14px; font-size: 0.92em; font-weight: 500; }
-        .chat-escribiendo { align-self: flex-start; display: flex; gap: 4px; padding: 10px 14px; background: #e9e9eb; border-radius: 18px; }
-        .chat-escribiendo span { width: 7px; height: 7px; border-radius: 50%; background: #8e8e93; animation: chatPunto 1.2s infinite; }
+        .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 20px;
+            font-size: 1em; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+        .chat-asistente { align-self: stretch; color: #141413; font-family: ui-serif, "New York", Georgia, serif; font-size: 1.06em;
+            line-height: 1.6; word-wrap: break-word; }
+        .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
+        .chat-asistente li { margin-bottom: 4px; }
+        .chat-asistente strong { color: #141413; font-weight: 700; }
+        .chat-error { align-self: stretch; color: #b3261e; font-size: 0.88em; }
+        .chat-propuesta { align-self: stretch; background: #ffffff; border: 0.5px solid #e8e6dc; border-radius: 22px; padding: 18px 18px 16px;
+            box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
+        .chat-propuesta .titulo { font-weight: 600; font-size: 1.05em; color: #141413; margin-bottom: 8px; }
+        .chat-propuesta .detalle { font-size: 0.88em; color: #5e5d59; line-height: 1.65; }
+        .chat-propuesta .detalle b { color: #141413; font-weight: 600; }
+        .chat-propuesta .acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+        .chat-propuesta .acciones button { flex: 0 0 auto; width: auto; margin: 0; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 0.92em; }
+        .chat-propuesta .estado { margin-top: 10px; font-size: 0.88em; font-weight: 600; }
+        .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
+            border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
+        .chat-sugerencias button { margin: 0; text-align: left; background: none; color: #141413; border: none; border-bottom: 0.5px solid #e8e6dc;
+            border-radius: 0; padding: 16px 0; font-size: 0.95em; font-weight: 500; }
+        .chat-sugerencias button:last-child { border-bottom: none; }
+        .chat-escribiendo { align-self: flex-start; display: flex; gap: 5px; padding: 6px 2px; }
+        .chat-escribiendo span { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.2s infinite; }
         .chat-escribiendo span:nth-child(2) { animation-delay: 0.2s; }
         .chat-escribiendo span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes chatPunto { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
-        .chat-barra { flex-shrink: 0; margin: 0 -20px; display: flex; align-items: flex-end; gap: 8px;
-            padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(255, 255, 255, 0.85);
-            -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: 0.5px solid #d1d1d6; }
-        .chat-barra textarea { flex: 1; margin: 0; resize: none; background: #fff; color: #000; border: 1px solid #d1d1d6; border-radius: 20px;
-            padding: 9px 14px; font-size: 16px; line-height: 1.35; max-height: 120px; font-family: inherit; box-sizing: border-box; }
-        .chat-barra button { flex-shrink: 0; width: 36px !important; height: 36px; margin: 0 0 2px; padding: 0 !important; border-radius: 50%;
-            border: none; background: #007aff; color: #fff; display: flex; align-items: center; justify-content: center; }
-        .chat-barra button:disabled { background: #d1d1d6; }
-        /* El chat va en claro: fondo blanco en toda la pantalla mientras está abierto */
-        html.chat-claro, html.chat-claro body { background-color: #ffffff; }
-        #sec-asistente { color: #000; }
-        #sec-asistente .titulo-seccion { color: #000; }
-        #sec-asistente .encabezado-chat button { color: #007aff !important; }
+        .chat-barra { flex-shrink: 0; margin: 0 -10px; display: flex; align-items: flex-end; gap: 8px;
+            padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 18px; background: #ffffff;
+            border: 0.5px solid #e8e6dc; border-bottom: none; border-radius: 26px 26px 0 0; box-shadow: 0 -4px 18px rgba(20, 20, 19, 0.06); }
+        .chat-barra textarea { flex: 1; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
+            padding: 8px 0; font-size: 16px; line-height: 1.4; max-height: 120px; font-family: inherit; box-sizing: border-box; }
+        .chat-barra textarea::placeholder { color: #8a8880; }
+        .chat-barra button { flex-shrink: 0; width: 36px !important; height: 36px; margin: 0 0 1px; padding: 0 !important; border-radius: 50%;
+            border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; }
+        .chat-barra button:disabled { background: #e8e6dc; }
 
         /* Modo Salud del inicio: su panel en lugar de la gráfica y el mapa de dinero */
         #panelSalud { display: none; }
@@ -15483,7 +15490,7 @@
                                 if (!caja) return;
                                 if (chatUi.length === 0 && !chatEnviando) {
                                     const sugerencias = ['¿En qué gasté más este mes?', 'Compara mis gastos de este mes con el anterior', '¿Qué gastos podría recortar?', '¿Cuánto llevo invertido?'];
-                                    caja.innerHTML = `<div class="chat-asistente" style="color:#8e8e93;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
+                                    caja.innerHTML = `<div class="chat-asistente" style="color:#8a8880;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
                                         <div class="chat-sugerencias">${sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('')}</div>`;
                                     return;
                                 }
@@ -15495,10 +15502,10 @@
                                         const p = m.propuesta || {};
                                         const pie = m.estado === 'pendiente'
                                             ? `<div class="acciones">
-                                                   <button type="button" style="background:#e5e5ea; color:#000;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
-                                                   <button type="button" style="background:#34c759; color:#fff;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
+                                                   <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
+                                                   <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
                                                </div>`
-                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#248a3d' : m.estado === 'aplicando' ? '#8e8e93' : '#d70015'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : 'Cancelado'}</div>`;
+                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : 'Cancelado'}</div>`;
                                         return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
                                     }
                                     return '';
