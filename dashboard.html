@@ -192,7 +192,11 @@
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
         html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px 18px; }
+            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px 18px;
+            /* Lo que pasa por debajo de la caja de escribir (o de una tarjeta) se desvanece en lugar de
+               cortarse en seco, para que no choque con sus esquinas redondeadas */
+            -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
@@ -293,7 +297,7 @@
         #sec-asistente.con-teclado .chat-barra { margin-bottom: 8px; }
         /* Preguntas con opciones, como en la app de Claude: la tarjeta ocupa el lugar de la caja
            de escribir mientras se responden */
-        .chat-preguntas { display: none; flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); background: #ffffff;
+        .chat-preguntas { display: none; flex-shrink: 0; margin: 6px -4px calc(8px + env(safe-area-inset-bottom)); background: #ffffff;
             border: 0.5px solid #e3e1d8; border-radius: 28px; box-shadow: 0 4px 20px rgba(20, 20, 19, 0.08); padding: 12px 20px 16px;
             max-height: 72%; overflow-y: auto; box-sizing: border-box; }
         #sec-asistente.con-preguntas .chat-preguntas { display: block; }
