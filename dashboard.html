@@ -15990,11 +15990,14 @@
                                 const c = (datosCategorias || []).find(x => String(x.id) === String(id));
                                 if (!c) return '';
                                 const queEs = { gasto: 'un gasto', ingreso: 'un ingreso', prestamo: 'un préstamo que hiciste', deuda: 'una deuda', inversion: 'una inversión', salud: 'un registro de salud' };
-                                const cuenta = (c.cuentas && c.cuentas.nombre) || ((datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)) || {}).nombre;
+                                const cuentaObj = (datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)) || {};
+                                const cuenta = (c.cuentas && c.cuentas.nombre) || cuentaObj.nombre;
+                                // Sólo se menciona cuando la cuenta queda fuera del saldo total; si suma, es lo normal
+                                const fueraDelSaldo = cuentaObj.incluir_en_total === false;
                                 const pesos = n => '$' + Math.round(n).toLocaleString('es-MX');
                                 const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id))
                                     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}.`;
+                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}${cuenta && fueraDelSaldo ? ', que no suma a tu saldo total' : ''}.`;
                                 if (!movs.length) return texto + ' Todavía no tiene movimientos.';
 
                                 const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(movs[0].fecha) + 'T12:00:00')) / 86400000);
