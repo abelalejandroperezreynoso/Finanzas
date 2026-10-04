@@ -1293,6 +1293,14 @@
                     text-align: right;
                 }
                 .rango-ios-fila .campo-fila-ios:focus { outline: none; }
+                /* Descripciones: la etiqueta arriba y el texto completo debajo, creciendo con lo escrito */
+                .fila-texto-largo { flex-direction: column !important; align-items: stretch !important; gap: 6px; }
+                .fila-texto-largo > span, .fila-texto-largo > label { align-self: flex-start; }
+                textarea.texto-largo { display: block; width: 100% !important; min-height: 1.4em; margin: 0; padding: 0 !important; border: none !important;
+                    background: none !important; color: #ffffff; font-size: 1em; font-family: inherit; line-height: 1.4; text-align: left !important;
+                    resize: none; overflow: hidden; field-sizing: content; box-sizing: border-box; }
+                textarea.texto-largo:focus { outline: none; }
+                textarea.texto-largo::placeholder { color: #98989d; }
                 .rango-ios-fila .campo-fila-ios::placeholder { color: #98989d; }
                 /* ---- Presentación del reporte mensual ---- */
                 .presentacion-reporte {
@@ -2233,9 +2241,9 @@
             <button type="button" id="btnFechaAyer" class="btn-toggle" onclick="fijarFechaRegistro(-1)">Ayer</button>
             <button type="button" id="btnFechaHoy" class="btn-toggle" onclick="fijarFechaRegistro(0)">Hoy</button>
         </div>
-        <div class="ios-fila">
+        <div class="ios-fila fila-texto-largo">
             <label for="regDesc">Descripción</label>
-            <input type="text" id="regDesc" placeholder="Opcional">
+            <textarea id="regDesc" class="texto-largo" rows="1" placeholder="Opcional"></textarea>
         </div>
     </div>
 
@@ -2585,9 +2593,9 @@
                             <input type="number" id="saldoInicialCuenta" class="campo-fila-ios" step="0.01" inputmode="decimal" placeholder="0" value="0">
                         </label>
                         <!-- Qué es la cuenta en tus palabras: la IA la lee para entender tus movimientos -->
-                        <label class="rango-ios-fila">
+                        <label class="rango-ios-fila fila-texto-largo">
                             <span>Descripción</span>
-                            <input type="text" id="descripcionCuenta" class="campo-fila-ios" placeholder="Ej: tarjeta de nómina">
+                            <textarea id="descripcionCuenta" class="campo-fila-ios texto-largo" rows="1" placeholder="Ej: tarjeta de nómina"></textarea>
                         </label>
                     </div>
                     <div class="rango-ios-grupo">
@@ -2660,9 +2668,9 @@
                             </select>
                         </label>
                         <!-- Lo que es la categoría en tus palabras: la IA la lee al proponer topes -->
-                        <label class="rango-ios-fila" id="filaDescripcionCat" style="display: none;">
+                        <label class="rango-ios-fila fila-texto-largo" id="filaDescripcionCat" style="display: none;">
                             <span>Descripción</span>
-                            <input type="text" id="catDescripcion" class="campo-fila-ios" placeholder="Ej: comida chatarra">
+                            <textarea id="catDescripcion" class="campo-fila-ios texto-largo" rows="1" placeholder="Ej: comida chatarra"></textarea>
                         </label>
                         <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
                             <span>Ticker</span>
@@ -5950,8 +5958,18 @@
                             habilitarArrastreHoja('modalDetallesCategoria', () => cerrarModalDetallesCategoria());
 
                             habilitarArrastreHoja('modalCuenta', () => cerrarModalCuenta());
+                            // Las descripciones crecen con su texto (por si el navegador no soporta field-sizing)
+                            function ajustarTextosLargos() {
+                                document.querySelectorAll('textarea.texto-largo').forEach(t => {
+                                    t.style.height = 'auto';
+                                    if (t.scrollHeight) t.style.height = t.scrollHeight + 'px';
+                                });
+                            }
+                            document.addEventListener('input', e => { if (e.target.matches && e.target.matches('textarea.texto-largo')) ajustarTextosLargos(); });
+                            document.addEventListener('reset', () => setTimeout(ajustarTextosLargos), true);
                             function abrirModalCuenta() {
                                 abrirHojaIos(document.getElementById('modalCuenta'));
+                                requestAnimationFrame(ajustarTextosLargos);
                             }
                             function cerrarModalCuenta() {
                                 cerrarHojaIos(document.getElementById('modalCuenta'));
@@ -6016,6 +6034,7 @@
                                 actualizarEspejosCategoria();
                                 abrirHojaIos(document.getElementById('modalCategoria'));
                                 requestAnimationFrame(actualizarEspejosCategoria);
+                                requestAnimationFrame(ajustarTextosLargos);
                             }
                                                                                                                                                     function cerrarModalCategoria() {
                                                                                                                                                     cerrarHojaIos(document.getElementById('modalCategoria'));
@@ -20325,6 +20344,7 @@
                                                                 // --- FIN DE LA CORRECCIÓN ---
                                 
                                 document.getElementById('regDesc').value = r.descripcion || '';
+                                requestAnimationFrame(ajustarTextosLargos);
                                 document.getElementById('regCostoAccion').value = r.costo_accion || '';
                                 document.getElementById('regTipoCambio').value = r.tipo_cambio || '';
                                 document.getElementById('regAcciones').value = r.cantidad_acciones || '';
