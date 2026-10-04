@@ -209,6 +209,32 @@
         .chat-propuesta .acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
         .chat-propuesta .acciones button { flex: 0 0 auto; width: auto; margin: 0; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 0.92em; }
         .chat-propuesta .estado { margin-top: 10px; font-size: 0.88em; font-weight: 600; }
+        /* Inicio del chat: personaje y saludo al centro; si hay pendientes, suben y las tarjetas van debajo */
+        .chat-inicio { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; }
+        .chat-inicio-centro { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 10px 0 20px; }
+        .chat-inicio.con-avisos .chat-inicio-centro { margin: 12px 0 4px; }
+        .chat-saludo { font-family: ui-serif, "New York", Georgia, serif; font-size: 26px; line-height: 1.25; color: #3d3d3a; text-align: center; max-width: 320px; text-wrap: balance; }
+        .cochinito { overflow: visible; }
+        .cochinito .cuerpo { animation: cochiRespira 1.6s steps(2) infinite; }
+        .cochinito .ojo { transform-box: fill-box; transform-origin: center; animation: cochiParpadea 4.5s infinite; }
+        .cochinito .patas-a { animation: cochiPatas 1.6s steps(1) infinite; }
+        .cochinito .patas-b { animation: cochiPatas 1.6s steps(1) infinite reverse; }
+        .cochinito .moneda { opacity: 0; animation: cochiMoneda 5s infinite; }
+        .cochinito.pensando .cuerpo { animation-duration: 0.5s; }
+        .cochinito.pensando .patas-a, .cochinito.pensando .patas-b { animation-duration: 0.5s; }
+        .cochinito.pensando .moneda { animation-duration: 1.6s; }
+        @keyframes cochiRespira { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.6px); } }
+        @keyframes cochiParpadea { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+        @keyframes cochiPatas { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.35; } }
+        @keyframes cochiMoneda { 0%, 55% { opacity: 0; transform: translateY(-3px); } 62% { opacity: 1; transform: translateY(-3px); }
+            85% { opacity: 1; transform: translateY(4px); } 90%, 100% { opacity: 0; transform: translateY(5px); } }
+        /* Sugerencias como fichas sobre la caja de escribir, con el chat vacío */
+        .chat-chips { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; scrollbar-width: none; }
+        .chat-chips:empty { display: none; }
+        .chat-chips::-webkit-scrollbar { display: none; }
+        #sec-asistente.con-preguntas .chat-chips { display: none; }
+        .chat-chips button, .chat-chips button:hover { flex-shrink: 0; width: auto; margin: 0; padding: 10px 16px; border-radius: 999px; background: #f3f2ee;
+            border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 15px; font-weight: 400; white-space: nowrap; }
         .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
         .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
             border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
@@ -2228,6 +2254,7 @@
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
+        <div id="chatChips" class="chat-chips"></div>
         <div class="chat-barra">
             <div id="chatMenuModelo" class="chat-menu-modelo"></div>
             <div id="chatAdjuntos" class="chat-adjuntos"></div>
@@ -15509,6 +15536,7 @@
 
                             function abrirAsistente() {
                                 cargarChatAsistente();
+                                semillaSaludo = Math.random();
                                 cambiarSeccion('sec-asistente');
                                 pintarModeloAsistente();
                                 actualizarBotonEnviarAsistente();
@@ -15521,6 +15549,7 @@
                                 if (chatUi.length && !confirm('¿Empezar una conversación nueva? La actual se borra de este teléfono.')) return;
                                 chatApi = [];
                                 chatUi = [];
+                                semillaSaludo = Math.random();
                                 guardarChatAsistente();
                                 pintarChatAsistente();
                             }
@@ -15584,14 +15613,14 @@
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
                                 pintarPreguntasAsistente();
+                                const chips = document.getElementById('chatChips');
+                                if (chips) chips.innerHTML = '';
                                 if (chatUi.length === 0 && !chatEnviando) {
-                                    // Al empezar, el asistente toma la palabra con lo que vea pendiente o raro
+                                    // Pantalla de inicio: el personaje, un saludo que cambia y, debajo, lo que el
+                                    // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
-                                    const revisando = revisandoIa ? '<div class="chat-asistente" style="color:#8a8880; display:flex; align-items:center; gap:10px;"><div class="chat-escribiendo"><span></span><span></span><span></span></div>Revisando tus finanzas…</div>' : '';
-                                    if (!avisos.length && revisandoIa) { caja.innerHTML = revisando; avisosMostrados = []; return; }
-                                    if (avisos.length) {
-                                        caja.innerHTML = `<div class="chat-asistente">${avisos.length === 1 ? 'Hay algo que quiero comentarte:' : `Hay ${avisos.length} cosas que quiero comentarte:`}</div>`
-                                            + avisos.map((a, i) => `<div class="chat-propuesta chat-aviso">
+                                    avisosMostrados = avisos;
+                                    const tarjetas = avisos.map((a, i) => `<div class="chat-propuesta chat-aviso">
                                                 <div class="etiqueta">${escaparHtml(a.etiqueta)}</div>
                                                 <div class="titulo">${escaparHtml(a.texto)}</div>
                                                 ${a.detalle ? `<div class="detalle">${escaparHtml(a.detalle)}</div>` : ''}
@@ -15599,13 +15628,18 @@
                                                     <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="descartarAvisoAsistente(${i})">${escaparHtml(a.secundario.texto)}</button>
                                                     <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="tomarAvisoAsistente(${i})">${escaparHtml(a.primario.texto)}</button>
                                                 </div>
-                                            </div>`).join('') + revisando;
-                                        avisosMostrados = avisos;
-                                        return;
+                                            </div>`).join('');
+                                    caja.innerHTML = `<div class="chat-inicio${avisos.length ? ' con-avisos' : ''}">
+                                            <div class="chat-inicio-centro">
+                                                ${personajeAsistenteSvg(revisandoIa)}
+                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa))}</div>
+                                            </div>
+                                            ${tarjetas}
+                                        </div>`;
+                                    if (chips && !avisos.length && !revisandoIa) {
+                                        const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
+                                        chips.innerHTML = sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
-                                    const sugerencias = ['¿En qué gasté más este mes?', 'Compara mis gastos de este mes con el anterior', '¿Qué gastos podría recortar?', '¿Cuánto llevo invertido?'];
-                                    caja.innerHTML = `<div class="chat-asistente" style="color:#8a8880;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
-                                        <div class="chat-sugerencias">${sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('')}</div>`;
                                     return;
                                 }
                                 caja.innerHTML = chatUi.map((m, i) => {
@@ -15695,6 +15729,49 @@
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
+                            }
+
+                            // ---- Personaje y saludo de la pantalla de inicio del chat ----
+                            // Un cochinito alcancía en pixeles: respira, parpadea y de vez en cuando le cae una
+                            // moneda. Mientras la IA revisa, se mueve más rápido.
+                            function personajeAsistenteSvg(pensando) {
+                                const r = (x, y, w, h, c, cls = '') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"${cls ? ` class="${cls}"` : ''}/>`;
+                                const cuerpo = '#d97757', oscuro = '#a8543a', claro = '#ec9a7f';
+                                return `<svg class="cochinito${pensando ? ' pensando' : ''}" viewBox="0 -5 16 16" width="96" height="96" shape-rendering="crispEdges" aria-hidden="true">
+                                    <g class="moneda">${r(6, -4, 3, 3, '#e8b04a')}${r(7, -4, 1, 3, '#f3cd77')}</g>
+                                    <g class="cuerpo">
+                                        ${r(0, 3, 1, 1, cuerpo)}${r(1, 4, 1, 1, cuerpo)}
+                                        ${r(2, 3, 11, 6, cuerpo)}${r(3, 2, 9, 1, cuerpo)}${r(3, 9, 9, 1, cuerpo)}
+                                        ${r(10, 1, 2, 1, cuerpo)}${r(11, 0, 1, 1, cuerpo)}
+                                        ${r(13, 5, 2, 3, claro)}${r(14, 6, 1, 1, oscuro)}
+                                        ${r(6, 2, 3, 1, oscuro)}
+                                        <g class="ojo">${r(10, 4, 1, 1, '#141413')}</g>
+                                    </g>
+                                    <g class="patas-a">${r(3, 10, 1, 1, cuerpo)}${r(10, 10, 1, 1, cuerpo)}</g>
+                                    <g class="patas-b">${r(5, 10, 1, 1, cuerpo)}${r(8, 10, 1, 1, cuerpo)}</g>
+                                </svg>`;
+                            }
+
+                            let semillaSaludo = Math.random();
+                            function saludoAsistente(pendientes, revisando) {
+                                const h = new Date().getHours();
+                                const hola = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
+                                let opciones;
+                                if (pendientes > 0) {
+                                    const cosas = pendientes === 1 ? 'una cosa' : `${pendientes} cosas`;
+                                    opciones = [
+                                        `${hola}, tengo ${cosas} para revisar contigo`,
+                                        `Qué bueno que llegas: ${pendientes === 1 ? 'hay algo pendiente' : `hay ${pendientes} pendientes`}`,
+                                        `Antes de seguir, revisemos ${cosas}`,
+                                        `${hola}. Encontré ${cosas} que vale la pena ver`,
+                                        `Te estaba esperando, tengo ${cosas} por comentarte`,
+                                    ];
+                                } else if (revisando) {
+                                    opciones = ['Dame un momento, estoy revisando tus finanzas', `${hola}, déjame revisar cómo vas`, 'Estoy repasando tus números'];
+                                } else {
+                                    opciones = [`${hola}, todo en orden por ahora`, 'Sin pendientes. ¿Qué revisamos hoy?', `${hola}, ¿en qué te ayudo?`, 'Tus números se ven tranquilos hoy', 'Nada urgente. ¿Buscamos dónde ahorrar?'];
+                                }
+                                return opciones[Math.floor(semillaSaludo * opciones.length)];
                             }
 
                             // ---- Chat de inicio: lo que el asistente ve pendiente ----
