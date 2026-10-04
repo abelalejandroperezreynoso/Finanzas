@@ -8921,7 +8921,8 @@
                                                         const filaPrioridad = document.getElementById('filaPrioridadCat');
                                                         if (filaPrioridad) filaPrioridad.style.display = tipo === 'gasto' ? '' : 'none';
                                                         const filaDescripcion = document.getElementById('filaDescripcionCat');
-                                                        if (filaDescripcion) filaDescripcion.style.display = tipo === 'gasto' ? '' : 'none';
+                                                        // La descripción sirve en cualquier tipo: dice qué se registra ahí y ayuda a la IA
+                                                        if (filaDescripcion) filaDescripcion.style.display = '';
                                                         if (typeof actualizarEspejosCategoria === 'function') actualizarEspejosCategoria();
                                                         const filaTicker = document.getElementById('filaTickerCat');
                                                         if (filaTicker) {
@@ -8987,7 +8988,7 @@
                                         prioridad: tipo === 'gasto' ? (document.getElementById('catPrioridad').value || null) : null,
                                         desactivar_prediccion: desactivar_prediccion,
                                         // Sólo viaja si hay algo escrito: así una base sin la columna sigue guardando
-                                        ...((tipo === 'gasto' && document.getElementById('catDescripcion').value.trim())
+                                        ...(document.getElementById('catDescripcion').value.trim()
                                             ? { descripcion: document.getElementById('catDescripcion').value.trim() }
                                             : (editIdCat && (datosCategorias.find(c => String(c.id) === String(editIdCat)) || {}).descripcion ? { descripcion: null } : {})),
                                         user_id: currentUser.id
@@ -14739,6 +14740,10 @@
                             <div class="rango-ios-grupo">
                                 ${filaDetalleIos('Cuenta', cuentaCat ? escaparHtml(cuentaCat.nombre) : '—')}
                                 ${filaDetalleIos('Tipo', nombresTipo[cat.tipo] || escaparHtml(cat.tipo))}
+                                ${cat.descripcion ? `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 12px; padding-bottom: 12px;">
+                                    <span style="font-size: 0.85em; color: #98989d;">Descripción</span>
+                                    <span style="color: #fff; line-height: 1.4; text-align: left;">${escaparHtml(cat.descripcion)}</span>
+                                </div>` : ''}
                                 ${cat.tipo === 'gasto' ? filaDetalleIos('Prioridad', nombresPrioridad[cat.prioridad] || 'Sin asignar') : ''}
                                 ${filaDetalleIos('Uso histórico', `${cat.vecesUsada || 0} veces`)}
                                 ${filaDetalleIos('Balance', fMoneda(Math.abs(cat.balanceReal)), true)}
