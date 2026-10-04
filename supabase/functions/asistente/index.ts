@@ -152,6 +152,21 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "proponer_cambio_cuenta",
+    description: "Propone modificar una cuenta: su nombre o su descripción (qué es la cuenta, en palabras del usuario). NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cuenta_id: { type: "string" },
+        nombre: { type: "string" },
+        descripcion: { type: "string" },
+        resumen: { type: "string" },
+      },
+      required: ["cuenta_id", "resumen"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "proponer_nuevo_movimiento",
     description:
       "Propone registrar un movimiento nuevo en una categoría de gasto, ingreso o salud. Importe siempre positivo (el signo sale del tipo de categoría); " +
@@ -236,7 +251,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
   switch (nombre) {
     case "listar_cuentas": {
       const [{ data: cuentas, error }, { data: saldos }] = await Promise.all([
-        sb.from("cuentas").select("id, nombre, saldo_inicial, incluir_en_total").order("nombre"),
+        sb.from("cuentas").select("*").order("nombre"),
         sb.rpc("saldos_cuentas", { p_user_id: userId }),
       ]);
       if (error) return { texto: `Error: ${error.message}`, error: true };
@@ -244,7 +259,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       (saldos ?? []).forEach((s: Json) => { porCuenta[String(s.id_cuenta)] = Number(s.balance) || 0; });
       return {
         texto: recortar((cuentas ?? []).map((c: Json) => ({
-          id: c.id, nombre: c.nombre, cuenta_en_total: c.incluir_en_total !== false,
+          id: c.id, nombre: c.nombre, descripcion: c.descripcion ?? null, cuenta_en_total: c.incluir_en_total !== false,
           saldo: Math.round(((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)) * 100) / 100,
         }))),
       };
@@ -366,6 +381,19 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
     }
+    case "proponer_cambio_cuenta": {
+      const { data: c, error } = await sb.from("cuentas").select("*").eq("id", entrada.cuenta_id).maybeSingle();
+      if (error || !c) return { texto: "No encontré esa cuenta.", error: true };
+      const cambios: Json = {};
+      if (entrada.nombre) cambios.nombre = String(entrada.nombre).slice(0, 80);
+      if (entrada.descripcion !== undefined) cambios.descripcion = String(entrada.descripcion).slice(0, 200) || null;
+      if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
+      propuestas.push({
+        tipo: "cambio_cuenta", cuenta_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
+        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null },
+      });
+      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
+    }
     case "proponer_nuevo_movimiento": {
       const { data: c } = await sb.from("categorias").select("id, nombre, tipo").eq("id", entrada.categoria_id).maybeSingle();
       if (!c) return { texto: "No encontré esa categoría.", error: true };
@@ -398,7 +426,7 @@ Tu objetivo principal es ayudar al usuario a gastar menos y a tener sus datos co
 - Anticípate: si un pago recurrente se acerca o un gasto va más rápido que en meses anteriores, avísalo.
 
 Datos de la app:
-- Cuentas, categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Las fechas ya vienen en la hora local del usuario.
+- Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Las fechas ya vienen en la hora local del usuario.
 - Tipos de categoría: gasto, ingreso, deuda, prestamo, inversion y salud (salud no es dinero: lleva una cantidad, con monto 0).
 - Prioridad de los gastos (técnica de las 4 N): vital, operativa, util, prescindible.
 
@@ -569,7 +597,7 @@ Deno.serve(async (req) => {
       const hoyR = fechaLocal(new Date().toISOString(), zonaR).slice(0, 10);
       const desde = new Date(Date.now() - 125 * 86_400_000).toISOString();
       const [{ data: cats, error: e1 }, { data: regs, error: e2 }] = await Promise.all([
-        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuentas(nombre)"),
+        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuentas(*)"),
         sb.from("registros").select("id, categoria_id, monto, cantidad, fecha, descripcion").gte("fecha", desde).order("fecha", { ascending: false }).limit(4000),
       ]);
       if (e1 || e2) return responder({ error: "No se pudieron leer tus datos." }, 500);
@@ -577,7 +605,8 @@ Deno.serve(async (req) => {
       (cats ?? []).forEach((c: Json) => {
         porCat[String(c.id)] = {
           id: c.id, nombre: c.nombre, tipo: c.tipo, prioridad: c.prioridad ?? null, descripcion: c.descripcion ?? null,
-          cuenta: c.cuentas?.nombre ?? null, meses: {} as Record<string, { total: number; n: number }>,
+          cuenta: c.cuentas?.nombre ?? null, cuenta_descripcion: c.cuentas?.descripcion ?? null,
+          cuenta_en_total: c.cuentas ? c.cuentas.incluir_en_total !== false : true, meses: {} as Record<string, { total: number; n: number }>,
         };
       });
       const recientes: Json[] = [];

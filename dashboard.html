@@ -2565,6 +2565,8 @@
                 <h3 id="tituloCuenta" style="margin-top: 0; color: #ffffff;">Nueva Cuenta</h3>
                 <input type="text" id="nombreCuenta" placeholder="Nombre (Ej: Efectivo)">
                 <input type="number" id="saldoInicialCuenta" step="0.01" placeholder="Saldo Inicial" value="0">
+                <!-- Qué es la cuenta en tus palabras: la IA la lee para entender tus movimientos -->
+                <input type="text" id="descripcionCuenta" placeholder="Descripción (Ej: tarjeta de nómina)">
                 
                 <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 15px; background: #333; padding: 10px; border-radius: 6px;">
                     <input type="checkbox" id="incluirTotalCuenta" checked style="width: auto; margin: 0 10px 0 0; transform: scale(1.2); cursor: pointer;">
@@ -6007,6 +6009,7 @@
                             document.getElementById('nombreCuenta').value = '';
                             document.getElementById('saldoInicialCuenta').value = '0';
                             document.getElementById('incluirTotalCuenta').checked = true;
+                            document.getElementById('descripcionCuenta').value = '';
                             document.getElementById('tituloCuenta').textContent = 'Nueva Cuenta';
                             document.getElementById('btnGuardarCuenta').textContent = 'Añadir Cuenta';
                             abrirModalCuenta();
@@ -6328,6 +6331,7 @@
                 document.getElementById('nombreCuenta').value = c.nombre;
                 document.getElementById('saldoInicialCuenta').value = c.saldo_inicial || 0;
                 document.getElementById('incluirTotalCuenta').checked = (c.incluir_en_total !== false);
+                document.getElementById('descripcionCuenta').value = c.descripcion || '';
                 document.getElementById('tituloCuenta').textContent = 'Editando Cuenta';
                 document.getElementById('btnGuardarCuenta').textContent = 'Actualizar';
                 abrirModalCuenta();
@@ -6931,11 +6935,19 @@
         
         if (!nombre) return;
         
-        const body = { nombre, saldo_inicial, incluir_en_total, user_id: currentUser.id };
-        
-        const res = editIdCuenta
-            ? await clienteSupabase.from('cuentas').update(body).eq('id', editIdCuenta).select()
-            : await clienteSupabase.from('cuentas').insert([body]).select();
+        const descripcion = (document.getElementById('descripcionCuenta').value || '').trim();
+        const anterior = editIdCuenta ? (datosCuentas.find(x => String(x.id) === String(editIdCuenta)) || {}) : {};
+        const body = { nombre, saldo_inicial, incluir_en_total, user_id: currentUser.id,
+            // Sólo viaja si hay algo que guardar o borrar: así una base sin la columna sigue guardando
+            ...(descripcion ? { descripcion } : (anterior.descripcion ? { descripcion: null } : {})) };
+        const escribir = b => editIdCuenta
+            ? clienteSupabase.from('cuentas').update(b).eq('id', editIdCuenta).select()
+            : clienteSupabase.from('cuentas').insert([b]).select();
+        let res = await escribir(body);
+        if (res.error && /descripcion/i.test(res.error.message || '') && 'descripcion' in body) {
+            const { descripcion: _d, ...sinDescripcion } = body;
+            res = await escribir(sinDescripcion);
+        }
             
         if (!res.error) {
             cerrarModalCuenta();
@@ -6958,6 +6970,7 @@
                 document.getElementById('nombreCuenta').value = c.nombre;
                 document.getElementById('saldoInicialCuenta').value = c.saldo_inicial || 0;
                 document.getElementById('incluirTotalCuenta').checked = (c.incluir_en_total !== false);
+                document.getElementById('descripcionCuenta').value = c.descripcion || '';
                 document.getElementById('tituloCuenta').textContent = '✏️ Editando Cuenta';
                 document.getElementById('btnGuardarCuenta').textContent = 'Actualizar';
                 abrirModalCuenta();
@@ -14560,6 +14573,9 @@
                                                                 `Esos dólares llevan ${mesesDeLosDolares.toFixed(1)} meses en promedio`, true);
                                                         }
                                                     }
+                                                    if (c.descripcion) {
+                                                        html += `<div style="color:#bbb; font-size:0.9em; line-height:1.45; margin: 0 6px 18px;">${escaparHtml(c.descripcion)}</div>`;
+                                                    }
                                                     html += bloqueDetalleCuenta('Resumen', filasResumen);
 
                                                     // Dónde está el dinero y cuánto ha dado, en cuadros. Va justo después del
@@ -15578,6 +15594,11 @@
                                     if (p.convertir_a_salud && p.convertir_a_salud.movimientos) {
                                         filas.push(`Movimientos: <b>${p.convertir_a_salud.movimientos}</b> pasan a cantidad; ${escaparHtml(fMoneda(p.convertir_a_salud.total))} dejan de contar como dinero`);
                                     }
+                                } else if (p.tipo === 'cambio_cuenta') {
+                                    const c = p.cambios || {}, a = p.antes || {};
+                                    filas.push(`Cuenta: ${escaparHtml(a.nombre || '')}`);
+                                    if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
+                                    if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
@@ -15952,6 +15973,23 @@
                                         secundario: { texto: 'Ahora no', dias: 7 }
                                     });
                                 }
+                                // 5b. Retroalimentación: una cuenta con movimientos que todavía no tiene descripción
+                                const usosPorCuenta = {};
+                                movs.forEach(r => { const c = catPorId[String(r.categoria_id)]; if (c) usosPorCuenta[String(c.cuenta_id)] = (usosPorCuenta[String(c.cuenta_id)] || 0) + 1; });
+                                const cuentaSinDesc = (datosCuentas || []).filter(cu => !cu.descripcion && (usosPorCuenta[String(cu.id)] || 0) >= 5)
+                                    .sort((a, b) => (usosPorCuenta[String(b.id)] || 0) - (usosPorCuenta[String(a.id)] || 0))
+                                    .find(cu => vigente(`desccta:${cu.id}`));
+                                if (cuentaSinDesc) {
+                                    const nCats = cats.filter(c => String(c.cuenta_id) === String(cuentaSinDesc.id)).length;
+                                    avisos.push({
+                                        clave: `desccta:${cuentaSinDesc.id}`, etiqueta: 'Para conocerte mejor',
+                                        texto: `La cuenta ${cuentaSinDesc.nombre} no tiene descripción.`,
+                                        detalle: `Tiene ${nCats} categoría${nCats === 1 ? '' : 's'} y ${usosPorCuenta[String(cuentaSinDesc.id)]} movimientos${cuentaSinDesc.incluir_en_total === false ? '; no suma a tu saldo total' : ''}. Cuéntame qué es para entender mejor sus movimientos.`,
+                                        primario: { texto: 'Describirla', mensaje: `Ayúdame a escribir la descripción de la cuenta ${cuentaSinDesc.nombre}. Revisa sus categorías y movimientos y hazme preguntas con opciones para entender qué es; luego propónme la descripción.` },
+                                        secundario: { texto: 'Ahora no', dias: 7 }
+                                    });
+                                }
+
                                 // 6. Lo que encontró la revisión diaria con IA
                                 const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', ahorro: 'Ahorro', anticipar: 'Anticípate' };
                                 const propios = avisos.slice();
@@ -16084,7 +16122,7 @@
                                 const pesos = n => '$' + Math.round(n).toLocaleString('es-MX');
                                 const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id))
                                     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}${cuenta && fueraDelSaldo ? ', que no suma a tu saldo total' : ''}.`;
+                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}${cuentaObj.descripcion ? ` (${cuentaObj.descripcion})` : ''}${cuenta && fueraDelSaldo ? ', que no suma a tu saldo total' : ''}.`;
                                 if (!movs.length) return texto + ' Todavía no tiene movimientos.';
 
                                 const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(movs[0].fecha) + 'T12:00:00')) / 86400000);
@@ -16456,6 +16494,8 @@
                                             }
                                         }
                                     }
+                                } else if (p.tipo === 'cambio_cuenta') {
+                                    res = await clienteSupabase.from('cuentas').update(p.cambios).eq('id', p.cuenta_id);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     res = await clienteSupabase.from('registros').insert([{ ...p.datos, fecha: fechaDeDiaLocal(p.datos.fecha), user_id: currentUser.id }]);
                                 } else {
