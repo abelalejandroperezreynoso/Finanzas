@@ -142,7 +142,7 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         categoria_id: { type: "string" },
         nombre: { type: "string" },
-        descripcion: { type: "string" },
+        descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
         resumen: { type: "string" },
@@ -159,7 +159,7 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         cuenta_id: { type: "string" },
         nombre: { type: "string" },
-        descripcion: { type: "string" },
+        descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
         resumen: { type: "string" },
       },
       required: ["cuenta_id", "resumen"],
@@ -224,6 +224,16 @@ const limpiarPreguntas = (entrada: Json): { pregunta: string; opciones: string[]
   })).filter((q: { pregunta: string; opciones: string[] }) => q.pregunta && q.opciones.length >= 2);
   return limpias.length ? limpias : null;
 };
+
+// Los textos que la IA propone no se cortan a escondidas (una descripción a medias se
+// guardaba así): si se pasa del máximo, se le pide que la reescriba más corta.
+const MAX_DESCRIPCION = 400;
+const MAX_DESCRIPCION_MOVIMIENTO = 300;
+function textoCompleto(valor: unknown, max: number): { texto?: string; error?: string } {
+  const t = String(valor ?? "").trim();
+  if (t.length > max) return { error: `La descripción tiene ${t.length} caracteres y el máximo es ${max}. Escríbela más corta, completa y sin cortar frases.` };
+  return { texto: t };
+}
 
 const recortar = (datos: unknown) => {
   const texto = JSON.stringify(datos);
@@ -327,7 +337,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (!/^\d{4}-\d{2}-\d{2}$/.test(entrada.fecha)) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
         cambios.fecha = entrada.fecha;
       }
-      if (entrada.descripcion !== undefined) cambios.descripcion = String(entrada.descripcion).slice(0, 300);
+      if (entrada.descripcion !== undefined) {
+        const d = textoCompleto(entrada.descripcion, MAX_DESCRIPCION_MOVIMIENTO);
+        if (d.error) return { texto: d.error, error: true };
+        cambios.descripcion = d.texto;
+      }
       let categoriaNueva: string | undefined;
       if (entrada.categoria_id && String(entrada.categoria_id) !== String(r.categoria_id)) {
         if (tipo === "inversion") return { texto: "En inversiones no se cambia la categoría desde aquí.", error: true };
@@ -351,7 +365,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cambios: Json = {};
       let conversionSalud: Json = null;
       if (entrada.nombre) cambios.nombre = String(entrada.nombre).slice(0, 80);
-      if (entrada.descripcion !== undefined) cambios.descripcion = String(entrada.descripcion).slice(0, 200) || null;
+      if (entrada.descripcion !== undefined) {
+        const d = textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
+        if (d.error) return { texto: d.error, error: true };
+        cambios.descripcion = d.texto || null;
+      }
       if (entrada.tipo && entrada.tipo !== (c as Json).tipo) {
         if (["inversion", "salud"].includes((c as Json).tipo)) {
           return { texto: "El tipo de una categoría de inversión o de Salud no se puede cambiar: sus movimientos guardan datos propios de ese tipo.", error: true };
@@ -386,7 +404,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (error || !c) return { texto: "No encontré esa cuenta.", error: true };
       const cambios: Json = {};
       if (entrada.nombre) cambios.nombre = String(entrada.nombre).slice(0, 80);
-      if (entrada.descripcion !== undefined) cambios.descripcion = String(entrada.descripcion).slice(0, 200) || null;
+      if (entrada.descripcion !== undefined) {
+        const d = textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
+        if (d.error) return { texto: d.error, error: true };
+        cambios.descripcion = d.texto || null;
+      }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
         tipo: "cambio_cuenta", cuenta_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
@@ -402,10 +424,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!(Number(entrada.importe) > 0)) return { texto: "El importe debe ser mayor que cero.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
       const importe = Math.abs(Number(entrada.importe));
+      const dNueva = textoCompleto(entrada.descripcion, MAX_DESCRIPCION_MOVIMIENTO);
+      if (dNueva.error) return { texto: dNueva.error, error: true };
       propuestas.push({
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,
         datos: {
-          categoria_id: (c as Json).id, fecha: entrada.fecha, descripcion: entrada.descripcion ? String(entrada.descripcion).slice(0, 300) : "",
+          categoria_id: (c as Json).id, fecha: entrada.fecha, descripcion: dNueva.texto || "",
           monto: tipo === "salud" ? 0 : tipo === "gasto" ? -importe : importe,
           ...(tipo === "salud" ? { cantidad: importe } : {}),
         },
@@ -657,7 +681,7 @@ Deno.serve(async (req) => {
       const limpias = categorias.map((c: Json) => ({
         id: String(c.id).slice(0, 64),
         nombre: String(c.nombre ?? "").slice(0, 80),
-        descripcion: c.descripcion ? String(c.descripcion).slice(0, 200) : null,
+        descripcion: c.descripcion ? String(c.descripcion).slice(0, 400) : null,
         prioridad: c.prioridad ? String(c.prioridad).slice(0, 20) : "sin asignar",
         gastos: (Array.isArray(c.gastos) ? c.gastos : []).slice(-6).map((n: unknown) => Math.round(Number(n) || 0)),
         veces: Math.round(Number(c.veces) || 0),

@@ -15874,6 +15874,24 @@
                                 const hoy = diaLocal(hoyDate);
                                 const ayer = diaLocal(new Date(hoyDate.getTime() - 86400000));
 
+                                // 0. Descripciones que la IA dejó cortadas: antes se recortaban a 200 caracteres sin
+                                // avisar, así que una de justo 200 casi seguro quedó a medias
+                                const cortadas = [
+                                    ...(datosCuentas || []).filter(cu => cu.descripcion && cu.descripcion.length === 200).map(cu => ({ que: 'cuenta', id: cu.id, nombre: cu.nombre, texto: cu.descripcion })),
+                                    ...cats.filter(c => c.descripcion && c.descripcion.length === 200).map(c => ({ que: 'categoría', id: c.id, nombre: c.nombre, texto: c.descripcion, categoria_id: c.id })),
+                                ];
+                                cortadas.forEach(d => {
+                                    const clave = `cortada:${d.que}:${d.id}`;
+                                    if (!vigente(clave)) return;
+                                    avisos.push({
+                                        clave, categoria_id: d.categoria_id || null, etiqueta: 'Descripción incompleta',
+                                        texto: `La descripción de la ${d.que} ${d.nombre} quedó cortada.`,
+                                        detalle: `Termina en "…${d.texto.slice(-40)}".`,
+                                        primario: { texto: 'Completarla', mensaje: `La descripción de la ${d.que} ${d.nombre} quedó cortada a la mitad: "${d.texto}". Propónme una versión completa y concisa que conserve lo importante.` },
+                                        secundario: { texto: 'Está bien', dias: null }
+                                    });
+                                });
+
                                 // 1. Un día sin registrar, si de costumbre registras casi a diario
                                 const dias = new Set(movs.map(r => diaLocal(r.fecha)));
                                 let activos = 0;
