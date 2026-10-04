@@ -212,9 +212,11 @@
         .chat-escribiendo span:nth-child(2) { animation-delay: 0.2s; }
         .chat-escribiendo span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes chatPunto { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
-        .chat-barra { flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); display: flex; align-items: flex-end; gap: 8px;
-            padding: 8px 8px 8px 18px; background: #ffffff; border: 0.5px solid #e3e1d8; border-radius: 28px;
-            box-shadow: 0 4px 20px rgba(20, 20, 19, 0.08); }
+        /* La caja de escribir, como en Claude: tarjeta gris claro con contorno blanco y sombra
+           difusa; arriba el texto (y lo adjunto), abajo + para agregar contexto, el modelo y enviar */
+        .chat-barra { position: relative; flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column;
+            padding: 12px 10px 10px; background: #f3f2ee; border: 1.5px solid #ffffff; border-radius: 30px;
+            box-shadow: 0 10px 30px rgba(20, 20, 19, 0.10), 0 1px 3px rgba(20, 20, 19, 0.06); }
         /* Con el teclado abierto no hace falta dejar el espacio de la barra de inicio de iOS */
         #sec-asistente.con-teclado .chat-barra { margin-bottom: 8px; }
         /* Preguntas con opciones, como en la app de Claude: la tarjeta ocupa el lugar de la caja
@@ -243,12 +245,37 @@
         .chat-preguntas .cp-siguiente, .chat-preguntas .cp-siguiente:hover { width: auto; margin: 0; padding: 13px 22px; border-radius: 999px; background: #3d3d3a;
             color: #fff; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
         .chat-preguntas .cp-siguiente:disabled { opacity: 0.55; }
-        .chat-barra textarea { flex: 1; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
-            padding: 8px 0; font-size: 16px; line-height: 1.4; max-height: 120px; font-family: inherit; box-sizing: border-box; }
+        .chat-barra textarea { width: 100%; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
+            padding: 4px 10px 10px; font-size: 17px; line-height: 1.4; max-height: 140px; font-family: inherit; box-sizing: border-box; }
         .chat-barra textarea::placeholder { color: #8a8880; }
-        .chat-barra button { flex-shrink: 0; width: 36px !important; height: 36px; margin: 0 0 1px; padding: 0 !important; border-radius: 50%;
-            border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; }
-        .chat-barra button:disabled { background: #e8e6dc; }
+        .chat-barra-fila { display: flex; align-items: center; gap: 8px; }
+        .chat-barra .cb-redondo, .chat-barra .cb-redondo:hover { flex-shrink: 0; width: 42px; height: 42px; margin: 0; padding: 0; border-radius: 50%; border: none;
+            background: #e8e7e2; color: #141413; display: flex; align-items: center; justify-content: center; }
+        .chat-barra .cb-modelo, .chat-barra .cb-modelo:hover { width: auto; height: 42px; margin: 0; padding: 0 18px; border-radius: 999px; border: none;
+            background: #e8e7e2; color: #141413; font-size: 15px; font-weight: 500; }
+        .chat-barra .cb-enviar, .chat-barra .cb-enviar:hover { flex-shrink: 0; width: 42px; height: 42px; margin: 0 0 0 auto; padding: 0; border-radius: 50%;
+            border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; transition: background-color 0.15s; }
+        .chat-barra .cb-enviar.vacio { background: #e2b6a5; }
+        .chat-barra .cb-enviar:disabled { background: #e2b6a5; }
+        /* Lo adjunto, en miniaturas sobre el texto, cada una con su X */
+        .chat-adjuntos { display: flex; gap: 8px; overflow-x: auto; padding: 0 6px 10px; }
+        .chat-adjuntos:empty { display: none; }
+        .chat-adjunto { position: relative; flex-shrink: 0; width: 64px; height: 64px; border-radius: 14px; overflow: hidden; background: #e8e7e2;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #5e5d59; text-align: center; }
+        .chat-adjunto img { width: 100%; height: 100%; object-fit: cover; }
+        .chat-adjunto span { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+        .chat-barra .chat-adjunto button, .chat-barra .chat-adjunto button:hover { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; margin: 0; padding: 0;
+            border-radius: 50%; border: none; background: rgba(20, 20, 19, 0.7); color: #fff; display: flex; align-items: center; justify-content: center; }
+        /* Menú de modelos, encima de la caja */
+        .chat-menu-modelo { display: none; position: absolute; left: 8px; bottom: calc(100% + 8px); z-index: 5; min-width: 250px; background: #ffffff;
+            border: 0.5px solid #e3e1d8; border-radius: 20px; box-shadow: 0 10px 30px rgba(20, 20, 19, 0.14); padding: 6px; }
+        .chat-menu-modelo.abierto { display: block; }
+        .chat-barra .chat-menu-modelo button, .chat-barra .chat-menu-modelo button:hover { width: 100%; margin: 0; display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 12px 14px; background: none; border: none; border-radius: 14px; color: #141413; text-align: left; font-weight: 500; font-size: 16px; }
+        .chat-menu-modelo small { display: block; color: #8a8880; font-size: 13px; font-weight: 400; margin-top: 2px; }
+        /* Lo adjuntado también se ve en tu burbuja */
+        .chat-usuario-adjuntos { align-self: flex-end; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-bottom: -10px; }
+        .chat-usuario-adjuntos .chat-adjunto { width: 84px; height: 84px; }
 
         /* Modo Salud del inicio: su panel en lugar de la gráfica y el mapa de dinero */
         #panelSalud { display: none; }
@@ -2196,12 +2223,21 @@
         <div id="chatMensajes" class="chat-mensajes"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
         <div class="chat-barra">
+            <div id="chatMenuModelo" class="chat-menu-modelo"></div>
+            <div id="chatAdjuntos" class="chat-adjuntos"></div>
             <textarea id="chatTexto" rows="1" placeholder="Pregunta o pide un cambio…"
-                oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 120)+'px'"
+                oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 140)+'px'; actualizarBotonEnviarAsistente();"
                 onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); enviarMensajeAsistente(); }"></textarea>
-            <button type="button" id="chatEnviar" onclick="enviarMensajeAsistente()" aria-label="Enviar">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
-            </button>
+            <div class="chat-barra-fila">
+                <button type="button" class="cb-redondo" aria-label="Agregar contexto" onclick="document.getElementById('chatArchivo').click()">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                <input type="file" id="chatArchivo" accept="image/*,application/pdf" multiple style="display: none;" onchange="adjuntarArchivosAsistente(this)">
+                <button type="button" class="cb-modelo" id="chatModelo" onclick="alternarMenuModeloAsistente(event)">Sonnet 5.5</button>
+                <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="enviarMensajeAsistente()" aria-label="Enviar">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -15444,7 +15480,12 @@
                             var chatEnviando = false;
                             const claveChat = () => `chatAsistente:${currentUser ? currentUser.id : 'anonimo'}`;
 
+                            // Lo adjunto (fotos y PDF) viaja completo mientras la app está abierta, pero no se
+                            // guarda en el teléfono: pesaría demasiado. Al guardar se cambia por una nota.
+                            let chatCargadoPara = null;
                             function cargarChatAsistente() {
+                                if (chatCargadoPara === claveChat()) return;
+                                chatCargadoPara = claveChat();
                                 try {
                                     const guardado = JSON.parse(localStorage.getItem(claveChat()) || 'null');
                                     chatApi = (guardado && Array.isArray(guardado.api)) ? guardado.api : [];
@@ -15453,12 +15494,18 @@
                             }
 
                             function guardarChatAsistente() {
-                                try { localStorage.setItem(claveChat(), JSON.stringify({ api: chatApi, ui: chatUi })); } catch (e) { /* sin espacio: sigue en memoria */ }
+                                const sinAdjuntos = chatApi.map(m => !Array.isArray(m.content) || !m.content.some(b => b.type === 'image' || b.type === 'document') ? m : {
+                                    ...m, content: m.content.map(b => b.type === 'image' || b.type === 'document'
+                                        ? { type: 'text', text: `[Aquí había ${b.type === 'image' ? 'una imagen' : 'un PDF'} adjunto que ya no está disponible]` } : b)
+                                });
+                                try { localStorage.setItem(claveChat(), JSON.stringify({ api: sinAdjuntos, ui: chatUi })); } catch (e) { /* sin espacio: sigue en memoria */ }
                             }
 
                             function abrirAsistente() {
                                 cargarChatAsistente();
                                 cambiarSeccion('sec-asistente');
+                                pintarModeloAsistente();
+                                actualizarBotonEnviarAsistente();
                                 pintarChatAsistente(true);
                             }
 
@@ -15530,7 +15577,10 @@
                                     return;
                                 }
                                 caja.innerHTML = chatUi.map((m, i) => {
-                                    if (m.rol === 'usuario') return `<div class="chat-usuario">${escaparHtml(m.texto)}</div>`;
+                                    if (m.rol === 'usuario') {
+                                        const adj = (m.adjuntos || []).length ? `<div class="chat-usuario-adjuntos">${m.adjuntos.map(a => miniaturaAdjuntoHtml(a)).join('')}</div>` : '';
+                                        return adj + (m.texto ? `<div class="chat-usuario">${escaparHtml(m.texto)}</div>` : '');
+                                    }
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
                                     if (m.rol === 'error') return `<div class="chat-error">${escaparHtml(m.texto)}</div>`;
                                     if (m.rol === 'preguntas') return '';
@@ -15553,13 +15603,23 @@
                             async function enviarMensajeAsistente(textoFijo) {
                                 const campo = document.getElementById('chatTexto');
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
-                                if (!texto || chatEnviando) return;
+                                const adjuntos = chatAdjuntos.slice();
+                                if ((!texto && !adjuntos.length) || chatEnviando) return;
                                 if (campo) { campo.value = ''; campo.style.height = 'auto'; }
-                                const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: texto }]) };
-                                const burbuja = { rol: 'usuario', texto };
+                                chatAdjuntos = [];
+                                pintarAdjuntosAsistente();
+                                const bloques = adjuntos.map(a => a.tipo === 'pdf'
+                                    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } }
+                                    : { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: a.data } });
+                                bloques.push({ type: 'text', text: texto || 'Revisa lo que te adjunto.' });
+                                const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
+                                const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => ({ tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura })) };
                                 chatUi.push(burbuja);
                                 await conversarConAsistente(mensaje, () => {
+                                    // No llegó: el texto y lo adjunto vuelven a la caja
                                     if (campo && !campo.value) campo.value = texto;
+                                    if (!chatAdjuntos.length) chatAdjuntos = adjuntos;
+                                    pintarAdjuntosAsistente();
                                 });
                             }
 
@@ -15573,7 +15633,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente() }
                                     });
                                     if (error) {
                                         let detalle = '';
@@ -15599,10 +15659,124 @@
                                 } finally {
                                     chatEnviando = false;
                                     document.getElementById('chatEnviar').disabled = false;
+                                    actualizarBotonEnviarAsistente();
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
                             }
+
+                            // ---- Agregar contexto: fotos, capturas y PDF ----
+                            var chatAdjuntos = [];
+                            const MAX_ADJUNTOS = 4;
+                            const MAX_PDF_BYTES = 3 * 1024 * 1024;
+
+                            const miniaturaAdjuntoHtml = (a, i) => a.tipo === 'pdf'
+                                ? `<div class="chat-adjunto"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#c96442" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span>${escaparHtml(a.nombre || 'PDF')}</span>${typeof i === 'number' && i >= 0 ? botonQuitarAdjunto(i) : ''}</div>`
+                                : `<div class="chat-adjunto"><img src="${a.miniatura}" alt="">${typeof i === 'number' && i >= 0 ? botonQuitarAdjunto(i) : ''}</div>`;
+                            const botonQuitarAdjunto = i => `<button type="button" aria-label="Quitar" onclick="quitarAdjuntoAsistente(${i})"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+
+                            function pintarAdjuntosAsistente() {
+                                const caja = document.getElementById('chatAdjuntos');
+                                if (caja) caja.innerHTML = chatAdjuntos.map((a, i) => miniaturaAdjuntoHtml(a, i)).join('');
+                                actualizarBotonEnviarAsistente();
+                            }
+
+                            function quitarAdjuntoAsistente(i) {
+                                chatAdjuntos.splice(i, 1);
+                                pintarAdjuntosAsistente();
+                            }
+
+                            // Miniatura pequeña (para la burbuja, que sí se guarda) a partir de la imagen ya reducida
+                            const miniaturaDeImagen = base64 => new Promise(resolver => {
+                                const img = new window.Image();
+                                img.onload = () => {
+                                    const escala = Math.min(1, 168 / Math.min(img.width, img.height));
+                                    const lienzo = document.createElement('canvas');
+                                    lienzo.width = Math.round(img.width * escala);
+                                    lienzo.height = Math.round(img.height * escala);
+                                    lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
+                                    resolver(lienzo.toDataURL('image/jpeg', 0.7));
+                                };
+                                img.onerror = () => resolver('');
+                                img.src = 'data:image/jpeg;base64,' + base64;
+                            });
+
+                            const leerComoBase64 = archivo => new Promise((resolver, rechazar) => {
+                                const lector = new FileReader();
+                                lector.onload = () => resolver(String(lector.result).split(',')[1]);
+                                lector.onerror = () => rechazar(new Error('No se pudo leer el archivo'));
+                                lector.readAsDataURL(archivo);
+                            });
+
+                            async function adjuntarArchivosAsistente(campo) {
+                                const archivos = Array.from(campo.files || []);
+                                campo.value = '';
+                                for (const archivo of archivos) {
+                                    if (chatAdjuntos.length >= MAX_ADJUNTOS) { alert(`Puedes adjuntar hasta ${MAX_ADJUNTOS} archivos por mensaje.`); break; }
+                                    try {
+                                        if (archivo.type === 'application/pdf') {
+                                            if (archivo.size > MAX_PDF_BYTES) { alert(`"${archivo.name}" pesa más de 3 MB.`); continue; }
+                                            chatAdjuntos.push({ tipo: 'pdf', nombre: archivo.name, data: await leerComoBase64(archivo) });
+                                        } else if (archivo.type.startsWith('image/')) {
+                                            const data = await imagenReducidaBase64(archivo);
+                                            chatAdjuntos.push({ tipo: 'imagen', nombre: archivo.name, data, miniatura: await miniaturaDeImagen(data) });
+                                        }
+                                    } catch (e) {
+                                        alert(e.message || 'No se pudo adjuntar el archivo.');
+                                    }
+                                    pintarAdjuntosAsistente();
+                                }
+                            }
+
+                            function actualizarBotonEnviarAsistente() {
+                                const boton = document.getElementById('chatEnviar');
+                                const campo = document.getElementById('chatTexto');
+                                if (boton) boton.classList.toggle('vacio', !(campo && campo.value.trim()) && !chatAdjuntos.length);
+                            }
+
+                            // ---- Modelo de Claude ----
+                            const MODELOS_ASISTENTE = [
+                                { id: 'claude-opus-5-5', nombre: 'Opus 5.5', nota: 'El más capaz · cuesta el doble' },
+                                { id: 'claude-sonnet-5-5', nombre: 'Sonnet 5.5', nota: 'Rápido y capaz' },
+                                { id: 'claude-haiku-4-5', nombre: 'Haiku 4.5', nota: 'El más rápido y barato' },
+                            ];
+                            function modeloAsistente() {
+                                let id = null;
+                                try { id = localStorage.getItem('modeloAsistente'); } catch (e) { /* sin almacenamiento */ }
+                                return MODELOS_ASISTENTE.some(m => m.id === id) ? id : 'claude-sonnet-5-5';
+                            }
+                            function pintarModeloAsistente() {
+                                const boton = document.getElementById('chatModelo');
+                                const actual = MODELOS_ASISTENTE.find(m => m.id === modeloAsistente());
+                                if (boton && actual) boton.textContent = actual.nombre;
+                            }
+                            function alternarMenuModeloAsistente(evento) {
+                                if (evento) evento.stopPropagation();
+                                const menu = document.getElementById('chatMenuModelo');
+                                if (!menu) return;
+                                if (menu.classList.contains('abierto')) { menu.classList.remove('abierto'); return; }
+                                const actual = modeloAsistente();
+                                const palomita = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c96442" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+                                menu.innerHTML = MODELOS_ASISTENTE.map(m => `<button type="button" onclick="elegirModeloAsistente('${m.id}')"><span>${m.nombre}<small>${m.nota}</small></span>${m.id === actual ? palomita : ''}</button>`).join('');
+                                menu.classList.add('abierto');
+                            }
+                            function elegirModeloAsistente(id) {
+                                const anterior = modeloAsistente();
+                                try { localStorage.setItem('modeloAsistente', id); } catch (e) { /* sin almacenamiento */ }
+                                document.getElementById('chatMenuModelo').classList.remove('abierto');
+                                pintarModeloAsistente();
+                                // El razonamiento guardado de un modelo no le sirve a otro: se quita del historial
+                                if (anterior !== id && chatApi.length) {
+                                    chatApi = chatApi.map(m => m.role !== 'assistant' || !Array.isArray(m.content) ? m
+                                        : { ...m, content: m.content.filter(b => b.type !== 'thinking' && b.type !== 'redacted_thinking') })
+                                        .filter(m => !Array.isArray(m.content) || m.content.length);
+                                    guardarChatAsistente();
+                                }
+                            }
+                            document.addEventListener('click', e => {
+                                const menu = document.getElementById('chatMenuModelo');
+                                if (menu && menu.classList.contains('abierto') && !e.target.closest('#chatMenuModelo, #chatModelo')) menu.classList.remove('abierto');
+                            });
 
                             // ---- Preguntas con opciones ----
                             // Cuando la IA pregunta, su último mensaje queda con una herramienta sin respuesta.
