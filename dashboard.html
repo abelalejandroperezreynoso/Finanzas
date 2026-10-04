@@ -172,8 +172,8 @@
 /* La descripción, en un solo renglón: lo que no quepa se corta con puntos suspensivos */
 .movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
-        /* Asistente: chat al estilo de la app de Claude (fondo crema, respuestas en serif,
-           tus mensajes en burbuja beige y la caja de escribir como tarjeta al pie) */
+        /* Asistente: chat al estilo de la app de Claude (fondo crema, respuestas sin burbuja,
+           tus mensajes en burbuja beige y la caja de escribir como tarjeta flotante al pie) */
         /* El chat es una pantalla propia encima de todo: encabezado arriba, mensajes que se
            desplazan por dentro y la barra de escribir al pie. Así la barra nunca depende del
            scroll de la página (en iOS una barra fija se quedaba a media pantalla al abrir).
@@ -185,12 +185,11 @@
         #sec-asistente .encabezado-chat button { color: #141413 !important; }
         html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 16px; margin: 0 -20px; padding: 4px 20px 20px; }
+            display: flex; flex-direction: column; gap: 18px; margin: 0 -20px; padding: 4px 20px 16px; }
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 20px;
-            font-size: 1em; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
-        .chat-asistente { align-self: stretch; color: #141413; font-family: ui-serif, "New York", Georgia, serif; font-size: 1.06em;
-            line-height: 1.6; word-wrap: break-word; }
+            font-size: 17px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+        .chat-asistente { align-self: stretch; color: #141413; font-size: 17px; line-height: 1.7; word-wrap: break-word; }
         .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
         .chat-asistente li { margin-bottom: 4px; }
         .chat-asistente strong { color: #141413; font-weight: 700; }
@@ -213,9 +212,11 @@
         .chat-escribiendo span:nth-child(2) { animation-delay: 0.2s; }
         .chat-escribiendo span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes chatPunto { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
-        .chat-barra { flex-shrink: 0; margin: 0 -10px; display: flex; align-items: flex-end; gap: 8px;
-            padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) 18px; background: #ffffff;
-            border: 0.5px solid #e8e6dc; border-bottom: none; border-radius: 26px 26px 0 0; box-shadow: 0 -4px 18px rgba(20, 20, 19, 0.06); }
+        .chat-barra { flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); display: flex; align-items: flex-end; gap: 8px;
+            padding: 8px 8px 8px 18px; background: #ffffff; border: 0.5px solid #e3e1d8; border-radius: 28px;
+            box-shadow: 0 4px 20px rgba(20, 20, 19, 0.08); }
+        /* Con el teclado abierto no hace falta dejar el espacio de la barra de inicio de iOS */
+        #sec-asistente.con-teclado .chat-barra { margin-bottom: 8px; }
         .chat-barra textarea { flex: 1; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
             padding: 8px 0; font-size: 16px; line-height: 1.4; max-height: 120px; font-family: inherit; box-sizing: border-box; }
         .chat-barra textarea::placeholder { color: #8a8880; }
@@ -15052,6 +15053,7 @@
                                     const teclado = window.innerHeight - vv.height > 80;
                                     chat.style.height = teclado ? vv.height + 'px' : '';
                                     chat.style.top = teclado ? vv.offsetTop + 'px' : '';
+                                    chat.classList.toggle('con-teclado', teclado);
                                     if (teclado) {
                                         const caja = document.getElementById('chatMensajes');
                                         if (caja) caja.scrollTop = caja.scrollHeight;
