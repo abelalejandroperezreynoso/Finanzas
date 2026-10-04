@@ -192,11 +192,10 @@
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
         html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px 18px;
-            /* Lo que pasa por debajo de la caja de escribir (o de una tarjeta) se desvanece en lugar de
-               cortarse en seco, para que no choque con sus esquinas redondeadas */
-            -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-            mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px var(--alto-pie-chat, 120px); }
+        /* La caja de escribir (y las tarjetas que la sustituyen) flota encima de los mensajes: la
+           conversación pasa por detrás y se ve alrededor de sus esquinas redondeadas */
+        .chat-pie { position: absolute; left: 20px; right: 20px; bottom: 0; z-index: 3; }
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
@@ -2306,10 +2305,11 @@
             </button>
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
-        <div id="chatPreguntas" class="chat-preguntas"></div>
-        <div id="chatChips" class="chat-chips"></div>
         <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
         <div id="chatCredito" class="chat-credito" aria-hidden="true"><div></div></div>
+        <div class="chat-pie" id="chatPie">
+        <div id="chatChips" class="chat-chips"></div>
+        <div id="chatPreguntas" class="chat-preguntas"></div>
         <div class="chat-barra">
             <div id="chatMenuModelo" class="chat-menu-modelo"></div>
             <div id="chatAdjuntos" class="chat-adjuntos"></div>
@@ -2326,6 +2326,7 @@
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                 </button>
             </div>
+        </div>
         </div>
     </div>
 
@@ -5962,6 +5963,19 @@
                             habilitarArrastreHoja('modalDetallesCategoria', () => cerrarModalDetallesCategoria());
 
                             habilitarArrastreHoja('modalCuenta', () => cerrarModalCuenta());
+                            // Los mensajes dejan abajo el espacio que ocupa lo que flota encima (caja de escribir,
+                            // tarjetas, fichas), para que lo último siempre se pueda leer completo
+                            (function seguirAltoPieChat() {
+                                const pie = document.getElementById('chatPie');
+                                const chat = document.getElementById('sec-asistente');
+                                if (!pie || !chat || typeof ResizeObserver === 'undefined') return;
+                                new ResizeObserver(() => {
+                                    const caja = document.getElementById('chatMensajes');
+                                    const alFondo = caja && caja.scrollHeight - caja.scrollTop - caja.clientHeight < 40;
+                                    chat.style.setProperty('--alto-pie-chat', `${pie.offsetHeight + 18}px`);
+                                    if (alFondo && caja) caja.scrollTop = caja.scrollHeight;
+                                }).observe(pie);
+                            })();
                             // Las descripciones crecen con su texto (por si el navegador no soporta field-sizing)
                             function ajustarTextosLargos() {
                                 document.querySelectorAll('textarea.texto-largo').forEach(t => {
