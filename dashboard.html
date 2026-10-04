@@ -269,7 +269,9 @@
         .alerta-ios-capa.claro .alerta-ios { background: rgba(242, 242, 247, 0.94); }
         .alerta-ios-texto { padding: 19px 16px 18px; text-align: center; }
         .alerta-ios-titulo { font-size: 17px; font-weight: 600; line-height: 1.3; color: #fff; }
-        .alerta-ios-mensaje { font-size: 13px; line-height: 1.35; color: #fff; margin-top: 3px; }
+        .alerta-ios-mensaje { font-size: 13px; line-height: 1.35; color: #fff; margin-top: 3px; white-space: pre-line; }
+        .alerta-ios-titulo { white-space: pre-line; }
+        .alerta-ios-texto { max-height: 60vh; overflow-y: auto; }
         .alerta-ios-capa.claro .alerta-ios-titulo, .alerta-ios-capa.claro .alerta-ios-mensaje { color: #000; }
         .alerta-ios-botones { display: flex; flex-direction: column; border-top: 0.5px solid rgba(84, 84, 88, 0.65); }
         .alerta-ios-capa.claro .alerta-ios-botones { border-top-color: rgba(60, 60, 67, 0.29); }
@@ -1237,6 +1239,12 @@
 
                 /* Rango personalizado de la hoja de Filtro, con la forma de las tarjetas de iOS. Dentro de una
                    hoja iOS usa el gris elevado (#2c2c2e): el de las tarjetas normales no se distingue del fondo. */
+                /* Hoja de un pago recurrente: etiqueta a la izquierda, dato a la derecha */
+                .info-rec-fila { cursor: default; }
+                .info-rec-fila > span:first-child { color: #ffffff; white-space: nowrap; }
+                .info-rec-valor { text-align: right; color: #98989d; }
+                .info-rec-valor strong { font-weight: 400; color: #98989d; }
+                .info-rec-valor small { display: block; font-size: 0.75em; margin-top: 2px; }
                 .rango-ios-encabezado {
                     font-size: 0.78em;
                     color: #98989d;
@@ -1690,38 +1698,6 @@
                     font-variant-numeric: tabular-nums;
                 }
 
-                /* --- INICIO ESTILOS AVISO DE VERSIÓN --- */
-                /* Sale abajo cuando el service worker ya guardó una versión nueva y la app estaba en
-                   uso: recargar sin avisar sería quitarle de las manos lo que está mirando. Durante el
-                   arranque no hace falta —ahí se recarga sola, que nadie ha tocado nada todavía—. */
-                .aviso-version {
-                    position: fixed;
-                    left: 12px;
-                    right: 12px;
-                    bottom: calc(12px + env(safe-area-inset-bottom));
-                    z-index: 9998;
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    background: #232323;
-                    border: 1px solid #3a3a3a;
-                    border-radius: 10px;
-                    padding: 10px 12px;
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-                }
-                .aviso-version span { flex: 1; color: #ddd; font-size: 0.85em; line-height: 1.3; }
-                .aviso-version button {
-                    width: auto;
-                    margin: 0;
-                    padding: 7px 14px;
-                    font-size: 0.8em;
-                    background: #3ecf8e;
-                    color: #000000;
-                    border: none;
-                    border-radius: 8px;
-                    font-weight: bold;
-                }
-                /* --- FIN ESTILOS AVISO DE VERSIÓN --- */
 
                 /* --- INICIO ESTILOS INVERTIDO Y PLUSVALÍA --- */
                 /* La cifra que el mapa reparte, arriba del todo: sin ella el tamaño de los dos cuadros
@@ -2728,39 +2704,31 @@
             </div>
         </div>
 
-                        <div class="modal-overlay" id="modalInfoRecurrente">
-                            <div class="modal-content" style="text-align: center;">
-                                <h3 id="infoRecNombre" style="margin-top: 0; font-size: 1.5em;">Cargando...</h3>
-                                <p id="infoRecTipo" style="color: #888; margin-bottom: 20px; text-transform: uppercase; font-size: 0.85em; font-weight: bold;"></p>
-                                
-                                <div style="background: #222; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: left; border: 1px solid #333;">
-                                    <div style="margin-bottom: 12px;">
-                                        <span style="color: #aaa; font-size: 0.85em;">Frecuencia analizada:</span><br>
-                                        <strong id="infoRecFrecuencia" style="font-size: 1.1em; color: #fff;"></strong>
+                        <div class="modal-overlay hoja-ios" id="modalInfoRecurrente" onclick="if (event.target === this) cerrarModalInfoRecurrente();">
+                            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="infoRecNombre">
+                                <div class="hoja-ios-tirador"></div>
+                                <div class="hoja-ios-encabezado">
+                                    <button type="button" class="hoja-ios-accion hoja-ios-secundaria" onclick="cerrarModalInfoRecurrente()" aria-label="Cerrar" title="Cerrar">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                                    </button>
+                                    <h3 id="infoRecNombre">Cargando...</h3>
+                                    <span class="hoja-ios-accion" style="visibility: hidden;" aria-hidden="true"></span>
+                                </div>
+                                <div class="hoja-ios-cuerpo">
+                                    <div class="rango-ios-encabezado" id="infoRecTipo"></div>
+                                    <div class="rango-ios-grupo">
+                                    <div class="rango-ios-fila info-rec-fila"><span>Frecuencia</span><span class="info-rec-valor"><strong id="infoRecFrecuencia"></strong></span></div>
+                                    <div class="rango-ios-fila info-rec-fila"><span>Precisión</span><span class="info-rec-valor"><strong id="infoRecExactitud"></strong><small id="infoRecExactitudDetalle"></small></span></div>
+                                    <div class="rango-ios-fila info-rec-fila"><span>Historial</span><span class="info-rec-valor"><strong id="infoRecRacha"></strong></span></div>
+                                    <div class="rango-ios-fila info-rec-fila"><span>Monto habitual</span><span class="info-rec-valor"><strong id="infoRecMonto"></strong></span></div>
+                                    <div class="rango-ios-fila info-rec-fila"><span>Próxima fecha</span><span class="info-rec-valor"><strong id="infoRecProxFecha"></strong></span></div>
                                     </div>
-                                    <div style="margin-bottom: 12px;">
-                                                            <span style="color: #aaa; font-size: 0.85em;">Nivel de precisión:</span><br>
-                                                            <strong id="infoRecExactitud" style="font-size: 1.1em;"></strong><br>
-                                                            <small id="infoRecExactitudDetalle" style="color: #888; font-size: 0.75em;"></small>
-                                                        </div>
-                                                        <div style="margin-bottom: 12px;">
-                                                            <span style="color: #aaa; font-size: 0.85em;">Historial continuo:</span><br>
-                                        <strong id="infoRecRacha" style="font-size: 1.1em; color: #fff;"></strong>
+                                    <div class="rango-ios-grupo">
+                                        <button type="button" id="btnVerHistorialRecurrente" class="fila-accion-ios">Ver historial de pagos</button>
                                     </div>
-                                    <div style="margin-bottom: 12px;">
-                                                            <span style="color: #aaa; font-size: 0.85em;">Monto habitual detectado:</span><br>
-                                                            <strong id="infoRecMonto" style="font-size: 1.4em;"></strong>
-                                                        </div>
-                                                        <div>
-                                                            <span style="color: #aaa; font-size: 0.85em;">Próxima fecha sugerida:</span><br>
-                                                            <strong id="infoRecProxFecha" style="font-size: 1.1em; color: #3ecf8e;"></strong>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <button id="btnVerHistorialRecurrente" style="margin-bottom: 10px; background: #333; color: #fff; border: 1px solid #444;">Ver historial de pagos</button>
-                                                                                    <button onclick="cerrarModalInfoRecurrente()" style="background:#666; width: 100%;">Cerrar Panel</button>
-                                                                                </div>
-                                                                            </div>
+                                </div>
+                            </div>
+                        </div>
 
                         
                         
@@ -5688,7 +5656,7 @@
                         const { frecuencia: frecuenciaTexto, racha: rachaTexto } = describirRecurrencia(cat);
 
                         // Definimos el texto y el color del indicador de exactitud
-                        const exactitudTexto = cat.esExactoRecurrencia ? "🎯 Exacto" : "〰️ Aproximado";
+                        const exactitudTexto = cat.esExactoRecurrencia ? "Exacto" : "Aproximado";
                         const exactitudColor = cat.esExactoRecurrencia ? "#3ecf8e" : "#f39c12"; // Verde o Naranja
 
                         // NUEVO: Calculamos si hay atraso para mostrar una alerta visual
@@ -5970,6 +5938,7 @@
                             habilitarArrastreHoja('modalDetallesCategoria', () => cerrarModalDetallesCategoria());
 
                             habilitarArrastreHoja('modalCuenta', () => cerrarModalCuenta());
+                            habilitarArrastreHoja('modalInfoRecurrente', () => cerrarModalInfoRecurrente());
                             // Los mensajes dejan abajo el espacio que ocupa lo que flota encima (caja de escribir,
                             // tarjetas, fichas), para que lo último siempre se pueda leer completo
                             (function seguirAltoPieChat() {
@@ -6308,16 +6277,16 @@
                             // Recreamos los textos
                             const { frecuencia: frecuenciaTexto, racha: rachaTextoModal } = describirRecurrencia(cat);
 
-                            const exactitudTexto = cat.esExactoRecurrencia ? "🎯 Exacto" : "〰️ Aproximado";
+                            const exactitudTexto = cat.esExactoRecurrencia ? "Exacto" : "Aproximado";
                             const exactitudColor = cat.esExactoRecurrencia ? "#3ecf8e" : "#f39c12";
 
                             // Llenamos el modal
                             document.getElementById('infoRecNombre').textContent = cat.nombre;
-                            document.getElementById('infoRecNombre').style.color = colorTipo;
-                            document.getElementById('infoRecTipo').textContent = `Tipo: ${cat.tipo}`;
+                            document.getElementById('infoRecNombre').style.color = '';
+                            document.getElementById('infoRecTipo').textContent = `${cat.tipo} recurrente`;
                             
 
-                                        document.getElementById('infoRecFrecuencia').textContent = `⏱️ ${frecuenciaTexto} (~${cat.diasRecurrencia} días)`;
+                                        document.getElementById('infoRecFrecuencia').textContent = `${frecuenciaTexto} (~${cat.diasRecurrencia} días)`;
                                         document.getElementById('infoRecExactitud').textContent = exactitudTexto;
                                         document.getElementById('infoRecExactitud').style.color = exactitudColor;
                                         
@@ -6332,7 +6301,7 @@
                                         }
                                         document.getElementById('infoRecExactitudDetalle').textContent = detalleTexto;
                                         
-                                        document.getElementById('infoRecRacha').textContent = `🔥 ${rachaTextoModal}`;
+                                        document.getElementById('infoRecRacha').textContent = rachaTextoModal;
                                                     
                                                     // NUEVO: Mostrar el monto con una etiqueta explicativa según su origen
                                                     if (cat.montoSugerido) {
@@ -6382,11 +6351,11 @@
                             };
 
                             // Mostrar
-                            document.getElementById('modalInfoRecurrente').classList.add('activa');
+                            abrirHojaIos(document.getElementById('modalInfoRecurrente'));
                         }
 
                         function cerrarModalInfoRecurrente() {
-                            document.getElementById('modalInfoRecurrente').classList.remove('activa');
+                            cerrarHojaIos(document.getElementById('modalInfoRecurrente'));
                         }
                         // ------------------------------------------------
 
@@ -9153,7 +9122,7 @@
                                         String(c.cuenta_id) === String(c_id) &&
                                         (c.nombre || '').trim().toLowerCase() === nombre.toLowerCase()
                                     );
-                                    if (yaExiste && !confirm(`Ya tienes una categoría llamada "${nombre}" en esa cuenta. ¿Crearla de todas formas?`)) {
+                                    if (yaExiste && !await confirmarIos(`Ya tienes una categoría llamada "${nombre}" en esa cuenta. ¿Crearla de todas formas?`)) {
                                         return;
                                     }
 
@@ -13871,7 +13840,7 @@
                                         if (tabla === 'cuentas') msj = '⚠️ ¡ADVERTENCIA CRÍTICA!\n\nSi eliminas esta cuenta, se borrarán PERMANENTEMENTE todas sus categorías y TODOS los ingresos y gastos registrados en ella.\n\n¿Estás absolutamente seguro de querer borrar todo?';
                                         if (tabla === 'categorias') msj = '⚠️ ADVERTENCIA\n\nSi eliminas esta categoría, también se borrarán todos los movimientos registrados en ella.\n\n¿Continuar?';
                                         
-                                        if (!confirm(msj)) return;
+                                        if (!await confirmarIos(msj, { aceptar: 'Eliminar', destructivo: true })) return;
                                         
                                         const { error } = await clienteSupabase.from(tabla).delete().eq('id', id);
                                         
@@ -15886,6 +15855,27 @@
                                     });
                                 });
                             }
+
+                            // Los avisos de siempre venían como un solo texto: el primer párrafo hace de título
+                            // y el resto de mensaje, como en las alertas de iOS. El ⚠️ del principio sobra.
+                            function partesAlertaIos(texto) {
+                                const t = String(texto ?? '').replace(/^\s*⚠️\s*/, '').trim();
+                                const corte = t.indexOf('\n\n');
+                                if (corte > 0) return { titulo: t.slice(0, corte).trim(), mensaje: t.slice(corte + 2).trim() };
+                                return t.length <= 90 ? { titulo: t } : { mensaje: t };
+                            }
+
+                            // Sustituto de confirm(): resuelve true si se acepta
+                            async function confirmarIos(texto, { aceptar = 'Aceptar', destructivo = false } = {}) {
+                                const i = await alertaIos({
+                                    ...partesAlertaIos(texto),
+                                    botones: [{ texto: 'Cancelar' }, { texto: aceptar, estilo: destructivo ? 'destructivo' : 'cancelar' }]
+                                });
+                                return i === 1;
+                            }
+
+                            // alert() del sistema se ve fuera de lugar: todas las llamadas pasan a la alerta de iOS
+                            window.alert = texto => { alertaIos(partesAlertaIos(texto)); };
 
                             // ---- Raya de crédito de IA ----
                             // Lo consumido desde el último saldo anotado, como fracción de ese saldo. Si nunca se
@@ -19201,7 +19191,7 @@
 
                                 if (!lineas.length) return;
 
-                                if (!confirm(`Se corregirá el registro de "${d.app.categoria.nombre}" del ${d.app.dia}:\n\n` +
+                                if (!await confirmarIos(`Se corregirá el registro de "${d.app.categoria.nombre}" del ${d.app.dia}:\n\n` +
                                     `${lineas.join('\n')}\n\n` +
                                     `No se toca ningún otro campo del registro.\n\n¿Continuar?`)) return;
 
@@ -19234,7 +19224,7 @@
                                     .limit(1);
                                 if (error) return false;
                                 if (!data || !data.length) return false;
-                                return !confirm('⚠️ Ya existe un apunte de la auditoría con esta misma descripción para este periodo.\n\n' +
+                                return !await confirmarIos('⚠️ Ya existe un apunte de la auditoría con esta misma descripción para este periodo.\n\n' +
                                     'Registrarlo otra vez duplicaría el dinero en tu Caja GBM.\n\n¿Aun así quieres continuar?');
                             }
 
@@ -19247,7 +19237,7 @@
                                 const usd = Number(rep.dividendoNeto.toFixed(4));
                                 if (Math.abs(usd) < 0.005) { alert('El neto de dividendos es cero: no hay nada que registrar.'); return; }
 
-                                if (!confirm(`Se registrará una entrada de ${fMoneda(usd)} USD en la Caja GBM, sin movimiento de pesos.\n\n` +
+                                if (!await confirmarIos(`Se registrará una entrada de ${fMoneda(usd)} USD en la Caja GBM, sin movimiento de pesos.\n\n` +
                                     `Corresponde a ${rep.dividendos.length} movimiento(s) de dividendos y retenciones del periodo ` +
                                     `${rep.periodo ? rep.periodo.desde + ' a ' + rep.periodo.hasta : ''}.\n\n¿Continuar?`)) return;
 
@@ -19281,7 +19271,7 @@
                                 if (!rep || !(rep.comisiones.total > 0.005)) return;
                                 const usd = Number(rep.comisiones.total.toFixed(4));
 
-                                if (!confirm(`Se descontarán ${fMoneda(usd)} USD de la Caja GBM, sin movimiento de pesos.\n\n` +
+                                if (!await confirmarIos(`Se descontarán ${fMoneda(usd)} USD de la Caja GBM, sin movimiento de pesos.\n\n` +
                                     `Son las comisiones de ${rep.comisiones.movimientos} operación(es) que GBM te cobró y que la app no había registrado.\n\n¿Continuar?`)) return;
 
                                 const idCaja = await obtenerCategoriaCajaGbm(rep.cuentaId);
@@ -19325,7 +19315,7 @@
                                     return;
                                 }
 
-                                if (!confirm(`Se registrará en "${cat.nombre}":\n\n` +
+                                if (!await confirmarIos(`Se registrará en "${cat.nombre}":\n\n` +
                                     `${g.clase === 'compra' ? 'Compra' : 'Venta'} de ${accionesConFormato(g.acciones)} acciones\n` +
                                     `Precio: ${fMoneda(g.precio)} USD\n` +
                                     `Importe: ${fMoneda(g.usd)} USD\n` +
@@ -19425,11 +19415,11 @@
                                 }
                             }
 
-                            function olvidarDocumentoAuditoria(indice) {
+                            async function olvidarDocumentoAuditoria(indice) {
                                 const s = sesionAuditoria;
                                 if (!s || !s.documentos[indice]) return;
                                 const d = s.documentos[indice];
-                                if (!confirm(`¿Quitar "${d.archivo}" de la auditoría?\n\nPuedes volver a importarlo cuando quieras.`)) return;
+                                if (!await confirmarIos(`¿Quitar "${d.archivo}" de la auditoría?\n\nPuedes volver a importarlo cuando quieras.`, { aceptar: 'Quitar', destructivo: true })) return;
                                 s.documentos.splice(indice, 1);
                                 guardarDocumentosAuditoria(s);
                                 renderGuiaAuditoria();
@@ -19507,7 +19497,7 @@
                                     .filter(d => d.tipo !== 'confirmacion')
                                     .map(etiquetaDocumento).join('; ');
 
-                                if (!confirm(`Se marcarán ${ids.length} movimiento(s) como auditados.\n\n` +
+                                if (!await confirmarIos(`Se marcarán ${ids.length} movimiento(s) como auditados.\n\n` +
                                     `Son los que coincidieron exactamente con ${docs || 'los documentos importados'}.\n\n` +
                                     `Los que tienen diferencias no se marcan: quedan pendientes hasta que los resuelvas.\n\n¿Continuar?`)) return;
 
@@ -19531,10 +19521,10 @@
                                 renderGuiaAuditoria();
                             }
 
-                            function olvidarTodoAuditoria() {
+                            async function olvidarTodoAuditoria() {
                                 const s = sesionAuditoria;
                                 if (!s) return;
-                                if (!confirm(`¿Quitar los ${s.documentos.length} documento(s) guardados de esta cuenta?\n\nTus registros no se tocan: sólo se borra lo que la app había leído de los PDF.`)) return;
+                                if (!await confirmarIos(`¿Quitar los ${s.documentos.length} documento(s) guardados de esta cuenta?\n\nTus registros no se tocan: sólo se borra lo que la app había leído de los PDF.`, { aceptar: 'Quitar', destructivo: true })) return;
                                 s.documentos = [];
                                 s.ignorados = [];
                                 guardarDocumentosAuditoria(s);
@@ -20202,7 +20192,7 @@
                                 cantidadAcciones = 0;
                                 costoAccion = 0;
                                 if (!editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
-                                    if (!confirm(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
+                                    if (!await confirmarIos(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
                                 }
                             } else if (tipoMovimiento === 'compra' || tipoMovimiento === 'venta') {
                                 if (!cantidadAcciones || cantidadAcciones <= 0 || costoAccion <= 0) {
@@ -20218,10 +20208,10 @@
                                 const porRegistro = cuantosRegistros > 1 ? ` (${cuantosRegistros} registros)` : '';
 
                                 if (tipoMovimiento === 'compra' && !editIdMov && usdDelLote > cajaDisponibleUsd + 0.01) {
-                                    if (!confirm(`⚠️ Esta compra usa ${fMoneda(usdDelLote)} USD${porRegistro} pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
+                                    if (!await confirmarIos(`⚠️ Esta compra usa ${fMoneda(usdDelLote)} USD${porRegistro} pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar una aportación o una venta? Puedes guardar de todas formas.`)) return;
                                 }
                                 if (tipoMovimiento === 'venta' && !editIdMov && accionesDelLote > (catSeleccionada.totalAcciones || 0) + 0.00001) {
-                                    if (!confirm(`⚠️ Estás vendiendo ${accionesDelLote} acciones${porRegistro} pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
+                                    if (!await confirmarIos(`⚠️ Estás vendiendo ${accionesDelLote} acciones${porRegistro} pero la categoría solo tiene ${catSeleccionada.totalAcciones || 0} registradas.\n\n¿Guardar de todas formas?`)) return;
                                 }
                             } else {
                                 // Movimiento directo (histórico): pesos + acciones en un solo paso
@@ -20618,7 +20608,7 @@
 
                             // --- NUEVA FUNCIÓN PARA OMITIR SUGERENCIAS ---
                             async function omitirSugerencia(idCat, fechaSugerida) {
-                                if (!confirm('¿Omitir esta sugerencia por este ciclo? Aparecerá de nuevo cuando toque el siguiente pago.')) return;
+                                if (!await confirmarIos('¿Omitir esta sugerencia por este ciclo? Aparecerá de nuevo cuando toque el siguiente pago.', { aceptar: 'Omitir' })) return;
                                 
                                 // Formateamos la fecha sugerida para que Supabase la guarde limpia (YYYY-MM-DD)
                                 const fecha = new Date(fechaSugerida);
@@ -21495,18 +21485,17 @@
                                 location.reload();
                             }
 
-                            function mostrarAvisoDeVersion() {
-                                if (document.getElementById('avisoVersion')) return;
-                                const aviso = document.createElement('div');
-                                aviso.id = 'avisoVersion';
-                                aviso.className = 'aviso-version';
-                                aviso.innerHTML = '<span>Hay una versión nueva de la app lista.</span>';
-                                const boton = document.createElement('button');
-                                boton.type = 'button';
-                                boton.textContent = 'Actualizar';
-                                boton.onclick = recargarPorVersionNueva;
-                                aviso.appendChild(boton);
-                                document.body.appendChild(aviso);
+                            let avisoDeVersionAbierto = false;
+                            async function mostrarAvisoDeVersion() {
+                                if (avisoDeVersionAbierto) return;
+                                avisoDeVersionAbierto = true;
+                                const eleccion = await alertaIos({
+                                    titulo: 'Actualización disponible',
+                                    mensaje: 'Hay una versión nueva de la app.',
+                                    botones: [{ texto: 'Más tarde' }, { texto: 'Actualizar', estilo: 'cancelar' }]
+                                });
+                                avisoDeVersionAbierto = false;
+                                if (eleccion === 1) recargarPorVersionNueva();
                             }
 
                             navigator.serviceWorker.addEventListener('message', (evento) => {
