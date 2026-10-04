@@ -2152,10 +2152,6 @@
                     style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
                 </button>
-                <button type="button" onclick="cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0])" aria-label="Cerrar"
-                    style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                </button>
             </div>
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
@@ -14942,6 +14938,102 @@
                                 };
                                 inicio.addEventListener('touchend', soltar, { passive: true });
                                 inicio.addEventListener('touchcancel', soltar, { passive: true });
+                            })();
+
+                            // Y al revés: deslizar el chat hacia la derecha lo cierra. El chat se vuelve una capa
+                            // encima del inicio —que ya queda listo debajo— y sale por la derecha siguiendo al dedo;
+                            // si no se desliza lo suficiente, regresa y todo queda como estaba.
+                            (function activarDeslizarParaCerrarAsistente() {
+                                const inicio = document.getElementById('sec-inicio');
+                                const chat = document.getElementById('sec-asistente');
+                                if (!inicio || !chat) return;
+                                const ocupado = el => !!el.closest('input, select, textarea, .chat-barra, [data-sin-deslizar]');
+                                const CURVA = 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)';
+                                let x0 = null, y0 = null, xPrevia = 0, tPrevio = 0, velocidad = 0, scrollChat = 0;
+                                let modo = null;
+
+                                const colocar = (dx, conTransicion) => {
+                                    const ancho = window.innerWidth;
+                                    const d = Math.max(0, Math.min(ancho, dx));
+                                    chat.style.transition = conTransicion ? CURVA : 'none';
+                                    inicio.style.transition = conTransicion ? CURVA : 'none';
+                                    chat.style.transform = `translateX(${d}px)`;
+                                    inicio.style.transform = d < ancho ? `translateX(${-(ancho - d) * 0.3}px)` : '';
+                                };
+
+                                const limpiar = () => {
+                                    chat.classList.remove('arrastrando');
+                                    chat.style.transition = '';
+                                    chat.style.transform = '';
+                                    chat.scrollTop = 0;
+                                    inicio.style.transition = '';
+                                    inicio.style.transform = '';
+                                };
+
+                                document.addEventListener('touchstart', e => {
+                                    x0 = null;
+                                    modo = null;
+                                    if (e.touches.length !== 1 || ocupado(e.target)) return;
+                                    if (!chat.classList.contains('activa') || chat.classList.contains('arrastrando')) return;
+                                    if (document.body.classList.contains('modal-abierto')) return;
+                                    x0 = e.touches[0].clientX;
+                                    y0 = e.touches[0].clientY;
+                                    xPrevia = x0;
+                                    tPrevio = Date.now();
+                                    velocidad = 0;
+                                }, { passive: true });
+
+                                document.addEventListener('touchmove', e => {
+                                    if (x0 === null || modo === 'nada') return;
+                                    const x = e.touches[0].clientX;
+                                    const dx = x - x0;
+                                    const dy = e.touches[0].clientY - y0;
+                                    if (modo === null) {
+                                        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+                                        if (dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                                            modo = 'lado';
+                                            // El chat pasa a capa sin moverse de donde estaba y el inicio queda debajo
+                                            scrollChat = window.scrollY;
+                                            const campo = document.getElementById('chatTexto');
+                                            if (campo) campo.blur();
+                                            colocar(0, false);
+                                            chat.classList.add('arrastrando');
+                                            chat.scrollTop = scrollChat;
+                                            cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0]);
+                                        } else {
+                                            modo = 'nada';
+                                            return;
+                                        }
+                                    }
+                                    e.preventDefault();
+                                    const ahora = Date.now();
+                                    if (ahora > tPrevio) velocidad = (x - xPrevia) / (ahora - tPrevio);
+                                    xPrevia = x;
+                                    tPrevio = ahora;
+                                    colocar(dx, false);
+                                }, { passive: false });
+
+                                const soltar = e => {
+                                    if (x0 === null) return;
+                                    const eraLado = modo === 'lado';
+                                    const dx = (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : xPrevia) - x0;
+                                    x0 = null;
+                                    modo = null;
+                                    if (!eraLado) return;
+                                    const cerrar = dx > window.innerWidth * 0.35 || (velocidad > 0.5 && dx > 40);
+                                    colocar(cerrar ? window.innerWidth : 0, true);
+                                    setTimeout(() => {
+                                        if (!cerrar) {
+                                            cambiarSeccion('sec-asistente');
+                                            limpiar();
+                                            window.scrollTo(0, scrollChat);
+                                        } else {
+                                            limpiar();
+                                        }
+                                    }, 360);
+                                };
+                                document.addEventListener('touchend', soltar, { passive: true });
+                                document.addEventListener('touchcancel', soltar, { passive: true });
                             })();
 
                             // ---- Deslizar hacia abajo para recargar (como en iOS) ----
