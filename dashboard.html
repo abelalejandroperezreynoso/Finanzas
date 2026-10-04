@@ -276,6 +276,7 @@
         .alerta-ios-botones { display: flex; flex-direction: column; border-top: 0.5px solid rgba(84, 84, 88, 0.65); }
         .alerta-ios-capa.claro .alerta-ios-botones { border-top-color: rgba(60, 60, 67, 0.29); }
         .alerta-ios-botones.lado { flex-direction: row; }
+        .alerta-ios-botones:not(.lado) button, .alerta-ios-botones:not(.lado) button:hover { flex: none; }
         .alerta-ios-botones button, .alerta-ios-botones button:hover { flex: 1; width: auto; margin: 0; height: 44px; padding: 0 8px; border: none; border-radius: 0;
             background: transparent; color: #0a84ff; font-size: 17px; font-weight: 400; }
         .alerta-ios-capa.claro .alerta-ios-botones button { color: #007aff; }
@@ -2355,6 +2356,13 @@
          está en la consola de Anthropic. -->
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
+        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
+            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Más barato en todo: chat, revisión, topes y saldo</small></span>
+            <span class="ios-switch">
+                <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
+                <span class="ios-switch-pista"></span>
+            </span>
+        </label>
         <div id="consumoIa" style="font-size: 0.9em; color: #ccc; line-height: 1.7;">—</div>
     </div>
     <!-- FIN CONSUMO DE IA -->
@@ -16125,7 +16133,7 @@
                                 if (chatUi.length === 0) pintarChatAsistente(true);
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'revision', desfase: new Date().getTimezoneOffset() }
+                                        body: { modo: 'revision', desfase: new Date().getTimezoneOffset(), ...modeloIaFijo() }
                                     });
                                     if (!error && data && Array.isArray(data.hallazgos)) {
                                         try { localStorage.setItem(claveRevisionIa(), JSON.stringify({ dia: diaLocal(new Date()), hallazgos: data.hallazgos })); } catch (e) { /* sin almacenamiento */ }
@@ -16372,7 +16380,31 @@
                                 { id: 'claude-sonnet-5-5', nombre: 'Sonnet 5.5', nota: 'Rápido y capaz' },
                                 { id: 'claude-haiku-4-5', nombre: 'Haiku 4.5', nota: 'El más rápido y barato' },
                             ];
+                            // Ahorro: con "Solo Haiku 4.5" en Configuración toda la IA usa ese modelo
+                            const MODELO_ECONOMICO = 'claude-haiku-4-5';
+                            function soloHaiku() {
+                                try { return localStorage.getItem('iaSoloHaiku') === '1'; } catch (e) { return false; }
+                            }
+                            // Para las llamadas que no son el chat: sin el ajuste, la función usa su modelo de siempre
+                            function modeloIaFijo() {
+                                return soloHaiku() ? { modelo: MODELO_ECONOMICO } : {};
+                            }
+                            function cambiarSoloHaiku(activo) {
+                                const anterior = modeloAsistente();
+                                try { localStorage.setItem('iaSoloHaiku', activo ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+                                pintarModeloAsistente();
+                                if (anterior !== modeloAsistente()) quitarRazonamientoAsistente();
+                            }
+                            // El razonamiento guardado de un modelo no le sirve a otro: se quita del historial
+                            function quitarRazonamientoAsistente() {
+                                if (!chatApi.length) return;
+                                chatApi = chatApi.map(m => m.role !== 'assistant' || !Array.isArray(m.content) ? m
+                                    : { ...m, content: m.content.filter(b => b.type !== 'thinking' && b.type !== 'redacted_thinking') })
+                                    .filter(m => !Array.isArray(m.content) || m.content.length);
+                                guardarChatAsistente();
+                            }
                             function modeloAsistente() {
+                                if (soloHaiku()) return MODELO_ECONOMICO;
                                 let id = null;
                                 try { id = localStorage.getItem('modeloAsistente'); } catch (e) { /* sin almacenamiento */ }
                                 return MODELOS_ASISTENTE.some(m => m.id === id) ? id : 'claude-sonnet-5-5';
@@ -16387,6 +16419,10 @@
                                 const menu = document.getElementById('chatMenuModelo');
                                 if (!menu) return;
                                 if (menu.classList.contains('abierto')) { menu.classList.remove('abierto'); return; }
+                                if (soloHaiku()) {
+                                    alertaIos({ titulo: 'Solo Haiku 4.5', mensaje: 'Para elegir otro modelo, desactívalo en Configuración.' });
+                                    return;
+                                }
                                 const actual = modeloAsistente();
                                 const palomita = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c96442" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
                                 menu.innerHTML = MODELOS_ASISTENTE.map(m => `<button type="button" onclick="elegirModeloAsistente('${m.id}')"><span>${m.nombre}<small>${m.nota}</small></span>${m.id === actual ? palomita : ''}</button>`).join('');
@@ -16397,13 +16433,7 @@
                                 try { localStorage.setItem('modeloAsistente', id); } catch (e) { /* sin almacenamiento */ }
                                 document.getElementById('chatMenuModelo').classList.remove('abierto');
                                 pintarModeloAsistente();
-                                // El razonamiento guardado de un modelo no le sirve a otro: se quita del historial
-                                if (anterior !== id && chatApi.length) {
-                                    chatApi = chatApi.map(m => m.role !== 'assistant' || !Array.isArray(m.content) ? m
-                                        : { ...m, content: m.content.filter(b => b.type !== 'thinking' && b.type !== 'redacted_thinking') })
-                                        .filter(m => !Array.isArray(m.content) || m.content.length);
-                                    guardarChatAsistente();
-                                }
+                                if (anterior !== id) quitarRazonamientoAsistente();
                             }
                             document.addEventListener('click', e => {
                                 const menu = document.getElementById('chatMenuModelo');
@@ -16631,6 +16661,8 @@
 
                             // ---- Consumo de IA (tarjeta de Configuración) ----
                             async function cargarConsumoIa() {
+                                const interruptor = document.getElementById('checkSoloHaiku');
+                                if (interruptor) interruptor.checked = soloHaiku();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
                                 caja.textContent = 'Cargando…';
@@ -16716,7 +16748,7 @@
                                 try {
                                     const data = await imagenReducidaBase64(archivo);
                                     const { data: res, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'saldo', imagen: { media_type: 'image/jpeg', data } }
+                                        body: { modo: 'saldo', imagen: { media_type: 'image/jpeg', data }, ...modeloIaFijo() }
                                     });
                                     if (error) {
                                         let detalle = '';
@@ -16766,7 +16798,7 @@
                                         }));
                                     if (categorias.length === 0) { alert('No hay gastos suficientes en este mes para proponer topes.'); return; }
 
-                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', { body: { modo: 'topes', mes: ym, meses, categorias } });
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', { body: { modo: 'topes', mes: ym, meses, categorias, ...modeloIaFijo() } });
                                     if (error) {
                                         // Sin la función desplegada el error es de red o 404; con ella, viene el
                                         // mensaje que la función mandó

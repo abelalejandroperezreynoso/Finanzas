@@ -592,12 +592,15 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // La app puede pedir el modelo económico para todo (ajuste "Solo Haiku 4.5")
+    const modeloPedido = MODELOS_CHAT.has(String(entrada.modelo)) ? String(entrada.modelo) : MODELO;
+
     if (entrada.modo === "saldo") {
       const img = entrada.imagen ?? {};
       if (!TIPOS_IMAGEN.has(img.media_type) || typeof img.data !== "string" || img.data.length > 5_000_000) {
         return responder({ error: "La imagen no es válida." }, 400);
       }
-      const p = parametrosBase("low");
+      const p = parametrosBase("low", modeloPedido);
       p.max_tokens = 2000;
       p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_SALDO } };
       p.messages = [{
@@ -662,7 +665,7 @@ Deno.serve(async (req) => {
         .map((c: Json) => ({ ...c, meses: Object.fromEntries(Object.entries(c.meses).map(([k, v]: [string, Json]) => [k, { total: Math.round(v.total), movimientos: v.n }])) }));
       if (categorias.length === 0) return responder({ hallazgos: [] });
 
-      const p = parametrosBase("medium");
+      const p = parametrosBase("medium", modeloPedido);
       p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_REVISION } };
       p.system = SISTEMA_REVISION;
       p.messages = [{
@@ -696,7 +699,7 @@ Deno.serve(async (req) => {
         gastos: (Array.isArray(c.gastos) ? c.gastos : []).slice(-6).map((n: unknown) => Math.round(Number(n) || 0)),
         veces: Math.round(Number(c.veces) || 0),
       }));
-      const p = parametrosBase("medium");
+      const p = parametrosBase("medium", modeloPedido);
       p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_TOPES } };
       p.system = SISTEMA_TOPES;
       p.messages = [{
@@ -729,7 +732,7 @@ Deno.serve(async (req) => {
     const propuestas: Json[] = [];
     let preguntas: Json | null = null;
     const usos: Json[] = [];
-    const modeloChat = MODELOS_CHAT.has(String(entrada.modelo)) ? String(entrada.modelo) : MODELO;
+    const modeloChat = modeloPedido;
     let modeloUsado = modeloChat;
 
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
