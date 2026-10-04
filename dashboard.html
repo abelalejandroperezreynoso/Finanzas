@@ -15572,7 +15572,7 @@
                                     if (chips) {
                                         const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
                                         chips.innerHTML = (avisos.length
-                                            ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar ${avisos.length === 1 ? 'el pendiente' : `${avisos.length} pendientes`}</button>`
+                                            ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
                                             : '') + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
                                     pintarPreguntasAsistente();
@@ -15695,13 +15695,14 @@
                                 const hola = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
                                 let opciones;
                                 if (pendientes > 0) {
-                                    const cosas = pendientes === 1 ? 'una cosa' : `${pendientes} cosas`;
+                                    // Sin número: el saludo sólo avisa que hay algo; cuántos se ve al abrirlos
+                                    const uno = pendientes === 1;
                                     opciones = [
-                                        `${hola}, tengo ${cosas} para revisar contigo`,
-                                        `Qué bueno que llegas: ${pendientes === 1 ? 'hay algo pendiente' : `hay ${pendientes} pendientes`}`,
-                                        `Antes de seguir, revisemos ${cosas}`,
-                                        `${hola}. Encontré ${cosas} que vale la pena ver`,
-                                        `Te estaba esperando, tengo ${cosas} por comentarte`,
+                                        `${hola}, tengo ${uno ? 'algo' : 'algunas cosas'} para revisar contigo`,
+                                        `Qué bueno que llegas, hay ${uno ? 'algo pendiente' : 'pendientes por revisar'}`,
+                                        `Antes de seguir, revisemos ${uno ? 'algo' : 'unos pendientes'}`,
+                                        `${hola}. Encontré ${uno ? 'algo' : 'algunas cosas'} que vale la pena ver`,
+                                        `Te estaba esperando, tengo ${uno ? 'algo' : 'algunas cosas'} por comentarte`,
                                     ];
                                 } else if (revisando) {
                                     opciones = ['Dame un momento, estoy revisando tus finanzas', `${hola}, déjame revisar cómo vas`, 'Estoy repasando tus números'];
@@ -15828,7 +15829,7 @@
                                 }
 
                                 // 4. Tipo dudoso: un "gasto" donde casi todo entra dinero, o cuyos montos parecen conteos
-                                if (avisos.length < 3) {
+                                {
                                     for (const c of cats.filter(c => c.tipo === 'gasto').sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))) {
                                         const clave = `tipo:${c.id}`;
                                         if (!vigente(clave)) continue;
@@ -15855,7 +15856,7 @@
                                 const sinDescripcion = cats.filter(c => !c.descripcion && (c.vecesUsada || 0) >= 5 && c.tipo !== 'inversion')
                                     .sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))
                                     .find(c => vigente(`desc:${c.id}`));
-                                if (sinDescripcion && avisos.length < 3) {
+                                if (sinDescripcion) {
                                     avisos.push({
                                         clave: `desc:${sinDescripcion.id}`, categoria_id: sinDescripcion.id, etiqueta: 'Para conocerte mejor',
                                         texto: `${sinDescripcion.nombre} no tiene descripción.`,
@@ -15866,7 +15867,7 @@
                                 }
                                 // 6. Lo que encontró la revisión diaria con IA
                                 const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', ahorro: 'Ahorro', anticipar: 'Anticípate' };
-                                const propios = avisos.slice(0, 3);
+                                const propios = avisos.slice();
                                 (revisionIaDeHoy() || []).forEach(h => {
                                     const clave = `ia:${h.titulo}`;
                                     if (!vigente(clave)) return;
@@ -15880,7 +15881,7 @@
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
                                 });
-                                return propios.slice(0, 6);
+                                return propios.slice(0, 10);
                             }
 
                             // ---- Revisión diaria con IA ----

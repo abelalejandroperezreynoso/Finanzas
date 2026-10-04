@@ -468,7 +468,7 @@ Busca, en este orden de importancia:
 3. Algo que convenga anticipar (un gasto que va más rápido que de costumbre este mes).
 
 Reglas:
-- Máximo 4 hallazgos, del de más impacto al de menos. Si no hay nada relevante, devuelve la lista vacía: no inventes ni rellenes.
+- Máximo 6 hallazgos, del de más impacto al de menos. Si no hay nada relevante, devuelve la lista vacía: no inventes ni rellenes.
 - "titulo": una frase corta (máx. 70 caracteres). "detalle": una frase con la cifra o el dato clave (máx. 150).
 - "mensaje": lo que el usuario le diría al asistente para atenderlo, en primera persona y concreto (nombres, fechas y montos), por ejemplo "Revisa los dos cargos de $800 en Gasolina del 1 de octubre y dime si uno está duplicado".
 - "impacto_mxn": ahorro o monto en juego aproximado (0 si no aplica).
@@ -611,7 +611,7 @@ Deno.serve(async (req) => {
       if (r.stop_reason === "max_tokens") return responder({ error: "La respuesta de la IA quedó incompleta." }, 502);
       const bloque = r.content.find((b: Json) => b.type === "text") as Json;
       const datos = bloque ? JSON.parse(bloque.text) : { hallazgos: [] };
-      const hallazgos = (Array.isArray(datos.hallazgos) ? datos.hallazgos : []).slice(0, 4).map((h: Json) => ({
+      const hallazgos = (Array.isArray(datos.hallazgos) ? datos.hallazgos : []).slice(0, 6).map((h: Json) => ({
         tipo: ["error", "clasificacion", "ahorro", "anticipar"].includes(h.tipo) ? h.tipo : "ahorro",
         titulo: String(h.titulo ?? "").slice(0, 90),
         detalle: String(h.detalle ?? "").slice(0, 200),
