@@ -237,6 +237,10 @@
             border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 14px; font-weight: 400; white-space: nowrap; }
         .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
+        .cp-escribir { display: flex; align-items: center; gap: 8px; }
+        .chat-preguntas .cp-enviar, .chat-preguntas .cp-enviar:hover { flex-shrink: 0; width: 32px; height: 32px; margin: 0; padding: 0; border-radius: 50%; border: none;
+            background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; }
+        .chat-preguntas .cp-enviar.vacio { background: #e2b6a5; }
         .cp-etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-top: 2px; }
         .cp-detalle { font-size: 15px; line-height: 1.5; color: #5e5d59; margin: -2px 0 6px; }
         .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
@@ -15955,7 +15959,24 @@
                                     <div class="cp-titulo">${escaparHtml(a.texto)}</div>
                                     ${a.detalle ? `<div class="cp-detalle">${escaparHtml(a.detalle)}</div>` : ''}
                                     <button type="button" class="cp-opcion" onclick="tomarAvisoAsistente(${k})"><span>${escaparHtml(a.primario.texto)}</span>${flecha('M9 18l6-6-6-6')}</button>
-                                    <button type="button" class="cp-opcion" style="border-bottom: none; color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>`;
+                                    <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>
+                                    <div class="cp-escribir">
+                                        <input type="text" class="cp-otra" id="cpPendienteTexto" placeholder="Escribe otra respuesta…"
+                                            oninput="document.getElementById('cpPendienteEnviar').classList.toggle('vacio', !this.value.trim())"
+                                            onkeydown="if (event.key === 'Enter') { event.preventDefault(); responderPendienteAsistente(${k}); }">
+                                        <button type="button" id="cpPendienteEnviar" class="cp-enviar vacio" aria-label="Enviar" onclick="responderPendienteAsistente(${k})">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                                        </button>
+                                    </div>`;
+                            }
+
+                            // Respuesta propia a un pendiente: va a la IA con el contexto del pendiente
+                            function responderPendienteAsistente(k) {
+                                const campo = document.getElementById('cpPendienteTexto');
+                                const texto = campo ? campo.value.trim() : '';
+                                const a = avisosMostrados[k];
+                                if (!texto || !a || chatEnviando) return;
+                                tomarAvisoAsistente(k, `Sobre esto que detectaste: "${a.texto}${a.detalle ? ' ' + a.detalle : ''}". ${texto}`);
                             }
 
                             function descartarAvisoAsistente(i) {
@@ -15967,7 +15988,7 @@
                                 pintarChatAsistente(true);
                             }
 
-                            function tomarAvisoAsistente(i) {
+                            function tomarAvisoAsistente(i, mensajePropio) {
                                 const a = avisosMostrados[i];
                                 if (!a || chatEnviando) return;
                                 pendientesAbiertos = false;
@@ -15977,7 +15998,7 @@
                                 const descartados = avisosDescartados();
                                 descartados[a.clave] = 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
-                                enviarMensajeAsistente(a.primario.mensaje);
+                                enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
                             }
 
                             // ---- Agregar contexto: fotos, capturas y PDF ----
