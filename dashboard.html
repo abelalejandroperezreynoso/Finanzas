@@ -237,11 +237,7 @@
             border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 14px; font-weight: 400; white-space: nowrap; }
         .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
-        .cp-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; background: #f5f4ef; border-radius: 14px; padding: 12px 14px; margin: 6px 0 4px; }
-        .cp-info > div { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-        .cp-info .ancho { grid-column: 1 / -1; }
-        .cp-info span { font-size: 11px; color: #8a8880; text-transform: uppercase; letter-spacing: 0.03em; }
-        .cp-info b { font-size: 14px; font-weight: 500; color: #141413; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cp-resumen { font-size: 14px; color: #8a8880; }
         .cp-escribir { display: flex; align-items: center; gap: 8px; }
         .chat-preguntas .cp-enviar, .chat-preguntas .cp-enviar:hover { flex-shrink: 0; width: 32px; height: 32px; margin: 0; padding: 0; border-radius: 50%; border: none;
             background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; }
@@ -15967,8 +15963,14 @@
                                     </div>
                                     <div class="cp-etiqueta">${escaparHtml(a.etiqueta)}</div>
                                     <div class="cp-titulo">${escaparHtml(a.texto)}</div>
-                                    ${a.detalle ? `<div class="cp-detalle">${escaparHtml(a.detalle)}</div>` : ''}
-                                    ${a.categoria_id ? infoCategoriaPendienteHtml(a.categoria_id) : ''}
+                                    ${(() => {
+                                        // El resumen de la categoría sustituye el texto genérico de "Para conocerte mejor"
+                                        // y en los demás pendientes va debajo de su detalle
+                                        const resumen = a.categoria_id ? resumenCategoriaPendiente(a.categoria_id) : '';
+                                        const detalle = a.clave.startsWith('desc:') && resumen ? resumen : a.detalle;
+                                        const extra = resumen && detalle !== resumen ? `<div class="cp-detalle cp-resumen">${escaparHtml(resumen)}</div>` : '';
+                                        return (detalle ? `<div class="cp-detalle">${escaparHtml(detalle)}</div>` : '') + extra;
+                                    })()}
                                     <button type="button" class="cp-opcion" onclick="tomarAvisoAsistente(${k})"><span>${escaparHtml(a.primario.texto)}</span>${flecha('M9 18l6-6-6-6')}</button>
                                     <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>
                                     <div class="cp-escribir">
@@ -15981,38 +15983,36 @@
                                     </div>`;
                             }
 
-                            // Ficha corta de la categoría de un pendiente, para ubicarla sin salir del chat:
-                            // cuenta, tipo, cuándo se usó por última vez y cómo suelen ser sus montos
-                            function infoCategoriaPendienteHtml(id) {
+                            // Resumen en palabras de la categoría de un pendiente, para ubicarla sin salir del chat:
+                            // qué es, de qué cuenta, cuándo se usó y cómo suelen ser sus montos
+                            function resumenCategoriaPendiente(id) {
                                 const c = (datosCategorias || []).find(x => String(x.id) === String(id));
                                 if (!c) return '';
-                                const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
-                                const cuenta = (c.cuentas && c.cuentas.nombre) || ((datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)) || {}).nombre || '—';
-                                const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id));
-                                let ultimo = 'Nunca';
-                                if (movs.length) {
-                                    const f = movs.reduce((m, r) => (new Date(r.fecha) > new Date(m) ? r.fecha : m), movs[0].fecha);
-                                    const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(f) + 'T12:00:00')) / 86400000);
-                                    ultimo = `${fechaCorta(diaLocal(f))} · ${dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : `hace ${dias} d`}`;
-                                }
-                                let montos = '—';
-                                if (c.tipo === 'salud') {
-                                    montos = `${movs.length} registro${movs.length === 1 ? '' : 's'}`;
-                                } else {
-                                    const ult = movs.filter(r => Number(r.monto) !== 0).sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 20)
-                                        .map(r => Math.abs(Number(r.monto))).sort((a, b) => a - b);
+                                const queEs = { gasto: 'un gasto', ingreso: 'un ingreso', prestamo: 'un préstamo que hiciste', deuda: 'una deuda', inversion: 'una inversión', salud: 'un registro de salud' };
+                                const cuenta = (c.cuentas && c.cuentas.nombre) || ((datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)) || {}).nombre;
+                                const pesos = n => '$' + Math.round(n).toLocaleString('es-MX');
+                                const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id))
+                                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}.`;
+                                if (!movs.length) return texto + ' Todavía no tiene movimientos.';
+
+                                const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(movs[0].fecha) + 'T12:00:00')) / 86400000);
+                                const cuando = dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : dias < 15 ? `hace ${dias} días` : `el ${fechaCorta(diaLocal(movs[0].fecha))}`;
+                                const recientes = movs.filter(r => (Date.now() - new Date(r.fecha)) < 90 * 86400000).length;
+                                const porMes = recientes / 3;
+                                const frecuencia = porMes >= 8 ? 'varias veces por semana' : porMes >= 2.5 ? `unas ${Math.round(porMes)} veces al mes`
+                                    : porMes >= 0.8 ? 'más o menos una vez al mes' : 'de vez en cuando';
+                                texto += ` Se usó por última vez ${cuando} y suele aparecer ${frecuencia}.`;
+
+                                if (c.tipo !== 'salud') {
+                                    const ult = movs.filter(r => Number(r.monto) !== 0).slice(0, 20).map(r => Math.abs(Number(r.monto))).sort((a, b) => a - b);
                                     if (ult.length) {
                                         const q = p => ult[Math.min(ult.length - 1, Math.floor(p * (ult.length - 1) + 0.5))];
                                         const bajo = q(0.2), medio = q(0.5), alto = q(0.8);
-                                        montos = bajo === alto ? `Siempre ${fMoneda(medio)}` : `~${fMoneda(medio)} (${fMoneda(bajo)} a ${fMoneda(alto)})`;
+                                        texto += bajo === alto ? ` Casi siempre es de ${pesos(medio)}.` : ` Normalmente es de unos ${pesos(medio)}, entre ${pesos(bajo)} y ${pesos(alto)}.`;
                                     }
                                 }
-                                const dato = (k, v) => `<div><span>${k}</span><b>${escaparHtml(v)}</b></div>`;
-                                return `<div class="cp-info">
-                                    ${dato('Categoría', c.nombre)}${dato('Cuenta', cuenta)}
-                                    ${dato('Tipo', nombresTipo[c.tipo] || c.tipo)}${dato('Último uso', ultimo)}
-                                    <div class="ancho">${'<span>' + (c.tipo === 'salud' ? 'Registros' : 'Montos usuales') + '</span><b>' + escaparHtml(montos) + '</b>'}</div>
-                                </div>`;
+                                return texto;
                             }
 
                             // Respuesta propia a un pendiente: se manda tal cual. La IA recibe aparte, como nota, qué
