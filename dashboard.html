@@ -244,6 +244,10 @@
         .chat-preguntas .cp-enviar.vacio { background: #e2b6a5; }
         .cp-etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-top: 2px; }
         .cp-detalle { font-size: 15px; line-height: 1.5; color: #5e5d59; margin: -2px 0 6px; }
+        .chat-credito { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #e8e6dc; z-index: 4; pointer-events: none; }
+        .chat-credito.visible { display: block; }
+        .chat-credito > div { height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
+        .chat-credito.poco > div { background: #d0473b; }
         .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
         .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
             border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
@@ -2267,6 +2271,8 @@
         <div id="chatMensajes" class="chat-mensajes"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
         <div id="chatChips" class="chat-chips"></div>
+        <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
+        <div id="chatCredito" class="chat-credito" aria-hidden="true"><div></div></div>
         <div class="chat-barra">
             <div id="chatMenuModelo" class="chat-menu-modelo"></div>
             <div id="chatAdjuntos" class="chat-adjuntos"></div>
@@ -15479,6 +15485,7 @@
                                 actualizarBotonEnviarAsistente();
                                 pintarChatAsistente(true);
                                 pedirRevisionIa();
+                                pintarCreditoAsistente();
                             }
 
                             function nuevaConversacionAsistente() {
@@ -15663,6 +15670,7 @@
                                     chatEnviando = false;
                                     document.getElementById('chatEnviar').disabled = false;
                                     actualizarBotonEnviarAsistente();
+                                    pintarCreditoAsistente();
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
@@ -15710,6 +15718,25 @@
                                     opciones = [`${hola}, todo en orden por ahora`, 'Sin pendientes. ¿Qué revisamos hoy?', `${hola}, ¿en qué te ayudo?`, 'Tus números se ven tranquilos hoy', 'Nada urgente. ¿Buscamos dónde ahorrar?'];
                                 }
                                 return opciones[Math.floor(semillaSaludo * opciones.length)];
+                            }
+
+                            // ---- Raya de crédito de IA ----
+                            // Lo consumido desde el último saldo anotado, como fracción de ese saldo. Si nunca se
+                            // anotó un saldo no hay con qué comparar y la raya no se muestra.
+                            async function pintarCreditoAsistente() {
+                                const raya = document.getElementById('chatCredito');
+                                if (!raya || !clienteSupabase) return;
+                                try {
+                                    const { data, error } = await clienteSupabase.rpc('resumen_uso_ia');
+                                    const r = !error && data && data[0];
+                                    const saldo = r ? Number(r.saldo_anotado) : 0;
+                                    if (!r || !(saldo > 0)) { raya.classList.remove('visible'); return; }
+                                    const gastado = Math.min(saldo, Math.max(0, Number(r.gastado_desde_saldo || 0)));
+                                    raya.classList.add('visible');
+                                    raya.classList.toggle('poco', saldo - gastado < 1);
+                                    raya.firstElementChild.style.width = `${(gastado / saldo * 100).toFixed(1)}%`;
+                                    raya.title = `Usado ≈ $${gastado.toFixed(2)} de $${saldo.toFixed(2)} USD`;
+                                } catch (e) { /* sin datos: la raya se queda como estaba */ }
                             }
 
                             // ---- Chat de inicio: lo que el asistente ve pendiente ----
