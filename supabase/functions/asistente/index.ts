@@ -131,7 +131,9 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_cambio_categoria",
     description:
-      "Propone modificar una categoría: nombre, descripción o prioridad (vital, operativa, util, prescindible; sólo en gastos). NO lo aplica: el usuario lo confirmará.",
+      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos) o tipo " +
+      "(entre gasto, ingreso, prestamo y deuda; no aplica a inversiones ni a Salud). Al cambiar el tipo, los movimientos conservan su monto y signo. " +
+      "NO lo aplica: el usuario lo confirmará.",
     input_schema: {
       type: "object",
       properties: {
@@ -139,6 +141,7 @@ const HERRAMIENTAS: Json[] = [
         nombre: { type: "string" },
         descripcion: { type: "string" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
+        tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda"] },
         resumen: { type: "string" },
       },
       required: ["categoria_id", "resumen"],
@@ -330,14 +333,23 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cambios: Json = {};
       if (entrada.nombre) cambios.nombre = String(entrada.nombre).slice(0, 80);
       if (entrada.descripcion !== undefined) cambios.descripcion = String(entrada.descripcion).slice(0, 200) || null;
+      if (entrada.tipo && entrada.tipo !== (c as Json).tipo) {
+        if (["inversion", "salud"].includes((c as Json).tipo)) {
+          return { texto: "El tipo de una categoría de inversión o de Salud no se puede cambiar: sus movimientos guardan datos propios de ese tipo.", error: true };
+        }
+        if (!["gasto", "ingreso", "prestamo", "deuda"].includes(entrada.tipo)) return { texto: "Tipo no válido.", error: true };
+        cambios.tipo = entrada.tipo;
+        // La prioridad sólo existe en gastos
+        if (entrada.tipo !== "gasto") cambios.prioridad = null;
+      }
       if (entrada.prioridad) {
-        if ((c as Json).tipo !== "gasto") return { texto: "La prioridad sólo aplica a categorías de gasto.", error: true };
+        if ((cambios.tipo ?? (c as Json).tipo) !== "gasto") return { texto: "La prioridad sólo aplica a categorías de gasto.", error: true };
         cambios.prioridad = entrada.prioridad;
       }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
         tipo: "cambio_categoria", categoria_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
-        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null },
+        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo },
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
     }

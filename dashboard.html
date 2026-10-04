@@ -15561,7 +15561,11 @@
                                     filas.push(`Categoría: ${escaparHtml(a.nombre || '')}`);
                                     if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
-                                    if ('prioridad' in c) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
+                                    if ('tipo' in c) {
+                                        const nombresTipoCat = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
+                                        filas.push(`Tipo: ${flecha(nombresTipoCat[a.tipo] || a.tipo, nombresTipoCat[c.tipo] || c.tipo)}`);
+                                    }
+                                    if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
