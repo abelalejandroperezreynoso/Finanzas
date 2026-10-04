@@ -209,6 +209,7 @@
         .chat-propuesta .acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
         .chat-propuesta .acciones button { flex: 0 0 auto; width: auto; margin: 0; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 0.92em; }
         .chat-propuesta .estado { margin-top: 10px; font-size: 0.88em; font-weight: 600; }
+        .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
         .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
             border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
         .chat-sugerencias button { margin: 0; text-align: left; background: none; color: #141413; border: none; border-bottom: 0.5px solid #e8e6dc;
@@ -15576,6 +15577,22 @@
                                 if (!caja) return;
                                 pintarPreguntasAsistente();
                                 if (chatUi.length === 0 && !chatEnviando) {
+                                    // Al empezar, el asistente toma la palabra con lo que vea pendiente o raro
+                                    const avisos = avisosAsistente();
+                                    if (avisos.length) {
+                                        caja.innerHTML = `<div class="chat-asistente">${avisos.length === 1 ? 'Hay algo que quiero comentarte:' : `Hay ${avisos.length} cosas que quiero comentarte:`}</div>`
+                                            + avisos.map((a, i) => `<div class="chat-propuesta chat-aviso">
+                                                <div class="etiqueta">${escaparHtml(a.etiqueta)}</div>
+                                                <div class="titulo">${escaparHtml(a.texto)}</div>
+                                                ${a.detalle ? `<div class="detalle">${escaparHtml(a.detalle)}</div>` : ''}
+                                                <div class="acciones">
+                                                    <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="descartarAvisoAsistente(${i})">${escaparHtml(a.secundario.texto)}</button>
+                                                    <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="tomarAvisoAsistente(${i})">${escaparHtml(a.primario.texto)}</button>
+                                                </div>
+                                            </div>`).join('');
+                                        avisosMostrados = avisos;
+                                        return;
+                                    }
                                     const sugerencias = ['¿En qué gasté más este mes?', 'Compara mis gastos de este mes con el anterior', '¿Qué gastos podría recortar?', '¿Cuánto llevo invertido?'];
                                     caja.innerHTML = `<div class="chat-asistente" style="color:#8a8880;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
                                         <div class="chat-sugerencias">${sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('')}</div>`;
@@ -15668,6 +15685,153 @@
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
+                            }
+
+                            // ---- Chat de inicio: lo que el asistente ve pendiente ----
+                            // Se calcula aquí, con lo que la app ya tiene cargado (sin gastar en la IA). Cada aviso
+                            // trae el mensaje con el que arranca la conversación si se acepta, y se puede
+                            // descartar: unos para siempre, otros por unos días.
+                            var avisosMostrados = [];
+                            const claveAvisos = () => `avisosAsistente:${currentUser ? currentUser.id : 'anonimo'}`;
+                            function avisosDescartados() {
+                                try { return JSON.parse(localStorage.getItem(claveAvisos()) || '{}') || {}; } catch (e) { return {}; }
+                            }
+                            const diaLocal = f => {
+                                const d = new Date(f);
+                                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                            };
+                            const fechaCorta = dia => new Date(dia + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+
+                            function avisosAsistente() {
+                                const descartados = avisosDescartados();
+                                const ahora = Date.now();
+                                const vigente = clave => !(clave in descartados) || (descartados[clave] && descartados[clave] < ahora);
+                                const cats = datosCategorias || [];
+                                const catPorId = {};
+                                cats.forEach(c => { catPorId[String(c.id)] = c; });
+                                // Sólo movimientos de dinero: Salud no cuenta
+                                const movs = (datosUsoCompleto || []).filter(r => {
+                                    const c = catPorId[String(r.categoria_id)];
+                                    return c && c.tipo !== 'salud';
+                                });
+                                const avisos = [];
+                                const hoyDate = new Date();
+                                const hoy = diaLocal(hoyDate);
+                                const ayer = diaLocal(new Date(hoyDate.getTime() - 86400000));
+
+                                // 1. Un día sin registrar, si de costumbre registras casi a diario
+                                const dias = new Set(movs.map(r => diaLocal(r.fecha)));
+                                let activos = 0;
+                                for (let k = 2; k <= 15; k++) if (dias.has(diaLocal(new Date(hoyDate.getTime() - k * 86400000)))) activos++;
+                                if (activos >= 7) {
+                                    let dia = null;
+                                    if (!dias.has(ayer)) dia = ayer;
+                                    else if (hoyDate.getHours() >= 20 && !dias.has(hoy)) dia = hoy;
+                                    if (dia && vigente(`sinreg:${dia}`)) {
+                                        const cuando = dia === hoy ? 'Hoy' : 'Ayer';
+                                        avisos.push({
+                                            clave: `sinreg:${dia}`, etiqueta: 'Registro', texto: `${cuando} no registraste ningún movimiento.`,
+                                            detalle: '¿Tuviste gastos o ingresos que falten?',
+                                            primario: { texto: 'Registrar', mensaje: `${cuando} (${dia}) no registré ningún movimiento. Pregúntame qué gasté o recibí ese día para proponerme los registros.` },
+                                            secundario: { texto: 'No hubo nada', dias: null }
+                                        });
+                                    }
+                                }
+
+                                // 2. Pagos recurrentes que tocan hoy o ya se pasaron (hasta 3 días)
+                                cats.filter(c => c.diasRecurrencia > 0 && c.siguienteFechaRecurrencia && c.tipo !== 'salud')
+                                    .map(c => ({ c, dia: diaLocal(c.siguienteFechaRecurrencia) }))
+                                    .filter(({ dia }) => dia <= hoy && dia >= diaLocal(new Date(hoyDate.getTime() - 3 * 86400000)))
+                                    .sort((a, b) => a.dia.localeCompare(b.dia))
+                                    .slice(0, 2)
+                                    .forEach(({ c, dia }) => {
+                                        const clave = `rec:${c.id}:${dia}`;
+                                        if (!vigente(clave)) return;
+                                        const cuando = dia === hoy ? 'Hoy' : `El ${fechaCorta(dia)}`;
+                                        const monto = c.montoSugerido ? ` (aprox. ${fMoneda(c.montoSugerido)})` : '';
+                                        avisos.push({
+                                            clave, etiqueta: 'Pago recurrente', texto: `${cuando} toca ${c.nombre}${monto}.`,
+                                            detalle: '¿Ya quedó?',
+                                            primario: { texto: 'Ya quedó', mensaje: `${cuando} tocaba ${c.nombre}${monto} y ya quedó. Propónme registrarlo; pregúntame el monto exacto si hace falta.` },
+                                            secundario: { texto: 'Todavía no', dias: 1 }
+                                        });
+                                    });
+
+                                // 3. Algo raro: movimientos repetidos el mismo día o un monto fuera de lo normal (último mes)
+                                const hace30 = diaLocal(new Date(hoyDate.getTime() - 30 * 86400000));
+                                const recientes = movs.filter(r => diaLocal(r.fecha) >= hace30 && Number(r.monto) !== 0);
+                                const grupos = {};
+                                recientes.forEach(r => {
+                                    const c = catPorId[String(r.categoria_id)];
+                                    if (!c || c.tipo === 'inversion') return;
+                                    const k = `${r.categoria_id}|${diaLocal(r.fecha)}|${Number(r.monto).toFixed(2)}`;
+                                    (grupos[k] = grupos[k] || []).push(r);
+                                });
+                                let raros = 0;
+                                Object.entries(grupos).filter(([, g]) => g.length > 1).slice(0, 3).forEach(([k, g]) => {
+                                    const clave = `dup:${k}`;
+                                    if (raros >= 1 || !vigente(clave)) return;
+                                    const c = catPorId[String(g[0].categoria_id)];
+                                    const dia = diaLocal(g[0].fecha);
+                                    raros++;
+                                    avisos.push({
+                                        clave, etiqueta: 'Algo raro', texto: `${g.length} movimientos iguales en ${c.nombre} el ${fechaCorta(dia)}.`,
+                                        detalle: `Todos por ${fMoneda(Math.abs(Number(g[0].monto)))}. ¿Alguno está repetido?`,
+                                        primario: { texto: 'Revisar', mensaje: `Veo ${g.length} movimientos iguales en ${c.nombre} el ${dia}, por ${fMoneda(Math.abs(Number(g[0].monto)))} cada uno. Revísalos y dime si parece que alguno está duplicado.` },
+                                        secundario: { texto: 'Están bien', dias: null }
+                                    });
+                                });
+                                if (raros === 0) {
+                                    const hace7 = diaLocal(new Date(hoyDate.getTime() - 7 * 86400000));
+                                    for (const r of recientes.filter(r => diaLocal(r.fecha) >= hace7)) {
+                                        const c = catPorId[String(r.categoria_id)];
+                                        if (!c || c.tipo !== 'gasto') continue;
+                                        const previos = movs.filter(x => x.categoria_id === r.categoria_id && x.id !== r.id && Number(x.monto) !== 0).slice(0, 20).map(x => Math.abs(Number(x.monto))).sort((a, b) => a - b);
+                                        if (previos.length < 5) continue;
+                                        const mediana = previos[Math.floor(previos.length / 2)];
+                                        const monto = Math.abs(Number(r.monto));
+                                        const clave = `atipico:${r.id}`;
+                                        if (monto > 500 && monto > mediana * 3 && vigente(clave)) {
+                                            avisos.push({
+                                                clave, etiqueta: 'Algo raro', texto: `Un gasto de ${fMoneda(monto)} en ${c.nombre} el ${fechaCorta(diaLocal(r.fecha))}.`,
+                                                detalle: `Lo normal ahí es cerca de ${fMoneda(mediana)}. ¿Está bien el monto?`,
+                                                primario: { texto: 'Revisar', mensaje: `El ${diaLocal(r.fecha)} hay un gasto de ${fMoneda(monto)} en ${c.nombre}, cuando lo normal ahí es cerca de ${fMoneda(mediana)}. Revisa ese movimiento y dime si parece un error.` },
+                                                secundario: { texto: 'Está bien', dias: null }
+                                            });
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // 4. Retroalimentación: la categoría más usada que todavía no tiene descripción
+                                const sinDescripcion = cats.filter(c => !c.descripcion && (c.vecesUsada || 0) >= 5 && c.tipo !== 'inversion')
+                                    .sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))
+                                    .find(c => vigente(`desc:${c.id}`));
+                                if (sinDescripcion && avisos.length < 3) {
+                                    avisos.push({
+                                        clave: `desc:${sinDescripcion.id}`, etiqueta: 'Para conocerte mejor',
+                                        texto: `${sinDescripcion.nombre} no tiene descripción.`,
+                                        detalle: 'Con una descripción entiendo mejor tus gastos y te propongo topes más precisos.',
+                                        primario: { texto: 'Describirla', mensaje: `Ayúdame a escribir la descripción de la categoría ${sinDescripcion.nombre}. Revisa sus movimientos y hazme preguntas con opciones para entender para qué la uso; luego propónme la descripción.` },
+                                        secundario: { texto: 'Ahora no', dias: 7 }
+                                    });
+                                }
+                                return avisos.slice(0, 3);
+                            }
+
+                            function descartarAvisoAsistente(i) {
+                                const a = avisosMostrados[i];
+                                if (!a) return;
+                                const descartados = avisosDescartados();
+                                descartados[a.clave] = a.secundario.dias ? Date.now() + a.secundario.dias * 86400000 : 0;
+                                try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                pintarChatAsistente(true);
+                            }
+
+                            function tomarAvisoAsistente(i) {
+                                const a = avisosMostrados[i];
+                                if (!a || chatEnviando) return;
+                                enviarMensajeAsistente(a.primario.mensaje);
                             }
 
                             // ---- Agregar contexto: fotos, capturas y PDF ----
