@@ -15601,7 +15601,8 @@
                                 else requestAnimationFrame(() => caja.scrollTo({ top: caja.scrollHeight, behavior: 'smooth' }));
                             }
 
-                            async function enviarMensajeAsistente(textoFijo) {
+                            // contextoApi: una nota que viaja a la IA pero no se pinta en tu burbuja
+                            async function enviarMensajeAsistente(textoFijo, contextoApi) {
                                 const campo = document.getElementById('chatTexto');
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
                                 const adjuntos = chatAdjuntos.slice();
@@ -15612,7 +15613,7 @@
                                 const bloques = adjuntos.map(a => a.tipo === 'pdf'
                                     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } }
                                     : { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: a.data } });
-                                bloques.push({ type: 'text', text: texto || 'Revisa lo que te adjunto.' });
+                                bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (contextoApi ? `\n\n${contextoApi}` : '') });
                                 const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
                                 const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => ({ tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura })) };
                                 chatUi.push(burbuja);
@@ -15970,13 +15971,19 @@
                                     </div>`;
                             }
 
-                            // Respuesta propia a un pendiente: va a la IA con el contexto del pendiente
+                            // Respuesta propia a un pendiente: se manda tal cual. La IA recibe aparte, como nota, qué
+                            // pendiente estaba a la vista, y decide si el mensaje va de eso o de otra cosa. El
+                            // pendiente no se da por atendido: si no era sobre él, sigue en la lista.
                             function responderPendienteAsistente(k) {
                                 const campo = document.getElementById('cpPendienteTexto');
                                 const texto = campo ? campo.value.trim() : '';
                                 const a = avisosMostrados[k];
                                 if (!texto || !a || chatEnviando) return;
-                                tomarAvisoAsistente(k, `Sobre esto que detectaste: "${a.texto}${a.detalle ? ' ' + a.detalle : ''}". ${texto}`);
+                                pendientesAbiertos = false;
+                                ofrecerContinuar = false;
+                                pendienteEnCurso = true;
+                                enviarMensajeAsistente(texto, `[Nota de la app: el usuario escribió esto mientras veía el pendiente "${a.texto}${a.detalle ? ' ' + a.detalle : ''}". ` +
+                                    'Puede ser una respuesta a ese pendiente o algo distinto; interprétalo por su contenido y atiende lo que pide.]');
                             }
 
                             function descartarAvisoAsistente(i) {
