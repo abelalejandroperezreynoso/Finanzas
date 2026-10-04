@@ -192,7 +192,11 @@
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
         html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px var(--alto-pie-chat, 120px); }
+            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px 0; }
+        /* El espacio para lo que flota abajo va como un elemento al final y no como relleno: Safari
+           ignora el relleno inferior de un contenedor flex con scroll, y lo último quedaba escondido
+           detrás de la caja de escribir sin poder subirlo */
+        .chat-mensajes::after { content: ''; flex: 0 0 var(--alto-pie-chat, 120px); }
         /* La caja de escribir (y las tarjetas que la sustituyen) flota encima de los mensajes: la
            conversación pasa por detrás y se ve alrededor de sus esquinas redondeadas */
         .chat-pie { position: absolute; left: 20px; right: 20px; bottom: 0; z-index: 3; }
