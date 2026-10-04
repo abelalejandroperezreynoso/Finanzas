@@ -15960,20 +15960,9 @@
                                     }
                                 }
 
-                                // 5. Retroalimentación: la categoría más usada que todavía no tiene descripción
-                                const sinDescripcion = cats.filter(c => !c.descripcion && (c.vecesUsada || 0) >= 5 && c.tipo !== 'inversion')
-                                    .sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))
-                                    .find(c => vigente(`desc:${c.id}`));
-                                if (sinDescripcion) {
-                                    avisos.push({
-                                        clave: `desc:${sinDescripcion.id}`, categoria_id: sinDescripcion.id, etiqueta: 'Para conocerte mejor',
-                                        texto: `${sinDescripcion.nombre} no tiene descripción.`,
-                                        detalle: 'Con una descripción entiendo mejor tus gastos y te propongo topes más precisos.',
-                                        primario: { texto: 'Describirla', mensaje: `Ayúdame a escribir la descripción de la categoría ${sinDescripcion.nombre}. Revisa sus movimientos y hazme preguntas con opciones para entender para qué la uso; luego propónme la descripción.` },
-                                        secundario: { texto: 'Ahora no', dias: 7 }
-                                    });
-                                }
-                                // 5b. Retroalimentación: una cuenta con movimientos que todavía no tiene descripción
+                                // 5. Retroalimentación: primero la cuenta. Su descripción da contexto a todas sus
+                                // categorías, así que va antes que la de cualquier categoría
+                                // (cuenta con movimientos que todavía no tiene descripción)
                                 const usosPorCuenta = {};
                                 movs.forEach(r => { const c = catPorId[String(r.categoria_id)]; if (c) usosPorCuenta[String(c.cuenta_id)] = (usosPorCuenta[String(c.cuenta_id)] || 0) + 1; });
                                 const cuentaSinDesc = (datosCuentas || []).filter(cu => !cu.descripcion && (usosPorCuenta[String(cu.id)] || 0) >= 5)
@@ -15990,7 +15979,22 @@
                                     });
                                 }
 
-                                // 6. Lo que encontró la revisión diaria con IA
+                                // 6. Después, la categoría más usada sin descripción. Mientras haya una cuenta pendiente de
+                                // describir, sólo entran categorías de cuentas que ya tienen la suya
+                                const cuentaDescrita = c => { const cu = (datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)); return !!(cu && cu.descripcion); };
+                                const sinDescripcion = cats.filter(c => !c.descripcion && (c.vecesUsada || 0) >= 5 && c.tipo !== 'inversion' && (!cuentaSinDesc || cuentaDescrita(c)))
+                                    .sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))
+                                    .find(c => vigente(`desc:${c.id}`));
+                                if (sinDescripcion) {
+                                    avisos.push({
+                                        clave: `desc:${sinDescripcion.id}`, categoria_id: sinDescripcion.id, etiqueta: 'Para conocerte mejor',
+                                        texto: `${sinDescripcion.nombre} no tiene descripción.`,
+                                        detalle: 'Con una descripción entiendo mejor tus gastos y te propongo topes más precisos.',
+                                        primario: { texto: 'Describirla', mensaje: `Ayúdame a escribir la descripción de la categoría ${sinDescripcion.nombre}. Revisa sus movimientos y hazme preguntas con opciones para entender para qué la uso; luego propónme la descripción.` },
+                                        secundario: { texto: 'Ahora no', dias: 7 }
+                                    });
+                                }
+                                // 7. Lo que encontró la revisión diaria con IA
                                 const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', ahorro: 'Ahorro', anticipar: 'Anticípate' };
                                 const propios = avisos.slice();
                                 (revisionIaDeHoy() || []).forEach(h => {
