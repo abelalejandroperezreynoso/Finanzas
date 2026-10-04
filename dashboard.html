@@ -15903,7 +15903,7 @@
                                     const clave = `cortada:${d.que}:${d.id}`;
                                     if (!vigente(clave)) return;
                                     avisos.push({
-                                        clave, categoria_id: d.categoria_id || null, etiqueta: 'Descripción incompleta',
+                                        clave, categoria_id: d.categoria_id || null, cortada: d, etiqueta: 'Descripción incompleta',
                                         texto: `La descripción de la ${d.que} ${d.nombre} quedó cortada.`,
                                         detalle: `Termina en "…${d.texto.slice(-40)}".`,
                                         primario: { texto: 'Completarla', mensaje: `La descripción de la ${d.que} ${d.nombre} quedó cortada a la mitad: "${d.texto}". Propónme una versión completa y concisa que conserve lo importante.` },
@@ -16161,6 +16161,9 @@
                                         return (detalle ? `<div class="cp-detalle">${escaparHtml(detalle)}</div>` : '') + extra;
                                     })()}
                                     <button type="button" class="cp-opcion" onclick="tomarAvisoAsistente(${k})"><span>${escaparHtml(a.primario.texto)}</span>${flecha('M9 18l6-6-6-6')}</button>
+                                    ${a.cortada && avisosMostrados.filter(x => x.cortada).length > 1
+                                        ? `<button type="button" class="cp-opcion" onclick="completarCortadasAsistente()"><span>Completar todas (${avisosMostrados.filter(x => x.cortada).length})</span>${flecha('M9 18l6-6-6-6')}</button>`
+                                        : ''}
                                     <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>
                                     <div class="cp-escribir">
                                         <input type="text" class="cp-otra" id="cpPendienteTexto" placeholder="Escribe otra respuesta…"
@@ -16205,6 +16208,21 @@
                                     }
                                 }
                                 return texto;
+                            }
+
+                            // Todas las descripciones cortadas de una vez: un solo mensaje con la lista; la IA
+                            // propone una corrección por cada una y cada propuesta se confirma aparte
+                            function completarCortadasAsistente() {
+                                const cortadas = avisosMostrados.filter(a => a.cortada);
+                                if (!cortadas.length || chatEnviando) return;
+                                const descartados = avisosDescartados();
+                                cortadas.forEach(a => { descartados[a.clave] = 0; });
+                                try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                pendientesAbiertos = false;
+                                ofrecerContinuar = false;
+                                pendienteEnCurso = true;
+                                const lista = cortadas.map(a => `- La ${a.cortada.que} ${a.cortada.nombre}: "${a.cortada.texto}"`).join('\n');
+                                enviarMensajeAsistente(`Estas descripciones quedaron cortadas a la mitad. Propónme una versión completa y concisa de cada una, conservando lo importante:\n${lista}`);
                             }
 
                             // Respuesta propia a un pendiente: se manda tal cual. La IA recibe aparte, como nota, qué
