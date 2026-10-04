@@ -254,10 +254,23 @@
         .chat-preguntas .cp-enviar.vacio { background: #e2b6a5; }
         .cp-etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-top: 2px; }
         .cp-detalle { font-size: 15px; line-height: 1.5; color: #5e5d59; margin: -2px 0 6px; }
-        .chat-credito { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #e8e6dc; z-index: 4; pointer-events: none; }
+        .chat-credito { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #e8e6dc; z-index: 4; pointer-events: none; transition: height 0.25s ease; }
+        .chat-credito.gastando { height: 6px; }
         .chat-credito.visible { display: block; }
-        .chat-credito > div { height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
-        .chat-credito.poco > div { background: #d0473b; }
+        .chat-credito .cc-lleno { height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
+        .chat-credito.poco .cc-lleno { background: #d0473b; }
+        /* Lo que acaba de gastar una consulta: un bloque que crece al final de la raya y una
+           cifra pequeña que sube y se desvanece */
+        .chat-credito .cc-bloque { position: absolute; top: 0; height: 100%; background: #f2a27f; transform-origin: left center;
+            box-shadow: 0 0 6px rgba(217, 119, 87, 0.8); animation: ccBloque 1.2s ease-out forwards; }
+        @keyframes ccBloque { 0% { transform: scaleX(0); } 45% { transform: scaleX(1); background: #f2a27f; }
+            100% { transform: scaleX(1); background: #d97757; box-shadow: none; } }
+        .chat-credito.poco .cc-bloque { animation-name: ccBloquePoco; }
+        @keyframes ccBloquePoco { 0% { transform: scaleX(0); } 45% { transform: scaleX(1); } 100% { transform: scaleX(1); background: #d0473b; box-shadow: none; } }
+        .chat-credito .cc-cifra { position: absolute; bottom: 7px; padding: 2px 7px; border-radius: 999px; background: #ffffff; color: #c96442;
+            font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 8px rgba(20, 20, 19, 0.12); animation: ccCifra 1.8s ease-out forwards; }
+        @keyframes ccCifra { 0% { opacity: 0; transform: translate(var(--cc-x, -50%), 4px); } 15% { opacity: 1; transform: translate(var(--cc-x, -50%), 0); }
+            70% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--cc-x, -50%), -10px); } }
         /* Alerta con el estilo de iOS (oscura en la app, clara dentro del chat) */
         .alerta-ios-capa { position: fixed; inset: 0; z-index: 5000; display: flex; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.4); opacity: 0; transition: opacity 0.2s ease; }
@@ -2290,7 +2303,7 @@
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
         <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
-        <div id="chatCredito" class="chat-credito" aria-hidden="true"><div></div></div>
+        <div id="chatCredito" class="chat-credito" aria-hidden="true"><div class="cc-lleno"></div></div>
         <div class="chat-pie" id="chatPie">
         <div id="chatChips" class="chat-chips"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
@@ -15888,6 +15901,8 @@
                             // ---- Raya de crédito de IA ----
                             // Lo consumido desde el último saldo anotado, como fracción de ese saldo. Si nunca se
                             // anotó un saldo no hay con qué comparar y la raya no se muestra.
+                            // Si subió desde la última vez, lo nuevo entra como un bloque y se muestra cuánto fue.
+                            var creditoPctPrevio = null, creditoTimers = [];
                             async function pintarCreditoAsistente() {
                                 const raya = document.getElementById('chatCredito');
                                 if (!raya || !clienteSupabase) return;
@@ -15895,13 +15910,50 @@
                                     const { data, error } = await clienteSupabase.rpc('resumen_uso_ia');
                                     const r = !error && data && data[0];
                                     const saldo = r ? Number(r.saldo_anotado) : 0;
-                                    if (!r || !(saldo > 0)) { raya.classList.remove('visible'); return; }
+                                    if (!r || !(saldo > 0)) { raya.classList.remove('visible'); creditoPctPrevio = null; return; }
                                     const gastado = Math.min(saldo, Math.max(0, Number(r.gastado_desde_saldo || 0)));
+                                    const pct = gastado / saldo * 100;
+                                    const lleno = raya.querySelector('.cc-lleno');
                                     raya.classList.add('visible');
                                     raya.classList.toggle('poco', saldo - gastado < 1);
-                                    raya.firstElementChild.style.width = `${(gastado / saldo * 100).toFixed(1)}%`;
                                     raya.title = `Usado ≈ $${gastado.toFixed(2)} de $${saldo.toFixed(2)} USD`;
+                                    const previo = creditoPctPrevio;
+                                    creditoPctPrevio = pct;
+                                    if (previo === null || pct - previo < 0.005) {
+                                        lleno.style.width = `${pct.toFixed(2)}%`;
+                                        return;
+                                    }
+                                    animarConsumoCredito(raya, lleno, previo, pct);
                                 } catch (e) { /* sin datos: la raya se queda como estaba */ }
+                            }
+
+                            function animarConsumoCredito(raya, lleno, previo, pct) {
+                                creditoTimers.forEach(clearTimeout);
+                                raya.querySelectorAll('.cc-bloque, .cc-cifra').forEach(n => n.remove());
+                                lleno.style.transition = 'none';
+                                lleno.style.width = `${previo.toFixed(2)}%`;
+                                const bloque = document.createElement('div');
+                                bloque.className = 'cc-bloque';
+                                bloque.style.left = `${previo.toFixed(2)}%`;
+                                bloque.style.width = `${Math.max(0.6, pct - previo).toFixed(2)}%`;
+                                const delta = pct - previo;
+                                const cifra = document.createElement('div');
+                                cifra.className = 'cc-cifra';
+                                cifra.textContent = `+${delta >= 1 ? delta.toFixed(1) : delta >= 0.1 ? delta.toFixed(2) : delta.toFixed(3).replace(/0$/, '')}%`;
+                                // Cerca de las orillas se ancla para no salirse de la pantalla
+                                cifra.style.left = `${pct.toFixed(2)}%`;
+                                cifra.style.setProperty('--cc-x', pct < 8 ? '-10%' : pct > 92 ? '-90%' : '-50%');
+                                raya.append(bloque, cifra);
+                                raya.classList.add('gastando');
+                                creditoTimers = [
+                                    setTimeout(() => {
+                                        lleno.style.width = `${pct.toFixed(2)}%`;
+                                        bloque.remove();
+                                        void lleno.offsetWidth;
+                                        lleno.style.transition = '';
+                                    }, 1200),
+                                    setTimeout(() => { cifra.remove(); raya.classList.remove('gastando'); }, 1800)
+                                ];
                             }
 
                             // ---- Chat de inicio: lo que el asistente ve pendiente ----
