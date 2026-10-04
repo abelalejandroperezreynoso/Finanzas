@@ -12,7 +12,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`gastos-app-vNNN`), o el iPhone sigue mostrando la versión vieja. `CACHE_LOGOS`
   no se toca.
 - `supabase/functions/asistente/`: Edge Function (Deno) que habla con la API de
-  Claude: chat del asistente, topes con IA y lectura del saldo desde una captura.
+  Claude: chat del asistente (meta: minimizar gastos y corregir datos), revisión
+  diaria proactiva, topes con IA y lectura del saldo desde una captura.
   El modelo sale de la variable `MODELO_IA` (por defecto `claude-sonnet-5-5`).
 - `migracion_*.sql` en la raíz: migraciones ya aplicadas a mano; quedan como
   historial.

@@ -15513,6 +15513,7 @@
                                 pintarModeloAsistente();
                                 actualizarBotonEnviarAsistente();
                                 pintarChatAsistente(true);
+                                pedirRevisionIa();
                             }
 
                             function nuevaConversacionAsistente() {
@@ -15586,6 +15587,8 @@
                                 if (chatUi.length === 0 && !chatEnviando) {
                                     // Al empezar, el asistente toma la palabra con lo que vea pendiente o raro
                                     const avisos = avisosAsistente();
+                                    const revisando = revisandoIa ? '<div class="chat-asistente" style="color:#8a8880; display:flex; align-items:center; gap:10px;"><div class="chat-escribiendo"><span></span><span></span><span></span></div>Revisando tus finanzas…</div>' : '';
+                                    if (!avisos.length && revisandoIa) { caja.innerHTML = revisando; avisosMostrados = []; return; }
                                     if (avisos.length) {
                                         caja.innerHTML = `<div class="chat-asistente">${avisos.length === 1 ? 'Hay algo que quiero comentarte:' : `Hay ${avisos.length} cosas que quiero comentarte:`}</div>`
                                             + avisos.map((a, i) => `<div class="chat-propuesta chat-aviso">
@@ -15596,7 +15599,7 @@
                                                     <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="descartarAvisoAsistente(${i})">${escaparHtml(a.secundario.texto)}</button>
                                                     <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="tomarAvisoAsistente(${i})">${escaparHtml(a.primario.texto)}</button>
                                                 </div>
-                                            </div>`).join('');
+                                            </div>`).join('') + revisando;
                                         avisosMostrados = avisos;
                                         return;
                                     }
@@ -15810,7 +15813,31 @@
                                     }
                                 }
 
-                                // 4. Retroalimentación: la categoría más usada que todavía no tiene descripción
+                                // 4. Tipo dudoso: un "gasto" donde casi todo entra dinero, o cuyos montos parecen conteos
+                                if (avisos.length < 3) {
+                                    for (const c of cats.filter(c => c.tipo === 'gasto').sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))) {
+                                        const clave = `tipo:${c.id}`;
+                                        if (!vigente(clave)) continue;
+                                        const montos = movs.filter(r => String(r.categoria_id) === String(c.id) && Number(r.monto) !== 0).map(r => Number(r.monto));
+                                        if (montos.length < 5) continue;
+                                        const entradas = montos.filter(m => m > 0).length / montos.length;
+                                        const abs = montos.map(Math.abs).sort((a, b) => a - b);
+                                        const pareceConteo = abs.every(m => Number.isInteger(m) && m <= 10) && abs[Math.floor(abs.length / 2)] <= 5;
+                                        let texto = null, sugerido = null;
+                                        if (entradas >= 0.8) { texto = `${c.nombre} es gasto, pero casi siempre entra dinero.`; sugerido = 'ingreso'; }
+                                        else if (pareceConteo) { texto = `Los montos de ${c.nombre} parecen conteos, no pesos.`; sugerido = 'salud'; }
+                                        if (!texto) continue;
+                                        avisos.push({
+                                            clave, etiqueta: 'Clasificación', texto,
+                                            detalle: sugerido === 'salud' ? '¿Registra algo que no es dinero? Quizá debería ser de Salud.' : '¿Debería ser una categoría de ingreso?',
+                                            primario: { texto: 'Revisar', mensaje: `Revisa la categoría ${c.nombre}: ${texto} ¿Tiene el tipo correcto? Si no, propónme el cambio${sugerido === 'salud' ? ' a Salud' : ''}.` },
+                                            secundario: { texto: 'Está bien', dias: null }
+                                        });
+                                        break;
+                                    }
+                                }
+
+                                // 5. Retroalimentación: la categoría más usada que todavía no tiene descripción
                                 const sinDescripcion = cats.filter(c => !c.descripcion && (c.vecesUsada || 0) >= 5 && c.tipo !== 'inversion')
                                     .sort((a, b) => (b.vecesUsada || 0) - (a.vecesUsada || 0))
                                     .find(c => vigente(`desc:${c.id}`));
@@ -15823,7 +15850,47 @@
                                         secundario: { texto: 'Ahora no', dias: 7 }
                                     });
                                 }
-                                return avisos.slice(0, 3);
+                                // 6. Lo que encontró la revisión diaria con IA
+                                const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', ahorro: 'Ahorro', anticipar: 'Anticípate' };
+                                const propios = avisos.slice(0, 3);
+                                (revisionIaDeHoy() || []).forEach(h => {
+                                    const clave = `ia:${h.titulo}`;
+                                    if (!vigente(clave)) return;
+                                    propios.push({
+                                        clave, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
+                                        primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: h.mensaje },
+                                        secundario: { texto: 'Descartar', dias: null }
+                                    });
+                                });
+                                return propios.slice(0, 6);
+                            }
+
+                            // ---- Revisión diaria con IA ----
+                            // La primera vez que se abre el chat cada día, la IA repasa los datos y deja sus
+                            // hallazgos (dónde ahorrar, posibles errores, qué anticipar). Se guardan por día para
+                            // no consultarla de nuevo: cuesta una consulta diaria como mucho.
+                            let revisandoIa = false;
+                            const claveRevisionIa = () => `revisionIa:${currentUser ? currentUser.id : 'anonimo'}`;
+                            function revisionIaDeHoy() {
+                                try {
+                                    const g = JSON.parse(localStorage.getItem(claveRevisionIa()) || 'null');
+                                    return g && g.dia === diaLocal(new Date()) ? g.hallazgos : null;
+                                } catch (e) { return null; }
+                            }
+                            async function pedirRevisionIa() {
+                                if (revisandoIa || revisionIaDeHoy() || !currentUser) return;
+                                revisandoIa = true;
+                                if (chatUi.length === 0) pintarChatAsistente(true);
+                                try {
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        body: { modo: 'revision', desfase: new Date().getTimezoneOffset() }
+                                    });
+                                    if (!error && data && Array.isArray(data.hallazgos)) {
+                                        try { localStorage.setItem(claveRevisionIa(), JSON.stringify({ dia: diaLocal(new Date()), hallazgos: data.hallazgos })); } catch (e) { /* sin almacenamiento */ }
+                                    }
+                                } catch (e) { /* sin revisión hoy: el chat sigue igual */ }
+                                revisandoIa = false;
+                                if (chatUi.length === 0) pintarChatAsistente(true);
                             }
 
                             function descartarAvisoAsistente(i) {
