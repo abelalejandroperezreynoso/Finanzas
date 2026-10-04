@@ -124,6 +124,7 @@ const HERRAMIENTAS: Json[] = [
         fecha: { type: "string" },
         descripcion: { type: "string" },
         categoria_id: { type: "string" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string", description: "Qué se cambia, en una frase para el usuario" },
       },
       required: ["registro_id", "resumen"],
@@ -145,6 +146,7 @@ const HERRAMIENTAS: Json[] = [
         descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
       required: ["categoria_id", "resumen"],
@@ -160,6 +162,7 @@ const HERRAMIENTAS: Json[] = [
         cuenta_id: { type: "string" },
         nombre: { type: "string" },
         descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
       required: ["cuenta_id", "resumen"],
@@ -178,6 +181,7 @@ const HERRAMIENTAS: Json[] = [
         importe: { type: "number" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         descripcion: { type: "string" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
       required: ["categoria_id", "importe", "fecha", "resumen"],
@@ -353,6 +357,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_movimiento", registro_id: r.id, cambios, resumen: String(entrada.resumen).slice(0, 200),
         antes: { fecha: fechaLocal(r.fecha, zona), monto: Number(r.monto), cantidad: r.cantidad, descripcion: r.descripcion, categoria: (r as Json).categorias?.nombre },
         categoria_nueva: categoriaNueva,
@@ -393,6 +398,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_categoria", categoria_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
         antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo },
         ...(conversionSalud ? { convertir_a_salud: conversionSalud } : {}),
@@ -411,6 +417,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_cuenta", cuenta_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
         antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null },
       });
@@ -427,6 +434,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const dNueva = textoCompleto(entrada.descripcion, MAX_DESCRIPCION_MOVIMIENTO);
       if (dNueva.error) return { texto: dNueva.error, error: true };
       propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,
         datos: {
           categoria_id: (c as Json).id, fecha: entrada.fecha, descripcion: dNueva.texto || "",
@@ -457,6 +465,7 @@ Datos de la app:
 Cómo trabajar:
 - Consulta los datos con las herramientas antes de afirmar cifras; no inventes.
 - Para modificar o registrar algo usa las herramientas proponer_*: nunca aplican nada, sólo dejan una propuesta que el usuario confirma en la app. Después de proponer, dile qué propusiste y que lo confirme; no digas que ya quedó hecho.
+- Si el usuario responde sobre una propuesta que sigue sin confirmar (pide un cambio, aclara algo o dice que así está bien), vuelve a llamar a la herramienta proponer_* con la versión completa y corrige_anterior: true, aunque no cambie nada: la tarjeta nueva aparece al final y sustituye a la anterior. Nunca digas que una propuesta quedó lista o actualizada sin haber llamado a la herramienta en ese turno.
 - No puedes borrar nada.
 - Si algo no se puede hacer con tus herramientas, dilo claramente; nunca propongas rodeos que dejen datos mal clasificados (por ejemplo, cambiar a un tipo que no corresponde).
 - Siempre que le ofrezcas al usuario alternativas para elegir (descripciones, nombres, montos, categorías, qué hacer después) o te falte un dato, NO las enlistes en el texto ni cierres con una pregunta: llama a preguntar_al_usuario con esas alternativas como opciones (2 a 4 por pregunta, hasta 4 preguntas). La app las muestra como una tarjeta para tocar y el usuario siempre puede escribir otra respuesta.

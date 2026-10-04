@@ -216,6 +216,9 @@
         .chat-propuesta .acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
         .chat-propuesta .acciones button { flex: 0 0 auto; width: auto; margin: 0; padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: 0.92em; }
         .chat-propuesta .estado { margin-top: 10px; font-size: 0.88em; font-weight: 600; }
+        .chat-propuesta.reemplazada { padding: 12px 18px; opacity: 0.6; }
+        .chat-propuesta.reemplazada .titulo { margin-bottom: 0; text-decoration: line-through; }
+        .chat-propuesta.reemplazada .estado { margin-top: 4px; color: #8a8880; font-weight: 500; }
         /* Inicio del chat: personaje y saludo al centro; si hay pendientes, suben y las tarjetas van debajo */
         .chat-inicio { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; }
         .chat-inicio-centro { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 10px 0 20px; }
@@ -15717,12 +15720,27 @@
                                                    <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
                                                </div>`
                                             : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : 'Cancelado'}</div>`;
+                                        if (m.estado === 'reemplazada') return `<div class="chat-propuesta reemplazada"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="estado">Reemplazada por la nueva propuesta</div></div>`;
                                         return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
                                     }
                                     return '';
                                 }).join('') + (chatEnviando ? '<div class="chat-escribiendo"><span></span><span></span><span></span></div>' : '');
                                 if (sinDesplazar) caja.scrollTop = caja.scrollHeight;
                                 else requestAnimationFrame(() => caja.scrollTo({ top: caja.scrollHeight, behavior: 'smooth' }));
+                            }
+
+                            // La propuesta pendiente más reciente sobre lo mismo: el mismo movimiento,
+                            // categoría o cuenta; en un registro nuevo, sólo si la IA dice que lo corrige.
+                            function propuestaQueCorrige(p) {
+                                const clave = x => x.tipo === 'cambio_movimiento' ? x.registro_id
+                                    : x.tipo === 'cambio_categoria' ? x.categoria_id
+                                    : x.tipo === 'cambio_cuenta' ? x.cuenta_id : null;
+                                for (let k = chatUi.length - 1; k >= 0; k--) {
+                                    const m = chatUi[k];
+                                    if (m.rol !== 'propuesta' || m.estado !== 'pendiente' || !m.propuesta || m.propuesta.tipo !== p.tipo) continue;
+                                    if (p.corrige_anterior || (clave(p) && String(clave(p)) === String(clave(m.propuesta)))) return m;
+                                }
+                                return null;
                             }
 
                             // contextoApi: una nota que viaja a la IA pero no se pinta en tu burbuja
@@ -15768,7 +15786,12 @@
                                     }
                                     chatApi.push(...(data.nuevos || []));
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
-                                    (data.propuestas || []).forEach(p => chatUi.push({ rol: 'propuesta', propuesta: p, estado: 'pendiente' }));
+                                    (data.propuestas || []).forEach(p => {
+                                        // La versión corregida sustituye a la tarjeta anterior que seguía sin confirmar
+                                        const previa = propuestaQueCorrige(p);
+                                        if (previa) previa.estado = 'reemplazada';
+                                        chatUi.push({ rol: 'propuesta', propuesta: p, estado: 'pendiente' });
+                                    });
                                     const q = data.preguntas;
                                     if (q && Array.isArray(q.preguntas) && q.preguntas.length) {
                                         chatUi.push({
