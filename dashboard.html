@@ -173,11 +173,16 @@
 .movimiento-desc { display: block; color: #bbb; font-size: 0.8em; margin-top: 2px; }
 
         /* Asistente: chat al estilo de Mensajes de iOS */
-        /* Mientras se desliza el inicio hacia la izquierda el chat entra desde la derecha
-           encima de todo, siguiendo al dedo; al soltar pasa a ser la sección normal */
-        #sec-asistente.arrastrando { display: block; position: fixed; inset: 0; z-index: 2500; background: #fff; overflow: hidden;
-            padding: calc(20px + env(safe-area-inset-top)) 20px 20px; box-sizing: border-box; animation: none; }
-        .chat-mensajes { display: flex; flex-direction: column; gap: 10px; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+        /* El chat es una pantalla propia encima de todo: encabezado arriba, mensajes que se
+           desplazan por dentro y la barra de escribir al pie. Así la barra nunca depende del
+           scroll de la página (en iOS una barra fija se quedaba a media pantalla al abrir).
+           Al deslizar para abrirlo o cerrarlo la misma capa se mueve con el dedo. */
+        #sec-asistente { position: fixed; top: 0; left: 0; right: 0; height: 100%; z-index: 2500; background: #fff;
+            flex-direction: column; padding: calc(20px + env(safe-area-inset-top)) 20px 0; box-sizing: border-box; overflow: hidden; }
+        #sec-asistente.activa, #sec-asistente.arrastrando { display: flex; animation: none; }
+        .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+            display: flex; flex-direction: column; gap: 10px; margin: 0 -20px; padding: 0 20px 16px; }
+        .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 82%; background: #007aff; color: #fff; padding: 9px 14px; border-radius: 18px 18px 4px 18px; font-size: 0.98em; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
         .chat-asistente { align-self: stretch; color: #1c1c1e; font-size: 0.98em; line-height: 1.5; word-wrap: break-word; }
         .chat-asistente ul { margin: 4px 0; padding-left: 20px; }
@@ -197,7 +202,7 @@
         .chat-escribiendo span:nth-child(2) { animation-delay: 0.2s; }
         .chat-escribiendo span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes chatPunto { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
-        .chat-barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; align-items: flex-end; gap: 8px;
+        .chat-barra { flex-shrink: 0; margin: 0 -20px; display: flex; align-items: flex-end; gap: 8px;
             padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(255, 255, 255, 0.85);
             -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: 0.5px solid #d1d1d6; }
         .chat-barra textarea { flex: 1; margin: 0; resize: none; background: #fff; color: #000; border: 1px solid #d1d1d6; border-radius: 20px;
@@ -14873,7 +14878,6 @@
                                     chat.classList.remove('arrastrando');
                                     chat.style.transition = '';
                                     chat.style.transform = '';
-                                    chat.scrollTop = 0;
                                     inicio.style.transition = '';
                                     inicio.style.transform = '';
                                 };
@@ -14905,7 +14909,7 @@
                                             pintarChatAsistente(true);
                                             colocar(0, false);
                                             chat.classList.add('arrastrando');
-                                            chat.scrollTop = chat.scrollHeight;
+                                            pintarChatAsistente(true);
                                         } else {
                                             modo = 'nada';
                                             return;
@@ -14932,7 +14936,6 @@
                                         limpiar();
                                         if (abrir) {
                                             abrirAsistente();
-                                            window.scrollTo(0, document.body.scrollHeight);
                                         }
                                     }, 360);
                                 };
@@ -14949,7 +14952,7 @@
                                 if (!inicio || !chat) return;
                                 const ocupado = el => !!el.closest('input, select, textarea, .chat-barra, [data-sin-deslizar]');
                                 const CURVA = 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)';
-                                let x0 = null, y0 = null, xPrevia = 0, tPrevio = 0, velocidad = 0, scrollChat = 0;
+                                let x0 = null, y0 = null, xPrevia = 0, tPrevio = 0, velocidad = 0;
                                 let modo = null;
 
                                 const colocar = (dx, conTransicion) => {
@@ -14965,7 +14968,6 @@
                                     chat.classList.remove('arrastrando');
                                     chat.style.transition = '';
                                     chat.style.transform = '';
-                                    chat.scrollTop = 0;
                                     inicio.style.transition = '';
                                     inicio.style.transform = '';
                                 };
@@ -14993,12 +14995,10 @@
                                         if (dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
                                             modo = 'lado';
                                             // El chat pasa a capa sin moverse de donde estaba y el inicio queda debajo
-                                            scrollChat = window.scrollY;
                                             const campo = document.getElementById('chatTexto');
                                             if (campo) campo.blur();
                                             colocar(0, false);
                                             chat.classList.add('arrastrando');
-                                            chat.scrollTop = scrollChat;
                                             cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0]);
                                         } else {
                                             modo = 'nada';
@@ -15026,7 +15026,6 @@
                                         if (!cerrar) {
                                             cambiarSeccion('sec-asistente');
                                             limpiar();
-                                            window.scrollTo(0, scrollChat);
                                         } else {
                                             limpiar();
                                         }
@@ -15034,6 +15033,25 @@
                                 };
                                 document.addEventListener('touchend', soltar, { passive: true });
                                 document.addEventListener('touchcancel', soltar, { passive: true });
+                            })();
+
+                            // Con el teclado abierto el chat se ajusta a lo que queda visible, para que la barra
+                            // de escribir quede justo encima del teclado y no detrás.
+                            (function ajustarAsistenteAlTeclado() {
+                                const chat = document.getElementById('sec-asistente');
+                                const vv = window.visualViewport;
+                                if (!chat || !vv) return;
+                                const ajustar = () => {
+                                    const teclado = window.innerHeight - vv.height > 80;
+                                    chat.style.height = teclado ? vv.height + 'px' : '';
+                                    chat.style.top = teclado ? vv.offsetTop + 'px' : '';
+                                    if (teclado) {
+                                        const caja = document.getElementById('chatMensajes');
+                                        if (caja) caja.scrollTop = caja.scrollHeight;
+                                    }
+                                };
+                                vv.addEventListener('resize', ajustar);
+                                vv.addEventListener('scroll', ajustar);
                             })();
 
                             // ---- Deslizar hacia abajo para recargar (como en iOS) ----
@@ -15400,7 +15418,7 @@
                             function abrirAsistente() {
                                 cargarChatAsistente();
                                 cambiarSeccion('sec-asistente');
-                                pintarChatAsistente();
+                                pintarChatAsistente(true);
                             }
 
                             function nuevaConversacionAsistente() {
@@ -15485,7 +15503,8 @@
                                     }
                                     return '';
                                 }).join('') + (chatEnviando ? '<div class="chat-escribiendo"><span></span><span></span><span></span></div>' : '');
-                                if (!sinDesplazar) requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+                                if (sinDesplazar) caja.scrollTop = caja.scrollHeight;
+                                else requestAnimationFrame(() => caja.scrollTo({ top: caja.scrollHeight, behavior: 'smooth' }));
                             }
 
                             async function enviarMensajeAsistente(textoFijo) {
