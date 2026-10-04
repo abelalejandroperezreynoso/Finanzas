@@ -2560,22 +2560,45 @@
             </div>
         </div>
 
-<div class="modal-overlay" id="modalCuenta">
-            <div class="modal-content">
-                <h3 id="tituloCuenta" style="margin-top: 0; color: #ffffff;">Nueva Cuenta</h3>
-                <input type="text" id="nombreCuenta" placeholder="Nombre (Ej: Efectivo)">
-                <input type="number" id="saldoInicialCuenta" step="0.01" placeholder="Saldo Inicial" value="0">
-                <!-- Qué es la cuenta en tus palabras: la IA la lee para entender tus movimientos -->
-                <input type="text" id="descripcionCuenta" placeholder="Descripción (Ej: tarjeta de nómina)">
-                
-                <div style="display: flex; align-items: center; margin-top: 15px; margin-bottom: 15px; background: #333; padding: 10px; border-radius: 6px;">
-                    <input type="checkbox" id="incluirTotalCuenta" checked style="width: auto; margin: 0 10px 0 0; transform: scale(1.2); cursor: pointer;">
-                    <label for="incluirTotalCuenta" style="margin: 0; cursor: pointer; color: #ccc;">Incluir en el Saldo Total</label>
+<div class="modal-overlay hoja-ios" id="modalCuenta" onclick="if (event.target === this) cerrarModalCuenta();">
+            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="tituloCuenta">
+                <div class="hoja-ios-tirador"></div>
+                <div class="hoja-ios-encabezado">
+                    <button type="button" class="hoja-ios-accion hoja-ios-secundaria" onclick="cerrarModalCuenta()" aria-label="Cancelar" title="Cancelar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                    </button>
+                    <h3 id="tituloCuenta">Nueva Cuenta</h3>
+                    <button type="button" class="hoja-ios-accion" onclick="guardarCuenta()" aria-label="Guardar" title="Guardar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.6l4.7 4.7L19 7"/></svg>
+                    </button>
+                    <!-- El código sigue cambiando el texto de este botón; no se ve -->
+                    <button type="button" id="btnGuardarCuenta" style="display: none;">Añadir Cuenta</button>
                 </div>
-                
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="guardarCuenta()" id="btnGuardarCuenta" style="flex: 2;">Añadir Cuenta</button>
-                    <button onclick="cerrarModalCuenta()" style="flex: 1; background:#666;">Cancelar</button>
+                <div class="hoja-ios-cuerpo">
+                    <div class="rango-ios-grupo">
+                        <label class="rango-ios-fila">
+                            <span>Nombre</span>
+                            <input type="text" id="nombreCuenta" class="campo-fila-ios" placeholder="Ej: Efectivo">
+                        </label>
+                        <label class="rango-ios-fila">
+                            <span>Saldo inicial</span>
+                            <input type="number" id="saldoInicialCuenta" class="campo-fila-ios" step="0.01" inputmode="decimal" placeholder="0" value="0">
+                        </label>
+                        <!-- Qué es la cuenta en tus palabras: la IA la lee para entender tus movimientos -->
+                        <label class="rango-ios-fila">
+                            <span>Descripción</span>
+                            <input type="text" id="descripcionCuenta" class="campo-fila-ios" placeholder="Ej: tarjeta de nómina">
+                        </label>
+                    </div>
+                    <div class="rango-ios-grupo">
+                        <label class="rango-ios-fila">
+                            <span>Incluir en el saldo total</span>
+                            <span class="ios-switch">
+                                <input type="checkbox" id="incluirTotalCuenta" checked>
+                                <span class="ios-switch-pista"></span>
+                            </span>
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -5926,13 +5949,12 @@
                             habilitarArrastreHoja('modalCategoria', () => cerrarModalCategoria());
                             habilitarArrastreHoja('modalDetallesCategoria', () => cerrarModalDetallesCategoria());
 
+                            habilitarArrastreHoja('modalCuenta', () => cerrarModalCuenta());
                             function abrirModalCuenta() {
-                                document.getElementById('modalCuenta').classList.add('activa');
-                                document.body.classList.add('modal-abierto');
+                                abrirHojaIos(document.getElementById('modalCuenta'));
                             }
                             function cerrarModalCuenta() {
-                                document.getElementById('modalCuenta').classList.remove('activa');
-                                document.body.classList.remove('modal-abierto');
+                                cerrarHojaIos(document.getElementById('modalCuenta'));
                             }
 
                             // Abrir y cerrar una hoja de iOS: un fotograma con la hoja visible pero abajo y
@@ -6332,7 +6354,7 @@
                 document.getElementById('saldoInicialCuenta').value = c.saldo_inicial || 0;
                 document.getElementById('incluirTotalCuenta').checked = (c.incluir_en_total !== false);
                 document.getElementById('descripcionCuenta').value = c.descripcion || '';
-                document.getElementById('tituloCuenta').textContent = 'Editando Cuenta';
+                document.getElementById('tituloCuenta').textContent = 'Editar Cuenta';
                 document.getElementById('btnGuardarCuenta').textContent = 'Actualizar';
                 abrirModalCuenta();
             }
@@ -6971,7 +6993,7 @@
                 document.getElementById('saldoInicialCuenta').value = c.saldo_inicial || 0;
                 document.getElementById('incluirTotalCuenta').checked = (c.incluir_en_total !== false);
                 document.getElementById('descripcionCuenta').value = c.descripcion || '';
-                document.getElementById('tituloCuenta').textContent = '✏️ Editando Cuenta';
+                document.getElementById('tituloCuenta').textContent = 'Editar Cuenta';
                 document.getElementById('btnGuardarCuenta').textContent = 'Actualizar';
                 abrirModalCuenta();
             }
