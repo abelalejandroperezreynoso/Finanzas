@@ -184,15 +184,15 @@
         #sec-asistente .titulo-seccion { color: #141413; }
         #sec-asistente .encabezado-chat { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 16px; right: 16px; z-index: 3;
             display: flex; justify-content: space-between; pointer-events: none; }
-        #sec-asistente .chat-boton-flotante, #sec-asistente .chat-boton-flotante:hover { pointer-events: auto; width: 54px; height: 54px; margin: 0; padding: 0;
+        #sec-asistente .chat-boton-flotante, #sec-asistente .chat-boton-flotante:hover { pointer-events: auto; width: 44px; height: 44px; margin: 0; padding: 0;
             border-radius: 50%; background: #f3f2ee; border: 1.5px solid #ffffff; box-shadow: 0 8px 24px rgba(20, 20, 19, 0.10);
             display: flex; align-items: center; justify-content: center; }
         /* Los mensajes se desvanecen al pasar por debajo de la zona del botón */
-        #sec-asistente::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: calc(64px + env(safe-area-inset-top)); z-index: 2;
+        #sec-asistente::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: calc(56px + env(safe-area-inset-top)); z-index: 2;
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
         html.chat-claro, html.chat-claro body { background-color: #faf9f5; }
         .chat-mensajes { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(84px + env(safe-area-inset-top)) 20px 18px; }
+            display: flex; flex-direction: column; gap: 22px; margin: 0 -20px; padding: calc(70px + env(safe-area-inset-top)) 20px 18px; }
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
@@ -233,8 +233,8 @@
         .chat-chips:empty { display: none; }
         .chat-chips::-webkit-scrollbar { display: none; }
         #sec-asistente.con-preguntas .chat-chips { display: none; }
-        .chat-chips button, .chat-chips button:hover { flex-shrink: 0; width: auto; margin: 0; padding: 10px 16px; border-radius: 999px; background: #f3f2ee;
-            border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 15px; font-weight: 400; white-space: nowrap; }
+        .chat-chips button, .chat-chips button:hover { flex-shrink: 0; width: auto; margin: 0; padding: 8px 14px; border-radius: 999px; background: #f3f2ee;
+            border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 14px; font-weight: 400; white-space: nowrap; }
         .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
         .cp-etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-top: 2px; }
@@ -253,7 +253,7 @@
         /* La caja de escribir, como en Claude: tarjeta gris claro con contorno blanco y sombra
            difusa; arriba el texto (y lo adjunto), abajo + para agregar contexto, el modelo y enviar */
         .chat-barra { position: relative; flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column;
-            padding: 12px 10px 10px; background: #f3f2ee; border: 1.5px solid #ffffff; border-radius: 30px;
+            padding: 8px 8px 8px; background: #f3f2ee; border: 1.5px solid #ffffff; border-radius: 24px;
             box-shadow: 0 10px 30px rgba(20, 20, 19, 0.10), 0 1px 3px rgba(20, 20, 19, 0.06); }
         /* Con el teclado abierto no hace falta dejar el espacio de la barra de inicio de iOS */
         #sec-asistente.con-teclado .chat-barra { margin-bottom: 8px; }
@@ -284,14 +284,14 @@
             color: #fff; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
         .chat-preguntas .cp-siguiente:disabled { opacity: 0.55; }
         .chat-barra textarea { width: 100%; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
-            padding: 4px 10px 12px; font-size: 16px; line-height: 1.4; max-height: 140px; font-family: inherit; box-sizing: border-box; }
+            padding: 4px 8px 8px; font-size: 16px; line-height: 1.35; max-height: 140px; font-family: inherit; box-sizing: border-box; }
         .chat-barra textarea::placeholder { color: #8a8880; }
         .chat-barra-fila { display: flex; align-items: center; gap: 8px; }
-        .chat-barra .cb-redondo, .chat-barra .cb-redondo:hover { flex-shrink: 0; width: 46px; height: 46px; margin: 0; padding: 0; border-radius: 50%; border: none;
+        .chat-barra .cb-redondo, .chat-barra .cb-redondo:hover { flex-shrink: 0; width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 50%; border: none;
             background: #e8e7e2; color: #141413; display: flex; align-items: center; justify-content: center; }
-        .chat-barra .cb-modelo, .chat-barra .cb-modelo:hover { width: auto; height: 46px; margin: 0; padding: 0 20px; border-radius: 999px; border: none;
-            background: #e8e7e2; color: #141413; font-size: 15px; font-weight: 400; }
-        .chat-barra .cb-enviar, .chat-barra .cb-enviar:hover { flex-shrink: 0; width: 48px; height: 48px; margin: 0 0 0 auto; padding: 0; border-radius: 50%;
+        .chat-barra .cb-modelo, .chat-barra .cb-modelo:hover { width: auto; height: 36px; margin: 0; padding: 0 14px; border-radius: 999px; border: none;
+            background: #e8e7e2; color: #141413; font-size: 14px; font-weight: 400; }
+        .chat-barra .cb-enviar, .chat-barra .cb-enviar:hover { flex-shrink: 0; width: 36px; height: 36px; margin: 0 0 0 auto; padding: 0; border-radius: 50%;
             border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; transition: background-color 0.15s; }
         .chat-barra .cb-enviar.vacio { background: #e2b6a5; }
         .chat-barra .cb-enviar:disabled { background: #e2b6a5; }
@@ -2253,10 +2253,10 @@
              debajo y se desvanecen -->
         <div class="encabezado-chat">
             <button type="button" class="chat-boton-flotante" onclick="cerrarAsistente()" aria-label="Regresar" title="Regresar">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#141413" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#141413" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
             </button>
             <button type="button" class="chat-boton-flotante" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación">
-                <svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
+                <svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
             </button>
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
@@ -2270,12 +2270,12 @@
                 onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); enviarMensajeAsistente(); }"></textarea>
             <div class="chat-barra-fila">
                 <button type="button" class="cb-redondo" aria-label="Agregar contexto" onclick="document.getElementById('chatArchivo').click()">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 <input type="file" id="chatArchivo" accept="image/*,application/pdf" multiple style="display: none;" onchange="adjuntarArchivosAsistente(this)">
                 <button type="button" class="cb-modelo" id="chatModelo" onclick="alternarMenuModeloAsistente(event)">Sonnet 5.5</button>
                 <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="enviarMensajeAsistente()" aria-label="Enviar">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                 </button>
             </div>
         </div>
