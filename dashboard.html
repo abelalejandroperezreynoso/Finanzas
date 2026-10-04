@@ -235,6 +235,10 @@
         #sec-asistente.con-preguntas .chat-chips { display: none; }
         .chat-chips button, .chat-chips button:hover { flex-shrink: 0; width: auto; margin: 0; padding: 10px 16px; border-radius: 999px; background: #f3f2ee;
             border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 15px; font-weight: 400; white-space: nowrap; }
+        .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+        .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
+        .cp-etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-top: 2px; }
+        .cp-detalle { font-size: 15px; line-height: 1.5; color: #5e5d59; margin: -2px 0 6px; }
         .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
         .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
             border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
@@ -15620,26 +15624,22 @@
                                     // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
                                     avisosMostrados = avisos;
-                                    const tarjetas = avisos.map((a, i) => `<div class="chat-propuesta chat-aviso">
-                                                <div class="etiqueta">${escaparHtml(a.etiqueta)}</div>
-                                                <div class="titulo">${escaparHtml(a.texto)}</div>
-                                                ${a.detalle ? `<div class="detalle">${escaparHtml(a.detalle)}</div>` : ''}
-                                                <div class="acciones">
-                                                    <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="descartarAvisoAsistente(${i})">${escaparHtml(a.secundario.texto)}</button>
-                                                    <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="tomarAvisoAsistente(${i})">${escaparHtml(a.primario.texto)}</button>
-                                                </div>
-                                            </div>`).join('');
-                                    caja.innerHTML = `<div class="chat-inicio${avisos.length ? ' con-avisos' : ''}">
+                                    // Minimalista, como Claude: sólo el personaje y el saludo. Los pendientes no se
+                                    // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
+                                    // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
+                                    caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 ${personajeAsistenteSvg(revisandoIa)}
                                                 <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa))}</div>
                                             </div>
-                                            ${tarjetas}
                                         </div>`;
-                                    if (chips && !avisos.length && !revisandoIa) {
+                                    if (chips) {
                                         const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
-                                        chips.innerHTML = sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
+                                        chips.innerHTML = (avisos.length
+                                            ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar ${avisos.length === 1 ? 'el pendiente' : `${avisos.length} pendientes`}</button>`
+                                            : '') + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
+                                    pintarPreguntasAsistente();
                                     return;
                                 }
                                 caja.innerHTML = chatUi.map((m, i) => {
@@ -15970,6 +15970,46 @@
                                 if (chatUi.length === 0) pintarChatAsistente(true);
                             }
 
+                            // Los pendientes, uno por uno en la tarjeta de abajo (como las preguntas de Claude)
+                            var pendientesAbiertos = false;
+                            var indicePendiente = 0;
+                            function abrirPendientesAsistente() {
+                                pendientesAbiertos = true;
+                                indicePendiente = 0;
+                                pintarPreguntasAsistente();
+                            }
+                            function cerrarPendientesAsistente() {
+                                pendientesAbiertos = false;
+                                pintarChatAsistente(true);
+                            }
+                            function moverPendienteAsistente(d) {
+                                indicePendiente = Math.min(Math.max(indicePendiente + d, 0), avisosMostrados.length - 1);
+                                pintarPreguntasAsistente();
+                            }
+                            function tarjetaPendienteHtml() {
+                                const n = avisosMostrados.length;
+                                const k = Math.min(Math.max(indicePendiente, 0), n - 1);
+                                indicePendiente = k;
+                                const a = avisosMostrados[k];
+                                const flecha = d => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"></path></svg>`;
+                                return `
+                                    <div class="cp-cabecera">
+                                        <div class="cp-nav">${n > 1 ? `
+                                            <button type="button" aria-label="Anterior" ${k === 0 ? 'disabled' : ''} onclick="moverPendienteAsistente(-1)">${flecha('M15 18l-6-6 6-6')}</button>
+                                            <span>${k + 1} de ${n}</span>
+                                            <button type="button" aria-label="Siguiente" ${k === n - 1 ? 'disabled' : ''} onclick="moverPendienteAsistente(1)">${flecha('M9 18l6-6-6-6')}</button>` : ''}
+                                        </div>
+                                        <button type="button" class="cp-cerrar" aria-label="Cerrar pendientes" onclick="cerrarPendientesAsistente()">
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <div class="cp-etiqueta">${escaparHtml(a.etiqueta)}</div>
+                                    <div class="cp-titulo">${escaparHtml(a.texto)}</div>
+                                    ${a.detalle ? `<div class="cp-detalle">${escaparHtml(a.detalle)}</div>` : ''}
+                                    <button type="button" class="cp-opcion" onclick="tomarAvisoAsistente(${k})"><span>${escaparHtml(a.primario.texto)}</span>${flecha('M9 18l6-6-6-6')}</button>
+                                    <button type="button" class="cp-opcion" style="border-bottom: none; color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>`;
+                            }
+
                             function descartarAvisoAsistente(i) {
                                 const a = avisosMostrados[i];
                                 if (!a) return;
@@ -15982,6 +16022,7 @@
                             function tomarAvisoAsistente(i) {
                                 const a = avisosMostrados[i];
                                 if (!a || chatEnviando) return;
+                                pendientesAbiertos = false;
                                 enviarMensajeAsistente(a.primario.mensaje);
                             }
 
@@ -16135,7 +16176,9 @@
                                 const caja = document.getElementById('chatPreguntas');
                                 if (!seccion || !caja) return;
                                 const item = chatEnviando ? null : preguntasPendientesAsistente();
-                                seccion.classList.toggle('con-preguntas', !!item);
+                                const verPendientes = !item && !chatEnviando && pendientesAbiertos && chatUi.length === 0 && avisosMostrados.length > 0;
+                                seccion.classList.toggle('con-preguntas', !!item || verPendientes);
+                                if (verPendientes) { caja.innerHTML = tarjetaPendienteHtml(); return; }
                                 if (!item) { caja.innerHTML = ''; return; }
                                 const n = item.preguntas.length;
                                 const k = Math.min(Math.max(item.actual || 0, 0), n - 1);
