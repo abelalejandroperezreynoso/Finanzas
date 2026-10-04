@@ -248,6 +248,31 @@
         .chat-credito.visible { display: block; }
         .chat-credito > div { height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
         .chat-credito.poco > div { background: #d0473b; }
+        /* Alerta con el estilo de iOS (oscura en la app, clara dentro del chat) */
+        .alerta-ios-capa { position: fixed; inset: 0; z-index: 5000; display: flex; align-items: center; justify-content: center;
+            background: rgba(0, 0, 0, 0.4); opacity: 0; transition: opacity 0.2s ease; }
+        .alerta-ios-capa.claro { background: rgba(0, 0, 0, 0.2); }
+        .alerta-ios-capa.visible { opacity: 1; }
+        .alerta-ios { width: 270px; border-radius: 14px; overflow: hidden; background: rgba(37, 37, 39, 0.94);
+            -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); transform: scale(1.12); transition: transform 0.2s ease; }
+        .alerta-ios-capa.visible .alerta-ios { transform: scale(1); }
+        .alerta-ios-capa.claro .alerta-ios { background: rgba(242, 242, 247, 0.94); }
+        .alerta-ios-texto { padding: 19px 16px 18px; text-align: center; }
+        .alerta-ios-titulo { font-size: 17px; font-weight: 600; line-height: 1.3; color: #fff; }
+        .alerta-ios-mensaje { font-size: 13px; line-height: 1.35; color: #fff; margin-top: 3px; }
+        .alerta-ios-capa.claro .alerta-ios-titulo, .alerta-ios-capa.claro .alerta-ios-mensaje { color: #000; }
+        .alerta-ios-botones { display: flex; flex-direction: column; border-top: 0.5px solid rgba(84, 84, 88, 0.65); }
+        .alerta-ios-capa.claro .alerta-ios-botones { border-top-color: rgba(60, 60, 67, 0.29); }
+        .alerta-ios-botones.lado { flex-direction: row; }
+        .alerta-ios-botones button, .alerta-ios-botones button:hover { flex: 1; width: auto; margin: 0; height: 44px; padding: 0 8px; border: none; border-radius: 0;
+            background: transparent; color: #0a84ff; font-size: 17px; font-weight: 400; }
+        .alerta-ios-capa.claro .alerta-ios-botones button { color: #007aff; }
+        .alerta-ios-botones button:active { background: rgba(127, 127, 127, 0.2); }
+        .alerta-ios-botones button + button { border-left: 0.5px solid rgba(84, 84, 88, 0.65); }
+        .alerta-ios-botones:not(.lado) button + button { border-left: none; border-top: 0.5px solid rgba(84, 84, 88, 0.65); }
+        .alerta-ios-capa.claro .alerta-ios-botones button + button { border-color: rgba(60, 60, 67, 0.29); }
+        .alerta-ios-botones button.cancelar { font-weight: 600; }
+        .alerta-ios-botones button.destructivo, .alerta-ios-capa.claro .alerta-ios-botones button.destructivo { color: #ff3b30; }
         .chat-aviso .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #c96442; margin-bottom: 6px; }
         .chat-sugerencias { display: flex; flex-direction: column; margin-top: 24px; background: #ffffff; border: 0.5px solid #e8e6dc;
             border-radius: 22px; padding: 4px 18px; box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
@@ -15488,9 +15513,16 @@
                                 pintarCreditoAsistente();
                             }
 
-                            function nuevaConversacionAsistente() {
+                            async function nuevaConversacionAsistente() {
                                 if (chatEnviando) return;
-                                if (chatUi.length && !confirm('¿Empezar una conversación nueva? La actual se borra de este teléfono.')) return;
+                                if (chatUi.length) {
+                                    const eleccion = await alertaIos({
+                                        titulo: '¿Empezar una conversación nueva?',
+                                        mensaje: 'La conversación actual se borra de este teléfono.',
+                                        botones: [{ texto: 'Cancelar', estilo: 'cancelar' }, { texto: 'Nueva', estilo: 'destructivo' }]
+                                    });
+                                    if (eleccion !== 1) return;
+                                }
                                 chatApi = [];
                                 chatUi = [];
                                 pendienteEnCurso = false;
@@ -15718,6 +15750,34 @@
                                     opciones = [`${hola}, todo en orden por ahora`, 'Sin pendientes. ¿Qué revisamos hoy?', `${hola}, ¿en qué te ayudo?`, 'Tus números se ven tranquilos hoy', 'Nada urgente. ¿Buscamos dónde ahorrar?'];
                                 }
                                 return opciones[Math.floor(semillaSaludo * opciones.length)];
+                            }
+
+                            // ---- Alerta con el estilo de iOS ----
+                            // Título, mensaje y botones (dos van lado a lado; más, uno debajo de otro). Devuelve
+                            // una promesa con el índice del botón tocado. Toma el tema claro dentro del chat.
+                            function alertaIos({ titulo = '', mensaje = '', botones = [{ texto: 'OK' }] } = {}) {
+                                return new Promise(resolver => {
+                                    const capa = document.createElement('div');
+                                    capa.className = 'alerta-ios-capa' + (document.documentElement.classList.contains('chat-claro') ? ' claro' : '');
+                                    capa.innerHTML = `<div class="alerta-ios" role="alertdialog" aria-modal="true">
+                                            <div class="alerta-ios-texto">
+                                                ${titulo ? `<div class="alerta-ios-titulo">${escaparHtml(titulo)}</div>` : ''}
+                                                ${mensaje ? `<div class="alerta-ios-mensaje">${escaparHtml(mensaje)}</div>` : ''}
+                                            </div>
+                                            <div class="alerta-ios-botones${botones.length === 2 ? ' lado' : ''}">
+                                                ${botones.map((b, i) => `<button type="button" class="${b.estilo || ''}" data-i="${i}">${escaparHtml(b.texto)}</button>`).join('')}
+                                            </div>
+                                        </div>`;
+                                    document.body.appendChild(capa);
+                                    requestAnimationFrame(() => capa.classList.add('visible'));
+                                    capa.addEventListener('click', e => {
+                                        const b = e.target.closest('button[data-i]');
+                                        if (!b) return;
+                                        capa.classList.remove('visible');
+                                        setTimeout(() => capa.remove(), 200);
+                                        resolver(Number(b.dataset.i));
+                                    });
+                                });
                             }
 
                             // ---- Raya de crédito de IA ----
