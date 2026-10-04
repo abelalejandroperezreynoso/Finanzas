@@ -237,6 +237,11 @@
             border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 14px; font-weight: 400; white-space: nowrap; }
         .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
         .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
+        .cp-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; background: #f5f4ef; border-radius: 14px; padding: 12px 14px; margin: 6px 0 4px; }
+        .cp-info > div { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .cp-info .ancho { grid-column: 1 / -1; }
+        .cp-info span { font-size: 11px; color: #8a8880; text-transform: uppercase; letter-spacing: 0.03em; }
+        .cp-info b { font-size: 14px; font-weight: 500; color: #141413; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .cp-escribir { display: flex; align-items: center; gap: 8px; }
         .chat-preguntas .cp-enviar, .chat-preguntas .cp-enviar:hover { flex-shrink: 0; width: 32px; height: 32px; margin: 0; padding: 0; border-radius: 50%; border: none;
             background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; }
@@ -15773,7 +15778,7 @@
                                         const cuando = dia === hoy ? 'Hoy' : `El ${fechaCorta(dia)}`;
                                         const monto = c.montoSugerido ? ` (aprox. ${fMoneda(c.montoSugerido)})` : '';
                                         avisos.push({
-                                            clave, etiqueta: 'Pago recurrente', texto: `${cuando} toca ${c.nombre}${monto}.`,
+                                            clave, categoria_id: c.id, etiqueta: 'Pago recurrente', texto: `${cuando} toca ${c.nombre}${monto}.`,
                                             detalle: '¿Ya quedó?',
                                             primario: { texto: 'Ya quedó', mensaje: `${cuando} tocaba ${c.nombre}${monto} y ya quedó. Propónme registrarlo; pregúntame el monto exacto si hace falta.` },
                                             secundario: { texto: 'Todavía no', dias: 1 }
@@ -15798,7 +15803,7 @@
                                     const dia = diaLocal(g[0].fecha);
                                     raros++;
                                     avisos.push({
-                                        clave, etiqueta: 'Algo raro', texto: `${g.length} movimientos iguales en ${c.nombre} el ${fechaCorta(dia)}.`,
+                                        clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `${g.length} movimientos iguales en ${c.nombre} el ${fechaCorta(dia)}.`,
                                         detalle: `Todos por ${fMoneda(Math.abs(Number(g[0].monto)))}. ¿Alguno está repetido?`,
                                         primario: { texto: 'Revisar', mensaje: `Veo ${g.length} movimientos iguales en ${c.nombre} el ${dia}, por ${fMoneda(Math.abs(Number(g[0].monto)))} cada uno. Revísalos y dime si parece que alguno está duplicado.` },
                                         secundario: { texto: 'Están bien', dias: null }
@@ -15816,7 +15821,7 @@
                                         const clave = `atipico:${r.id}`;
                                         if (monto > 500 && monto > mediana * 3 && vigente(clave)) {
                                             avisos.push({
-                                                clave, etiqueta: 'Algo raro', texto: `Un gasto de ${fMoneda(monto)} en ${c.nombre} el ${fechaCorta(diaLocal(r.fecha))}.`,
+                                                clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `Un gasto de ${fMoneda(monto)} en ${c.nombre} el ${fechaCorta(diaLocal(r.fecha))}.`,
                                                 detalle: `Lo normal ahí es cerca de ${fMoneda(mediana)}. ¿Está bien el monto?`,
                                                 primario: { texto: 'Revisar', mensaje: `El ${diaLocal(r.fecha)} hay un gasto de ${fMoneda(monto)} en ${c.nombre}, cuando lo normal ahí es cerca de ${fMoneda(mediana)}. Revisa ese movimiento y dime si parece un error.` },
                                                 secundario: { texto: 'Está bien', dias: null }
@@ -15841,7 +15846,7 @@
                                         else if (pareceConteo) { texto = `Los montos de ${c.nombre} parecen conteos, no pesos.`; sugerido = 'salud'; }
                                         if (!texto) continue;
                                         avisos.push({
-                                            clave, etiqueta: 'Clasificación', texto,
+                                            clave, categoria_id: c.id, etiqueta: 'Clasificación', texto,
                                             detalle: sugerido === 'salud' ? '¿Registra algo que no es dinero? Quizá debería ser de Salud.' : '¿Debería ser una categoría de ingreso?',
                                             primario: { texto: 'Revisar', mensaje: `Revisa la categoría ${c.nombre}: ${texto} ¿Tiene el tipo correcto? Si no, propónme el cambio${sugerido === 'salud' ? ' a Salud' : ''}.` },
                                             secundario: { texto: 'Está bien', dias: null }
@@ -15856,7 +15861,7 @@
                                     .find(c => vigente(`desc:${c.id}`));
                                 if (sinDescripcion && avisos.length < 3) {
                                     avisos.push({
-                                        clave: `desc:${sinDescripcion.id}`, etiqueta: 'Para conocerte mejor',
+                                        clave: `desc:${sinDescripcion.id}`, categoria_id: sinDescripcion.id, etiqueta: 'Para conocerte mejor',
                                         texto: `${sinDescripcion.nombre} no tiene descripción.`,
                                         detalle: 'Con una descripción entiendo mejor tus gastos y te propongo topes más precisos.',
                                         primario: { texto: 'Describirla', mensaje: `Ayúdame a escribir la descripción de la categoría ${sinDescripcion.nombre}. Revisa sus movimientos y hazme preguntas con opciones para entender para qué la uso; luego propónme la descripción.` },
@@ -15869,8 +15874,12 @@
                                 (revisionIaDeHoy() || []).forEach(h => {
                                     const clave = `ia:${h.titulo}`;
                                     if (!vigente(clave)) return;
+                                    // La categoría de la que habla, si su nombre aparece en el hallazgo (la más larga gana)
+                                    const textoH = `${h.titulo} ${h.detalle} ${h.mensaje}`.toLowerCase();
+                                    const catH = cats.filter(c => c.nombre && c.nombre.length > 1 && new RegExp(`(^|[^\\p{L}])${c.nombre.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}]|$)`, 'u').test(textoH))
+                                        .sort((a, b) => b.nombre.length - a.nombre.length || (b.vecesUsada || 0) - (a.vecesUsada || 0))[0];
                                     propios.push({
-                                        clave, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
+                                        clave, categoria_id: catH ? catH.id : null, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
                                         primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: h.mensaje },
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
@@ -15959,6 +15968,7 @@
                                     <div class="cp-etiqueta">${escaparHtml(a.etiqueta)}</div>
                                     <div class="cp-titulo">${escaparHtml(a.texto)}</div>
                                     ${a.detalle ? `<div class="cp-detalle">${escaparHtml(a.detalle)}</div>` : ''}
+                                    ${a.categoria_id ? infoCategoriaPendienteHtml(a.categoria_id) : ''}
                                     <button type="button" class="cp-opcion" onclick="tomarAvisoAsistente(${k})"><span>${escaparHtml(a.primario.texto)}</span>${flecha('M9 18l6-6-6-6')}</button>
                                     <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>
                                     <div class="cp-escribir">
@@ -15969,6 +15979,40 @@
                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                                         </button>
                                     </div>`;
+                            }
+
+                            // Ficha corta de la categoría de un pendiente, para ubicarla sin salir del chat:
+                            // cuenta, tipo, cuándo se usó por última vez y cómo suelen ser sus montos
+                            function infoCategoriaPendienteHtml(id) {
+                                const c = (datosCategorias || []).find(x => String(x.id) === String(id));
+                                if (!c) return '';
+                                const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
+                                const cuenta = (c.cuentas && c.cuentas.nombre) || ((datosCuentas || []).find(x => String(x.id) === String(c.cuenta_id)) || {}).nombre || '—';
+                                const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id));
+                                let ultimo = 'Nunca';
+                                if (movs.length) {
+                                    const f = movs.reduce((m, r) => (new Date(r.fecha) > new Date(m) ? r.fecha : m), movs[0].fecha);
+                                    const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(f) + 'T12:00:00')) / 86400000);
+                                    ultimo = `${fechaCorta(diaLocal(f))} · ${dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : `hace ${dias} d`}`;
+                                }
+                                let montos = '—';
+                                if (c.tipo === 'salud') {
+                                    montos = `${movs.length} registro${movs.length === 1 ? '' : 's'}`;
+                                } else {
+                                    const ult = movs.filter(r => Number(r.monto) !== 0).sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 20)
+                                        .map(r => Math.abs(Number(r.monto))).sort((a, b) => a - b);
+                                    if (ult.length) {
+                                        const q = p => ult[Math.min(ult.length - 1, Math.floor(p * (ult.length - 1) + 0.5))];
+                                        const bajo = q(0.2), medio = q(0.5), alto = q(0.8);
+                                        montos = bajo === alto ? `Siempre ${fMoneda(medio)}` : `~${fMoneda(medio)} (${fMoneda(bajo)} a ${fMoneda(alto)})`;
+                                    }
+                                }
+                                const dato = (k, v) => `<div><span>${k}</span><b>${escaparHtml(v)}</b></div>`;
+                                return `<div class="cp-info">
+                                    ${dato('Categoría', c.nombre)}${dato('Cuenta', cuenta)}
+                                    ${dato('Tipo', nombresTipo[c.tipo] || c.tipo)}${dato('Último uso', ultimo)}
+                                    <div class="ancho">${'<span>' + (c.tipo === 'salud' ? 'Registros' : 'Montos usuales') + '</span><b>' + escaparHtml(montos) + '</b>'}</div>
+                                </div>`;
                             }
 
                             // Respuesta propia a un pendiente: se manda tal cual. La IA recibe aparte, como nota, qué
