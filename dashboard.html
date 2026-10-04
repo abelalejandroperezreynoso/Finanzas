@@ -217,6 +217,32 @@
             box-shadow: 0 4px 20px rgba(20, 20, 19, 0.08); }
         /* Con el teclado abierto no hace falta dejar el espacio de la barra de inicio de iOS */
         #sec-asistente.con-teclado .chat-barra { margin-bottom: 8px; }
+        /* Preguntas con opciones, como en la app de Claude: la tarjeta ocupa el lugar de la caja
+           de escribir mientras se responden */
+        .chat-preguntas { display: none; flex-shrink: 0; margin: 0 -4px calc(8px + env(safe-area-inset-bottom)); background: #ffffff;
+            border: 0.5px solid #e3e1d8; border-radius: 28px; box-shadow: 0 4px 20px rgba(20, 20, 19, 0.08); padding: 12px 20px 16px;
+            max-height: 72%; overflow-y: auto; box-sizing: border-box; }
+        #sec-asistente.con-preguntas .chat-preguntas { display: block; }
+        #sec-asistente.con-preguntas .chat-barra { display: none; }
+        #sec-asistente.con-teclado .chat-preguntas { margin-bottom: 8px; }
+        .cp-cabecera { display: flex; align-items: center; justify-content: space-between; min-height: 44px; margin-bottom: 6px; }
+        .cp-nav { display: flex; align-items: center; gap: 10px; color: #141413; font-size: 16px; }
+        .chat-preguntas .cp-nav button, .chat-preguntas .cp-nav button:hover { width: auto; margin: 0; padding: 6px; background: none; color: #141413; display: flex; }
+        .chat-preguntas .cp-nav button:disabled { color: #c9c7bf; }
+        .chat-preguntas .cp-cerrar, .chat-preguntas .cp-cerrar:hover { width: 44px; height: 44px; margin: 0; padding: 0; border-radius: 50%; background: #f5f4ef;
+            color: #141413; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08); }
+        .cp-titulo { font-size: 20px; font-weight: 600; line-height: 1.35; color: #141413; margin: 4px 0 8px; }
+        .chat-preguntas .cp-opcion, .chat-preguntas .cp-opcion:hover { width: 100%; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            background: none; color: #141413; text-align: left; font-size: 16px; font-weight: 500; padding: 18px 0;
+            border: none; border-bottom: 0.5px solid #e3e1d8; border-radius: 0; }
+        .chat-preguntas .cp-opcion.elegida { font-weight: 700; }
+        .chat-preguntas .cp-otra { width: 100%; margin: 0; padding: 18px 0; border: none; background: none; color: #141413; font-size: 16px;
+            font-family: inherit; outline: none; box-sizing: border-box; }
+        .chat-preguntas .cp-otra::placeholder { color: #8a8880; }
+        .cp-pie { display: flex; justify-content: flex-end; margin-top: 8px; }
+        .chat-preguntas .cp-siguiente, .chat-preguntas .cp-siguiente:hover { width: auto; margin: 0; padding: 13px 22px; border-radius: 999px; background: #3d3d3a;
+            color: #fff; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .chat-preguntas .cp-siguiente:disabled { opacity: 0.55; }
         .chat-barra textarea { flex: 1; margin: 0; resize: none; background: transparent; color: #141413; border: none; outline: none;
             padding: 8px 0; font-size: 16px; line-height: 1.4; max-height: 120px; font-family: inherit; box-sizing: border-box; }
         .chat-barra textarea::placeholder { color: #8a8880; }
@@ -2168,6 +2194,7 @@
             </div>
         </div>
         <div id="chatMensajes" class="chat-mensajes"></div>
+        <div id="chatPreguntas" class="chat-preguntas"></div>
         <div class="chat-barra">
             <textarea id="chatTexto" rows="1" placeholder="Pregunta o pide un cambio…"
                 oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 120)+'px'"
@@ -14958,7 +14985,7 @@
                                 const inicio = document.getElementById('sec-inicio');
                                 const chat = document.getElementById('sec-asistente');
                                 if (!inicio || !chat) return;
-                                const ocupado = el => !!el.closest('input, select, textarea, .chat-barra, [data-sin-deslizar]');
+                                const ocupado = el => !!el.closest('input, select, textarea, .chat-barra, .chat-preguntas, [data-sin-deslizar]');
                                 const CURVA = 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)';
                                 let x0 = null, y0 = null, xPrevia = 0, tPrevio = 0, velocidad = 0;
                                 let modo = null;
@@ -15490,6 +15517,7 @@
                             function pintarChatAsistente(sinDesplazar) {
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
+                                pintarPreguntasAsistente();
                                 if (chatUi.length === 0 && !chatEnviando) {
                                     const sugerencias = ['¿En qué gasté más este mes?', 'Compara mis gastos de este mes con el anterior', '¿Qué gastos podría recortar?', '¿Cuánto llevo invertido?'];
                                     caja.innerHTML = `<div class="chat-asistente" style="color:#8a8880;">Pregúntame sobre tus finanzas o pídeme cambios en tus movimientos y categorías. Antes de guardar cualquier cambio te pediré confirmación.</div>
@@ -15500,6 +15528,7 @@
                                     if (m.rol === 'usuario') return `<div class="chat-usuario">${escaparHtml(m.texto)}</div>`;
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
                                     if (m.rol === 'error') return `<div class="chat-error">${escaparHtml(m.texto)}</div>`;
+                                    if (m.rol === 'preguntas') return '';
                                     if (m.rol === 'propuesta') {
                                         const p = m.propuesta || {};
                                         const pie = m.estado === 'pendiente'
@@ -15521,10 +15550,18 @@
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
                                 if (!texto || chatEnviando) return;
                                 if (campo) { campo.value = ''; campo.style.height = 'auto'; }
+                                const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: texto }]) };
+                                const burbuja = { rol: 'usuario', texto };
+                                chatUi.push(burbuja);
+                                await conversarConAsistente(mensaje, () => {
+                                    if (campo && !campo.value) campo.value = texto;
+                                });
+                            }
 
-                                const mensaje = { role: 'user', content: [{ type: 'text', text: texto }] };
+                            // Manda un mensaje a la IA y agrega a la conversación lo que conteste: texto,
+                            // propuestas de cambio y, si las hace, preguntas con opciones.
+                            async function conversarConAsistente(mensaje, alFallar) {
                                 chatApi.push(mensaje);
-                                chatUi.push({ rol: 'usuario', texto });
                                 chatEnviando = true;
                                 document.getElementById('chatEnviar').disabled = true;
                                 pintarChatAsistente();
@@ -15541,18 +15578,171 @@
                                     chatApi.push(...(data.nuevos || []));
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
                                     (data.propuestas || []).forEach(p => chatUi.push({ rol: 'propuesta', propuesta: p, estado: 'pendiente' }));
+                                    const q = data.preguntas;
+                                    if (q && Array.isArray(q.preguntas) && q.preguntas.length) {
+                                        chatUi.push({
+                                            rol: 'preguntas', id: q.id, preguntas: q.preguntas, pendientes: q.pendientes || [],
+                                            estado: 'pendiente', actual: 0, respuestas: q.preguntas.map(() => ({ opcion: null, texto: '' }))
+                                        });
+                                    }
                                 } catch (e) {
-                                    // El mensaje no llegó a la IA: se saca del historial y se devuelve al campo
+                                    // El mensaje no llegó a la IA: se saca del historial
                                     const k = chatApi.lastIndexOf(mensaje);
                                     if (k >= 0) chatApi.splice(k, 1);
                                     chatUi.push({ rol: 'error', texto: e.message || 'No se pudo enviar.' });
-                                    if (campo && !campo.value) campo.value = texto;
+                                    if (alFallar) alFallar();
                                 } finally {
                                     chatEnviando = false;
                                     document.getElementById('chatEnviar').disabled = false;
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
+                            }
+
+                            // ---- Preguntas con opciones ----
+                            // Cuando la IA pregunta, su último mensaje queda con una herramienta sin respuesta.
+                            // Lo siguiente que se le mande debe empezar con ese resultado (y con los de las
+                            // demás herramientas de ese turno): la respuesta elegida o, si la tarjeta se cerró,
+                            // el aviso de que no se respondió.
+                            const preguntasPendientesAsistente = () => {
+                                const m = chatUi.length ? chatUi[chatUi.length - 1] : null;
+                                return m && m.rol === 'preguntas' && m.estado === 'pendiente' ? m : null;
+                            };
+
+                            function contenidoConPendientes(bloques, respuesta) {
+                                const ultimo = chatApi[chatApi.length - 1];
+                                const usos = ultimo && ultimo.role === 'assistant' && Array.isArray(ultimo.content)
+                                    ? ultimo.content.filter(b => b.type === 'tool_use') : [];
+                                if (!usos.length) return bloques;
+                                const item = [...chatUi].reverse().find(m => m.rol === 'preguntas');
+                                if (item && item.estado === 'pendiente' && !respuesta) item.estado = 'cerrada';
+                                const pendientes = (item && item.pendientes) || [];
+                                const resultados = usos.map(u => pendientes.find(r => r.tool_use_id === u.id) || {
+                                    type: 'tool_result', tool_use_id: u.id,
+                                    content: respuesta || 'El usuario cerró las preguntas sin responderlas; sigue con lo que escriba.'
+                                });
+                                return [...resultados, ...bloques];
+                            }
+
+                            const respuestaDePregunta = (item, k) => {
+                                const r = item.respuestas[k];
+                                if (!r) return '';
+                                if (r.texto && r.texto.trim()) return r.texto.trim();
+                                return r.opcion !== null && r.opcion !== undefined ? item.preguntas[k].opciones[r.opcion] : '';
+                            };
+
+                            function pintarPreguntasAsistente() {
+                                const seccion = document.getElementById('sec-asistente');
+                                const caja = document.getElementById('chatPreguntas');
+                                if (!seccion || !caja) return;
+                                const item = chatEnviando ? null : preguntasPendientesAsistente();
+                                seccion.classList.toggle('con-preguntas', !!item);
+                                if (!item) { caja.innerHTML = ''; return; }
+                                const n = item.preguntas.length;
+                                const k = Math.min(Math.max(item.actual || 0, 0), n - 1);
+                                const q = item.preguntas[k];
+                                const r = item.respuestas[k];
+                                const ultima = k === n - 1;
+                                const flecha = d => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"></path></svg>`;
+                                const palomita = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#141413" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+                                caja.innerHTML = `
+                                    <div class="cp-cabecera">
+                                        <div class="cp-nav">${n > 1 ? `
+                                            <button type="button" aria-label="Anterior" ${k === 0 ? 'disabled' : ''} onclick="moverPreguntaAsistente(-1)">${flecha('M15 18l-6-6 6-6')}</button>
+                                            <span>${k + 1} de ${n}</span>
+                                            <button type="button" aria-label="Siguiente" ${ultima ? 'disabled' : ''} onclick="moverPreguntaAsistente(1)">${flecha('M9 18l6-6-6-6')}</button>` : ''}
+                                        </div>
+                                        <button type="button" class="cp-cerrar" aria-label="Cerrar preguntas" onclick="cerrarPreguntasAsistente()">
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <div class="cp-titulo">${escaparHtml(q.pregunta)}</div>
+                                    ${q.opciones.map((o, i) => {
+                                        const elegida = r.opcion === i && !(r.texto && r.texto.trim());
+                                        return `<button type="button" class="cp-opcion${elegida ? ' elegida' : ''}" onclick="elegirOpcionAsistente(${i})"><span>${escaparHtml(o)}</span>${elegida ? palomita : ''}</button>`;
+                                    }).join('')}
+                                    <input type="text" class="cp-otra" id="cpOtra" placeholder="Escribe tu respuesta…" value="${escaparHtml(r.texto || '')}"
+                                        oninput="escribirRespuestaAsistente(this.value)" onkeydown="if (event.key === 'Enter') { event.preventDefault(); siguientePreguntaAsistente(); }">
+                                    <div class="cp-pie">
+                                        <button type="button" class="cp-siguiente" id="cpSiguiente" ${respuestaDePregunta(item, k) ? '' : 'disabled'} onclick="siguientePreguntaAsistente()">
+                                            ${ultima ? 'Enviar' : 'Siguiente'} ${flecha('M5 12h14M13 6l6 6-6 6')}
+                                        </button>
+                                    </div>`;
+                            }
+
+                            function moverPreguntaAsistente(d) {
+                                const item = preguntasPendientesAsistente();
+                                if (!item) return;
+                                item.actual = Math.min(Math.max((item.actual || 0) + d, 0), item.preguntas.length - 1);
+                                guardarChatAsistente();
+                                pintarPreguntasAsistente();
+                            }
+
+                            function elegirOpcionAsistente(i) {
+                                const item = preguntasPendientesAsistente();
+                                if (!item) return;
+                                const k = item.actual || 0;
+                                item.respuestas[k] = { opcion: i, texto: '' };
+                                guardarChatAsistente();
+                                pintarPreguntasAsistente();
+                                // Elegida una opción, pasa sola a la siguiente pregunta
+                                if (k < item.preguntas.length - 1) setTimeout(() => moverPreguntaAsistente(1), 220);
+                            }
+
+                            // Escribir una respuesta propia sustituye a la opción elegida. No se repinta la
+                            // tarjeta para no perder el teclado: sólo se actualizan la palomita y el botón.
+                            function escribirRespuestaAsistente(valor) {
+                                const item = preguntasPendientesAsistente();
+                                if (!item) return;
+                                const k = item.actual || 0;
+                                item.respuestas[k].texto = valor;
+                                const conTexto = !!valor.trim();
+                                document.querySelectorAll('#chatPreguntas .cp-opcion').forEach((b, i) => {
+                                    const elegida = !conTexto && item.respuestas[k].opcion === i;
+                                    b.classList.toggle('elegida', elegida);
+                                    const svg = b.querySelector('svg');
+                                    if (svg && !elegida) svg.remove();
+                                });
+                                const boton = document.getElementById('cpSiguiente');
+                                if (boton) boton.disabled = !respuestaDePregunta(item, k);
+                                guardarChatAsistente();
+                            }
+
+                            function siguientePreguntaAsistente() {
+                                const item = preguntasPendientesAsistente();
+                                if (!item) return;
+                                const k = item.actual || 0;
+                                if (!respuestaDePregunta(item, k)) return;
+                                if (k < item.preguntas.length - 1) { moverPreguntaAsistente(1); return; }
+                                responderPreguntasAsistente(item);
+                            }
+
+                            async function responderPreguntasAsistente(item) {
+                                if (chatEnviando) return;
+                                const pares = item.preguntas.map((q, k) => ({ pregunta: q.pregunta, respuesta: respuestaDePregunta(item, k) || '(sin respuesta)' }));
+                                const textoApi = 'Respuestas del usuario:\n' + pares.map(p => `- ${p.pregunta} → ${p.respuesta}`).join('\n');
+                                const mensaje = { role: 'user', content: contenidoConPendientes([], textoApi) };
+                                item.estado = 'respondida';
+                                const burbuja = { rol: 'usuario', texto: pares.map(p => `P: ${p.pregunta}\nR: ${p.respuesta}`).join('\n\n') };
+                                chatUi.push(burbuja);
+                                await conversarConAsistente(mensaje, () => {
+                                    // No llegó: la tarjeta vuelve tal como estaba
+                                    const b = chatUi.indexOf(burbuja);
+                                    if (b >= 0) chatUi.splice(b, 1);
+                                    item.estado = 'pendiente';
+                                    // Al final, para que siga siendo lo último (después del aviso de error)
+                                    chatUi.splice(chatUi.indexOf(item), 1);
+                                    chatUi.push(item);
+                                });
+                            }
+
+                            // Cerrar la tarjeta deja escribir libremente; la IA se entera con lo próximo que se mande
+                            function cerrarPreguntasAsistente() {
+                                const item = preguntasPendientesAsistente();
+                                if (!item) return;
+                                item.estado = 'cerrada';
+                                guardarChatAsistente();
+                                pintarChatAsistente(true);
                             }
 
                             // Las fechas que propone la IA son días (AAAA-MM-DD): se guardan a mediodía de la
@@ -15565,7 +15755,7 @@
                                 const p = m.propuesta;
                                 if (!confirmar) {
                                     m.estado = 'cancelada';
-                                    chatApi.push({ role: 'user', content: [{ type: 'text', text: `(Cancelé la propuesta: ${p.resumen})` }] });
+                                    chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Cancelé la propuesta: ${p.resumen})` }]) });
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                     return;
@@ -15591,7 +15781,7 @@
                                     chatUi.push({ rol: 'error', texto: explicarFalloAlGuardar(res.error, 'el cambio') });
                                 } else {
                                     m.estado = 'aplicada';
-                                    chatApi.push({ role: 'user', content: [{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }] });
+                                    chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }]) });
                                     refrescarTodo().catch(e => console.warn('Refrescar tras el asistente', e));
                                 }
                                 guardarChatAsistente();
