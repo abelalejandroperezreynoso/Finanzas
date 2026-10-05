@@ -12,8 +12,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`gastos-app-vNNN`), o el iPhone sigue mostrando la versión vieja. `CACHE_LOGOS`
   no se toca.
 - `supabase/functions/asistente/`: Edge Function (Deno) que habla con la API de
-  Claude: chat del asistente (meta: minimizar gastos y corregir datos), revisión
-  diaria proactiva, topes con IA y lectura del saldo desde una captura.
+  Claude: chat del asistente (meta: que al usuario le quede más dinero cada mes;
+  datos correctos como base), revisión diaria proactiva con seguimiento, topes con IA y lectura del saldo desde una captura.
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.
@@ -56,6 +56,11 @@ Reglas para el SQL:
   service role.
 - El asistente de IA solo propone cambios: la app los aplica cuando el usuario
   toca Confirmar. La IA no puede borrar nada.
+- Excepción: su memoria (`memoria_ia`, notas sobre el usuario) la guarda y corrige
+  sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración.
+- La revisión diaria corre una vez por usuario y día (`revisiones_ia`); sus
+  hallazgos quedan en `hallazgos_ia` con lo que hizo el usuario (atendido o
+  descartado) para darles seguimiento.
 - Los registros de tipo `salud` no son dinero (`monto` 0, valor en `cantidad`) y
   se excluyen de todo cálculo monetario.
 

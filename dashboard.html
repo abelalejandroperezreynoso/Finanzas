@@ -203,6 +203,8 @@
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+        /* Lo que la IA guardó en su memoria: una línea discreta bajo su respuesta */
+        .chat-memoria { align-self: flex-start; color: #8a8880; font-size: 13px; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
         .chat-asistente { align-self: stretch; color: #141413; font-size: 16px; line-height: 1.65; word-wrap: break-word; }
         .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
         .chat-asistente li { margin-bottom: 4px; }
@@ -2379,6 +2381,14 @@
         <div id="consumoIa" style="font-size: 0.9em; color: #ccc; line-height: 1.7;">—</div>
     </div>
     <!-- FIN CONSUMO DE IA -->
+
+    <!-- INICIO MEMORIA DE IA -->
+    <!-- Lo que el asistente sabe de ti: lo guarda y corrige solo; aquí se ve y se borra. -->
+    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Memoria de la IA</h3>
+        <div id="memoriaIa" style="font-size: 0.9em; color: #ccc; line-height: 1.5;">—</div>
+    </div>
+    <!-- FIN MEMORIA DE IA -->
 
 
     <!-- INICIO PRECIOS DE MERCADO -->
@@ -15692,6 +15702,7 @@
                                         return adj + (m.texto ? `<div class="chat-usuario">${escaparHtml(m.texto)}</div>` : '');
                                     }
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
+                                    if (m.rol === 'memoria') return `<div class="chat-memoria"><span>🧠</span><span>${escaparHtml(m.texto)}</span></div>`;
                                     if (m.rol === 'error') {
                                         const e = errorIaAmigable(m.texto);
                                         // Sin crédito: un botón a la página de pagos de Anthropic (comprar crédito no se
@@ -15777,6 +15788,7 @@
                                     }
                                     chatApi.push(...(data.nuevos || []));
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
+                                    (data.memoria || []).forEach(n => chatUi.push({ rol: 'memoria', texto: `${n.accion === 'corregida' ? 'Actualicé' : 'Recordé'}: ${n.nota}` }));
                                     (data.propuestas || []).forEach(p => {
                                         // La versión corregida sustituye a la tarjeta anterior que seguía sin confirmar
                                         const previa = propuestaQueCorrige(p);
@@ -16168,17 +16180,17 @@
                                     });
                                 }
                                 // 7. Lo que encontró la revisión diaria con IA
-                                const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', ahorro: 'Ahorro', anticipar: 'Anticípate' };
+                                const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', seguimiento: 'Seguimiento', ahorro: 'Ahorro', patrimonio: 'Más dinero', anticipar: 'Anticípate' };
                                 const propios = avisos.slice();
                                 (revisionIaDeHoy() || []).forEach(h => {
                                     const clave = `ia:${h.titulo}`;
-                                    if (!vigente(clave)) return;
+                                    if (!vigente(clave) || (h.estado && h.estado !== 'pendiente')) return;
                                     // La categoría de la que habla, si su nombre aparece en el hallazgo (la más larga gana)
                                     const textoH = `${h.titulo} ${h.detalle} ${h.mensaje}`.toLowerCase();
                                     const catH = cats.filter(c => c.nombre && c.nombre.length > 1 && new RegExp(`(^|[^\\p{L}])${c.nombre.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}]|$)`, 'u').test(textoH))
                                         .sort((a, b) => b.nombre.length - a.nombre.length || (b.vecesUsada || 0) - (a.vecesUsada || 0))[0];
                                     propios.push({
-                                        clave, categoria_id: catH ? catH.id : null, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
+                                        clave, hallazgo_id: h.id || null, categoria_id: catH ? catH.id : null, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
                                         primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: h.mensaje },
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
@@ -16360,6 +16372,7 @@
                                 const descartados = avisosDescartados();
                                 descartados[a.clave] = a.secundario.dias ? Date.now() + a.secundario.dias * 86400000 : 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                marcarHallazgoIa(a, 'descartado');
                                 pintarChatAsistente(true);
                             }
 
@@ -16373,7 +16386,21 @@
                                 const descartados = avisosDescartados();
                                 descartados[a.clave] = 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                marcarHallazgoIa(a, 'atendido');
                                 enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
+                            }
+
+                            // Lo que el usuario hizo con cada hallazgo de la revisión queda en la base: la
+                            // siguiente revisión le da seguimiento y no repite lo descartado
+                            function marcarHallazgoIa(aviso, estado) {
+                                if (!aviso || !aviso.hallazgo_id || !clienteSupabase) return;
+                                clienteSupabase.from('hallazgos_ia').update({ estado, actualizado_en: new Date().toISOString() }).eq('id', aviso.hallazgo_id)
+                                    .then(({ error }) => { if (error) console.warn('Marcar hallazgo', error.message); });
+                                try {
+                                    const g = JSON.parse(localStorage.getItem(claveRevisionIa()) || 'null');
+                                    const h = g && (g.hallazgos || []).find(x => x.id === aviso.hallazgo_id);
+                                    if (h) { h.estado = estado; localStorage.setItem(claveRevisionIa(), JSON.stringify(g)); }
+                                } catch (e) { /* sin almacenamiento */ }
                             }
 
                             // ---- Agregar contexto: fotos, capturas y PDF ----
@@ -16824,12 +16851,36 @@
                                 pintarChatAsistente();
                             }
 
+                            // ---- Memoria de la IA (tarjeta de Configuración) ----
+                            const TEMAS_MEMORIA_IA = { meta: 'Meta', ingreso: 'Ingreso', deuda: 'Deuda', compromiso: 'Compromiso', preferencia: 'Preferencia', contexto: 'Contexto' };
+                            async function cargarMemoriaIa() {
+                                const caja = document.getElementById('memoriaIa');
+                                if (!caja || !clienteSupabase) return;
+                                const { data, error } = await clienteSupabase.from('memoria_ia').select('id, tema, nota').order('tema').order('actualizado_en', { ascending: false });
+                                if (error) { caja.innerHTML = '<span style="color:#888;">No se pudo cargar.</span>'; return; }
+                                if (!data.length) { caja.innerHTML = '<span style="color:#888;">Vacía. Se llena sola cuando le cuentas de ti en el chat.</span>'; return; }
+                                caja.innerHTML = data.map(n => `<div style="display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-top:1px solid #2c2c2e;">
+                                        <div style="flex:1; min-width:0;"><small style="color:#888;">${escaparHtml(TEMAS_MEMORIA_IA[n.tema] || n.tema)}</small><div style="color:#fff;">${escaparHtml(n.nota)}</div></div>
+                                        <button type="button" aria-label="Borrar nota" onclick="borrarNotaMemoriaIa('${n.id}')"
+                                            style="flex-shrink:0; width:28px; height:28px; margin:0; padding:0; border:none; border-radius:50%; background:#2c2c2e; color:#aaa; font-size:14px; line-height:28px;">✕</button>
+                                    </div>`).join('');
+                            }
+                            async function borrarNotaMemoriaIa(id) {
+                                const eleccion = await alertaIos({ titulo: '¿Borrar esta nota?', mensaje: 'La IA dejará de tenerla en cuenta.',
+                                    botones: [{ texto: 'Cancelar', estilo: 'cancelar' }, { texto: 'Borrar', estilo: 'destructivo' }] });
+                                if (eleccion !== 1) return;
+                                const { error } = await clienteSupabase.from('memoria_ia').delete().eq('id', id);
+                                if (error) alert('No se pudo borrar. Revisa tu conexión.');
+                                cargarMemoriaIa();
+                            }
+
                             // ---- Consumo de IA (tarjeta de Configuración) ----
                             async function cargarConsumoIa() {
                                 const interruptor = document.getElementById('checkSoloHaiku');
                                 if (interruptor) interruptor.checked = soloHaiku();
                                 pintarModeloAsistente();
                                 sincronizarSoloHaiku();
+                                cargarMemoriaIa();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
                                 caja.textContent = 'Cargando…';
