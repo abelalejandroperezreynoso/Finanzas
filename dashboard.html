@@ -1911,6 +1911,13 @@
                 /* Abierto desde la pantalla de carga, el chat va encima del velo; al cerrarlo se vuelve
                    a ver la carga, que sigue detrás */
                 body.chat-temprano #sec-asistente { z-index: 10000; }
+                /* Aviso de carga dentro del chat, entre los dos botones de arriba */
+                #sec-asistente .chat-cargando { display: none; position: absolute; z-index: 4; left: 50%; transform: translateX(-50%);
+                    top: calc(21px + env(safe-area-inset-top)); align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+                    background: #f3f2ee; border: 1px solid #ffffff; box-shadow: 0 6px 18px rgba(20, 20, 19, 0.08); color: #5e5d59; font-size: 13px; white-space: nowrap; }
+                body.cargando-datos #sec-asistente .chat-cargando { display: flex; }
+                #sec-asistente .chat-cargando .cc-barra { width: 42px; height: 3px; border-radius: 2px; background: #e3e1d8; overflow: hidden; }
+                #sec-asistente .chat-cargando .cc-relleno { width: 25%; height: 100%; background: #c96442; border-radius: 2px; transition: width 0.35s ease-out; }
                 /* Mientras el velo está puesto no debe poder moverse lo que hay debajo */
                 body.cargando-datos { overflow: hidden; }
                 /* --- FIN ESTILOS PANTALLA DE CARGA --- */
@@ -2323,6 +2330,7 @@
                 <svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
             </button>
         </div>
+        <div class="chat-cargando" aria-live="polite"><span>Cargando tus datos…</span><div class="cc-barra"><div class="cc-relleno" id="chatCargandoRelleno"></div></div></div>
         <div id="chatMensajes" class="chat-mensajes"></div>
         <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
         <div id="chatCredito" class="chat-credito" aria-hidden="true"><div class="cc-lleno"></div></div>
@@ -6781,8 +6789,12 @@
             if (!session) { window.location.replace('index.html'); return; }
             currentUser = session.user;
             avanzarCarga(HITOS_CARGA.sesion);
+            // La app abre directo en el chat: no necesita los datos del teléfono (la IA consulta la
+            // base por su cuenta) y lo que sí depende de ellos se completa al terminar la carga.
+            // Si se cierra antes, queda la pantalla de carga con su botón para volver.
             const atajoChat = document.getElementById('splashChat');
             if (atajoChat) atajoChat.classList.add('lista');
+            abrirChatDesdeCarga();
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
             sincronizarSoloHaiku();
             
@@ -6832,6 +6844,10 @@
                                                                 // La barra se llena con el dashboard ya pintado detrás: el último tramo
                                                                 // corre durante el fundido, así que se ve terminar y no cortarse.
                                                                 avanzarCarga(HITOS_CARGA.listo);
+                                                                // Con la red muy lenta el velo pudo irse antes (a los 15 s): el chat abierto se
+                                                                // completa ahora con lo que depende de los datos
+                                                                categoriasParaRegistro();
+                                                                if (document.getElementById('sec-asistente').classList.contains('activa') && !document.getElementById('splashCarga')) pintarChatAsistente(true);
 
                                                                 // El histórico de precios va detrás del arranque y sin retenerlo: son dos
                                                                 // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
@@ -6879,8 +6895,10 @@
                                     function avanzarCarga(destino) {
                                         clearInterval(arrastreCarga);
                                         porcentajeCarga = Math.max(porcentajeCarga, destino);
-                                        const relleno = document.getElementById('splashRelleno');
-                                        if (relleno) relleno.style.width = porcentajeCarga + '%';
+                                        ['splashRelleno', 'chatCargandoRelleno'].forEach(id => {
+                                            const relleno = document.getElementById(id);
+                                            if (relleno) relleno.style.width = porcentajeCarga + '%';
+                                        });
                                         if (porcentajeCarga >= 100) return;
 
                                         // Entre hito e hito la barra se arrima sola al siguiente tramo, cada vez más
@@ -6889,8 +6907,10 @@
                                         const techo = Math.min(96, destino + 9);
                                         arrastreCarga = setInterval(() => {
                                             porcentajeCarga += (techo - porcentajeCarga) * 0.12;
-                                            const barra = document.getElementById('splashRelleno');
-                                            if (barra) barra.style.width = porcentajeCarga + '%';
+                                            ['splashRelleno', 'chatCargandoRelleno'].forEach(id => {
+                                                const barra = document.getElementById(id);
+                                                if (barra) barra.style.width = porcentajeCarga + '%';
+                                            });
                                         }, 250);
                                     }
 
@@ -6916,6 +6936,7 @@
                                         velo.classList.add('oculto');
                                         setTimeout(() => {
                                             velo.remove();
+                                            categoriasParaRegistro();
                                             if (!chatTemprano) return;
                                             document.body.classList.remove('chat-temprano');
                                             const chat = document.getElementById('sec-asistente');
@@ -15850,7 +15871,7 @@
                                     if (chips) {
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + (cargandoDatos ? '' : `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`);
+                                            : '') + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
                                     }
                                     pintarPreguntasAsistente();
                                     return;
@@ -16852,21 +16873,36 @@
                             // La tarjeta la arma la app al instante, como la de pendientes: categoría (las que más
                             // usas), cuándo, y qué fue con cuánto (de tus movimientos anteriores en esa categoría).
                             // Las respuestas van a la IA, que propone el movimiento para confirmarlo.
+                            // Las 4 categorías que más usas para Registrar. Con los datos cargados se calculan y se
+                            // guardan en el teléfono; mientras la app arranca se usan las de la última vez, así
+                            // Registrar funciona desde el primer segundo.
+                            const claveRegistroRapido = () => `registroRapido:${currentUser ? currentUser.id : 'anonimo'}`;
+                            function categoriasParaRegistro() {
+                                if ((datosCategorias || []).length) {
+                                    const desde = Date.now() - 90 * 864e5;
+                                    const usos = {};
+                                    (datosUsoCompleto || []).forEach(r => {
+                                        if (new Date(r.fecha).getTime() >= desde) usos[String(r.categoria_id)] = (usos[String(r.categoria_id)] || 0) + 1;
+                                    });
+                                    const cats = datosCategorias
+                                        .filter(c => ['gasto', 'ingreso', 'salud'].includes(c.tipo))
+                                        .sort((a, b) => (usos[String(b.id)] || 0) - (usos[String(a.id)] || 0) || (b.vecesUsada || 0) - (a.vecesUsada || 0))
+                                        .slice(0, 4)
+                                        .map(c => ({ id: c.id, nombre: c.nombre, tipo: c.tipo }));
+                                    try { localStorage.setItem(claveRegistroRapido(), JSON.stringify(cats)); } catch (e) { /* sin almacenamiento */ }
+                                    return cats;
+                                }
+                                try { return JSON.parse(localStorage.getItem(claveRegistroRapido()) || '[]') || []; } catch (e) { return []; }
+                            }
+
                             function abrirRegistroAsistente() {
                                 if (chatEnviando) return;
-                                const desde = Date.now() - 90 * 864e5;
-                                const usos = {};
-                                (datosUsoCompleto || []).forEach(r => {
-                                    if (new Date(r.fecha).getTime() >= desde) usos[String(r.categoria_id)] = (usos[String(r.categoria_id)] || 0) + 1;
-                                });
-                                const cats = (datosCategorias || [])
-                                    .filter(c => ['gasto', 'ingreso', 'salud'].includes(c.tipo))
-                                    .sort((a, b) => (usos[String(b.id)] || 0) - (usos[String(a.id)] || 0) || (b.vecesUsada || 0) - (a.vecesUsada || 0))
-                                    .slice(0, 4);
+                                const cats = categoriasParaRegistro();
+                                if (!cats.length) return;
                                 chatUi.push({
                                     rol: 'preguntas', registro: true, id: 'registro-' + Date.now(), pendientes: [],
                                     estado: 'pendiente', actual: 0,
-                                    categorias: cats.map(c => ({ id: c.id, nombre: c.nombre })),
+                                    categorias: cats.map(c => ({ id: c.id, nombre: c.nombre, tipo: c.tipo })),
                                     preguntas: [
                                         { pregunta: '¿Qué quieres registrar?', opciones: cats.map(c => c.nombre) },
                                         { pregunta: '¿Cuándo fue?', opciones: ['Hoy', 'Ayer', 'Antier'] },
@@ -16886,7 +16922,7 @@
                                 item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
                                 if (!cat || !clienteSupabase) return;
                                 try {
-                                    const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || {};
+                                    const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat;
                                     const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
                                         .eq('categoria_id', cat.id).order('fecha', { ascending: false }).limit(40);
                                     const vistas = new Set();
