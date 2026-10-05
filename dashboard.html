@@ -8738,6 +8738,9 @@
                             }
                             }
 
+                            // Sin categorías de inversión no hay página de Inversiones (ver hayInversiones)
+                            window.sinInversiones = Array.isArray(catData) && !catData.some(c => c.tipo === 'inversion');
+
                             // Inyectamos el balance real, la cantidad de uso, sugerencias Y DÍAS DE RECURRENCIA
                             datosCategorias = (catData || []).map(cat => {
                             const totalSuma = saldosMap[cat.id] || 0;
@@ -12342,6 +12345,11 @@
                             })();
 
                             function alternarModoInicio() {
+                                // Sin inversiones, el título sólo alterna Finanzas ↔ Salud (si hay Salud)
+                                if (window.sinInversiones && !modoSaludInicio && tipoTreemapCategorias !== 'inversion') {
+                                    if (categoriasSalud().length > 0) fijarModoSalud(true);
+                                    return;
+                                }
                                 if (modoSaludInicio) {
                                     // Salud → Finanzas (el mapa ya está en "todos" desde que se entró)
                                     fijarModoSalud(false);
@@ -12838,6 +12846,11 @@
                             }
 
                             function renderizarTreemapCategorias(meses, indice = null) {
+                                // Si se quedó guardada la página de Inversiones y ya no hay inversiones, vuelve a Finanzas
+                                if (window.sinInversiones && tipoTreemapCategorias === 'inversion') {
+                                    tipoTreemapCategorias = '';
+                                    try { localStorage.setItem('tipoTreemapCategorias', ''); } catch (e) { /* sin almacenamiento */ }
+                                }
                                 const contenedor = document.getElementById('contenedorTreemapCategorias');
                                 const totalEl = document.getElementById('totalTreemapCategorias');
                                 const tituloEl = document.getElementById('tituloTreemapCategorias');
