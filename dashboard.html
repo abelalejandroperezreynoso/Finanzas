@@ -246,7 +246,6 @@
         .chat-chips button, .chat-chips button:hover { flex-shrink: 0; width: auto; margin: 0; padding: 8px 14px; border-radius: 999px; background: #f3f2ee;
             border: 1.5px solid #ffffff; box-shadow: 0 4px 14px rgba(20, 20, 19, 0.08); color: #141413; font-size: 14px; font-weight: 400; white-space: nowrap; }
         .chat-chips .chip-pendientes, .chat-chips .chip-pendientes:hover { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-        .chat-chips .chip-registrar, .chat-chips .chip-registrar:hover { display: flex; align-items: center; gap: 6px; font-weight: 500; background: #c96442; color: #fff; border-color: #c96442; }
         .chip-pendientes .punto { width: 8px; height: 8px; border-radius: 50%; background: #d97757; animation: chatPunto 1.6s infinite; }
         .cp-resumen { font-size: 14px; color: #8a8880; }
         .cp-escribir { display: flex; align-items: center; gap: 8px; }
@@ -15699,10 +15698,10 @@
                                         </div>`;
                                     if (chips) {
                                         const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
-                                        chips.innerHTML = `<button type="button" class="chip-registrar" onclick="empezarRegistroAsistente()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Registrar</button>`
-                                            + (avisos.length
+                                        chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
+                                            : '') + `<button type="button" onclick="empezarRegistroAsistente()">Registrar</button>`
+                                            + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
                                     pintarPreguntasAsistente();
                                     return;
