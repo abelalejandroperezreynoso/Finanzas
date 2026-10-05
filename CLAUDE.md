@@ -39,6 +39,10 @@ Reglas para el SQL:
 - Antes de subir SQL que borre o modifique datos existentes, pregunta al usuario.
 - El repositorio es público y los registros de Actions también: nunca imprimas
   datos de la base en un flujo.
+- Para leer el resultado de una consulta (solo lectura, en `supabase/consultas/`):
+  genera un par de claves RSA en el scratchpad, corre el flujo a mano con
+  `clave_publica` (PEM en base64) y descifra `LLAVE_CIFRADA` / `RESULTADO_CIFRADO`
+  del registro. Nunca subas la clave privada.
 - Después de subir, revisa que la ejecución terminara bien.
 
 ## Seguridad y datos

@@ -1,7 +1,9 @@
 # Ejecuta en Supabase los archivos .sql nuevos o modificados de supabase/sql al
 # subirlos a main. También se puede correr a mano (Run workflow) con la ruta de un
 # archivo .sql. El repositorio es público: nunca se imprime el resultado de una
-# consulta, solo si salió bien o el mensaje de error.
+# consulta, solo si salió bien o el mensaje de error. Si al correrlo a mano se da una
+# clave pública RSA (PEM en base64), el resultado se imprime cifrado con ella: sólo
+# quien tiene la clave privada puede leerlo.
 name: Ejecutar SQL en Supabase
 
 on:
@@ -13,6 +15,9 @@ on:
       archivo:
         description: 'Ruta del archivo .sql a ejecutar'
         required: true
+      clave_publica:
+        description: 'Opcional: clave pública RSA (PEM en base64) para recibir el resultado cifrado'
+        required: false
 
 jobs:
   ejecutar:
@@ -36,6 +41,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          CLAVE_PUBLICA: ${{ github.event.inputs.clave_publica }}
         run: |
           fallo=0
           while IFS= read -r archivo; do
@@ -48,6 +54,19 @@ jobs:
               -H "Content-Type: application/json" --data @-)
             if [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]; then
               echo "  Bien ($codigo)"
+              if [ -n "$CLAVE_PUBLICA" ]; then
+                # Llave AES de un solo uso, cifrada con la clave pública; el resultado, con la AES
+                if printf '%s' "$CLAVE_PUBLICA" | base64 -d > publica.pem \
+                  && openssl rand -hex 32 > llave.txt \
+                  && llave=$(openssl pkeyutl -encrypt -pubin -inkey publica.pem -pkeyopt rsa_padding_mode:oaep -in llave.txt | base64 -w0) \
+                  && datos=$(openssl enc -aes-256-cbc -pbkdf2 -pass file:llave.txt -in respuesta.json | base64 -w0); then
+                  echo "LLAVE_CIFRADA=$llave"
+                  echo "RESULTADO_CIFRADO=$datos"
+                else
+                  echo "  No se pudo cifrar el resultado"; fallo=1
+                fi
+                rm -f publica.pem llave.txt
+              fi
             else
               echo "  Error ($codigo): $(jq -r '.message // .error // .' respuesta.json 2>/dev/null | head -c 2000)"
               fallo=1
