@@ -15215,6 +15215,7 @@
                                         if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
                                             modo = 'lado';
                                             // El chat se pinta ya, con lo último a la vista, para que entre completo
+                                            reajustarAsistente();
                                             cargarChatAsistente();
                                             pintarChatAsistente(true);
                                             colocar(0, false);
@@ -15272,12 +15273,24 @@
 
                             // Con el teclado abierto el chat se ajusta a lo que queda visible, para que la barra
                             // de escribir quede justo encima del teclado y no detrás.
+                            // iOS no siempre avisa cuando el teclado se cierra (sobre todo si el campo desaparece,
+                            // como al responder un pendiente) y el chat se quedaba a media pantalla. Por eso sólo
+                            // cuenta como teclado si hay un campo de texto activo, y la medida se repasa al salir
+                            // de un campo, al volver a la app, al girar y al abrir el chat, otra vez al terminar la
+                            // animación del teclado.
+                            let reajustarAsistente = () => {};
                             (function ajustarAsistenteAlTeclado() {
                                 const chat = document.getElementById('sec-asistente');
                                 const vv = window.visualViewport;
                                 if (!chat || !vv) return;
+                                const escribiendo = () => {
+                                    const el = document.activeElement;
+                                    if (!el) return false;
+                                    if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
+                                    return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file', 'range', 'color'].includes(el.type);
+                                };
                                 const ajustar = () => {
-                                    const teclado = window.innerHeight - vv.height > 80;
+                                    const teclado = escribiendo() && window.innerHeight - vv.height > 80;
                                     chat.style.height = teclado ? vv.height + 'px' : '';
                                     chat.style.top = teclado ? vv.offsetTop + 'px' : '';
                                     chat.classList.toggle('con-teclado', teclado);
@@ -15288,6 +15301,12 @@
                                 };
                                 vv.addEventListener('resize', ajustar);
                                 vv.addEventListener('scroll', ajustar);
+                                reajustarAsistente = () => { ajustar(); setTimeout(ajustar, 350); setTimeout(ajustar, 800); };
+                                document.addEventListener('focusin', reajustarAsistente);
+                                document.addEventListener('focusout', reajustarAsistente);
+                                window.addEventListener('resize', reajustarAsistente);
+                                window.addEventListener('pageshow', reajustarAsistente);
+                                document.addEventListener('visibilitychange', () => { if (!document.hidden) reajustarAsistente(); });
                             })();
 
                             // ---- Deslizar hacia abajo para recargar (como en iOS) ----
@@ -15652,6 +15671,7 @@
                             }
 
                             function abrirAsistente() {
+                                reajustarAsistente();
                                 cargarChatAsistente();
                                 semillaSaludo = Math.random();
                                 cambiarSeccion('sec-asistente');
