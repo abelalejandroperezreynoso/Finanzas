@@ -2430,6 +2430,21 @@
     </div>
     <!-- FIN AVISOS -->
 
+    <!-- INICIO UBICACIÓN -->
+    <!-- Dónde se registró un movimiento, para que la IA sugiera categorías y note lugares
+         frecuentes. Apagado por defecto; cada persona en su teléfono. -->
+    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Ubicación</h3>
+        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; color: #fff; font-size: 0.95em; cursor: pointer;">
+            <span>Guardar dónde registro<br><small id="ubicacionNota" style="color: #888; font-size: 0.8em;">Sólo al registrar en el momento, aproximada</small></span>
+            <span class="ios-switch">
+                <input type="checkbox" id="checkUbicacion" onchange="cambiarUbicacion(this.checked)">
+                <span class="ios-switch-pista"></span>
+            </span>
+        </label>
+    </div>
+    <!-- FIN UBICACIÓN -->
+
     <!-- INICIO MEMORIA DE IA -->
     <!-- Lo que el asistente sabe de ti: lo guarda y corrige solo; aquí se ve y se borra. -->
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
@@ -5629,6 +5644,7 @@
                             aplicarFiltrosYRenderizar();
                             }
                             }
+                            if (id === 'sec-registro') precalentarUbicacion();
                             if (id === 'sec-registro') {
                             renderizarSugerenciasRegistro();
                             // Con el formulario escondido la tira no tiene ancho y no hay dónde
@@ -15746,6 +15762,7 @@
 
                             function abrirAsistente() {
                                 reajustarAsistente();
+                                precalentarUbicacion();
                                 cargarChatAsistente();
                                 semillaSaludo = Math.random();
                                 cambiarSeccion('sec-asistente');
@@ -15953,7 +15970,11 @@
                                 const bloques = adjuntos.map(a => a.tipo === 'pdf'
                                     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } }
                                     : { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: a.data } });
-                                bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (contextoApi ? `\n\n${contextoApi}` : '') });
+                                // Dónde está ahora (si lo activó y es reciente): ayuda a elegir la categoría de un "acabo de"
+                                const aqui = ubicacionActiva() && ubicacionReciente && ubicacionReciente.lugar && Date.now() - ubicacionReciente.t < VIGENCIA_UBICACION
+                                    ? `[Nota de la app: el usuario está ahora cerca de "${ubicacionReciente.lugar}" (aproximado).]` : '';
+                                const notas = [contextoApi, aqui].filter(Boolean).join('\n');
+                                bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (notas ? `\n\n${notas}` : '') });
                                 const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
                                 const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => ({ tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura })) };
                                 chatUi.push(burbuja);
@@ -17054,8 +17075,9 @@
                                 } else if (p.tipo === 'cambio_cuenta') {
                                     res = await clienteSupabase.from('cuentas').update(p.cambios).eq('id', p.cuenta_id);
                                 } else if (p.tipo === 'nuevo_movimiento') {
-                                    const { hora, ...datos } = p.datos;
-                                    res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]);
+                                    const { hora, en_el_momento, ...datos } = p.datos;
+                                    res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
+                                    if (!res.error && en_el_momento) anotarUbicacion((res.data || []).map(r => r.id)).catch(() => {});
                                 } else {
                                     res = { error: { message: 'Tipo de propuesta desconocido' } };
                                 }
@@ -17079,6 +17101,86 @@
                                     const numeros = (await caches.keys()).map(n => (n.match(/^gastos-app-v(\d+)$/) || [])[1]).filter(Boolean).map(Number);
                                     caja.textContent = numeros.length ? `Versión ${Math.max(...numeros)}` : '';
                                 } catch (e) { /* sin acceso a la caché */ }
+                            }
+
+                            // ---- Ubicación de los movimientos ----
+                            // Sólo con el interruptor encendido y sólo para lo que se registra en el momento:
+                            // lo que se captura después tendría la ubicación de donde se capturó, no de donde se
+                            // gastó. Se redondea a ~100 m y se le pone nombre con OpenStreetMap (que recibe esas
+                            // coordenadas redondeadas). Nunca retrasa el guardado: se anota después.
+                            const claveUbicacion = () => `ubicacionActiva:${currentUser ? currentUser.id : 'anonimo'}`;
+                            const ubicacionActiva = () => { try { return localStorage.getItem(claveUbicacion()) === '1'; } catch (e) { return false; } };
+                            let ubicacionReciente = null;   // { lat, lng, lugar, t }
+                            let ubicacionEnCurso = null;
+                            const VIGENCIA_UBICACION = 10 * 60000;
+                            function posicionDelTelefono() {
+                                return new Promise(resolve => {
+                                    if (!('geolocation' in navigator)) return resolve(null);
+                                    navigator.geolocation.getCurrentPosition(
+                                        p => resolve({ lat: Math.round(p.coords.latitude * 1000) / 1000, lng: Math.round(p.coords.longitude * 1000) / 1000 }),
+                                        () => resolve(null),
+                                        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 });
+                                });
+                            }
+                            async function nombreDelLugar(lat, lng) {
+                                try {
+                                    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=es&lat=${lat}&lon=${lng}`, { signal: AbortSignal.timeout(6000) });
+                                    const d = await r.json();
+                                    const a = d.address || {};
+                                    const partes = [d.name, a.road, a.suburb || a.neighbourhood || a.city_district, a.city || a.town || a.village]
+                                        .filter((x, i, arr) => x && arr.indexOf(x) === i);
+                                    return partes.slice(0, 3).join(', ').slice(0, 120) || null;
+                                } catch (e) { return null; }
+                            }
+                            async function ubicacionActual() {
+                                if (!ubicacionActiva()) return null;
+                                if (ubicacionReciente && Date.now() - ubicacionReciente.t < VIGENCIA_UBICACION) return ubicacionReciente;
+                                if (!ubicacionEnCurso) {
+                                    ubicacionEnCurso = (async () => {
+                                        const p = await posicionDelTelefono();
+                                        if (!p) return null;
+                                        const lugar = await nombreDelLugar(p.lat, p.lng);
+                                        ubicacionReciente = { ...p, lugar, t: Date.now() };
+                                        return ubicacionReciente;
+                                    })().finally(() => { ubicacionEnCurso = null; });
+                                }
+                                return ubicacionEnCurso;
+                            }
+                            // Al abrir el chat o el formulario: así ya está lista cuando se registra
+                            function precalentarUbicacion() { if (ubicacionActiva()) ubicacionActual().catch(() => {}); }
+                            async function anotarUbicacion(ids) {
+                                if (!ids || !ids.length || !ubicacionActiva()) return;
+                                const u = await ubicacionActual();
+                                if (!u) return;
+                                const { error } = await clienteSupabase.from('registros').update({ lat: u.lat, lng: u.lng, lugar: u.lugar }).in('id', ids);
+                                if (error) console.warn('Ubicación del movimiento', error.message);
+                            }
+                            function pintarUbicacion() {
+                                const interruptor = document.getElementById('checkUbicacion');
+                                const nota = document.getElementById('ubicacionNota');
+                                if (!interruptor) return;
+                                const disponible = 'geolocation' in navigator;
+                                interruptor.disabled = !disponible;
+                                interruptor.checked = disponible && ubicacionActiva();
+                                if (nota) nota.textContent = disponible ? 'Sólo al registrar en el momento, aproximada' : 'Este teléfono no comparte su ubicación';
+                            }
+                            async function cambiarUbicacion(activo) {
+                                if (activo) {
+                                    // El permiso se pide aquí, desde el toque
+                                    const p = await posicionDelTelefono();
+                                    if (!p) {
+                                        alert('Sin permiso de ubicación. Actívalo en Ajustes del iPhone > Privacidad > Localización.');
+                                        pintarUbicacion();
+                                        return;
+                                    }
+                                    try { localStorage.setItem(claveUbicacion(), '1'); } catch (e) { /* sin almacenamiento */ }
+                                    ubicacionReciente = null;
+                                    precalentarUbicacion();
+                                } else {
+                                    try { localStorage.removeItem(claveUbicacion()); } catch (e) { /* sin almacenamiento */ }
+                                    ubicacionReciente = null;
+                                }
+                                pintarUbicacion();
                             }
 
                             // ---- Avisos de pagos (tarjeta de Configuración) ----
@@ -17191,6 +17293,7 @@
                                 sincronizarSoloHaiku();
                                 cargarMemoriaIa();
                                 pintarAvisosPagos();
+                                pintarUbicacion();
                                 pintarVersionApp();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
@@ -20862,6 +20965,10 @@
                             // Los ids que acaba de devolver el insert son los que el historial estrenará
                             // con animación. Al editar no hay nada que estrenar: el movimiento ya estaba.
                             const idsRecienCreados = eraEdicion ? [] : (res.data || []).map(r => r.id);
+                            // Registrado en el momento (uno solo, con la hora de ahora ±30 min): se anota dónde
+                            if (!eraEdicion && cuantosRegistros === 1 && Math.abs(fechasDelLote[0] - Date.now()) < 30 * 60000) {
+                                anotarUbicacion(idsRecienCreados).catch(() => {});
+                            }
 
                             cancelarEdicionMov();
 

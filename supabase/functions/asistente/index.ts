@@ -420,7 +420,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
     case "listar_categorias":
       return { texto: recortar(tablaCategorias(catalogo)) };
     case "consultar_movimientos": {
-      let q = sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id")
+      let q = sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar")
         .order("fecha", { ascending: false })
         .limit(Math.min(MAX_FILAS, Math.max(1, Number(entrada.limite) || 100)));
       if (entrada.desde) q = q.gte("fecha", inicioDeDia(entrada.desde, zona));
@@ -436,12 +436,13 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         filas = filas.filter((r: Json) => ids.has(String(r.categoria_id)));
       }
       const conCantidad = filas.some((r: Json) => catalogo.tipo[String(r.categoria_id)] === "salud");
+      const conLugar = filas.some((r: Json) => r.lugar);
       return {
         texto: recortar(tabla(
-          ["id", "fecha", "monto", "descripcion", "categoria", ...(conCantidad ? ["cantidad"] : [])],
+          ["id", "fecha", "monto", "descripcion", "categoria", ...(conCantidad ? ["cantidad"] : []), ...(conLugar ? ["lugar"] : [])],
           filas.map((r: Json) => [
             r.id, fechaLocal(r.fecha, zona), Number(r.monto), r.descripcion || null, catalogo.etiqueta[String(r.categoria_id)] ?? null,
-            ...(conCantidad ? [r.cantidad ?? null] : []),
+            ...(conCantidad ? [r.cantidad ?? null] : []), ...(conLugar ? [r.lugar ?? null] : []),
           ]),
         )),
       };
@@ -584,7 +585,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,
         datos: {
-          categoria_id: (c as Json).id, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dNueva.texto || "",
+          categoria_id: (c as Json).id, fecha: entrada.fecha, ...(hora ? { hora } : {}),
+          // Pasó ahora mismo: la app puede anotar dónde, si el usuario lo activó
+          ...(zona.conHora && entrada.hora === "ahora" ? { en_el_momento: true } : {}),
+          descripcion: dNueva.texto || "",
           monto: tipo === "salud" ? 0 : tipo === "gasto" ? -importe : importe,
           ...(tipo === "salud" ? { cantidad: importe } : {}),
         },
@@ -603,7 +607,7 @@ Lo más común: el usuario te cuenta un gasto o ingreso. Deduce todo lo que pued
 - Fecha: "acabo de", "ahorita", "hoy" o sin fecha = hoy (${hoy}); "ayer" = ayer; "el lunes", "el 3" = esa fecha. Nunca preguntes la fecha si dijo cualquiera de esas.
 - Hora: sólo "acabo de" o "ahorita" = hora "ahora". Si dice la hora ("a las 2 de la tarde", "en el desayuno, como a las 9") ponla en HH:MM. Si lo cuenta después ("hoy en la mañana", "ayer", "el sábado") y no dice la hora, omítela: no uses la hora actual. Nunca la preguntes.
 - Monto en dólares: conviértelo tú a pesos con el tipo de cambio de hoy y pon el monto original en la descripción (por ejemplo "Créditos IA (5 USD)").
-- Categoría: la que corresponde por nombre, descripción o por dónde registró antes cosas parecidas.
+- Categoría: la que corresponde por nombre, descripción o por dónde registró antes cosas parecidas. Si la app te dice dónde está el usuario ahora, úsalo: un gasto "acabo de" en un restaurante va en la categoría de restaurantes, aunque no lo diga.
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 Sólo pregunta (con preguntar_al_usuario) lo que no puedas deducir: falta el monto, o hay dos categorías igual de probables.
 Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento con fecha de hoy, importe 360, la categoría del Hyundai y descripción "Aceite"; luego una frase: "Te dejé el registro para confirmar."
@@ -625,7 +629,7 @@ Tu memoria (al final de estas instrucciones) es lo que sabes del usuario fuera d
 - Cuando guardes o corrijas algo, la app se lo muestra; no hace falta anunciarlo.
 
 Datos de la app:
-- Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Las fechas ya vienen en la hora local del usuario. El día es confiable; la hora no: muchos movimientos se registran horas o días después y quedan con la hora en que se capturaron, o a las 12:00 si no se supo. No saques conclusiones de horarios (a qué hora gasta, de noche o de día) salvo que te lo pida, y entonces advierte que las horas pueden no ser las reales.
+- Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Algunos movimientos traen "lugar": dónde se registraron en el momento (aproximado; el resto no lo tiene). Úsalo para detectar lugares frecuentes y sugerir categorías; no lo menciones si no aporta. Las fechas ya vienen en la hora local del usuario. El día es confiable; la hora no: muchos movimientos se registran horas o días después y quedan con la hora en que se capturaron, o a las 12:00 si no se supo. No saques conclusiones de horarios (a qué hora gasta, de noche o de día) salvo que te lo pida, y entonces advierte que las horas pueden no ser las reales.
 - Tipos de categoría: gasto, ingreso, deuda, prestamo, inversion y salud (salud no es dinero: lleva una cantidad, con monto 0).
 - Prioridad de los gastos (técnica de las 4 N): vital, operativa, util, prescindible.
 
@@ -855,7 +859,7 @@ Deno.serve(async (req) => {
       const hace45 = fechaLocal(new Date(Date.now() - 45 * 86_400_000).toISOString(), zonaR).slice(0, 10);
       const [{ data: cats, error: e1 }, { data: regs, error: e2 }, notasR, { data: previos }] = await Promise.all([
         sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuentas(*)"),
-        sb.from("registros").select("id, categoria_id, monto, cantidad, fecha, descripcion").gte("fecha", desde).order("fecha", { ascending: false }).limit(4000),
+        sb.from("registros").select("id, categoria_id, monto, cantidad, fecha, descripcion, lugar").gte("fecha", desde).order("fecha", { ascending: false }).limit(4000),
         leerMemoria(sb),
         conSeguimiento
           ? sb.from("hallazgos_ia").select("dia, tipo, titulo, detalle, estado").gte("dia", hace45).order("dia", { ascending: false }).limit(60)
@@ -881,7 +885,7 @@ Deno.serve(async (req) => {
         m.total += c.tipo === "salud" ? Number(r.cantidad) || 0 : Number(r.monto) || 0;
         m.n++;
         if (dia >= hace35 && recientes.length < 350) {
-          recientes.push({ id: r.id, fecha: dia, categoria: c.nombre, monto: Number(r.monto) || 0, ...(c.tipo === "salud" ? { cantidad: r.cantidad } : {}), descripcion: r.descripcion || undefined });
+          recientes.push({ id: r.id, fecha: dia, categoria: c.nombre, monto: Number(r.monto) || 0, ...(c.tipo === "salud" ? { cantidad: r.cantidad } : {}), descripcion: r.descripcion || undefined, lugar: r.lugar || undefined });
         }
       });
       const categorias = Object.values(porCat)

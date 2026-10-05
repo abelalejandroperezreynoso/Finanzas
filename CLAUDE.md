@@ -66,6 +66,9 @@ Reglas para el SQL:
 - La revisión diaria corre una vez por usuario y día (`revisiones_ia`); sus
   hallazgos quedan en `hallazgos_ia` con lo que hizo el usuario (atendido o
   descartado) para darles seguimiento.
+- Ubicación (`registros.lat`, `lng`, `lugar`): sólo con "Guardar dónde registro" activo
+  (por usuario y teléfono) y sólo para lo registrado en el momento; redondeada a ~100 m,
+  con nombre de OpenStreetMap. Se anota después de guardar, nunca lo retrasa.
 - Los registros de tipo `salud` no son dinero (`monto` 0, valor en `cantidad`) y
   se excluyen de todo cálculo monetario.
 
