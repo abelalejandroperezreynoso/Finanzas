@@ -15560,25 +15560,16 @@
                             var chatEnviando = false;
                             const claveChat = () => `chatAsistente:${currentUser ? currentUser.id : 'anonimo'}`;
 
-                            // Lo adjunto (fotos y PDF) viaja completo mientras la app está abierta, pero no se
-                            // guarda en el teléfono: pesaría demasiado. Al guardar se cambia por una nota.
+                            // La conversación vive sólo mientras la app está abierta: al recargar empieza una
+                            // nueva, para que no crezca lo que se reenvía a la IA en cada mensaje.
                             let chatCargadoPara = null;
                             function cargarChatAsistente() {
                                 if (chatCargadoPara === claveChat()) return;
                                 chatCargadoPara = claveChat();
-                                try {
-                                    const guardado = JSON.parse(localStorage.getItem(claveChat()) || 'null');
-                                    chatApi = (guardado && Array.isArray(guardado.api)) ? guardado.api : [];
-                                    chatUi = (guardado && Array.isArray(guardado.ui)) ? guardado.ui : [];
-                                } catch (e) { chatApi = []; chatUi = []; }
-                            }
-
-                            function guardarChatAsistente() {
-                                const sinAdjuntos = chatApi.map(m => !Array.isArray(m.content) || !m.content.some(b => b.type === 'image' || b.type === 'document') ? m : {
-                                    ...m, content: m.content.map(b => b.type === 'image' || b.type === 'document'
-                                        ? { type: 'text', text: `[Aquí había ${b.type === 'image' ? 'una imagen' : 'un PDF'} adjunto que ya no está disponible]` } : b)
-                                });
-                                try { localStorage.setItem(claveChat(), JSON.stringify({ api: sinAdjuntos, ui: chatUi })); } catch (e) { /* sin espacio: sigue en memoria */ }
+                                chatApi = [];
+                                chatUi = [];
+                                // Las versiones anteriores la guardaban en el teléfono: se limpia lo que quedó
+                                try { localStorage.removeItem(claveChat()); } catch (e) { /* sin almacenamiento */ }
                             }
 
                             function abrirAsistente() {
@@ -15598,7 +15589,7 @@
                                 if (chatUi.length) {
                                     const eleccion = await alertaIos({
                                         titulo: '¿Empezar una conversación nueva?',
-                                        mensaje: 'La conversación actual se borra de este teléfono.',
+                                        mensaje: 'La conversación actual se borra.',
                                         botones: [{ texto: 'Cancelar', estilo: 'cancelar' }, { texto: 'Nueva', estilo: 'destructivo' }]
                                     });
                                     if (eleccion !== 1) return;
@@ -15609,7 +15600,6 @@
                                 ofrecerContinuar = false;
                                 pendientesAbiertos = false;
                                 semillaSaludo = Math.random();
-                                guardarChatAsistente();
                                 pintarChatAsistente();
                             }
 
@@ -15820,7 +15810,6 @@
                                     document.getElementById('chatEnviar').disabled = false;
                                     actualizarBotonEnviarAsistente();
                                     pintarCreditoAsistente();
-                                    guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
                             }
@@ -16512,7 +16501,6 @@
                                 chatApi = chatApi.map(m => m.role !== 'assistant' || !Array.isArray(m.content) ? m
                                     : { ...m, content: m.content.filter(b => b.type !== 'thinking' && b.type !== 'redacted_thinking') })
                                     .filter(m => !Array.isArray(m.content) || m.content.length);
-                                guardarChatAsistente();
                             }
                             function modeloAsistente() {
                                 if (soloHaiku()) return MODELO_ECONOMICO;
@@ -16633,7 +16621,6 @@
                                 const item = preguntasPendientesAsistente();
                                 if (!item) return;
                                 item.actual = Math.min(Math.max((item.actual || 0) + d, 0), item.preguntas.length - 1);
-                                guardarChatAsistente();
                                 pintarPreguntasAsistente();
                             }
 
@@ -16643,7 +16630,6 @@
                                 const k = item.actual || 0;
                                 item.respuestas[k] = { opcion: i, texto: '' };
                                 if (item.registro && k === 0) opcionesRegistroAsistente(item);
-                                guardarChatAsistente();
                                 pintarPreguntasAsistente();
                                 // Elegida una opción, pasa sola a la siguiente pregunta
                                 if (k < item.preguntas.length - 1) setTimeout(() => moverPreguntaAsistente(1), 220);
@@ -16666,7 +16652,6 @@
                                 });
                                 const boton = document.getElementById('cpSiguiente');
                                 if (boton) boton.disabled = !respuestaDePregunta(item, k);
-                                guardarChatAsistente();
                             }
 
                             function siguientePreguntaAsistente() {
@@ -16724,7 +16709,6 @@
                                     ],
                                     respuestas: [0, 1, 2].map(() => ({ opcion: null, texto: '' }))
                                 });
-                                guardarChatAsistente();
                                 pintarChatAsistente(true);
                             }
 
@@ -16754,7 +16738,6 @@
                                     // Si mientras tanto cambió la categoría, esta lista ya no sirve
                                     if (item.respuestas[0].opcion !== r.opcion || item.estado !== 'pendiente') return;
                                     q.opciones = opciones;
-                                    guardarChatAsistente();
                                     if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) pintarPreguntasAsistente();
                                 } catch (e) { /* sin historial: se escribe */ }
                             }
@@ -16791,12 +16774,10 @@
                                 // La del registro no vino de la IA: se quita sin dejar rastro
                                 if (item.registro) {
                                     chatUi.splice(chatUi.indexOf(item), 1);
-                                    guardarChatAsistente();
                                     pintarChatAsistente(true);
                                     return;
                                 }
                                 item.estado = 'cerrada';
-                                guardarChatAsistente();
                                 pintarChatAsistente(true);
                             }
 
@@ -16813,7 +16794,6 @@
                                 if (!confirmar) {
                                     m.estado = 'cancelada';
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Cancelé la propuesta: ${p.resumen})` }]) });
-                                    guardarChatAsistente();
                                     pintarChatAsistente();
                                     return;
                                 }
@@ -16862,7 +16842,6 @@
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }]) });
                                     refrescarTodo().catch(e => console.warn('Refrescar tras el asistente', e));
                                 }
-                                guardarChatAsistente();
                                 pintarChatAsistente();
                             }
 
