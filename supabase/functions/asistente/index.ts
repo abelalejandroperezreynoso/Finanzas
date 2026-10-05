@@ -801,10 +801,19 @@ Deno.serve(async (req) => {
     if (error instanceof Anthropic.RateLimitError) {
       return responder({ error: "Demasiadas consultas seguidas. Intenta en un minuto." }, 429);
     }
+    // Sin crédito, Anthropic contesta 400 con "credit balance is too low": se avisa en palabras
+    if (error instanceof Anthropic.APIError && /credit balance/i.test(error.message ?? "")) {
+      return responder({ error: "Se acabó el crédito de la IA.", codigo: "sin_credito" }, 402);
+    }
     if (error instanceof Anthropic.BadRequestError) {
-      return responder({ error: `La IA rechazó la petición: ${error.message}` }, 400);
+      console.error(error.message);
+      return responder({ error: "La IA no pudo procesar esta petición.", codigo: "rechazada" }, 400);
+    }
+    if (error instanceof Anthropic.APIError && (error.status === 529 || error.status === 503)) {
+      return responder({ error: "La IA está saturada. Intenta en un momento.", codigo: "saturada" }, 503);
     }
     if (error instanceof Anthropic.APIError) {
+      console.error(error.message);
       return responder({ error: `Error de la IA (${error.status}).` }, 502);
     }
     if (error instanceof SyntaxError) {

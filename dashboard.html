@@ -207,7 +207,9 @@
         .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
         .chat-asistente li { margin-bottom: 4px; }
         .chat-asistente strong { color: #141413; font-weight: 700; }
-        .chat-error { align-self: stretch; color: #b3261e; font-size: 0.88em; }
+        .chat-error { align-self: stretch; background: #f6ece7; border: 0.5px solid #ead7ce; border-radius: 18px; padding: 12px 16px;
+            color: #5e5d59; font-size: 14px; line-height: 1.45; }
+        .chat-error b { display: block; color: #141413; font-size: 15px; font-weight: 600; margin-bottom: 2px; }
         .chat-propuesta { align-self: stretch; background: #ffffff; border: 0.5px solid #e8e6dc; border-radius: 22px; padding: 18px 18px 16px;
             box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
         .chat-propuesta .titulo { font-weight: 600; font-size: 16px; color: #141413; margin-bottom: 8px; }
@@ -15702,7 +15704,10 @@
                                         return adj + (m.texto ? `<div class="chat-usuario">${escaparHtml(m.texto)}</div>` : '');
                                     }
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
-                                    if (m.rol === 'error') return `<div class="chat-error">${escaparHtml(m.texto)}</div>`;
+                                    if (m.rol === 'error') {
+                                        const e = errorIaAmigable(m.texto);
+                                        return `<div class="chat-error"><b>${escaparHtml(e.titulo)}</b>${escaparHtml(e.texto)}</div>`;
+                                    }
                                     if (m.rol === 'preguntas') return '';
                                     if (m.rol === 'propuesta') {
                                         const p = m.propuesta || {};
@@ -15772,9 +15777,9 @@
                                         body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente() }
                                     });
                                     if (error) {
-                                        let detalle = '';
-                                        try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
-                                        throw new Error(detalle || 'No se pudo hablar con la IA. Revisa que la función asistente esté desplegada en Supabase.');
+                                        let cuerpo = {};
+                                        try { cuerpo = (await error.context.json()) || {}; } catch (e) { /* sin cuerpo */ }
+                                        throw new Error(cuerpo.codigo === 'sin_credito' ? 'sin_credito' : (cuerpo.error || ''));
                                     }
                                     chatApi.push(...(data.nuevos || []));
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
@@ -15795,7 +15800,10 @@
                                     // El mensaje no llegó a la IA: se saca del historial
                                     const k = chatApi.lastIndexOf(mensaje);
                                     if (k >= 0) chatApi.splice(k, 1);
-                                    chatUi.push({ rol: 'error', texto: e.message || 'No se pudo enviar.' });
+                                    // El mismo aviso dos veces seguidas no aporta: se queda uno
+                                    const texto = e.message || '';
+                                    const previo = chatUi[chatUi.length - 1];
+                                    if (!(previo && previo.rol === 'error' && errorIaAmigable(previo.texto).titulo === errorIaAmigable(texto).titulo)) chatUi.push({ rol: 'error', texto });
                                     if (alFallar) alFallar();
                                 } finally {
                                     chatEnviando = false;
@@ -15805,6 +15813,21 @@
                                     guardarChatAsistente();
                                     pintarChatAsistente();
                                 }
+                            }
+
+                            // Los errores se cuentan en palabras, sin códigos ni JSON. Sirve también para los que
+                            // quedaron guardados en conversaciones anteriores.
+                            function errorIaAmigable(texto) {
+                                const t = String(texto || '');
+                                if (t === 'sin_credito' || /credit balance|crédito de la IA/i.test(t)) {
+                                    return { titulo: 'Se acabó el crédito de la IA', texto: 'Recárgalo en console.anthropic.com y anota el nuevo saldo en Configuración.' };
+                                }
+                                if (/saturada|overloaded/i.test(t)) return { titulo: 'La IA está saturada', texto: 'Intenta de nuevo en un momento.' };
+                                if (/demasiadas consultas/i.test(t)) return { titulo: 'Demasiadas consultas seguidas', texto: 'Espera un minuto e intenta de nuevo.' };
+                                if (!t || /no se pudo hablar|failed to fetch|network|desplegada|rechazó la petición|\{"type"/i.test(t)) {
+                                    return { titulo: 'No se pudo hablar con la IA', texto: 'Revisa tu conexión e intenta de nuevo.' };
+                                }
+                                return { titulo: 'Algo salió mal', texto: t };
                             }
 
                             // ---- Personaje y saludo de la pantalla de inicio del chat ----
@@ -16927,7 +16950,8 @@
                                     if (error) {
                                         let detalle = '';
                                         try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
-                                        alert(detalle || 'No se pudo leer la captura. Revisa tu conexión e inténtalo de nuevo.');
+                                        const e = errorIaAmigable(detalle);
+                                        alertaIos({ titulo: e.titulo, mensaje: e.texto });
                                     } else {
                                         alert(`Saldo anotado: $${Number(res.saldo_usd).toFixed(2)} USD`);
                                     }
@@ -16978,9 +17002,8 @@
                                         // mensaje que la función mandó
                                         let detalle = '';
                                         try { detalle = (await error.context.json()).error || ''; } catch (e) { /* sin cuerpo */ }
-                                        alert(detalle
-                                            ? `No se pudieron calcular los topes: ${detalle}`
-                                            : 'No se pudo hablar con la IA.\n\nRevisa que la función asistente esté desplegada en Supabase y que tenga el secreto ANTHROPIC_API_KEY.');
+                                        const e = errorIaAmigable(detalle);
+                                        alertaIos({ titulo: e.titulo, mensaje: e.texto });
                                         return;
                                     }
 
