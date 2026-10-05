@@ -181,6 +181,7 @@ const HERRAMIENTAS: Json[] = [
         categoria_id: { type: "string" },
         importe: { type: "number" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
+        hora: { type: "string", description: "Hora local HH:MM (24 h) si la dijo, o \"ahora\" si acaba de pasar (\"acabo de\", \"ahorita\"). Omítela si no se sabe." },
         descripcion: { type: "string", description: "Qué fue, con el detalle que dio el usuario (por ejemplo \"Sushi\"); nunca vacía" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
@@ -354,7 +355,9 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // Las fechas se guardan en UTC, pero el usuario habla de días de su zona horaria. La app
 // manda su desfase (minutos, como getTimezoneOffset: 360 = UTC-6) y con él se arman los
 // límites de cada día y se enseña la fecha local de cada movimiento.
-type Zona = { desfase: number };
+// conHora: la app que llama sabe guardar la hora de un movimiento propuesto (las versiones
+// viejas insertaban los datos tal cual y un campo de más hacía fallar el registro)
+type Zona = { desfase: number; conHora?: boolean };
 const sufijoZona = (z: Zona) => {
   const m = -z.desfase;
   const signo = m >= 0 ? "+" : "-";
@@ -565,6 +568,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!(Number(entrada.importe) > 0)) return { texto: "El importe debe ser mayor que cero.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
       const importe = Math.abs(Number(entrada.importe));
+      // "ahora" se resuelve aquí con la hora local del usuario; sin hora, la app guarda mediodía
+      let hora: string | undefined;
+      if (!zona.conHora) { /* app vieja: se guarda sin hora, como antes */ }
+      else if (entrada.hora === "ahora") hora = fechaLocal(new Date().toISOString(), zona).slice(11, 16);
+      else if (entrada.hora) {
+        const m = String(entrada.hora).match(/^(\d{1,2}):(\d{2})$/);
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { texto: "La hora debe ser HH:MM (24 h) o \"ahora\".", error: true };
+        hora = `${m[1].padStart(2, "0")}:${m[2]}`;
+      }
       const dNueva = textoCompleto(entrada.descripcion, MAX_DESCRIPCION_MOVIMIENTO);
       if (dNueva.error) return { texto: dNueva.error, error: true };
       if (!dNueva.texto) return { texto: "Falta la descripción: escribe qué fue el movimiento.", error: true };
@@ -572,7 +584,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,
         datos: {
-          categoria_id: (c as Json).id, fecha: entrada.fecha, descripcion: dNueva.texto || "",
+          categoria_id: (c as Json).id, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dNueva.texto || "",
           monto: tipo === "salud" ? 0 : tipo === "gasto" ? -importe : importe,
           ...(tipo === "salud" ? { cantidad: importe } : {}),
         },
@@ -589,6 +601,7 @@ Hablas en español, claro y breve, como en un chat. Usa listas cortas cuando ayu
 
 Lo más común: el usuario te cuenta un gasto o ingreso. Deduce todo lo que puedas y llama de inmediato a proponer_nuevo_movimiento, sin preguntar; la tarjeta le deja confirmar o cancelar:
 - Fecha: "acabo de", "ahorita", "hoy" o sin fecha = hoy (${hoy}); "ayer" = ayer; "el lunes", "el 3" = esa fecha. Nunca preguntes la fecha si dijo cualquiera de esas.
+- Hora: "acabo de" o "ahorita" = hora "ahora"; si dice la hora ("a las 2 de la tarde", "en el desayuno, como a las 9") ponla en HH:MM; si no, omítela. Nunca la preguntes.
 - Monto en dólares: conviértelo tú a pesos con el tipo de cambio de hoy y pon el monto original en la descripción (por ejemplo "Créditos IA (5 USD)").
 - Categoría: la que corresponde por nombre, descripción o por dónde registró antes cosas parecidas.
 - Descripción: con sus palabras, corta y con la ortografía corregida.
@@ -612,7 +625,7 @@ Tu memoria (al final de estas instrucciones) es lo que sabes del usuario fuera d
 - Cuando guardes o corrijas algo, la app se lo muestra; no hace falta anunciarlo.
 
 Datos de la app:
-- Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Las fechas ya vienen en la hora local del usuario.
+- Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Las fechas ya vienen en la hora local del usuario; las que marcan 12:00 en punto casi siempre se registraron sin hora, no saques conclusiones de esa hora.
 - Tipos de categoría: gasto, ingreso, deuda, prestamo, inversion y salud (salud no es dinero: lleva una cantidad, con monto 0).
 - Prioridad de los gastos (técnica de las 4 N): vital, operativa, util, prescindible.
 
@@ -953,7 +966,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360 };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

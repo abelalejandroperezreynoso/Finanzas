@@ -15729,6 +15729,21 @@
                                 return html.replace(/(<br>)+$/, '');
                             }
 
+                            // "Hoy, 5 oct · 1:03 p.m.", "Ayer, 4 oct", "28 sep" o "28 sep 2025" si es de otro año
+                            function fechaAmigable(dia, hora) {
+                                if (!/^\d{4}-\d{2}-\d{2}$/.test(dia || '')) return dia || '';
+                                const d = new Date(`${dia}T${hora || '12:00'}:00`);
+                                const hoy = new Date();
+                                hoy.setHours(12, 0, 0, 0);
+                                const diff = Math.round((new Date(`${dia}T12:00:00`) - hoy) / 86400000);
+                                const opciones = { day: 'numeric', month: 'short' };
+                                if (d.getFullYear() !== hoy.getFullYear()) opciones.year = 'numeric';
+                                const corta = d.toLocaleDateString('es-MX', opciones).replace('.', '');
+                                const relativo = { 0: 'Hoy', '-1': 'Ayer', 1: 'Mañana' }[diff];
+                                const texto = relativo ? `${relativo}, ${corta}` : corta;
+                                return hora ? `${texto} · ${d.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' })}` : texto;
+                            }
+
                             function detallePropuestaHtml(p) {
                                 const flecha = (antes, despues) => `${escaparHtml(String(antes ?? '—'))} → <b>${escaparHtml(String(despues ?? '—'))}</b>`;
                                 const filas = [];
@@ -15762,7 +15777,7 @@
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
                                     filas.push(d.cantidad !== undefined ? `Cantidad: <b>${escaparHtml(String(d.cantidad))}</b>` : `Monto: <b>${escaparHtml(fMoneda(Math.abs(d.monto)))}</b> (${d.monto < 0 ? 'salida' : 'entrada'})`);
-                                    filas.push(`Fecha: <b>${escaparHtml(d.fecha || '')}</b>`);
+                                    filas.push(`Fecha: <b>${escaparHtml(fechaAmigable(d.fecha, d.hora))}</b>`);
                                     filas.push(`Descripción: <b>${escaparHtml(d.descripcion || '(vacía)')}</b>`);
                                 }
                                 return filas.join('<br>');
@@ -15880,7 +15895,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -16890,7 +16905,9 @@
 
                             // Las fechas que propone la IA son días (AAAA-MM-DD): se guardan a mediodía de la
                             // zona del teléfono, para que ningún desfase las mueva al día anterior
-                            const fechaDeDiaLocal = dia => new Date(`${dia}T12:00:00`).toISOString();
+                            // Sin hora (no se sabe) se guarda a mediodía, lejos de la medianoche para que ningún
+                            // cambio de zona lo pase de día
+                            const fechaDeDiaLocal = (dia, hora) => new Date(`${dia}T${hora || '12:00'}:00`).toISOString();
 
                             async function decidirPropuestaAsistente(indice, confirmar) {
                                 const m = chatUi[indice];
@@ -16937,7 +16954,8 @@
                                 } else if (p.tipo === 'cambio_cuenta') {
                                     res = await clienteSupabase.from('cuentas').update(p.cambios).eq('id', p.cuenta_id);
                                 } else if (p.tipo === 'nuevo_movimiento') {
-                                    res = await clienteSupabase.from('registros').insert([{ ...p.datos, fecha: fechaDeDiaLocal(p.datos.fecha), user_id: currentUser.id }]);
+                                    const { hora, ...datos } = p.datos;
+                                    res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]);
                                 } else {
                                     res = { error: { message: 'Tipo de propuesta desconocido' } };
                                 }
