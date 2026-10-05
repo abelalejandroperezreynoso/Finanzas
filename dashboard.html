@@ -248,6 +248,7 @@
         .chat-inicio { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; }
         .chat-inicio-centro { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 10px 0 20px; }
         .chat-inicio.con-avisos .chat-inicio-centro { margin: 12px 0 4px; }
+        .chat-bienvenida { font-size: 16px; line-height: 1.4; color: #73726c; text-align: center; max-width: 300px; text-wrap: balance; margin-top: -8px; }
         .chat-saludo { font-family: ui-serif, "New York", Georgia, serif; font-size: 26px; line-height: 1.25; color: #3d3d3a; text-align: center; max-width: 320px; text-wrap: balance; }
         .cochinito { overflow: visible; }
         .cochinito .cuerpo { animation: cochiRespira 1.6s steps(2) infinite; }
@@ -7034,7 +7035,9 @@
     async function cargarCuentas() {
             // Obtenemos cuentas
             const { data: cuentasData } = await clienteSupabase.from('cuentas').select('*').order('nombre');
-            
+            // Usuario nuevo sólo si la consulta respondió y vino vacía (un error no lo es)
+            window.usuarioSinCuentas = Array.isArray(cuentasData) && cuentasData.length === 0;
+
             // Obtenemos el balance real directo desde PostgreSQL
             const { data: saldosData } = await clienteSupabase.rpc('saldos_cuentas', { p_user_id: currentUser.id });
             
@@ -15987,6 +15990,19 @@
                                     const cargandoDatos = !!document.getElementById('splashCarga');
                                     const sinConexion = !navigator.onLine;
                                     const ocupado = !sinConexion && (revisandoIa || cargandoDatos);
+                                    // Usuario nuevo: bienvenida y un botón para armar su cuenta principal con la IA
+                                    if (window.usuarioSinCuentas && !cargandoDatos) {
+                                        caja.innerHTML = `<div class="chat-inicio">
+                                                <div class="chat-inicio-centro">
+                                                    ${personajeAsistenteSvg(false)}
+                                                    <div class="chat-saludo">Te doy la bienvenida</div>
+                                                    <div class="chat-bienvenida">Soy tu asistente de finanzas. Empecemos con tu cuenta principal: me dices cuánto tienes y yo la creo.</div>
+                                                </div>
+                                            </div>`;
+                                        if (chips && !sinConexion) chips.innerHTML = `<button type="button" class="chip-pendientes" onclick="empezarComoNuevo()"><span class="punto"></span>Empezar</button>`;
+                                        pintarPreguntasAsistente();
+                                        return;
+                                    }
                                     // Minimalista, como Claude: sólo el personaje y el saludo. Los pendientes no se
                                     // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
                                     // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
@@ -16171,6 +16187,9 @@
                                     <g class="patas-b">${r(5, 10, 1, 1, cuerpo)}${r(8, 10, 1, 1, cuerpo)}</g>
                                 </svg>`;
                             }
+
+                            window.empezarComoNuevo = () => enviarMensajeAsistente('Quiero empezar',
+                                '[Nota de la app: el usuario es nuevo y no tiene cuentas. Empieza por su cuenta principal.]');
 
                             let semillaSaludo = Math.random();
                             function saludoAsistente(pendientes, revisando, { cargando = false, sinConexion = false } = {}) {
