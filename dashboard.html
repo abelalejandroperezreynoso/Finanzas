@@ -2501,6 +2501,8 @@
     <!-- FIN PRECIOS DE MERCADO -->
 
     <button id="btnCerrarSesion" class="btn-logout">Cerrar Sesión</button>
+    <!-- La versión que el teléfono tiene guardada (la de sw.js), para saber si ya llegó un cambio -->
+    <div id="versionApp" style="text-align: center; color: #666; font-size: 0.75em; margin: 14px 0 4px;"></div>
     </div>
 </div>
 
@@ -16922,6 +16924,17 @@
                                 pintarChatAsistente();
                             }
 
+                            // Versión instalada: el número de la caché del service worker. Si hay dos (una
+                            // actualización a medias), la más nueva es la que verás al siguiente arranque.
+                            async function pintarVersionApp() {
+                                const caja = document.getElementById('versionApp');
+                                if (!caja || !('caches' in window)) return;
+                                try {
+                                    const numeros = (await caches.keys()).map(n => (n.match(/^gastos-app-v(\d+)$/) || [])[1]).filter(Boolean).map(Number);
+                                    caja.textContent = numeros.length ? `Versión ${Math.max(...numeros)}` : '';
+                                } catch (e) { /* sin acceso a la caché */ }
+                            }
+
                             // ---- Avisos de pagos (tarjeta de Configuración) ----
                             // En iPhone sólo funcionan con la app instalada en la pantalla de inicio (iOS 16.4+)
                             const avisosDisponibles = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -17013,6 +17026,7 @@
                                 sincronizarSoloHaiku();
                                 cargarMemoriaIa();
                                 pintarAvisosPagos();
+                                pintarVersionApp();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
                                 caja.textContent = 'Cargando…';
