@@ -191,6 +191,33 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "proponer_movimiento_inversion",
+    description:
+      "Propone un movimiento de inversión (GBM). NO lo aplica: el usuario lo confirma. Tipos: " +
+      "aportacion (pesos que entran a la Caja GBM convertidos a dólares; pide pesos cobrados y dólares acreditados), " +
+      "retiro (dólares que salen de la Caja GBM convertidos a pesos; pide pesos recibidos y dólares que salieron), " +
+      "compra y venta (acciones de una empresa pagadas o cobradas con la Caja GBM, sin pesos; pide acciones y precio por acción en USD). " +
+      "categoria_id: en compra/venta la categoría de la empresa; en aportación/retiro cualquier categoría de inversión de esa cuenta (se usa su Caja GBM, que se crea si no existe).",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo: { type: "string", enum: ["aportacion", "retiro", "compra", "venta"] },
+        categoria_id: { type: "string" },
+        fecha: { type: "string", description: "AAAA-MM-DD" },
+        hora: { type: "string", description: "HH:MM o \"ahora\"; omítela si no se sabe" },
+        pesos: { type: "number", description: "Aportación/retiro: pesos (positivo)" },
+        usd: { type: "number", description: "Aportación/retiro: dólares (positivo)" },
+        acciones: { type: "number", description: "Compra/venta: número de acciones (positivo, puede tener decimales)" },
+        precio_usd: { type: "number", description: "Compra/venta: precio por acción en USD" },
+        descripcion: { type: "string" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
+        resumen: { type: "string" },
+      },
+      required: ["tipo", "categoria_id", "fecha", "resumen"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "mostrar_movimientos",
     description:
       "Muestra movimientos al usuario en una tarjeta de la app (agrupados por día, con categoría, hora y monto con color). Úsala SIEMPRE que el usuario quiera ver " +
@@ -373,7 +400,8 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // conHora: la app que llama sabe guardar la hora de un movimiento propuesto (las versiones
 // viejas insertaban los datos tal cual y un campo de más hacía fallar el registro)
 // conListas: la app sabe pintar la tarjeta de mostrar_movimientos (las viejas no la ven)
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean };
+// conInversion: la app sabe aplicar propuestas de inversión
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean };
 const sufijoZona = (z: Zona) => {
   const m = -z.desfase;
   const signo = m >= 0 ? "+" : "-";
@@ -389,6 +417,48 @@ const fechaLocal = (iso: string, z: Zona) => {
 
 async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zona, catalogo: Catalogo, nombre: string, entrada: Json, propuestas: Json[], memoria: Json[], listas: Json[] = []): Promise<{ texto: string; error?: boolean }> {
   switch (nombre) {
+    case "proponer_movimiento_inversion": {
+      if (!zona.conInversion) return { texto: "Esta versión de la app no registra inversiones desde el chat: dile que la actualice o que use el formulario de registro.", error: true };
+      const cat = catalogo.categorias.find((c: Json) => String(c.id) === String(entrada.categoria_id));
+      if (!cat || cat.tipo !== "inversion") return { texto: "Esa categoría no es de inversión.", error: true };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
+      const tipo = String(entrada.tipo);
+      const esCaja = (c: Json) => c.tipo === "inversion" && !c.ticker && String(c.nombre ?? "").trim().toLowerCase() === "caja gbm";
+      let hora: string | undefined;
+      if (entrada.hora === "ahora") hora = fechaLocal(new Date().toISOString(), zona).slice(11, 16);
+      else if (entrada.hora) {
+        const m = String(entrada.hora).match(/^(\d{1,2}):(\d{2})$/);
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { texto: "La hora debe ser HH:MM (24 h) o \"ahora\".", error: true };
+        hora = `${m[1].padStart(2, "0")}:${m[2]}`;
+      }
+      const dDesc = textoCompleto(entrada.descripcion ?? "", MAX_DESCRIPCION_MOVIMIENTO);
+      if (dDesc.error) return { texto: dDesc.error, error: true };
+      let datos: Json, categoria: string;
+      if (tipo === "aportacion" || tipo === "retiro") {
+        const pesos = Number(entrada.pesos), usd = Number(entrada.usd);
+        if (!(pesos > 0) || !(usd > 0)) return { texto: `Para ${tipo === "aportacion" ? "una aportación" : "un retiro"} hacen falta los pesos y los dólares (los dos positivos). Si falta uno, pregúntalo con preguntar_al_usuario.`, error: true };
+        const tc = pesos / usd;
+        if (tc < 5 || tc > 50) return { texto: `Con esos montos el tipo de cambio sale en ${tc.toFixed(2)}, que no es razonable. Revisa pesos y dólares.`, error: true };
+        const caja = catalogo.categorias.find((c: Json) => String(c.cuenta_id) === String(cat.cuenta_id) && esCaja(c));
+        categoria = caja ? "Caja GBM" : "Caja GBM (se creará al confirmar)";
+        // Como en el formulario: en la aportación salen pesos y entran dólares; en el retiro, al revés
+        datos = { cuenta_id: cat.cuenta_id, caja_id: caja?.id ?? null, tipo_movimiento: tipo, monto: tipo === "aportacion" ? -pesos : pesos,
+          monto_usd: usd, tipo_cambio: Math.round(tc * 10000) / 10000, cantidad_acciones: 0, costo_accion: 0 };
+      } else if (tipo === "compra" || tipo === "venta") {
+        if (esCaja(cat)) return { texto: "Una compra o venta va en la categoría de la empresa, no en la Caja GBM.", error: true };
+        const acciones = Number(entrada.acciones), precio = Number(entrada.precio_usd);
+        if (!(acciones > 0) || !(precio > 0)) return { texto: "Para una compra o venta hacen falta las acciones y el precio por acción en USD. Si falta, pregúntalo con preguntar_al_usuario.", error: true };
+        categoria = catalogo.etiqueta[String(cat.id)] ?? cat.nombre;
+        datos = { categoria_id: cat.id, cuenta_id: cat.cuenta_id, tipo_movimiento: tipo, monto: 0, monto_usd: Math.round(acciones * precio * 10000) / 10000,
+          tipo_cambio: await tipoDeCambio(fechaLocal(new Date().toISOString(), zona).slice(0, 10)) ?? 0, cantidad_acciones: acciones, costo_accion: precio };
+      } else return { texto: "Tipo no válido.", error: true };
+      propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
+        tipo: "movimiento_inversion", resumen: String(entrada.resumen).slice(0, 200), categoria,
+        datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
+      });
+      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
+    }
     case "mostrar_movimientos": {
       const ids = (Array.isArray(entrada.ids) ? entrada.ids : []).map(String).slice(0, 50);
       if (!ids.length) return { texto: "Faltan los ids de los movimientos.", error: true };
@@ -642,6 +712,10 @@ Lo más común: el usuario te cuenta un gasto o ingreso. Deduce todo lo que pued
 - Categoría: la que corresponde por nombre, descripción o por dónde registró antes cosas parecidas. Si la app te dice dónde está el usuario ahora, úsalo: un gasto "acabo de" en un restaurante va en la categoría de restaurantes, aunque no lo diga.
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 Sólo pregunta (con preguntar_al_usuario) lo que no puedas deducir: falta el monto, o hay dos categorías igual de probables.
+Inversiones (GBM): usa proponer_movimiento_inversion. "Ingresé/metí/aporté X a la caja de GBM" = aportación; "saqué X de GBM" = retiro; "compré/vendí N acciones de …" = compra o venta.
+- Aportación y retiro necesitan pesos y dólares. Si sólo dice uno, pregunta el otro con preguntar_al_usuario, ofreciendo como opción la estimación con el tipo de cambio de hoy (por ejemplo "≈ 54.30 USD (estimado)") y avisando que lo exacto viene en su comprobante.
+- Compra y venta necesitan acciones y precio por acción en USD; si sólo da el total, pregunta lo que falte.
+- No digas que no puedes registrar inversiones: sí puedes, con esa herramienta.
 Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento con fecha de hoy, importe 360, la categoría del Hyundai y descripción "Aceite"; luego una frase: "Te dejé el registro para confirmar."
 
 Tu objetivo es que al usuario le quede más dinero cada mes y que su patrimonio crezca. Lo mides con flujo_mensual (ingresos menos gastos) y con el avance hacia sus metas. Trabaja en todos los frentes, no sólo en recortar:
@@ -1002,7 +1076,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

@@ -15935,6 +15935,22 @@
                                     filas.push(d.cantidad !== undefined ? `Cantidad: <b>${escaparHtml(String(d.cantidad))}</b>` : `Monto: <b>${escaparHtml(fMoneda(Math.abs(d.monto)))}</b> (${d.monto < 0 ? 'salida' : 'entrada'})`);
                                     filas.push(`Fecha: <b>${escaparHtml(fechaAmigable(d.fecha, d.hora))}</b>`);
                                     filas.push(`Descripción: <b>${escaparHtml(d.descripcion || '(vacía)')}</b>`);
+                                } else if (p.tipo === 'movimiento_inversion') {
+                                    const d = p.datos || {};
+                                    const nombres = { aportacion: 'Aportación a la Caja GBM', retiro: 'Retiro de la Caja GBM', compra: 'Compra de acciones', venta: 'Venta de acciones' };
+                                    const usd = n => `${fMoneda(Number(n) || 0)} USD`;
+                                    filas.push(`Tipo: <b>${escaparHtml(nombres[d.tipo_movimiento] || d.tipo_movimiento || '')}</b>`);
+                                    filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
+                                    if (d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro') {
+                                        filas.push(`Pesos: <b>${escaparHtml(fMoneda(Math.abs(Number(d.monto) || 0)))}</b> (${Number(d.monto) < 0 ? 'salen' : 'entran'})`);
+                                        filas.push(`Dólares: <b>${escaparHtml(usd(d.monto_usd))}</b> (${d.tipo_movimiento === 'aportacion' ? 'entran a' : 'salen de'} la caja)`);
+                                        filas.push(`Tipo de cambio: <b>${escaparHtml(Number(d.tipo_cambio || 0).toFixed(4))}</b>`);
+                                    } else {
+                                        filas.push(`Acciones: <b>${escaparHtml(String(Number(d.cantidad_acciones) || 0))}</b> a ${escaparHtml(usd(d.costo_accion))}`);
+                                        filas.push(`Importe: <b>${escaparHtml(usd(d.monto_usd))}</b> (${d.tipo_movimiento === 'compra' ? 'sale de' : 'entra a'} la Caja GBM)`);
+                                    }
+                                    filas.push(`Fecha: <b>${escaparHtml(fechaAmigable(d.fecha, d.hora))}</b>`);
+                                    if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 }
                                 return filas.join('<br>');
                             }
@@ -16062,7 +16078,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17157,6 +17173,36 @@
                                     const { hora, en_el_momento, ...datos } = p.datos;
                                     res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
                                     if (!res.error && en_el_momento) anotarUbicacion((res.data || []).map(r => r.id)).catch(() => {});
+                                } else if (p.tipo === 'movimiento_inversion') {
+                                    // Las mismas reglas que el formulario: la aportación y el retiro van en la Caja GBM
+                                    // de la cuenta (se crea si falta) y se avisa si la caja o las acciones no alcanzan
+                                    const { hora, cuenta_id, caja_id, categoria_id, ...d } = p.datos || {};
+                                    if (!(datosCategorias || []).length) {
+                                        res = { error: { message: 'Tus datos todavía se están cargando. Espera un momento y vuelve a confirmar.' } };
+                                    } else {
+                                        const esCaja = d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro';
+                                        const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cuenta_id] : null;
+                                        const disponible = cajaCta ? cajaCta.usd : 0;
+                                        let seguir = true;
+                                        if ((d.tipo_movimiento === 'retiro' || d.tipo_movimiento === 'compra') && Number(d.monto_usd) > disponible + 0.01) {
+                                            seguir = await confirmarIos(`⚠️ ${d.tipo_movimiento === 'retiro' ? 'Este retiro' : 'Esta compra'} usa ${fMoneda(Number(d.monto_usd))} USD pero la caja GBM registrada tiene ${fMoneda(disponible)} USD.\n\n¿Te faltó registrar alguna aportación o venta? Puedes guardar de todas formas.`);
+                                        }
+                                        if (d.tipo_movimiento === 'venta') {
+                                            const cat = datosCategorias.find(c => String(c.id) === String(categoria_id));
+                                            if (Number(d.cantidad_acciones) > ((cat && cat.totalAcciones) || 0) + 0.00001) {
+                                                seguir = await confirmarIos(`⚠️ Estás vendiendo ${d.cantidad_acciones} acciones pero la categoría sólo tiene ${(cat && cat.totalAcciones) || 0} registradas.\n\n¿Guardar de todas formas?`);
+                                            }
+                                        }
+                                        if (!seguir) {
+                                            m.estado = 'pendiente';
+                                            pintarChatAsistente();
+                                            return;
+                                        }
+                                        const idCat = esCaja ? await obtenerCategoriaCajaGbm(cuenta_id) : categoria_id;
+                                        res = !idCat
+                                            ? { error: { message: 'No se pudo preparar la Caja GBM.' } }
+                                            : await clienteSupabase.from('registros').insert([{ ...d, categoria_id: idCat, fecha: fechaDeDiaLocal(d.fecha, hora), user_id: currentUser.id }]);
+                                    }
                                 } else {
                                     res = { error: { message: 'Tipo de propuesta desconocido' } };
                                 }
