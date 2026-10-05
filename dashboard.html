@@ -15689,11 +15689,9 @@
                                             </div>
                                         </div>`;
                                     if (chips) {
-                                        const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`
-                                            + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
+                                            : '') + `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`;
                                     }
                                     pintarPreguntasAsistente();
                                     return;
