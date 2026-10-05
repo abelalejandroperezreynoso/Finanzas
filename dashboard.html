@@ -7122,6 +7122,8 @@
         const descripcion = (document.getElementById('descripcionCuenta').value || '').trim();
         const anterior = editIdCuenta ? (datosCuentas.find(x => String(x.id) === String(editIdCuenta)) || {}) : {};
         const body = { nombre, saldo_inicial, incluir_en_total, user_id: currentUser.id,
+            // Poner el saldo a mano resuelve el pendiente de "falta el saldo"
+            ...(anterior.saldo_inicial_pendiente && saldo_inicial !== (parseFloat(anterior.saldo_inicial) || 0) ? { saldo_inicial_pendiente: false } : {}),
             // Sólo viaja si hay algo que guardar o borrar: así una base sin la columna sigue guardando
             ...(descripcion ? { descripcion } : (anterior.descripcion ? { descripcion: null } : {})) };
         const escribir = b => editIdCuenta
@@ -15932,11 +15934,12 @@
                                     filas.push(`Cuenta: ${escaparHtml(a.nombre || '')}`);
                                     if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
+                                    if (p.saldo_hoy !== undefined) filas.push(`Saldo hoy: <b>${escaparHtml(fMoneda(p.saldo_hoy))}</b>`);
                                     if ('saldo_inicial' in c) filas.push(`Saldo inicial: ${flecha(fMoneda(a.saldo_inicial || 0), fMoneda(c.saldo_inicial))}`);
                                 } else if (p.tipo === 'nueva_cuenta') {
                                     const d = p.datos || {};
                                     filas.push(`Cuenta nueva: <b>${escaparHtml(d.nombre || '')}</b>`);
-                                    filas.push(`Saldo inicial: <b>${escaparHtml(fMoneda(Number(d.saldo_inicial) || 0))}</b>`);
+                                    filas.push(d.saldo_inicial_pendiente ? 'Saldo inicial: <b>pendiente</b>' : `Saldo inicial: <b>${escaparHtml(fMoneda(Number(d.saldo_inicial) || 0))}</b>`);
                                     if (d.incluir_en_total === false) filas.push('No suma al total');
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'nueva_categoria') {
@@ -16385,6 +16388,18 @@
                                         detalle: `Termina en "…${d.texto.slice(-40)}".`,
                                         primario: { texto: 'Completarla', mensaje: `La descripción de la ${d.que} ${d.nombre} quedó cortada a la mitad: "${d.texto}". Propónme una versión completa y concisa que conserve lo importante.` },
                                         secundario: { texto: 'Está bien', dias: null }
+                                    });
+                                });
+
+                                // 0b. Cuentas creadas sin saber cuánto tenían: el saldo quedó en 0 para después
+                                (datosCuentas || []).filter(cu => cu.saldo_inicial_pendiente).forEach(cu => {
+                                    const clave = `saldo:${cu.id}`;
+                                    if (!vigente(clave)) return;
+                                    avisos.push({
+                                        clave, etiqueta: 'Saldo inicial', texto: `Falta el saldo de ${cu.nombre}.`,
+                                        detalle: 'Dime cuánto tienes hoy y la cuadro.',
+                                        primario: { texto: 'Ponerlo', mensaje: `Quiero poner el saldo de mi cuenta ${cu.nombre}. Pregúntame cuánto tengo hoy en ella.` },
+                                        secundario: { texto: 'Después', dias: 2 }
                                     });
                                 });
 

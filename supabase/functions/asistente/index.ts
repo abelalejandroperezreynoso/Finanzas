@@ -163,6 +163,7 @@ const HERRAMIENTAS: Json[] = [
         cuenta_id: { type: "string" },
         nombre: { type: "string" },
         saldo_inicial: { type: "number", description: "Dinero que había en la cuenta antes de su primer movimiento registrado (puede ser negativo, por ejemplo en una tarjeta de crédito)" },
+        saldo_actual: { type: "number", description: "Lo que el usuario dice que hay HOY en la cuenta (negativo si debe). Se usa en vez de saldo_inicial: el saldo inicial se calcula restando los movimientos ya registrados" },
         descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
@@ -180,7 +181,8 @@ const HERRAMIENTAS: Json[] = [
       type: "object",
       properties: {
         nombre: { type: "string" },
-        saldo_inicial: { type: "number", description: "Lo que hay hoy en la cuenta (0 si no lo sabe; negativo si debe, como en una tarjeta de crédito)" },
+        saldo_inicial: { type: "number", description: "Lo que hay hoy en la cuenta (negativo si debe, como en una tarjeta de crédito)" },
+        saldo_pendiente: { type: "boolean", description: "true si el usuario no sabe ahora cuánto tiene: la cuenta se crea en 0 y queda como pendiente para ponerlo después" },
         incluir_en_total: { type: "boolean", description: "Si suma al saldo total del usuario (true salvo que diga lo contrario)" },
         descripcion: { type: "string", description: "Qué es la cuenta, en palabras del usuario; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
@@ -431,8 +433,8 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
   });
   return { cuentas: cuentas ?? [], categorias: categorias ?? [], etiqueta, tipo };
 }
-const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial"],
-  k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, Number(c.saldo_inicial) || 0]));
+const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial", "saldo_pendiente"],
+  k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, Number(c.saldo_inicial) || 0, c.saldo_inicial_pendiente === true]));
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null]));
 
@@ -698,16 +700,29 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (d.error) return { texto: d.error, error: true };
         cambios.descripcion = d.texto || null;
       }
-      if (entrada.saldo_inicial !== undefined) {
+      let saldoHoy: Json = null;
+      if (entrada.saldo_inicial !== undefined || entrada.saldo_actual !== undefined) {
         if (!zona.conAltas) return { texto: "Esta versión de la app no cambia el saldo inicial desde el chat: dile que la actualice o que lo cambie al editar la cuenta.", error: true };
-        if (!Number.isFinite(Number(entrada.saldo_inicial))) return { texto: "El saldo inicial debe ser un número.", error: true };
-        cambios.saldo_inicial = Math.round(Number(entrada.saldo_inicial) * 100) / 100;
+        if (entrada.saldo_actual !== undefined) {
+          // Lo que hay hoy menos lo ya registrado: así el saldo de la app queda igual al real
+          if (!Number.isFinite(Number(entrada.saldo_actual))) return { texto: "El saldo actual debe ser un número.", error: true };
+          const { data: saldos, error: e2 } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
+          if (e2) return { texto: "No pude leer los movimientos de la cuenta.", error: true };
+          const movimientos = Number((saldos ?? []).find((x: Json) => String(x.id_cuenta) === String((c as Json).id))?.balance) || 0;
+          cambios.saldo_inicial = Math.round((Number(entrada.saldo_actual) - movimientos) * 100) / 100;
+          saldoHoy = Math.round(Number(entrada.saldo_actual) * 100) / 100;
+        } else {
+          if (!Number.isFinite(Number(entrada.saldo_inicial))) return { texto: "El saldo inicial debe ser un número.", error: true };
+          cambios.saldo_inicial = Math.round(Number(entrada.saldo_inicial) * 100) / 100;
+        }
+        if ((c as Json).saldo_inicial_pendiente) cambios.saldo_inicial_pendiente = false;
       }
       if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_cuenta", cuenta_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
         antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, saldo_inicial: Number((c as Json).saldo_inicial) || 0 },
+        ...(saldoHoy !== null ? { saldo_hoy: saldoHoy } : {}),
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
     }
@@ -718,14 +733,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (catalogo.cuentas.some((c: Json) => String(c.nombre).trim().toLowerCase() === nombre.toLowerCase())) {
         return { texto: `Ya existe una cuenta llamada "${nombre}". Usa esa o propón otro nombre.`, error: true };
       }
-      const saldo = entrada.saldo_inicial === undefined ? 0 : Number(entrada.saldo_inicial);
+      const pendiente = entrada.saldo_pendiente === true;
+      const saldo = pendiente || entrada.saldo_inicial === undefined ? 0 : Number(entrada.saldo_inicial);
       if (!Number.isFinite(saldo)) return { texto: "El saldo inicial debe ser un número.", error: true };
       const d = textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
       if (d.error) return { texto: d.error, error: true };
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nueva_cuenta", resumen: String(entrada.resumen).slice(0, 200),
-        datos: { nombre, saldo_inicial: Math.round(saldo * 100) / 100, incluir_en_total: entrada.incluir_en_total !== false, ...(d.texto ? { descripcion: d.texto } : {}) },
+        datos: {
+          nombre, saldo_inicial: Math.round(saldo * 100) / 100, incluir_en_total: entrada.incluir_en_total !== false,
+          ...(pendiente ? { saldo_inicial_pendiente: true } : {}), ...(d.texto ? { descripcion: d.texto } : {}),
+        },
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Puedes proponer sus categorías con cuenta_nueva." };
     }
@@ -840,6 +859,7 @@ Datos de la app:
 - Cuentas (con su descripción y si suman al saldo total), categorías y movimientos (registros). En un movimiento, monto negativo = salió dinero, positivo = entró. Algunos movimientos traen "lugar": dónde se registraron en el momento (aproximado; el resto no lo tiene). Úsalo para detectar lugares frecuentes y sugerir categorías; no lo menciones si no aporta. Las fechas ya vienen en la hora local del usuario. El día es confiable; la hora no: muchos movimientos se registran horas o días después y quedan con la hora en que se capturaron, o a las 12:00 si no se supo. No saques conclusiones de horarios (a qué hora gasta, de noche o de día) salvo que te lo pida, y entonces advierte que las horas pueden no ser las reales.
 - Cada categoría pertenece a una cuenta; sus movimientos mueven el saldo de esa cuenta.
 - Saldo inicial: lo que había en una cuenta antes de su primer movimiento en la app. Saldo actual = saldo inicial + movimientos. Cuando el usuario dice cuánto tiene ya en una cuenta ("tengo 5,000 en BBVA", "mi tarjeta debe 3,000"), eso es saldo inicial (negativo si debe): ponlo al crear la cuenta con proponer_nueva_cuenta o corrígelo con proponer_cambio_cuenta. Nunca lo registres como ingreso o gasto: inflaría sus ingresos o gastos del mes. Si el saldo de la app no coincide con su banco y no falta ningún movimiento, se ajusta el saldo inicial.
+- Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda como pendiente. Cuando te diga cuánto tiene hoy en una cuenta con saldo_pendiente (o quiera cuadrarla con su banco), usa proponer_cambio_cuenta con saldo_actual, no saldo_inicial: el saldo inicial se calcula solo restando lo ya registrado.
 - Tipos de categoría: gasto, ingreso, deuda, prestamo, inversion y salud (salud no es dinero: lleva una cantidad, con monto 0).
 - Prioridad de los gastos (técnica de las 4 N): vital, operativa, util, prescindible.
 
@@ -853,7 +873,7 @@ Cómo trabajar:
 - Siempre que le ofrezcas al usuario alternativas para elegir (descripciones, nombres, montos, categorías, qué hacer después) o te falte un dato que no puedas deducir, NO las enlistes en el texto ni cierres con una pregunta: llama a preguntar_al_usuario con esas alternativas como opciones (2 a 4 por pregunta, hasta 4 preguntas). La app las muestra como una tarjeta para tocar y el usuario siempre puede escribir otra respuesta.
   Antes de la tarjeta escribe sólo una o dos frases de contexto (lo que encontraste), sin repetir las opciones. Cuando conteste, actúa con lo que eligió (por ejemplo, con proponer_*).
 - Usuario nuevo (no tiene cuentas, o no tiene categorías donde registrar lo que cuenta): dale la bienvenida en una frase y ayúdale a armar su app paso a paso con tarjetas de preguntar_al_usuario. Empieza por su cuenta principal, la que más usa (donde le pagan o con la que paga casi todo):
-  1. Pregunta cuál es (opciones como "Débito de nómina", "Efectivo", "Cuenta de ahorro"; puede escribir el nombre de su banco) y cuánto tiene hoy en ella (opciones aproximadas y "No sé, empiezo en 0"; puede escribir la cifra exacta). Ese monto es su saldo inicial.
+  1. Pregunta cuál es (opciones como "Débito de nómina", "Efectivo", "Cuenta de ahorro"; puede escribir el nombre de su banco) y cuánto tiene hoy en ella (opciones aproximadas y "No sé, lo pongo después"; puede escribir la cifra exacta). Ese monto es su saldo inicial; si no lo sabe, usa saldo_pendiente: true y dile que se lo recordarás.
   2. Pregunta qué gastos tiene más seguido (opciones como "Comida", "Transporte", "Renta", "Servicios"), y cómo recibe su ingreso (por ejemplo "Sueldo", "Negocio propio", "Freelance").
   3. En un mismo turno propón la cuenta principal con proponer_nueva_cuenta y sus categorías con proponer_nueva_categoria (cuenta_nueva con el nombre exacto de la cuenta): su ingreso y los gastos que eligió, con prioridad. No crees de más: se pueden agregar después. Dile en una frase que confirme primero la cuenta y luego las categorías.
   4. Cuando confirme, pregunta si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y, si sí, créalas igual, con lo que tiene o debe hoy. Luego pregúntale su meta principal y guárdala con recordar.
