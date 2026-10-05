@@ -15665,17 +15665,6 @@
                                 return filas.join('<br>');
                             }
 
-                            // Ficha Registrar: deja escrito el inicio del mensaje y abre el teclado; tú dices qué
-                            // fue y la IA propone el movimiento para confirmarlo
-                            function empezarRegistroAsistente() {
-                                const t = document.getElementById('chatTexto');
-                                if (!t) return;
-                                if (!/^Registra\b/i.test(t.value)) t.value = 'Registra ' + t.value.replace(/^\s+/, '');
-                                t.focus();
-                                t.setSelectionRange(t.value.length, t.value.length);
-                                t.dispatchEvent(new Event('input'));
-                            }
-
                             function pintarChatAsistente(sinDesplazar) {
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
@@ -15700,7 +15689,7 @@
                                         const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + `<button type="button" onclick="empezarRegistroAsistente()">Registrar</button>`
+                                            : '') + `<button type="button" onclick="enviarMensajeAsistente('Quiero registrar un movimiento, guíame.')">Registrar</button>`
                                             + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
                                     pintarPreguntasAsistente();
