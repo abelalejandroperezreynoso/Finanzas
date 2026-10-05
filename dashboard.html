@@ -209,6 +209,10 @@
         .chat-asistente strong { color: #141413; font-weight: 700; }
         .chat-error { align-self: stretch; background: #f6ece7; border: 0.5px solid #ead7ce; border-radius: 18px; padding: 12px 16px;
             color: #5e5d59; font-size: 14px; line-height: 1.45; }
+        .chat-error .acciones { display: flex; gap: 8px; margin-top: 12px; }
+        .chat-error .ce-boton, .chat-error .ce-boton:hover { flex: 1; width: auto; margin: 0; padding: 10px 12px; border-radius: 999px; border: 1px solid #d6d3c9;
+            background: transparent; color: #141413; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; }
+        .chat-error .ce-principal, .chat-error .ce-principal:hover { background: #3d3d3a; border-color: #3d3d3a; color: #fff; }
         .chat-error b { display: block; color: #141413; font-size: 15px; font-weight: 600; margin-bottom: 2px; }
         .chat-propuesta { align-self: stretch; background: #ffffff; border: 0.5px solid #e8e6dc; border-radius: 22px; padding: 18px 18px 16px;
             box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06); }
@@ -15706,7 +15710,13 @@
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
                                     if (m.rol === 'error') {
                                         const e = errorIaAmigable(m.texto);
-                                        return `<div class="chat-error"><b>${escaparHtml(e.titulo)}</b>${escaparHtml(e.texto)}</div>`;
+                                        // Sin crédito: un botón a la página de pagos de Anthropic (comprar crédito no se
+                                        // puede desde la app) y otro para anotar el saldo nuevo
+                                        const acciones = e.recargar ? `<div class="acciones">
+                                                <a class="ce-boton ce-principal" href="${URL_RECARGA_IA}" target="_blank" rel="noopener">Recargar crédito</a>
+                                                <button type="button" class="ce-boton" onclick="cambiarSeccion('sec-ajustes')">Anotar saldo</button>
+                                            </div>` : '';
+                                        return `<div class="chat-error"><b>${escaparHtml(e.titulo)}</b>${escaparHtml(e.texto)}${acciones}</div>`;
                                     }
                                     if (m.rol === 'preguntas') return '';
                                     if (m.rol === 'propuesta') {
@@ -15817,10 +15827,11 @@
 
                             // Los errores se cuentan en palabras, sin códigos ni JSON. Sirve también para los que
                             // quedaron guardados en conversaciones anteriores.
+                            const URL_RECARGA_IA = 'https://console.anthropic.com/settings/billing';
                             function errorIaAmigable(texto) {
                                 const t = String(texto || '');
                                 if (t === 'sin_credito' || /credit balance|crédito de la IA/i.test(t)) {
-                                    return { titulo: 'Se acabó el crédito de la IA', texto: 'Recárgalo en console.anthropic.com y anota el nuevo saldo en Configuración.' };
+                                    return { titulo: 'Se acabó el crédito de la IA', texto: 'Recárgalo en Anthropic y después anota el saldo nuevo.', recargar: true };
                                 }
                                 if (/saturada|overloaded/i.test(t)) return { titulo: 'La IA está saturada', texto: 'Intenta de nuevo en un momento.' };
                                 if (/demasiadas consultas/i.test(t)) return { titulo: 'Demasiadas consultas seguidas', texto: 'Espera un minuto e intenta de nuevo.' };
