@@ -2393,6 +2393,8 @@
                 <span class="ios-switch-pista"></span>
             </span>
         </label>
+        <button type="button" id="btnProbarAvisos" onclick="probarAvisosPagos()"
+                style="display: none; width: 100%; margin: 14px 0 0; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">Enviar aviso de prueba</button>
     </div>
     <!-- FIN AVISOS -->
 
@@ -16965,9 +16967,28 @@
                                 try { sus = await suscripcionPushActual(); } catch (e) { /* sin service worker */ }
                                 interruptor.disabled = false;
                                 interruptor.checked = !!sus && Notification.permission === 'granted';
+                                const probar = document.getElementById('btnProbarAvisos');
+                                if (probar) probar.style.display = interruptor.checked ? 'block' : 'none';
                                 nota.textContent = Notification.permission === 'denied' ? 'Permiso negado: actívalo en Ajustes del iPhone' : 'A las 8:00 del día que toca';
                                 // El teléfono queda a nombre de quien tiene la sesión abierta
                                 if (interruptor.checked) guardarSuscripcionPush(sus);
+                            }
+                            async function probarAvisosPagos() {
+                                const boton = document.getElementById('btnProbarAvisos');
+                                if (!boton || boton.disabled) return;
+                                boton.disabled = true;
+                                boton.textContent = 'Enviando…';
+                                try {
+                                    const sus = await suscripcionPushActual();
+                                    if (!sus) throw new Error('Primero activa los avisos.');
+                                    const { data, error } = await clienteSupabase.functions.invoke('avisos', { body: { accion: 'prueba', suscripcion: sus.toJSON() } });
+                                    if (error || !data || data.error) throw new Error('No se pudo enviar el aviso de prueba.');
+                                    boton.textContent = 'Enviado: revisa tus notificaciones';
+                                } catch (e) {
+                                    alert(e && e.message ? e.message : 'No se pudo enviar el aviso de prueba.');
+                                    boton.textContent = 'Enviar aviso de prueba';
+                                }
+                                setTimeout(() => { boton.disabled = false; boton.textContent = 'Enviar aviso de prueba'; }, 5000);
                             }
                             async function cambiarAvisosPagos(activo) {
                                 try {
