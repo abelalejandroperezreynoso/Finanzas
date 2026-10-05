@@ -1889,6 +1889,28 @@
                     border-radius: 2px;
                     transition: width 0.35s ease-out;
                 }
+                /* Atajo al asistente mientras cargan los datos: el chat no los necesita (la IA consulta
+                   la base por su cuenta). Aparece en cuanto hay sesión. */
+                #splashCarga .splash-chat, #splashCarga .splash-chat:hover {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    width: 150px;
+                    margin: 132px 0 0 -75px;
+                    padding: 11px 0;
+                    background: #1c1c1c;
+                    color: #ddd;
+                    border: 1px solid #333;
+                    border-radius: 999px;
+                    font-size: 15px;
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity 0.3s ease-out;
+                }
+                #splashCarga .splash-chat.lista { opacity: 1; pointer-events: auto; }
+                /* Abierto desde la pantalla de carga, el chat va encima del velo; al cerrarlo se vuelve
+                   a ver la carga, que sigue detrás */
+                body.chat-temprano #sec-asistente { z-index: 10000; }
                 /* Mientras el velo está puesto no debe poder moverse lo que hay debajo */
                 body.cargando-datos { overflow: hidden; }
                 /* --- FIN ESTILOS PANTALLA DE CARGA --- */
@@ -1902,6 +1924,7 @@
 <div id="splashCarga">
     <img src="icono-192.png" alt="" class="splash-icono">
     <div class="splash-barra"><div class="splash-relleno" id="splashRelleno"></div></div>
+    <button type="button" id="splashChat" class="splash-chat" onclick="abrirChatDesdeCarga()">Asistente</button>
 </div>
 
     <div id="recargaIos" class="recarga-ios" aria-hidden="true"><svg viewBox="0 0 28 28"></svg></div>
@@ -6758,6 +6781,8 @@
             if (!session) { window.location.replace('index.html'); return; }
             currentUser = session.user;
             avanzarCarga(HITOS_CARGA.sesion);
+            const atajoChat = document.getElementById('splashChat');
+            if (atajoChat) atajoChat.classList.add('lista');
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
             sincronizarSoloHaiku();
             
@@ -6873,15 +6898,29 @@
                                     // carga se queda colgada en una petición que nunca contesta: el usuario prefiere ver
                                     // su app aunque venga incompleta antes que un cargador eterno.
                                     let splashYaOculto = false;
+                                    // Entrar al chat sin esperar los datos. Cuando terminan, el chat se repinta para
+                                    // mostrar lo que depende de ellos (pendientes, Registrar).
+                                    function abrirChatDesdeCarga() {
+                                        if (splashYaOculto || !currentUser) return;
+                                        document.body.classList.add('chat-temprano');
+                                        abrirAsistente();
+                                    }
                                     function ocultarSplashCarga() {
                                         if (splashYaOculto) return;
                                         splashYaOculto = true;
+                                        const chatTemprano = document.body.classList.contains('chat-temprano');
                                         clearInterval(arrastreCarga);
                                         document.body.classList.remove('cargando-datos');
                                         const velo = document.getElementById('splashCarga');
                                         if (!velo) return;
                                         velo.classList.add('oculto');
-                                        setTimeout(() => velo.remove(), 300);
+                                        setTimeout(() => {
+                                            velo.remove();
+                                            if (!chatTemprano) return;
+                                            document.body.classList.remove('chat-temprano');
+                                            const chat = document.getElementById('sec-asistente');
+                                            if (chat && chat.classList.contains('activa')) pintarChatAsistente(true);
+                                        }, 300);
                                         // La cifra grande baja de ceros a su valor mientras se desvanece el velo
                                         if (typeof animarSaldoInicial === 'function') setTimeout(animarSaldoInicial, 120);
                                     }
@@ -15795,19 +15834,23 @@
                                     // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
                                     avisosMostrados = avisos;
+                                    // Abierto desde la pantalla de carga: los pendientes y Registrar dependen de los
+                                    // datos, que siguen llegando; mientras tanto se saluda como al revisar
+                                    const cargandoDatos = !!document.getElementById('splashCarga');
+                                    const ocupado = revisandoIa || cargandoDatos;
                                     // Minimalista, como Claude: sólo el personaje y el saludo. Los pendientes no se
                                     // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
                                     // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
-                                                ${personajeAsistenteSvg(revisandoIa)}
-                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa))}</div>
+                                                ${personajeAsistenteSvg(ocupado)}
+                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, ocupado))}</div>
                                             </div>
                                         </div>`;
                                     if (chips) {
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`;
+                                            : '') + (cargandoDatos ? '' : `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`);
                                     }
                                     pintarPreguntasAsistente();
                                     return;
