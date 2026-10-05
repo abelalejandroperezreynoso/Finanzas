@@ -218,11 +218,12 @@ const HERRAMIENTAS: Json[] = [
     name: "proponer_nuevo_movimiento",
     description:
       "Propone registrar un movimiento nuevo en una categoría de gasto, ingreso o salud. Importe siempre positivo (el signo sale del tipo de categoría); " +
-      "en Salud es la cantidad. NO lo aplica: el usuario lo confirmará.",
+      "en Salud es la cantidad. NO lo aplica: el usuario lo confirmará. Si ninguna categoría le queda, propón antes la nueva y usa categoria_nueva.",
     input_schema: {
       type: "object",
       properties: {
         categoria_id: { type: "string" },
+        categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este movimiento) y que aún no existe" },
         importe: { type: "number" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         hora: { type: "string", description: "Hora local HH:MM (24 h) si la dijo, o \"ahora\" si acaba de pasar (\"acabo de\", \"ahorita\"). Omítela si no se sabe." },
@@ -230,7 +231,7 @@ const HERRAMIENTAS: Json[] = [
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
-      required: ["categoria_id", "importe", "fecha", "descripcion", "resumen"],
+      required: ["importe", "fecha", "descripcion", "resumen"],
       additionalProperties: false,
     },
   },
@@ -446,7 +447,8 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // conListas: la app sabe pintar la tarjeta de mostrar_movimientos (las viejas no la ven)
 // conInversion: la app sabe aplicar propuestas de inversión
 // conAltas: la app sabe crear cuentas y categorías propuestas y cambiar el saldo inicial
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean };
+// conPorNombre: la app sabe registrar un movimiento en una categoría propuesta que aún no existe
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean };
 const sufijoZona = (z: Zona) => {
   const m = -z.desfase;
   const signo = m >= 0 ? "+" : "-";
@@ -785,7 +787,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada." };
     }
     case "proponer_nuevo_movimiento": {
-      const { data: c } = await sb.from("categorias").select("id, nombre, tipo").eq("id", entrada.categoria_id).maybeSingle();
+      let c: Json = null;
+      if (entrada.categoria_id) {
+        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo").eq("id", entrada.categoria_id).maybeSingle());
+      } else if (entrada.categoria_nueva) {
+        // Una categoría propuesta en este turno: el movimiento la busca por nombre al confirmarse
+        if (!zona.conPorNombre) return { texto: "Esta versión de la app no registra en una categoría que aún no existe: espera a que confirme la categoría y propón el movimiento después.", error: true };
+        const nombre = String(entrada.categoria_nueva).trim().toLowerCase();
+        const nueva = propuestas.find((x: Json) => x.tipo === "nueva_categoria" && String(x.datos?.nombre).trim().toLowerCase() === nombre);
+        if (!nueva) return { texto: "categoria_nueva debe ser el nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno, antes del movimiento.", error: true };
+        c = { id: null, nombre: nueva.datos.nombre, tipo: nueva.datos.tipo, cuenta: nueva.cuenta };
+      }
       if (!c) return { texto: "No encontré esa categoría.", error: true };
       const tipo = (c as Json).tipo;
       if (!["gasto", "ingreso", "salud"].includes(tipo)) return { texto: "Desde aquí sólo se registran gastos, ingresos o Salud.", error: true };
@@ -808,7 +820,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "nuevo_movimiento", resumen: String(entrada.resumen).slice(0, 200), categoria: (c as Json).nombre,
         datos: {
-          categoria_id: (c as Json).id, fecha: entrada.fecha, ...(hora ? { hora } : {}),
+          ...((c as Json).id ? { categoria_id: (c as Json).id } : { categoria_nueva: (c as Json).nombre, cuenta_nueva: (c as Json).cuenta }),
+          fecha: entrada.fecha, ...(hora ? { hora } : {}),
           // Pasó ahora mismo: la app puede anotar dónde, si el usuario lo activó
           ...(zona.conHora && entrada.hora === "ahora" ? { en_el_momento: true } : {}),
           descripcion: dNueva.texto || "",
@@ -831,6 +844,7 @@ Lo más común: el usuario te cuenta un gasto o ingreso. Deduce todo lo que pued
 - Hora: sólo "acabo de" o "ahorita" = hora "ahora". Si dice la hora ("a las 2 de la tarde", "en el desayuno, como a las 9") ponla en HH:MM. Si lo cuenta después ("hoy en la mañana", "ayer", "el sábado") y no dice la hora, omítela: no uses la hora actual. Nunca la preguntes.
 - Monto en dólares: conviértelo tú a pesos con el tipo de cambio de hoy y pon el monto original en la descripción (por ejemplo "Créditos IA (5 USD)").
 - Categoría: la que corresponde por nombre, descripción o por dónde registró antes cosas parecidas. Si la app te dice dónde está el usuario ahora, úsalo: un gasto "acabo de" en un restaurante va en la categoría de restaurantes, aunque no lo diga.
+- Si ninguna categoría le queda de verdad, NO lo metas en la más parecida (un limpiador facial no es Ropa). En el mismo turno, en este orden: proponer_nueva_categoria con un nombre general y claro (por ejemplo "Cuidado personal"), descripción de qué entra, prioridad y la cuenta donde están sus demás gastos; luego proponer_nuevo_movimiento con categoria_nueva. Di en una frase que confirme primero la categoría. Si tiene varias cuentas de gasto y no es obvio en cuál va, pregúntalo con preguntar_al_usuario.
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 Sólo pregunta (con preguntar_al_usuario) lo que no puedas deducir: falta el monto, o hay dos categorías igual de probables.
 Inversiones (GBM): usa proponer_movimiento_inversion. "Ingresé/metí/aporté X a la caja de GBM" = aportación; "saqué X de GBM" = retiro; "compré/vendí N acciones de …" = compra o venta.
@@ -876,8 +890,7 @@ Cómo trabajar:
   1. Pregunta exactamente "¿Cómo se llama tu cuenta principal?", sin paréntesis ni ejemplos en la pregunta, con una sola opción: "Principal"; no ofrezcas otras (si quiere otro nombre, lo escribe). Pregunta también cuánto tiene hoy en ella (opciones aproximadas y "No sé, lo pongo después"; puede escribir la cifra exacta). Ese monto es su saldo inicial; si no lo sabe, usa saldo_pendiente: true y dile que se lo recordarás.
   2. Pregunta qué gastos tiene más seguido (opciones como "Comida", "Transporte", "Renta", "Servicios"), y cómo recibe su ingreso (por ejemplo "Sueldo", "Negocio propio", "Freelance").
   3. En un mismo turno propón la cuenta principal con proponer_nueva_cuenta y sus categorías con proponer_nueva_categoria (cuenta_nueva con el nombre exacto de la cuenta): su ingreso y los gastos que eligió, con prioridad. No crees de más: se pueden agregar después. Dile en una frase que confirme primero la cuenta y luego las categorías.
-  4. Cuando confirme, pregunta si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y, si sí, créalas igual, con lo que tiene o debe hoy. Luego pregúntale su meta principal y guárdala con recordar.
-  Si te cuenta un gasto y no hay una categoría que le quede, propón crearla (y luego el movimiento cuando la confirme), en vez de meterlo en una que no corresponde.
+  4. Cuando confirme, pregunta con preguntar_al_usuario (nunca en el texto) si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y, si sí, créalas igual, con lo que tiene o debe hoy. Luego pregúntale su meta principal y guárdala con recordar.
 - Si el usuario pide que lo guíes para registrar un movimiento, llévalo paso a paso con tarjetas de preguntar_al_usuario, sin pedirle datos en el texto:
   1. Con las categorías de abajo y sus movimientos recientes, pregunta la categoría (las 3 o 4 que más usa) y cuándo fue (Hoy, Ayer).
   2. Con lo que eligió, pregunta el monto y la descripción, con opciones sacadas de sus movimientos anteriores en esa categoría.
@@ -1206,7 +1219,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

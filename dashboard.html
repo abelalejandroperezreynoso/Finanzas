@@ -16125,7 +16125,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17243,11 +17243,21 @@
                                     }
                                     res = cuentaId
                                         ? await clienteSupabase.from('categorias').insert([{ ...p.datos, cuenta_id: cuentaId, user_id: currentUser.id }]).select('id')
-                                        : { error: { message: `Primero confirma la cuenta "${p.cuenta}".` } };
+                                        : { falta: `Primero confirma la cuenta "${p.cuenta}".` };
                                 } else if (p.tipo === 'nuevo_movimiento') {
-                                    const { hora, en_el_momento, ...datos } = p.datos;
-                                    res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
-                                    if (!res.error && en_el_momento) anotarUbicacion((res.data || []).map(r => r.id)).catch(() => {});
+                                    const { hora, en_el_momento, categoria_nueva, cuenta_nueva, ...datos } = p.datos;
+                                    // En una categoría propuesta en el mismo chat: se busca por nombre ya confirmada
+                                    if (!datos.categoria_id && categoria_nueva) {
+                                        const { data: cats } = await clienteSupabase.from('categorias').select('id, nombre, cuentas(nombre)');
+                                        const igual = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+                                        const candidatas = (cats || []).filter(c => igual(c.nombre, categoria_nueva));
+                                        const cat = candidatas.find(c => igual(c.cuentas && c.cuentas.nombre, cuenta_nueva)) || candidatas[0];
+                                        if (cat) datos.categoria_id = cat.id;
+                                    }
+                                    res = !datos.categoria_id
+                                        ? { falta: `Primero confirma la categoría "${categoria_nueva}".` }
+                                        : await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
+                                    if (!res.error && !res.falta && en_el_momento) anotarUbicacion((res.data || []).map(r => r.id)).catch(() => {});
                                 } else if (p.tipo === 'movimiento_inversion') {
                                     // Las mismas reglas que el formulario: la aportación y el retiro van en la Caja GBM
                                     // de la cuenta (se crea si falta) y se avisa si la caja o las acciones no alcanzan
@@ -17280,6 +17290,13 @@
                                     }
                                 } else {
                                     res = { error: { message: 'Tipo de propuesta desconocido' } };
+                                }
+                                // Depende de otra propuesta aún sin confirmar: la tarjeta sigue esperando
+                                if (res.falta) {
+                                    m.estado = 'pendiente';
+                                    pintarChatAsistente();
+                                    await alertaIos({ titulo: 'Falta un paso', mensaje: res.falta });
+                                    return;
                                 }
                                 if (res.error) {
                                     m.estado = 'fallida';
