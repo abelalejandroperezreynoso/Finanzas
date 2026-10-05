@@ -596,8 +596,12 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // La app puede pedir el modelo económico para todo (ajuste "Solo Haiku 4.5")
-    const modeloPedido = MODELOS_CHAT.has(String(entrada.modelo)) ? String(entrada.modelo) : MODELO;
+    // "Solo Haiku 4.5" es un ajuste compartido (tabla ajustes_ia): si está activo manda sobre
+    // lo que pida la app, para todos los usuarios
+    const { data: ajustes } = await sb.from("ajustes_ia").select("solo_haiku").eq("id", 1).maybeSingle();
+    const modeloPedido = ajustes?.solo_haiku
+      ? "claude-haiku-4-5"
+      : MODELOS_CHAT.has(String(entrada.modelo)) ? String(entrada.modelo) : MODELO;
 
     if (entrada.modo === "saldo") {
       const img = entrada.imagen ?? {};

@@ -2370,7 +2370,7 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
         <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Más barato en todo: chat, revisión, topes y saldo</small></span>
+            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Para todos: chat, revisión, topes y saldo</small></span>
             <span class="ios-switch">
                 <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
                 <span class="ios-switch-pista"></span>
@@ -6731,6 +6731,7 @@
             currentUser = session.user;
             avanzarCarga(HITOS_CARGA.sesion);
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
+            sincronizarSoloHaiku();
             
             // La app abre en el mes en curso. El filtro se deja puesto antes de cargar los datos para que
             // el render que cierra cargarDatosBase ya salga con el mes aplicado, sin pintar primero todo
@@ -15579,6 +15580,7 @@
                                 semillaSaludo = Math.random();
                                 cambiarSeccion('sec-asistente');
                                 pintarModeloAsistente();
+                                sincronizarSoloHaiku();
                                 actualizarBotonEnviarAsistente();
                                 pintarChatAsistente(true);
                                 pedirRevisionIa();
@@ -16433,20 +16435,43 @@
                                 { id: 'claude-sonnet-5-5', nombre: 'Sonnet 5.5', nota: 'Rápido y capaz' },
                                 { id: 'claude-haiku-4-5', nombre: 'Haiku 4.5', nota: 'El más rápido y barato' },
                             ];
-                            // Ahorro: con "Solo Haiku 4.5" en Configuración toda la IA usa ese modelo
+                            // Ahorro: con "Solo Haiku 4.5" en Configuración toda la IA usa ese modelo. El ajuste es
+                            // de todos (tabla ajustes_ia, la función también lo respeta); aquí se guarda una copia
+                            // para pintar sin esperar a la base.
                             const MODELO_ECONOMICO = 'claude-haiku-4-5';
                             function soloHaiku() {
                                 try { return localStorage.getItem('iaSoloHaiku') === '1'; } catch (e) { return false; }
+                            }
+                            function guardarSoloHaikuLocal(activo) {
+                                const anterior = modeloAsistente();
+                                try { localStorage.setItem('iaSoloHaiku', activo ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
+                                pintarModeloAsistente();
+                                if (anterior !== modeloAsistente()) quitarRazonamientoAsistente();
+                                const interruptor = document.getElementById('checkSoloHaiku');
+                                if (interruptor) interruptor.checked = activo;
+                            }
+                            async function sincronizarSoloHaiku() {
+                                if (!clienteSupabase) return;
+                                try {
+                                    const { data, error } = await clienteSupabase.from('ajustes_ia').select('solo_haiku').eq('id', 1).maybeSingle();
+                                    if (!error && data) guardarSoloHaikuLocal(!!data.solo_haiku);
+                                } catch (e) { /* sin red: se queda la copia local */ }
                             }
                             // Para las llamadas que no son el chat: sin el ajuste, la función usa su modelo de siempre
                             function modeloIaFijo() {
                                 return soloHaiku() ? { modelo: MODELO_ECONOMICO } : {};
                             }
-                            function cambiarSoloHaiku(activo) {
-                                const anterior = modeloAsistente();
-                                try { localStorage.setItem('iaSoloHaiku', activo ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }
-                                pintarModeloAsistente();
-                                if (anterior !== modeloAsistente()) quitarRazonamientoAsistente();
+                            async function cambiarSoloHaiku(activo) {
+                                guardarSoloHaikuLocal(activo);
+                                try {
+                                    const { data, error } = await clienteSupabase.from('ajustes_ia')
+                                        .update({ solo_haiku: activo, cambiado_por: currentUser ? currentUser.id : null, cambiado_en: new Date().toISOString() })
+                                        .eq('id', 1).select('solo_haiku');
+                                    if (error || !data || !data.length) throw error || new Error('sin fila');
+                                } catch (e) {
+                                    guardarSoloHaikuLocal(!activo);
+                                    alert('No se pudo guardar el ajuste para todos. Revisa tu conexión e inténtalo de nuevo.');
+                                }
                             }
                             // El razonamiento guardado de un modelo no le sirve a otro: se quita del historial
                             function quitarRazonamientoAsistente() {
@@ -16716,6 +16741,7 @@
                             async function cargarConsumoIa() {
                                 const interruptor = document.getElementById('checkSoloHaiku');
                                 if (interruptor) interruptor.checked = soloHaiku();
+                                sincronizarSoloHaiku();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
                                 caja.textContent = 'Cargando…';
