@@ -15673,7 +15673,8 @@
                                 pintarPreguntasAsistente();
                                 const chips = document.getElementById('chatChips');
                                 if (chips) chips.innerHTML = '';
-                                if (chatUi.length === 0 && !chatEnviando) {
+                                // La tarjeta de registro se abre sobre la pantalla de inicio, como la de pendientes
+                                if (chatUi.every(m => m.registro && m.estado === 'pendiente') && !chatEnviando) {
                                     // Pantalla de inicio: el personaje, un saludo que cambia y, debajo, lo que el
                                     // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
@@ -15691,7 +15692,7 @@
                                         const sugerencias = ['¿En qué gasté más este mes?', '¿Qué gastos podría recortar?', 'Compara este mes con el anterior', '¿Cuánto llevo invertido?'];
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + `<button type="button" onclick="enviarMensajeAsistente('Quiero registrar un movimiento, guíame.')">Registrar</button>`
+                                            : '') + `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>`
                                             + sugerencias.map(t => `<button type="button" onclick="enviarMensajeAsistente(${escaparHtml(JSON.stringify(t))})">${escaparHtml(t)}</button>`).join('');
                                     }
                                     pintarPreguntasAsistente();
@@ -16587,7 +16588,7 @@
                                         const elegida = r.opcion === i && !(r.texto && r.texto.trim());
                                         return `<button type="button" class="cp-opcion${elegida ? ' elegida' : ''}" onclick="elegirOpcionAsistente(${i})"><span>${escaparHtml(o)}</span>${elegida ? palomita : ''}</button>`;
                                     }).join('')}
-                                    <input type="text" class="cp-otra" id="cpOtra" placeholder="Escribe tu respuesta…" value="${escaparHtml(r.texto || '')}"
+                                    <input type="text" class="cp-otra" id="cpOtra" placeholder="${escaparHtml(q.ejemplo || 'Escribe tu respuesta…')}" value="${escaparHtml(r.texto || '')}"
                                         oninput="escribirRespuestaAsistente(this.value)" onkeydown="if (event.key === 'Enter') { event.preventDefault(); siguientePreguntaAsistente(); }">
                                     <div class="cp-pie">
                                         <button type="button" class="cp-siguiente" id="cpSiguiente" ${respuestaDePregunta(item, k) ? '' : 'disabled'} onclick="siguientePreguntaAsistente()">
@@ -16609,6 +16610,7 @@
                                 if (!item) return;
                                 const k = item.actual || 0;
                                 item.respuestas[k] = { opcion: i, texto: '' };
+                                if (item.registro && k === 0) opcionesRegistroAsistente(item);
                                 guardarChatAsistente();
                                 pintarPreguntasAsistente();
                                 // Elegida una opción, pasa sola a la siguiente pregunta
@@ -16622,6 +16624,7 @@
                                 if (!item) return;
                                 const k = item.actual || 0;
                                 item.respuestas[k].texto = valor;
+                                if (item.registro && k === 0) opcionesRegistroAsistente(item);
                                 const conTexto = !!valor.trim();
                                 document.querySelectorAll('#chatPreguntas .cp-opcion').forEach((b, i) => {
                                     const elegida = !conTexto && item.respuestas[k].opcion === i;
@@ -16645,6 +16648,7 @@
 
                             async function responderPreguntasAsistente(item) {
                                 if (chatEnviando) return;
+                                if (item.registro) return responderRegistroAsistente(item);
                                 const pares = item.preguntas.map((q, k) => ({ pregunta: q.pregunta, respuesta: respuestaDePregunta(item, k) || '(sin respuesta)' }));
                                 const textoApi = 'Respuestas del usuario:\n' + pares.map(p => `- ${p.pregunta} → ${p.respuesta}`).join('\n');
                                 const mensaje = { role: 'user', content: contenidoConPendientes([], textoApi) };
@@ -16662,10 +16666,103 @@
                                 });
                             }
 
+                            // ---- Registro guiado ----
+                            // La tarjeta la arma la app al instante, como la de pendientes: categoría (las que más
+                            // usas), cuándo, y qué fue con cuánto (de tus movimientos anteriores en esa categoría).
+                            // Las respuestas van a la IA, que propone el movimiento para confirmarlo.
+                            function abrirRegistroAsistente() {
+                                if (chatEnviando) return;
+                                const desde = Date.now() - 90 * 864e5;
+                                const usos = {};
+                                (datosUsoCompleto || []).forEach(r => {
+                                    if (new Date(r.fecha).getTime() >= desde) usos[String(r.categoria_id)] = (usos[String(r.categoria_id)] || 0) + 1;
+                                });
+                                const cats = (datosCategorias || [])
+                                    .filter(c => ['gasto', 'ingreso', 'salud'].includes(c.tipo))
+                                    .sort((a, b) => (usos[String(b.id)] || 0) - (usos[String(a.id)] || 0) || (b.vecesUsada || 0) - (a.vecesUsada || 0))
+                                    .slice(0, 4);
+                                chatUi.push({
+                                    rol: 'preguntas', registro: true, id: 'registro-' + Date.now(), pendientes: [],
+                                    estado: 'pendiente', actual: 0,
+                                    categorias: cats.map(c => ({ id: c.id, nombre: c.nombre })),
+                                    preguntas: [
+                                        { pregunta: '¿Qué quieres registrar?', opciones: cats.map(c => c.nombre) },
+                                        { pregunta: '¿Cuándo fue?', opciones: ['Hoy', 'Ayer', 'Antier'] },
+                                        { pregunta: '¿Qué fue y cuánto?', opciones: [], ejemplo: 'Ej. Tacos 250' }
+                                    ],
+                                    respuestas: [0, 1, 2].map(() => ({ opcion: null, texto: '' }))
+                                });
+                                guardarChatAsistente();
+                                pintarChatAsistente(true);
+                            }
+
+                            // Elegida la categoría, la última pregunta ofrece lo que sueles registrar en ella
+                            async function opcionesRegistroAsistente(item) {
+                                const r = item.respuestas[0];
+                                const cat = r && !(r.texto && r.texto.trim()) && r.opcion !== null ? item.categorias[r.opcion] : null;
+                                const q = item.preguntas[2];
+                                q.opciones = [];
+                                item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
+                                if (!cat || !clienteSupabase) return;
+                                try {
+                                    const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || {};
+                                    const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
+                                        .eq('categoria_id', cat.id).order('fecha', { ascending: false }).limit(40);
+                                    const vistas = new Set();
+                                    const opciones = [];
+                                    (data || []).forEach(m => {
+                                        const desc = String(m.descripcion || '').replace(/\s+/g, ' ').trim();
+                                        const valor = c.tipo === 'salud' ? Number(m.cantidad || 0) : Math.abs(Number(m.monto || 0));
+                                        if (!desc || !(valor > 0)) return;
+                                        const texto = c.tipo === 'salud' ? `${desc} · ${valor}` : `${desc} · $${valor.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+                                        if (vistas.has(texto.toLowerCase()) || opciones.length >= 3) return;
+                                        vistas.add(texto.toLowerCase());
+                                        opciones.push(texto);
+                                    });
+                                    // Si mientras tanto cambió la categoría, esta lista ya no sirve
+                                    if (item.respuestas[0].opcion !== r.opcion || item.estado !== 'pendiente') return;
+                                    q.opciones = opciones;
+                                    guardarChatAsistente();
+                                    if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) pintarPreguntasAsistente();
+                                } catch (e) { /* sin historial: se escribe */ }
+                            }
+
+                            async function responderRegistroAsistente(item) {
+                                const resp = k => respuestaDePregunta(item, k) || '(sin respuesta)';
+                                const r0 = item.respuestas[0];
+                                const cat = r0 && !(r0.texto && r0.texto.trim()) && r0.opcion !== null ? item.categorias[r0.opcion] : null;
+                                const dias = { Hoy: 0, Ayer: 1, Antier: 2 };
+                                const r1 = item.respuestas[1];
+                                const cuando = resp(1);
+                                const dia = r1 && !(r1.texto && r1.texto.trim()) && cuando in dias ? diaLocal(Date.now() - dias[cuando] * 864e5) : null;
+                                const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
+                                    + `- Categoría: ${resp(0)}${cat ? ` (id ${cat.id})` : ''}\n`
+                                    + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
+                                    + `- Qué fue y cuánto: ${resp(2)}`;
+                                item.estado = 'respondida';
+                                const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resp(2)}` };
+                                chatUi.push(burbuja);
+                                const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: textoApi }]) };
+                                await conversarConAsistente(mensaje, () => {
+                                    const b = chatUi.indexOf(burbuja);
+                                    if (b >= 0) chatUi.splice(b, 1);
+                                    item.estado = 'pendiente';
+                                    chatUi.splice(chatUi.indexOf(item), 1);
+                                    chatUi.push(item);
+                                });
+                            }
+
                             // Cerrar la tarjeta deja escribir libremente; la IA se entera con lo próximo que se mande
                             function cerrarPreguntasAsistente() {
                                 const item = preguntasPendientesAsistente();
                                 if (!item) return;
+                                // La del registro no vino de la IA: se quita sin dejar rastro
+                                if (item.registro) {
+                                    chatUi.splice(chatUi.indexOf(item), 1);
+                                    guardarChatAsistente();
+                                    pintarChatAsistente(true);
+                                    return;
+                                }
                                 item.estado = 'cerrada';
                                 guardarChatAsistente();
                                 pintarChatAsistente(true);
