@@ -2382,6 +2382,20 @@
     </div>
     <!-- FIN CONSUMO DE IA -->
 
+    <!-- INICIO AVISOS -->
+    <!-- Notificaciones en el teléfono aunque la app esté cerrada. Cada teléfono se activa aparte. -->
+    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Avisos</h3>
+        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; color: #fff; font-size: 0.95em; cursor: pointer;">
+            <span>Recordarme pagos<br><small id="avisosPagosNota" style="color: #888; font-size: 0.8em;">A las 8:00 del día que toca</small></span>
+            <span class="ios-switch">
+                <input type="checkbox" id="checkAvisosPagos" onchange="cambiarAvisosPagos(this.checked)">
+                <span class="ios-switch-pista"></span>
+            </span>
+        </label>
+    </div>
+    <!-- FIN AVISOS -->
+
     <!-- INICIO MEMORIA DE IA -->
     <!-- Lo que el asistente sabe de ti: lo guarda y corrige solo; aquí se ve y se borra. -->
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
@@ -7404,6 +7418,62 @@
                                 marcarDiasConRegistro();
                             }
 
+                            // Próximos pagos recurrentes (lo que sale de dinero) de los siguientes 45 días, con las
+                            // mismas fechas que la proyección. Se guardan en la base para que la tarea de las 8:00
+                            // avise el día que toca aunque la app esté cerrada. Lo ya avisado no se toca; lo demás
+                            // se reemplaza entero, así un pago registrado antes de tiempo deja de avisarse.
+                            let firmaRecordatorios = null;
+                            async function sincronizarRecordatoriosPagos() {
+                                if (typeof clienteSupabase === 'undefined' || !clienteSupabase || !currentUser) return;
+                                const dia = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                const hoy = dia(new Date());
+                                const limite = new Date();
+                                limite.setHours(0, 0, 0, 0);
+                                limite.setDate(limite.getDate() + 45);
+                                const filas = [];
+                                (datosCategorias || []).forEach(cat => {
+                                    if (!(cat.diasRecurrencia > 0) || !cat.siguienteFechaRecurrencia || cat.desactivar_prediccion) return;
+                                    if (['ingreso', 'deuda', 'salud'].includes(cat.tipo)) return;
+                                    // Sólo pagos de fecha fija (renta, suscripciones, créditos): el súper o la gasolina
+                                    // son recurrentes, pero avisarlos cada semana sería ruido
+                                    if (!cat.esExactoRecurrencia) return;
+                                    const monto = Math.abs(parseFloat(cat.montoSugerido || 0));
+                                    const detalle = monto ? `${cat.esMontoPromedio ? '~' : ''}$${Math.round(monto).toLocaleString('es-MX')}` : null;
+                                    let f = new Date(cat.siguienteFechaRecurrencia);
+                                    f.setHours(0, 0, 0, 0);
+                                    for (let i = 0; i < 12 && f <= limite; i++) {
+                                        const mostrada = cat.anclasRecurrencia ? new Date(f) : ajustarADiaHabil(f, cat.perfilDiasHabiles);
+                                        const d = dia(mostrada);
+                                        if (d >= hoy && mostrada <= limite) {
+                                            filas.push({ user_id: currentUser.id, categoria_id: String(cat.id), fecha: d, titulo: String(cat.nombre).slice(0, 120), detalle });
+                                        }
+                                        if (cat.anclasRecurrencia) {
+                                            const sig = siguienteOcurrencia(cat, f);
+                                            if (!sig) break;
+                                            f = sig;
+                                        } else {
+                                            f.setDate(f.getDate() + cat.diasRecurrencia);
+                                        }
+                                    }
+                                });
+                                const firma = currentUser.id + JSON.stringify(filas);
+                                if (firma === firmaRecordatorios) return;
+                                firmaRecordatorios = firma;
+                                try {
+                                    const { error } = await clienteSupabase.from('recordatorios').delete()
+                                        .eq('user_id', currentUser.id).gte('fecha', hoy).is('enviado_en', null);
+                                    if (error) throw error;
+                                    if (filas.length) {
+                                        const r = await clienteSupabase.from('recordatorios')
+                                            .upsert(filas, { onConflict: 'user_id,categoria_id,fecha', ignoreDuplicates: true });
+                                        if (r.error) throw r.error;
+                                    }
+                                } catch (e) {
+                                    firmaRecordatorios = null;
+                                    console.warn('Recordatorios de pagos', e && e.message);
+                                }
+                            }
+
                             // Qué días de la tira ya tienen un movimiento de la categoría elegida. Ver
                             // que el súper del jueves ya está apuntado ahorra el duplicado, y ver el
                             // hueco de la semana pasada recuerda el que falta.
@@ -8676,6 +8746,7 @@
                                                         // antes: la preselección no vuelve a tocar el select y nadie lo despierta.
                                                         sincronizarUltimoRegistro();
                                                         marcarDiasConRegistro();
+                                                        sincronizarRecordatoriosPagos();
                                                         
                                                         if (idCuentaFiltrada) {
                                                                     const filtradas = datosCategorias.filter(cat => String(cat.cuenta_id) === String(idCuentaFiltrada));
@@ -16851,6 +16922,66 @@
                                 pintarChatAsistente();
                             }
 
+                            // ---- Avisos de pagos (tarjeta de Configuración) ----
+                            // En iPhone sólo funcionan con la app instalada en la pantalla de inicio (iOS 16.4+)
+                            const avisosDisponibles = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+                            async function suscripcionPushActual() {
+                                if (!avisosDisponibles()) return null;
+                                const reg = await navigator.serviceWorker.ready;
+                                return reg.pushManager.getSubscription();
+                            }
+                            function clavePushABytes(clave) {
+                                const b64 = (clave + '='.repeat((4 - clave.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+                                return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                            }
+                            function guardarSuscripcionPush(sus) {
+                                const j = sus.toJSON();
+                                return clienteSupabase.rpc('guardar_suscripcion_push', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+                            }
+                            async function pintarAvisosPagos() {
+                                const interruptor = document.getElementById('checkAvisosPagos');
+                                const nota = document.getElementById('avisosPagosNota');
+                                if (!interruptor || !nota) return;
+                                if (!avisosDisponibles()) {
+                                    interruptor.checked = false;
+                                    interruptor.disabled = true;
+                                    nota.textContent = 'Instala la app en tu pantalla de inicio para activarlos';
+                                    return;
+                                }
+                                let sus = null;
+                                try { sus = await suscripcionPushActual(); } catch (e) { /* sin service worker */ }
+                                interruptor.disabled = false;
+                                interruptor.checked = !!sus && Notification.permission === 'granted';
+                                nota.textContent = Notification.permission === 'denied' ? 'Permiso negado: actívalo en Ajustes del iPhone' : 'A las 8:00 del día que toca';
+                                // El teléfono queda a nombre de quien tiene la sesión abierta
+                                if (interruptor.checked) guardarSuscripcionPush(sus);
+                            }
+                            async function cambiarAvisosPagos(activo) {
+                                try {
+                                    if (activo) {
+                                        // iOS sólo pide el permiso si se llama directo desde el toque
+                                        const permiso = await Notification.requestPermission();
+                                        if (permiso !== 'granted') throw new Error('Sin permiso, no se pueden mandar avisos.');
+                                        const { data, error } = await clienteSupabase.functions.invoke('avisos', { body: { accion: 'clave' } });
+                                        if (error || !data || !data.clave) throw new Error('Los avisos todavía no están listos.');
+                                        const reg = await navigator.serviceWorker.ready;
+                                        const sus = (await reg.pushManager.getSubscription())
+                                            || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: clavePushABytes(data.clave) });
+                                        const r = await guardarSuscripcionPush(sus);
+                                        if (r.error) throw new Error('No se pudo guardar. Revisa tu conexión.');
+                                    } else {
+                                        const sus = await suscripcionPushActual();
+                                        if (sus) {
+                                            await clienteSupabase.from('suscripciones_push').delete().eq('endpoint', sus.endpoint);
+                                            await sus.unsubscribe();
+                                        }
+                                    }
+                                } catch (e) {
+                                    alert(e && e.message ? e.message : 'No se pudieron cambiar los avisos.');
+                                }
+                                pintarAvisosPagos();
+                            }
+
                             // ---- Memoria de la IA (tarjeta de Configuración) ----
                             const TEMAS_MEMORIA_IA = { meta: 'Meta', ingreso: 'Ingreso', deuda: 'Deuda', compromiso: 'Compromiso', preferencia: 'Preferencia', contexto: 'Contexto' };
                             async function cargarMemoriaIa() {
@@ -16881,6 +17012,7 @@
                                 pintarModeloAsistente();
                                 sincronizarSoloHaiku();
                                 cargarMemoriaIa();
+                                pintarAvisosPagos();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
                                 caja.textContent = 'Cargando…';

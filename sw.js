@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v200';
+const CACHE_NAME = 'gastos-app-v201';
 
 // Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
 // cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
@@ -188,6 +188,33 @@ self.addEventListener('fetch', (event) => {
                     return Response.error();
                 });
             });
+        })
+    );
+});
+
+// 4. Avisos (notificaciones push). Llegan aunque la app esté cerrada; iOS exige mostrar una
+// notificación por cada aviso recibido.
+self.addEventListener('push', (event) => {
+    let datos = {};
+    try { datos = event.data ? event.data.json() : {}; } catch (e) { datos = { cuerpo: event.data ? event.data.text() : '' }; }
+    event.waitUntil(self.registration.showNotification(datos.titulo || 'Finanzas', {
+        body: datos.cuerpo || '',
+        icon: './icono-192.png',
+        badge: './icono-192.png',
+        // Un aviso nuevo de pagos reemplaza al anterior en vez de apilarse
+        tag: 'pagos',
+        data: { url: datos.url || './index.html' }
+    }));
+});
+
+// Al tocar el aviso se abre la app, o se trae al frente si ya estaba abierta
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    const url = (event.notification.data && event.notification.data.url) || './index.html';
+    event.waitUntil(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+            const abierta = ventanas.find((v) => 'focus' in v);
+            return abierta ? abierta.focus() : self.clients.openWindow(url);
         })
     );
 });

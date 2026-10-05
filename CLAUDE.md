@@ -17,6 +17,11 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.
+- `supabase/functions/avisos/`: entrega las notificaciones push (Web Push). No toca la
+  base: la tarea `avisos-pagos` de pg_cron (8:00 hora de México) arma los avisos con
+  `recordatorios` y `suscripciones_push` y se los pasa con el secreto del Vault
+  (`avisos_secreto`). La app sincroniza `recordatorios` con los pagos recurrentes de
+  fecha exacta. Las claves las pone una vez el flujo `configurar-avisos.yml`.
 - `migracion_*.sql` en la raíz: migraciones ya aplicadas a mano; quedan como
   historial.
 - `supabase/sql/`: migraciones nuevas (ver abajo).

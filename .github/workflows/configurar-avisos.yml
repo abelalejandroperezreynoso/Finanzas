@@ -1,0 +1,63 @@
+# Prepara los avisos en el teléfono (una sola vez, a mano con Run workflow):
+#   - genera las claves VAPID y un secreto compartido,
+#   - los guarda como secretos de las funciones de Supabase (VAPID_PUBLIC, VAPID_PRIVATE,
+#     AVISOS_SECRETO),
+#   - guarda el mismo secreto en el Vault de la base (avisos_secreto) para la tarea de las 8:00.
+# Nada de esto se imprime: el repositorio y sus registros son públicos. Si las claves ya
+# existen no se cambian, porque cambiarlas desactivaría los avisos de todos los teléfonos;
+# para forzarlo, marca "regenerar".
+name: Configurar avisos
+
+on:
+  workflow_dispatch:
+    inputs:
+      regenerar:
+        description: 'Generar claves nuevas aunque ya existan (hay que volver a activar los avisos en cada teléfono)'
+        type: boolean
+        default: false
+
+jobs:
+  configurar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+      - name: Claves y secreto
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          REGENERAR: ${{ github.event.inputs.regenerar }}
+        run: |
+          set -euo pipefail
+          if [ "$REGENERAR" != "true" ] && supabase secrets list --project-ref "$SUPABASE_PROJECT_REF" 2>/dev/null | grep -q VAPID_PRIVATE; then
+            echo "Las claves ya existen; no se cambian."
+            exit 0
+          fi
+          claves=$(npx -y web-push@3.6.7 generate-vapid-keys --json)
+          publica=$(printf '%s' "$claves" | jq -r .publicKey)
+          privada=$(printf '%s' "$claves" | jq -r .privateKey)
+          secreto=$(openssl rand -hex 32)
+          echo "::add-mask::$privada"
+          echo "::add-mask::$secreto"
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" \
+            "VAPID_PUBLIC=$publica" "VAPID_PRIVATE=$privada" "AVISOS_SECRETO=$secreto" > /dev/null
+          echo "Secretos de las funciones guardados."
+          consulta="DO \$\$ DECLARE i uuid; BEGIN
+            SELECT id INTO i FROM vault.secrets WHERE name = 'avisos_secreto';
+            IF i IS NULL THEN PERFORM vault.create_secret('$secreto', 'avisos_secreto');
+            ELSE PERFORM vault.update_secret(i, '$secreto'); END IF;
+          END \$\$;"
+          codigo=$(jq -n --arg q "$consulta" '{query: $q}' | curl -sS -o respuesta.json -w '%{http_code}' \
+            -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" --data @-)
+          if [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]; then
+            echo "Secreto guardado en el Vault."
+          else
+            echo "No se pudo guardar en el Vault ($codigo): $(jq -r '.message // .error // "sin detalle"' respuesta.json 2>/dev/null | head -c 500)"
+            echo "Vuelve a correr el flujo con regenerar marcado."
+            rm -f respuesta.json
+            exit 1
+          fi
+          rm -f respuesta.json
