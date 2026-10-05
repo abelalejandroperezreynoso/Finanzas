@@ -333,7 +333,7 @@ const HERRAMIENTAS: Json[] = [
             type: "object",
             properties: {
               pregunta: { type: "string", description: "Pregunta corta y directa, por ejemplo: ¿Qué descripción le ponemos?" },
-              opciones: { type: "array", minItems: 2, maxItems: 4, items: { type: "string" }, description: "Las alternativas tal cual se aplicarían (por ejemplo el texto exacto de cada descripción propuesta), breves" },
+              opciones: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" }, description: "Las alternativas tal cual se aplicarían (por ejemplo el texto exacto de cada descripción propuesta), breves. Normalmente 2 a 4; una sola cuando sólo hay una sugerencia y lo demás lo escribe el usuario" },
             },
             required: ["pregunta", "opciones"],
             additionalProperties: false,
@@ -353,7 +353,7 @@ const limpiarPreguntas = (entrada: Json): { pregunta: string; opciones: string[]
   const limpias = lista.slice(0, 4).map((q: Json) => ({
     pregunta: String(q?.pregunta ?? "").trim().slice(0, 300),
     opciones: (Array.isArray(q?.opciones) ? q.opciones : []).map((o: unknown) => String(o ?? "").trim().slice(0, 120)).filter(Boolean).slice(0, 4),
-  })).filter((q: { pregunta: string; opciones: string[] }) => q.pregunta && q.opciones.length >= 2);
+  })).filter((q: { pregunta: string; opciones: string[] }) => q.pregunta && q.opciones.length >= 1);
   return limpias.length ? limpias : null;
 };
 
@@ -870,10 +870,10 @@ Cómo trabajar:
 - Si el usuario responde sobre una propuesta que sigue sin confirmar (pide un cambio, aclara algo o dice que así está bien), vuelve a llamar a la herramienta proponer_* con la versión completa y corrige_anterior: true, aunque no cambie nada: la tarjeta nueva aparece al final y sustituye a la anterior. Nunca digas que una propuesta quedó lista o actualizada sin haber llamado a la herramienta en ese turno.
 - No puedes borrar nada (tampoco notas de la memoria; el usuario las borra en Configuración).
 - Si algo no se puede hacer con tus herramientas, dilo claramente; nunca propongas rodeos que dejen datos mal clasificados (por ejemplo, cambiar a un tipo que no corresponde).
-- Siempre que le ofrezcas al usuario alternativas para elegir (descripciones, nombres, montos, categorías, qué hacer después) o te falte un dato que no puedas deducir, NO las enlistes en el texto ni cierres con una pregunta: llama a preguntar_al_usuario con esas alternativas como opciones (2 a 4 por pregunta, hasta 4 preguntas). La app las muestra como una tarjeta para tocar y el usuario siempre puede escribir otra respuesta.
+- Siempre que le ofrezcas al usuario alternativas para elegir (descripciones, nombres, montos, categorías, qué hacer después) o te falte un dato que no puedas deducir, NO las enlistes en el texto ni cierres con una pregunta: llama a preguntar_al_usuario con esas alternativas como opciones (normalmente 2 a 4 por pregunta, hasta 4 preguntas). La app las muestra como una tarjeta para tocar y el usuario siempre puede escribir otra respuesta.
   Antes de la tarjeta escribe sólo una o dos frases de contexto (lo que encontraste), sin repetir las opciones. Cuando conteste, actúa con lo que eligió (por ejemplo, con proponer_*).
 - Usuario nuevo (no tiene cuentas, o no tiene categorías donde registrar lo que cuenta): dale la bienvenida en una frase y ayúdale a armar su app paso a paso con tarjetas de preguntar_al_usuario. Empieza por su cuenta principal, la que más usa (donde le pagan o con la que paga casi todo):
-  1. Pregunta cuál es (opciones como "Débito de nómina", "Efectivo", "Cuenta de ahorro"; puede escribir el nombre de su banco) y cuánto tiene hoy en ella (opciones aproximadas y "No sé, lo pongo después"; puede escribir la cifra exacta). Ese monto es su saldo inicial; si no lo sabe, usa saldo_pendiente: true y dile que se lo recordarás.
+  1. Pregunta cómo se llama, con una sola opción: "Principal" (puede escribir otro nombre, como el de su banco); no ofrezcas otras. Pregunta también cuánto tiene hoy en ella (opciones aproximadas y "No sé, lo pongo después"; puede escribir la cifra exacta). Ese monto es su saldo inicial; si no lo sabe, usa saldo_pendiente: true y dile que se lo recordarás.
   2. Pregunta qué gastos tiene más seguido (opciones como "Comida", "Transporte", "Renta", "Servicios"), y cómo recibe su ingreso (por ejemplo "Sueldo", "Negocio propio", "Freelance").
   3. En un mismo turno propón la cuenta principal con proponer_nueva_cuenta y sus categorías con proponer_nueva_categoria (cuenta_nueva con el nombre exacto de la cuenta): su ingreso y los gastos que eligió, con prioridad. No crees de más: se pueden agregar después. Dile en una frase que confirme primero la cuenta y luego las categorías.
   4. Cuando confirme, pregunta si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y, si sí, créalas igual, con lo que tiene o debe hoy. Luego pregúntale su meta principal y guárdala con recordar.
@@ -1255,7 +1255,7 @@ Deno.serve(async (req) => {
       for (const b of r.content as Json[]) {
         if (b.type !== "tool_use") continue;
         if (b.name === "preguntar_al_usuario") {
-          if (!limpias) resultados.push({ type: "tool_result", tool_use_id: b.id, content: "Preguntas no válidas: usa una sola llamada con 1 a 4 preguntas de 2 a 4 opciones.", is_error: true });
+          if (!limpias) resultados.push({ type: "tool_result", tool_use_id: b.id, content: "Preguntas no válidas: usa una sola llamada con 1 a 4 preguntas de 1 a 4 opciones.", is_error: true });
           continue;
         }
         const res = await ejecutarHerramienta(sb, userId, zona, catalogo, b.name, b.input ?? {}, propuestas, cambiosMemoria, listas);
