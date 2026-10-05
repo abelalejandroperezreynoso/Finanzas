@@ -15699,6 +15699,12 @@
                                 ofrecerContinuar = false;
                                 pendientesAbiertos = false;
                                 semillaSaludo = Math.random();
+                                // La caja de escribir también empieza vacía: sin texto ni adjuntos de antes
+                                const campo = document.getElementById('chatTexto');
+                                if (campo) { campo.value = ''; campo.style.height = 'auto'; }
+                                chatAdjuntos = [];
+                                pintarAdjuntosAsistente();
+                                actualizarBotonEnviarAsistente();
                                 pintarChatAsistente();
                             }
 
