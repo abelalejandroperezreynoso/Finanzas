@@ -17107,7 +17107,12 @@
                                                    Saldo desde captura<input type="file" accept="image/*" style="display:none;" onchange="saldoIaDesdeCaptura(this)">
                                                </label>
                                                <button type="button" onclick="anotarSaldoIa()" style="flex:1; margin:0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border:none; border-radius:6px;">Escribirlo</button>
-                                           </div>`;
+                                           </div>`
+                                        // Comprar crédito sólo se puede en la consola de Anthropic: se abre su página de
+                                        // pagos. Con el saldo casi agotado el botón se resalta.
+                                        + `<a href="${URL_RECARGA_IA}" target="_blank" rel="noopener"
+                                               style="display:block; margin-top:8px; padding:10px; font-size:0.8em; text-align:center; text-decoration:none; border-radius:6px;
+                                                      background:${hayAnotado && restante < 1 ? '#c96442' : '#333'}; color:${hayAnotado && restante < 1 ? '#fff' : '#ccc'};">Comprar crédito</a>`;
                                 } catch (e) {
                                     caja.textContent = 'No se pudo cargar el consumo.';
                                 }
