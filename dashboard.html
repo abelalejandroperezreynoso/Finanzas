@@ -204,6 +204,23 @@
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
         /* Lo que la IA guardó en su memoria: una línea discreta bajo su respuesta */
+        /* Movimientos que enseña el asistente: tarjeta agrupada por día */
+        .chat-movs { align-self: stretch; background: #ffffff; border: 0.5px solid #e3e1d8; border-radius: 20px; padding: 6px 16px 8px;
+            box-shadow: 0 1px 3px rgba(20, 20, 19, 0.04); }
+        .chat-movs .cm-titulo { font-size: 15px; font-weight: 600; color: #141413; padding: 10px 0 2px; }
+        .chat-movs .cm-dia { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8a8880; padding: 12px 0 2px; }
+        .chat-movs .cm-fila { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 0.5px solid #efede6; }
+        .chat-movs .cm-dia + .cm-fila { border-top: none; }
+        .chat-movs .cm-desc { font-size: 15px; color: #141413; line-height: 1.3; overflow-wrap: anywhere; }
+        .chat-movs .cm-sub { font-size: 12.5px; color: #8a8880; margin-top: 2px; line-height: 1.3; }
+        .chat-movs .cm-monto { font-size: 15px; font-weight: 600; white-space: nowrap; color: #141413; }
+        .chat-movs .cm-monto.entra { color: #2f7d4f; }
+        .chat-movs .cm-monto.salud { color: #5e5d59; font-weight: 500; }
+        .chat-movs .cm-total { display: flex; justify-content: space-between; font-size: 13px; color: #5e5d59; padding: 10px 0 4px; border-top: 0.5px solid #e3e1d8; margin-top: 2px; }
+        /* Una tabla que la IA escriba en markdown, por si acaso */
+        .chat-asistente table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0; }
+        .chat-asistente th, .chat-asistente td { text-align: left; padding: 6px 6px; border-bottom: 0.5px solid #e3e1d8; vertical-align: top; }
+        .chat-asistente th { font-weight: 600; color: #5e5d59; }
         .chat-memoria { align-self: flex-start; color: #8a8880; font-size: 13px; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
         .chat-asistente { align-self: stretch; color: #141413; font-size: 16px; line-height: 1.65; word-wrap: break-word; }
         .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
@@ -15802,10 +15819,56 @@
                             }
 
                             // Markdown mínimo: negritas, listas y saltos de línea. Primero se escapa todo.
+                            // Tarjeta de movimientos: por día, con la hora sólo si es real (las 12:00 en punto
+                            // casi siempre son "sin hora"), categoría y lugar abajo, y el monto con su color
+                            function movimientosChatHtml(m) {
+                                const movs = m.movimientos || [];
+                                let html = `<div class="chat-movs">${m.titulo ? `<div class="cm-titulo">${escaparHtml(m.titulo)}</div>` : ''}`;
+                                let diaPrevio = null, totalSale = 0, totalEntra = 0;
+                                movs.forEach(r => {
+                                    const [dia, hora] = String(r.fecha || '').split(' ');
+                                    if (dia !== diaPrevio) {
+                                        html += `<div class="cm-dia">${escaparHtml(fechaAmigable(dia))}</div>`;
+                                        diaPrevio = dia;
+                                    }
+                                    const esSalud = r.tipo === 'salud';
+                                    const monto = Number(r.monto) || 0;
+                                    if (!esSalud) { if (monto < 0) totalSale += -monto; else totalEntra += monto; }
+                                    const horaReal = hora && hora !== '12:00' ? new Date(`${dia}T${hora}:00`).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }) : '';
+                                    const sub = [r.categoria, horaReal, r.lugar].filter(Boolean).map(escaparHtml).join(' · ');
+                                    const cifra = esSalud ? `${escaparHtml(String(r.cantidad ?? ''))}` : `${monto < 0 ? '−' : '+'}${escaparHtml(fMoneda(Math.abs(monto)))}`;
+                                    html += `<div class="cm-fila"><div><div class="cm-desc">${escaparHtml(r.descripcion || r.categoria || 'Movimiento')}</div>${sub ? `<div class="cm-sub">${sub}</div>` : ''}</div>`
+                                        + `<div class="cm-monto${esSalud ? ' salud' : monto > 0 ? ' entra' : ''}">${cifra}</div></div>`;
+                                });
+                                if (movs.length > 1 && (totalSale || totalEntra)) {
+                                    const partes = [totalSale ? `Salió ${fMoneda(totalSale)}` : '', totalEntra ? `Entró ${fMoneda(totalEntra)}` : ''].filter(Boolean);
+                                    html += `<div class="cm-total"><span>${movs.length} movimientos</span><span>${escaparHtml(partes.join(' · '))}</span></div>`;
+                                }
+                                return html + '</div>';
+                            }
+
                             function textoChatHtml(texto) {
-                                const lineas = escaparHtml(texto || '').split('\n');
+                                // Tablas en markdown (| a | b |): se pintan como tabla y no como texto con rayas
+                                const tablas = [];
+                                texto = String(texto || '').replace(/(^|\n)((?:\|.*\|[ \t]*(?:\n|$)){2,})/g, (todo, inicio, bloque) => {
+                                    const filas = bloque.trim().split('\n').map(f => f.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+                                    const separador = filas[1] && filas[1].every(c => /^:?-{2,}:?$/.test(c));
+                                    const cuerpo = separador ? filas.slice(2) : filas.slice(1);
+                                    const celda = (c, tag) => `<${tag}>${escaparHtml(c).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</${tag}>`;
+                                    tablas.push(`<table><thead><tr>${filas[0].map(c => celda(c, 'th')).join('')}</tr></thead><tbody>${cuerpo.map(f => `<tr>${f.map(c => celda(c, 'td')).join('')}</tr>`).join('')}</tbody></table>`);
+                                    return `${inicio}\u0000TABLA${tablas.length - 1}\u0000\n`;
+                                });
+                                const lineas = escaparHtml(texto).split('\n');
                                 let html = '', enLista = false;
                                 lineas.forEach(l => {
+                                    const marca = l.match(/^\u0000TABLA(\d+)\u0000$/);
+                                    if (marca) {
+                                        if (enLista) { html += '</ul>'; enLista = false; }
+                                        // La tabla ya deja su espacio: los renglones vacíos de alrededor sobran
+                                        html = html.replace(/(<br>)+$/, '') + tablas[Number(marca[1])];
+                                        return;
+                                    }
+                                    if (l.trim() === '' && html.endsWith('</table>')) return;
                                     const conFormato = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^#{1,4}\s+(.*)$/, '<strong>$1</strong>');
                                     const item = conFormato.match(/^\s*[-*•]\s+(.*)$/);
                                     if (item) {
@@ -15918,6 +15981,7 @@
                                     }
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
                                     if (m.rol === 'memoria') return `<div class="chat-memoria"><span>🧠</span><span>${escaparHtml(m.texto)}</span></div>`;
+                                    if (m.rol === 'movimientos') return movimientosChatHtml(m);
                                     if (m.rol === 'error') {
                                         const e = errorIaAmigable(m.texto);
                                         // Sin crédito: un botón a la página de pagos de Anthropic (comprar crédito no se
@@ -15998,7 +16062,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -16007,6 +16071,7 @@
                                     }
                                     chatApi.push(...(data.nuevos || []));
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
+                                    (data.listas || []).forEach(l => chatUi.push({ rol: 'movimientos', titulo: l.titulo, movimientos: l.movimientos || [] }));
                                     (data.memoria || []).forEach(n => chatUi.push({ rol: 'memoria', texto: `${n.accion === 'corregida' ? 'Actualicé' : 'Recordé'}: ${n.nota}` }));
                                     (data.propuestas || []).forEach(p => {
                                         // La versión corregida sustituye a la tarjeta anterior que seguía sin confirmar

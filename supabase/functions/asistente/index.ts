@@ -191,6 +191,21 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "mostrar_movimientos",
+    description:
+      "Muestra movimientos al usuario en una tarjeta de la app (agrupados por día, con categoría, hora y monto con color). Úsala SIEMPRE que el usuario quiera ver " +
+      "movimientos (\"mis últimos registros\", \"qué gasté ayer\", \"los de Gasolina\"), en vez de escribirlos en el texto: primero búscalos con consultar_movimientos y pasa sus ids aquí.",
+    input_schema: {
+      type: "object",
+      properties: {
+        titulo: { type: "string", description: "Título corto de la tarjeta, por ejemplo \"Tus últimos 10 movimientos\"" },
+        ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50, description: "ids de los movimientos, en el orden en que quieres mostrarlos" },
+      },
+      required: ["titulo", "ids"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "flujo_mensual",
     description:
       "Cuánto le quedó al usuario mes por mes: ingresos, gastos y lo que queda (ingresos menos gastos), más lo que se movió en deudas, préstamos e inversiones " +
@@ -357,7 +372,8 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // límites de cada día y se enseña la fecha local de cada movimiento.
 // conHora: la app que llama sabe guardar la hora de un movimiento propuesto (las versiones
 // viejas insertaban los datos tal cual y un campo de más hacía fallar el registro)
-type Zona = { desfase: number; conHora?: boolean };
+// conListas: la app sabe pintar la tarjeta de mostrar_movimientos (las viejas no la ven)
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean };
 const sufijoZona = (z: Zona) => {
   const m = -z.desfase;
   const signo = m >= 0 ? "+" : "-";
@@ -371,8 +387,24 @@ const fechaLocal = (iso: string, z: Zona) => {
   return isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
 };
 
-async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zona, catalogo: Catalogo, nombre: string, entrada: Json, propuestas: Json[], memoria: Json[]): Promise<{ texto: string; error?: boolean }> {
+async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zona, catalogo: Catalogo, nombre: string, entrada: Json, propuestas: Json[], memoria: Json[], listas: Json[] = []): Promise<{ texto: string; error?: boolean }> {
   switch (nombre) {
+    case "mostrar_movimientos": {
+      const ids = (Array.isArray(entrada.ids) ? entrada.ids : []).map(String).slice(0, 50);
+      if (!ids.length) return { texto: "Faltan los ids de los movimientos.", error: true };
+      const { data, error } = await sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar").in("id", ids);
+      if (error) return { texto: `Error: ${error.message}`, error: true };
+      const porId = new Map((data ?? []).map((r: Json) => [String(r.id), r]));
+      const movimientos = ids.map((id: string) => porId.get(id)).filter(Boolean).map((r: Json) => ({
+        id: r.id, fecha: fechaLocal(r.fecha, zona), monto: Number(r.monto) || 0, descripcion: r.descripcion || null,
+        categoria: catalogo.etiqueta[String(r.categoria_id)] ?? null, tipo: catalogo.tipo[String(r.categoria_id)] ?? null,
+        ...(catalogo.tipo[String(r.categoria_id)] === "salud" ? { cantidad: r.cantidad } : {}), ...(r.lugar ? { lugar: r.lugar } : {}),
+      }));
+      if (!movimientos.length) return { texto: "No encontré esos movimientos.", error: true };
+      if (!zona.conListas) return { texto: `Esta versión de la app no muestra tarjetas: escríbelos tú, en una lista corta.\n${recortar(movimientos)}` };
+      listas.push({ titulo: String(entrada.titulo ?? "Movimientos").slice(0, 80), movimientos });
+      return { texto: `Se mostraron ${movimientos.length} movimientos en una tarjeta. No los repitas en el texto: si acaso, una frase con lo más importante.` };
+    }
     case "flujo_mensual": {
       const n = Math.min(12, Math.max(1, Number(entrada.meses) || 6));
       const hoyL = fechaLocal(new Date().toISOString(), zona);
@@ -601,7 +633,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
 }
 
 const SISTEMA_CHAT = (hoy: string, usd: number | null) => `Eres el asistente de una app personal de finanzas (México, montos en MXN). Hoy es ${hoy}.${usd ? ` Tipo de cambio de hoy: 1 USD = $${usd.toFixed(2)} MXN.` : ""}
-Hablas en español, claro y breve, como en un chat. Usa listas cortas cuando ayuden y negritas con **texto** para las cifras clave. Nunca hagas preguntas en el texto: si de verdad necesitas preguntar, usa preguntar_al_usuario.
+Hablas en español, claro y breve, como en un chat. Usa listas cortas cuando ayuden y negritas con **texto** para las cifras clave. Nunca hagas preguntas en el texto: si de verdad necesitas preguntar, usa preguntar_al_usuario. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
 
 Lo más común: el usuario te cuenta un gasto o ingreso. Deduce todo lo que puedas y llama de inmediato a proponer_nuevo_movimiento, sin preguntar; la tarjeta le deja confirmar o cancelar:
 - Fecha: "acabo de", "ahorita", "hoy" o sin fecha = hoy (${hoy}); "ayer" = ayer; "el lunes", "el 3" = esa fecha. Nunca preguntes la fecha si dijo cualquiera de esas.
@@ -970,7 +1002,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];
@@ -980,6 +1012,7 @@ Deno.serve(async (req) => {
     let modeloUsado = modeloChat;
     const [catalogo, notas, usd] = await Promise.all([leerCatalogo(sb), leerMemoria(sb), tipoDeCambio(hoy)]);
     const cambiosMemoria: Json[] = [];
+    const listas: Json[] = [];
     // Herramientas e instrucciones quedan en caché con su propia marca: una conversación nueva
     // reutiliza ese tramo aunque el historial sea otro. La memoria va al final porque es lo que
     // más cambia: corregir una nota sólo invalida desde ahí. La marca general cubre el resto.
@@ -1021,7 +1054,7 @@ Deno.serve(async (req) => {
           if (!limpias) resultados.push({ type: "tool_result", tool_use_id: b.id, content: "Preguntas no válidas: usa una sola llamada con 1 a 4 preguntas de 2 a 4 opciones.", is_error: true });
           continue;
         }
-        const res = await ejecutarHerramienta(sb, userId, zona, catalogo, b.name, b.input ?? {}, propuestas, cambiosMemoria);
+        const res = await ejecutarHerramienta(sb, userId, zona, catalogo, b.name, b.input ?? {}, propuestas, cambiosMemoria, listas);
         resultados.push({ type: "tool_result", tool_use_id: b.id, content: res.texto, ...(res.error ? { is_error: true } : {}) });
       }
       if (limpias) {
@@ -1040,7 +1073,7 @@ Deno.serve(async (req) => {
     const ultimo = nuevos[nuevos.length - 1];
     const texto = (ultimo?.content ?? []).filter((b: Json) => b.type === "text").map((b: Json) => b.text).join("\n").trim();
     await anotar("asistente", modeloUsado, usos);
-    return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria });
+    return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria, listas });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
       return responder({ error: "La clave de Anthropic no es válida. Revisa el secreto ANTHROPIC_API_KEY." }, 500);
