@@ -265,7 +265,9 @@
         .chat-credito { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #e8e6dc; z-index: 4; pointer-events: none; transition: height 0.25s ease; }
         .chat-credito.gastando { height: 6px; }
         .chat-credito.visible { display: block; }
-        .chat-credito .cc-lleno { height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
+        /* Una parte por persona: lo tuyo en naranja y, seguido, lo de la otra persona en azul */
+        .chat-credito .cc-lleno { position: absolute; left: 0; top: 0; height: 100%; width: 0; background: #d97757; transition: width 0.6s ease; }
+        .chat-credito .cc-otro { position: absolute; top: 0; height: 100%; left: 0; width: 0; background: #6a9bcc; transition: left 0.6s ease, width 0.6s ease; }
         .chat-credito.poco .cc-lleno { background: #d0473b; }
         /* Lo que acaba de gastar una consulta: un bloque que crece al final de la raya y una
            cifra pequeña que sube y se desvanece */
@@ -2334,7 +2336,7 @@
         <div class="chat-cargando" aria-live="polite"><span id="chatCargandoTexto">Cargando tus datos…</span><div class="cc-barra"><div class="cc-relleno" id="chatCargandoRelleno"></div></div></div>
         <div id="chatMensajes" class="chat-mensajes"></div>
         <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
-        <div id="chatCredito" class="chat-credito" aria-hidden="true"><div class="cc-lleno"></div></div>
+        <div id="chatCredito" class="chat-credito" aria-hidden="true"><div class="cc-lleno"></div><div class="cc-otro"></div></div>
         <div class="chat-pie" id="chatPie">
         <div id="chatChips" class="chat-chips"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
@@ -16155,7 +16157,14 @@
                             // Lo consumido desde el último saldo anotado, como fracción de ese saldo. Si nunca se
                             // anotó un saldo no hay con qué comparar y la raya no se muestra.
                             // Si subió desde la última vez, lo nuevo entra como un bloque y se muestra cuánto fue.
-                            var creditoPctPrevio = null, creditoTimers = [];
+                            var creditoPctPrevio = null, creditoTimers = [];   // { yo, otro } en %
+                            const COLOR_CREDITO_OTRO = '#6a9bcc';
+                            function pintarPartesCredito(raya, yo, otro) {
+                                raya.querySelector('.cc-lleno').style.width = `${yo.toFixed(2)}%`;
+                                const parteOtro = raya.querySelector('.cc-otro');
+                                parteOtro.style.left = `${yo.toFixed(2)}%`;
+                                parteOtro.style.width = `${otro.toFixed(2)}%`;
+                            }
                             async function pintarCreditoAsistente() {
                                 const raya = document.getElementById('chatCredito');
                                 if (!raya || !clienteSupabase) return;
@@ -16165,31 +16174,37 @@
                                     const saldo = r ? Number(r.saldo_anotado) : 0;
                                     if (!r || !(saldo > 0)) { raya.classList.remove('visible'); creditoPctPrevio = null; return; }
                                     const gastado = Math.min(saldo, Math.max(0, Number(r.gastado_desde_saldo || 0)));
-                                    const pct = gastado / saldo * 100;
-                                    const lleno = raya.querySelector('.cc-lleno');
+                                    // Lo propio, si la base ya lo dice; si no, todo cuenta como propio
+                                    const mio = r.gastado_mio_desde_saldo === undefined || r.gastado_mio_desde_saldo === null
+                                        ? gastado : Math.min(gastado, Math.max(0, Number(r.gastado_mio_desde_saldo)));
+                                    const pcts = { yo: mio / saldo * 100, otro: (gastado - mio) / saldo * 100 };
                                     raya.classList.add('visible');
                                     raya.classList.toggle('poco', saldo - gastado < 1);
-                                    raya.title = `Usado ≈ $${gastado.toFixed(2)} de $${saldo.toFixed(2)} USD`;
+                                    raya.title = `Usado ≈ $${gastado.toFixed(2)} de $${saldo.toFixed(2)} USD (tú $${mio.toFixed(2)}, otra persona $${(gastado - mio).toFixed(2)})`;
                                     const previo = creditoPctPrevio;
-                                    creditoPctPrevio = pct;
-                                    if (previo === null || pct - previo < 0.005) {
-                                        lleno.style.width = `${pct.toFixed(2)}%`;
+                                    creditoPctPrevio = pcts;
+                                    if (previo === null || (pcts.yo + pcts.otro) - (previo.yo + previo.otro) < 0.005) {
+                                        pintarPartesCredito(raya, pcts.yo, pcts.otro);
                                         return;
                                     }
-                                    animarConsumoCredito(raya, lleno, previo, pct);
+                                    animarConsumoCredito(raya, previo, pcts);
                                 } catch (e) { /* sin datos: la raya se queda como estaba */ }
                             }
 
-                            function animarConsumoCredito(raya, lleno, previo, pct) {
+                            function animarConsumoCredito(raya, previo, nuevo) {
                                 creditoTimers.forEach(clearTimeout);
                                 raya.querySelectorAll('.cc-bloque, .cc-cifra').forEach(n => n.remove());
-                                lleno.style.transition = 'none';
-                                lleno.style.width = `${previo.toFixed(2)}%`;
+                                const partes = raya.querySelectorAll('.cc-lleno, .cc-otro');
+                                partes.forEach(n => { n.style.transition = 'none'; });
+                                pintarPartesCredito(raya, previo.yo, previo.otro);
+                                const antes = previo.yo + previo.otro, pct = nuevo.yo + nuevo.otro;
                                 const bloque = document.createElement('div');
                                 bloque.className = 'cc-bloque';
-                                bloque.style.left = `${previo.toFixed(2)}%`;
-                                bloque.style.width = `${Math.max(0.6, pct - previo).toFixed(2)}%`;
-                                const delta = pct - previo;
+                                bloque.style.left = `${antes.toFixed(2)}%`;
+                                bloque.style.width = `${Math.max(0.6, pct - antes).toFixed(2)}%`;
+                                // El bloque nuevo toma el color de quien gastó (casi siempre, quien tiene el chat abierto)
+                                if (nuevo.otro - previo.otro > nuevo.yo - previo.yo) bloque.style.background = COLOR_CREDITO_OTRO;
+                                const delta = pct - antes;
                                 const cifra = document.createElement('div');
                                 cifra.className = 'cc-cifra';
                                 cifra.textContent = `+${delta >= 1 ? delta.toFixed(1) : delta >= 0.1 ? delta.toFixed(2) : delta.toFixed(3).replace(/0$/, '')}%`;
@@ -16200,10 +16215,9 @@
                                 raya.classList.add('gastando');
                                 creditoTimers = [
                                     setTimeout(() => {
-                                        lleno.style.width = `${pct.toFixed(2)}%`;
+                                        pintarPartesCredito(raya, nuevo.yo, nuevo.otro);
                                         bloque.remove();
-                                        void lleno.offsetWidth;
-                                        lleno.style.transition = '';
+                                        partes.forEach(n => { void n.offsetWidth; n.style.transition = ''; });
                                     }, 1200),
                                     setTimeout(() => { cifra.remove(); raya.classList.remove('gastando'); }, 1800)
                                 ];
@@ -17316,6 +17330,13 @@
                                         ? `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:10px;">
                                                <span>Saldo restante</span><strong style="color:${restante < 1 ? '#ff5c5c' : '#3ecf8e'}; font-size:1.25em;">≈ ${usd(restante)}</strong></div>
                                            <div style="color:#666; font-size:0.85em; margin:-6px 0 12px;">De ${usd(r.saldo_anotado)} que anotaste el ${escaparHtml(cuandoAnotado)}</div>`
+                                          // De quién es lo gastado desde ese saldo: los mismos colores que la raya del chat
+                                          + (r.gastado_mio_desde_saldo !== undefined && r.gastado_mio_desde_saldo !== null && Number(r.gastado_desde_saldo) > 0
+                                              ? `<div style="display:flex; gap:14px; flex-wrap:wrap; font-size:0.85em; margin:-4px 0 12px;">
+                                                     <span><span style="color:#d97757;">●</span> Tú ${usd(r.gastado_mio_desde_saldo)}</span>
+                                                     <span><span style="color:#6a9bcc;">●</span> Otra persona ${usd(Math.max(0, Number(r.gastado_desde_saldo) - Number(r.gastado_mio_desde_saldo)))}</span>
+                                                 </div>`
+                                              : '')
                                         : '';
                                     const fila = (texto, consultas, costo) => `<div style="display:flex; justify-content:space-between; gap:12px;">
                                         <span>${texto}</span><span><strong style="color:#fff;">${usd(costo)}</strong> <span style="color:#888;">· ${consultas} ${Number(consultas) === 1 ? 'consulta' : 'consultas'}</span></span></div>`;
