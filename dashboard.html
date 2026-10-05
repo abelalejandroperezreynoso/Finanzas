@@ -15929,6 +15929,21 @@
                                     filas.push(`Cuenta: ${escaparHtml(a.nombre || '')}`);
                                     if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
+                                    if ('saldo_inicial' in c) filas.push(`Saldo inicial: ${flecha(fMoneda(a.saldo_inicial || 0), fMoneda(c.saldo_inicial))}`);
+                                } else if (p.tipo === 'nueva_cuenta') {
+                                    const d = p.datos || {};
+                                    filas.push(`Cuenta nueva: <b>${escaparHtml(d.nombre || '')}</b>`);
+                                    filas.push(`Saldo inicial: <b>${escaparHtml(fMoneda(Number(d.saldo_inicial) || 0))}</b>`);
+                                    if (d.incluir_en_total === false) filas.push('No suma al total');
+                                    if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
+                                } else if (p.tipo === 'nueva_categoria') {
+                                    const d = p.datos || {};
+                                    const nombresTipoCat = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', salud: 'Salud' };
+                                    filas.push(`Categoría nueva: <b>${escaparHtml(d.nombre || '')}</b>`);
+                                    filas.push(`Cuenta: <b>${escaparHtml(p.cuenta || '')}</b>`);
+                                    filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
+                                    if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
+                                    if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
@@ -16078,7 +16093,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17169,6 +17184,19 @@
                                     }
                                 } else if (p.tipo === 'cambio_cuenta') {
                                     res = await clienteSupabase.from('cuentas').update(p.cambios).eq('id', p.cuenta_id);
+                                } else if (p.tipo === 'nueva_cuenta') {
+                                    res = await clienteSupabase.from('cuentas').insert([{ ...p.datos, user_id: currentUser.id }]).select('id');
+                                } else if (p.tipo === 'nueva_categoria') {
+                                    // Si la cuenta se propuso en el mismo chat, se busca por nombre ya confirmada
+                                    let cuentaId = p.datos.cuenta_id;
+                                    if (!cuentaId) {
+                                        const { data: ctas } = await clienteSupabase.from('cuentas').select('id, nombre');
+                                        const cta = (ctas || []).find(c => (c.nombre || '').trim().toLowerCase() === (p.cuenta || '').trim().toLowerCase());
+                                        cuentaId = cta && cta.id;
+                                    }
+                                    res = cuentaId
+                                        ? await clienteSupabase.from('categorias').insert([{ ...p.datos, cuenta_id: cuentaId, user_id: currentUser.id }]).select('id')
+                                        : { error: { message: `Primero confirma la cuenta "${p.cuenta}".` } };
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const { hora, en_el_momento, ...datos } = p.datos;
                                     res = await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
