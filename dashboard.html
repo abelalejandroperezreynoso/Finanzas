@@ -2324,7 +2324,7 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 <input type="file" id="chatArchivo" accept="image/*,application/pdf" multiple style="display: none;" onchange="adjuntarArchivosAsistente(this)">
-                <button type="button" class="cb-modelo" id="chatModelo" onclick="alternarMenuModeloAsistente(event)">Sonnet 5.5</button>
+                <button type="button" class="cb-modelo" id="chatModelo" onclick="alternarMenuModeloAsistente(event)">Haiku 4.5</button>
                 <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="enviarMensajeAsistente()" aria-label="Enviar">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                 </button>
@@ -2376,7 +2376,7 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
         <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Para todos: chat, revisión, topes y saldo</small></span>
+            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Nadie puede elegir otro modelo en el chat</small></span>
             <span class="ios-switch">
                 <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
                 <span class="ios-switch-pista"></span>
@@ -16479,9 +16479,9 @@
                                     if (!error && data) guardarSoloHaikuLocal(!!data.solo_haiku);
                                 } catch (e) { /* sin red: se queda la copia local */ }
                             }
-                            // Para las llamadas que no son el chat: sin el ajuste, la función usa su modelo de siempre
+                            // Las llamadas que no son el chat (revisión, topes, saldo) siempre van con Haiku
                             function modeloIaFijo() {
-                                return soloHaiku() ? { modelo: MODELO_ECONOMICO } : {};
+                                return { modelo: MODELO_ECONOMICO };
                             }
                             async function cambiarSoloHaiku(activo) {
                                 guardarSoloHaikuLocal(activo);
@@ -16506,7 +16506,7 @@
                                 if (soloHaiku()) return MODELO_ECONOMICO;
                                 let id = null;
                                 try { id = localStorage.getItem('modeloAsistente'); } catch (e) { /* sin almacenamiento */ }
-                                return MODELOS_ASISTENTE.some(m => m.id === id) ? id : 'claude-sonnet-5-5';
+                                return MODELOS_ASISTENTE.some(m => m.id === id) ? id : MODELO_ECONOMICO;
                             }
                             function pintarModeloAsistente() {
                                 const boton = document.getElementById('chatModelo');

@@ -16,7 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-const MODELO = Deno.env.get("MODELO_IA") ?? "claude-sonnet-5-5";
+const MODELO = Deno.env.get("MODELO_IA") ?? "claude-haiku-4-5";
 
 // Precio por millón de tokens (USD) para estimar el costo de cada consulta
 const PRECIOS: Record<string, { entrada: number; salida: number }> = {
