@@ -355,8 +355,6 @@
         .chat-barra-fila { display: flex; align-items: center; gap: 8px; }
         .chat-barra .cb-redondo, .chat-barra .cb-redondo:hover { flex-shrink: 0; width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 50%; border: none;
             background: #e8e7e2; color: #141413; display: flex; align-items: center; justify-content: center; }
-        .chat-barra .cb-modelo, .chat-barra .cb-modelo:hover { width: auto; height: 36px; margin: 0; padding: 0 14px; border-radius: 999px; border: none;
-            background: #e8e7e2; color: #141413; font-size: 14px; font-weight: 400; }
         .chat-barra .cb-enviar, .chat-barra .cb-enviar:hover { flex-shrink: 0; width: 36px; height: 36px; margin: 0 0 0 auto; padding: 0; border-radius: 50%;
             border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; transition: background-color 0.15s; }
         .chat-barra .cb-enviar.vacio { background: #e2b6a5; }
@@ -370,13 +368,6 @@
         .chat-adjunto span { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
         .chat-barra .chat-adjunto button, .chat-barra .chat-adjunto button:hover { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; margin: 0; padding: 0;
             border-radius: 50%; border: none; background: rgba(20, 20, 19, 0.7); color: #fff; display: flex; align-items: center; justify-content: center; }
-        /* Menú de modelos, encima de la caja */
-        .chat-menu-modelo { display: none; position: absolute; left: 8px; bottom: calc(100% + 8px); z-index: 5; min-width: 250px; background: #ffffff;
-            border: 0.5px solid #e3e1d8; border-radius: 20px; box-shadow: 0 10px 30px rgba(20, 20, 19, 0.14); padding: 6px; }
-        .chat-menu-modelo.abierto { display: block; }
-        .chat-barra .chat-menu-modelo button, .chat-barra .chat-menu-modelo button:hover { width: 100%; margin: 0; display: flex; align-items: center; justify-content: space-between;
-            gap: 12px; padding: 12px 14px; background: none; border: none; border-radius: 14px; color: #141413; text-align: left; font-weight: 500; font-size: 16px; }
-        .chat-menu-modelo small { display: block; color: #8a8880; font-size: 13px; font-weight: 400; margin-top: 2px; }
         /* Lo adjuntado también se ve en tu burbuja */
         .chat-usuario-adjuntos { align-self: flex-end; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-bottom: -10px; }
         .chat-usuario-adjuntos .chat-adjunto { width: 84px; height: 84px; }
@@ -2314,7 +2305,6 @@
         <div id="chatChips" class="chat-chips"></div>
         <div id="chatPreguntas" class="chat-preguntas"></div>
         <div class="chat-barra">
-            <div id="chatMenuModelo" class="chat-menu-modelo"></div>
             <div id="chatAdjuntos" class="chat-adjuntos"></div>
             <textarea id="chatTexto" rows="1" placeholder="Pregunta o pide un cambio…"
                 oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight, 140)+'px'; actualizarBotonEnviarAsistente();"
@@ -2324,7 +2314,6 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 <input type="file" id="chatArchivo" accept="image/*,application/pdf" multiple style="display: none;" onchange="adjuntarArchivosAsistente(this)">
-                <button type="button" class="cb-modelo" id="chatModelo" onclick="alternarMenuModeloAsistente(event)">Haiku 4.5</button>
                 <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="enviarMensajeAsistente()" aria-label="Enviar">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                 </button>
@@ -2376,11 +2365,16 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
         <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Nadie puede elegir otro modelo en el chat</small></span>
+            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Para todos; bloquea el modelo del chat</small></span>
             <span class="ios-switch">
                 <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
                 <span class="ios-switch-pista"></span>
             </span>
+        </label>
+        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em;">
+            <span>Modelo del chat<br><small style="color: #888; font-size: 0.8em;">Vuelve a Haiku al recargar</small></span>
+            <select id="selectModeloIa" onchange="elegirModeloAsistente(this.value)"
+                style="width: auto; margin: 0; padding: 8px 10px; background: #2c2c2e; color: #fff; border: none; border-radius: 8px; font-size: 0.95em;"></select>
         </label>
         <div id="consumoIa" style="font-size: 0.9em; color: #ccc; line-height: 1.7;">—</div>
     </div>
@@ -16502,42 +16496,27 @@
                                     : { ...m, content: m.content.filter(b => b.type !== 'thinking' && b.type !== 'redacted_thinking') })
                                     .filter(m => !Array.isArray(m.content) || m.content.length);
                             }
+                            // La elección vive sólo en memoria: al recargar la app vuelve a Haiku
+                            let modeloElegido = null;
+                            try { localStorage.removeItem('modeloAsistente'); } catch (e) { /* sin almacenamiento */ }
                             function modeloAsistente() {
                                 if (soloHaiku()) return MODELO_ECONOMICO;
-                                let id = null;
-                                try { id = localStorage.getItem('modeloAsistente'); } catch (e) { /* sin almacenamiento */ }
-                                return MODELOS_ASISTENTE.some(m => m.id === id) ? id : MODELO_ECONOMICO;
+                                return MODELOS_ASISTENTE.some(m => m.id === modeloElegido) ? modeloElegido : MODELO_ECONOMICO;
                             }
+                            // Selector de Configuración; con "Solo Haiku" encendido queda fijo
                             function pintarModeloAsistente() {
-                                const boton = document.getElementById('chatModelo');
-                                const actual = MODELOS_ASISTENTE.find(m => m.id === modeloAsistente());
-                                if (boton && actual) boton.textContent = actual.nombre;
-                            }
-                            function alternarMenuModeloAsistente(evento) {
-                                if (evento) evento.stopPropagation();
-                                const menu = document.getElementById('chatMenuModelo');
-                                if (!menu) return;
-                                if (menu.classList.contains('abierto')) { menu.classList.remove('abierto'); return; }
-                                if (soloHaiku()) {
-                                    alertaIos({ titulo: 'Solo Haiku 4.5', mensaje: 'Para elegir otro modelo, desactívalo en Configuración.' });
-                                    return;
-                                }
-                                const actual = modeloAsistente();
-                                const palomita = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c96442" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
-                                menu.innerHTML = MODELOS_ASISTENTE.map(m => `<button type="button" onclick="elegirModeloAsistente('${m.id}')"><span>${m.nombre}<small>${m.nota}</small></span>${m.id === actual ? palomita : ''}</button>`).join('');
-                                menu.classList.add('abierto');
+                                const lista = document.getElementById('selectModeloIa');
+                                if (!lista) return;
+                                if (!lista.options.length) lista.innerHTML = MODELOS_ASISTENTE.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
+                                lista.value = modeloAsistente();
+                                lista.disabled = soloHaiku();
                             }
                             function elegirModeloAsistente(id) {
                                 const anterior = modeloAsistente();
-                                try { localStorage.setItem('modeloAsistente', id); } catch (e) { /* sin almacenamiento */ }
-                                document.getElementById('chatMenuModelo').classList.remove('abierto');
+                                modeloElegido = id;
                                 pintarModeloAsistente();
-                                if (anterior !== id) quitarRazonamientoAsistente();
+                                if (anterior !== modeloAsistente()) quitarRazonamientoAsistente();
                             }
-                            document.addEventListener('click', e => {
-                                const menu = document.getElementById('chatMenuModelo');
-                                if (menu && menu.classList.contains('abierto') && !e.target.closest('#chatMenuModelo, #chatModelo')) menu.classList.remove('abierto');
-                            });
 
                             // ---- Preguntas con opciones ----
                             // Cuando la IA pregunta, su último mensaje queda con una herramienta sin respuesta.
@@ -16849,6 +16828,7 @@
                             async function cargarConsumoIa() {
                                 const interruptor = document.getElementById('checkSoloHaiku');
                                 if (interruptor) interruptor.checked = soloHaiku();
+                                pintarModeloAsistente();
                                 sincronizarSoloHaiku();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
