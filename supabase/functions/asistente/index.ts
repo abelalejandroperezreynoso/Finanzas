@@ -519,6 +519,37 @@ const fechaLocal = (iso: string, z: Zona) => {
   return isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
 };
 
+// Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
+// la usan (las "directas", de registros viejos, van de pesos a acciones sin pasar por ella)
+const tipoDe = (r: Json) => r.tipo_movimiento || ((Number(r.cantidad_acciones) || 0) > 0 ? ((Number(r.monto) || 0) < 0 ? "compra_directa" : "venta_directa") : null);
+const usdDe = (r: Json) => {
+  const usd = Number(r.monto_usd) || 0;
+  if (usd > 0) return usd;
+  const acciones = Number(r.cantidad_acciones) || 0, precio = Number(r.costo_accion) || 0, tc = Number(r.tipo_cambio) || 0;
+  if (acciones > 0 && precio > 0) return acciones * precio;
+  return tc > 1 ? Math.abs(Number(r.monto) || 0) / tc : 0;
+};
+
+// Dólares en la Caja GBM de una cuenta, con las reglas de resumen_inversiones (null si no se pudo leer)
+async function cajaUsdDeCuenta(sb: SupabaseClient, catalogo: Catalogo, cuentaId: string): Promise<number | null> {
+  const ids = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && String(c.cuenta_id) === cuentaId).map((c: Json) => c.id);
+  if (!ids.length) return 0;
+  let caja = 0;
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await sb.from("registros")
+      .select("monto, monto_usd, tipo_cambio, cantidad_acciones, costo_accion, tipo_movimiento")
+      .in("categoria_id", ids).order("fecha").range(desde, desde + 999);
+    if (error) return null;
+    for (const r of data ?? []) {
+      const tipo = tipoDe(r), usd = usdDe(r);
+      if (tipo === "aportacion" || tipo === "venta") caja += usd;
+      else if (tipo === "retiro" || tipo === "compra") caja = Math.max(0, caja - usd);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return Math.round(caja * 100) / 100;
+}
+
 async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zona, catalogo: Catalogo, nombre: string, entrada: Json, propuestas: Json[], memoria: Json[], listas: Json[] = []): Promise<{ texto: string; error?: boolean }> {
   switch (nombre) {
     case "proponer_movimiento_inversion": {
@@ -556,12 +587,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         datos = { categoria_id: cat.id, cuenta_id: cat.cuenta_id, tipo_movimiento: tipo, monto: 0, monto_usd: Math.round(acciones * precio * 10000) / 10000,
           tipo_cambio: await tipoDeCambio(fechaLocal(new Date().toISOString(), zona).slice(0, 10)) ?? 0, cantidad_acciones: acciones, costo_accion: precio };
       } else return { texto: "Tipo no válido.", error: true };
+      // Una compra o un retiro que no caben en la caja: la app lo avisará al confirmar; que el usuario lo sepa desde ya
+      let aviso = "";
+      if (tipo === "compra" || tipo === "retiro") {
+        const caja = await cajaUsdDeCuenta(sb, catalogo, String(cat.cuenta_id));
+        if (caja !== null && Number(datos.monto_usd) > caja + 0.01) {
+          aviso = ` Ojo: la Caja GBM registrada tiene $${caja.toFixed(2)} USD y esto usa $${Number(datos.monto_usd).toFixed(2)} USD. Díselo y pregúntale si le faltó registrar una aportación o una venta.`;
+        }
+      }
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "movimiento_inversion", resumen: String(entrada.resumen).slice(0, 200), categoria,
         datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
       });
-      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
+      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." + aviso };
     }
     case "mostrar_movimientos": {
       const ids = (Array.isArray(entrada.ids) ? entrada.ids : []).map(String).slice(0, 50);
@@ -630,16 +669,6 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (!data || data.length < 1000) break;
       }
 
-      // Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
-      // la usan (las "directas", de registros viejos, van de pesos a acciones sin pasar por ella)
-      const tipoDe = (r: Json) => r.tipo_movimiento || ((Number(r.cantidad_acciones) || 0) > 0 ? ((Number(r.monto) || 0) < 0 ? "compra_directa" : "venta_directa") : null);
-      const usdDe = (r: Json) => {
-        const usd = Number(r.monto_usd) || 0;
-        if (usd > 0) return usd;
-        const acciones = Number(r.cantidad_acciones) || 0, precio = Number(r.costo_accion) || 0, tc = Number(r.tipo_cambio) || 0;
-        if (acciones > 0 && precio > 0) return acciones * precio;
-        return tc > 1 ? Math.abs(Number(r.monto) || 0) / tc : 0;
-      };
       const desdeA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.desde ?? "")) ? String(entrada.desde) : null;
       const hastaA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.hasta ?? "")) ? String(entrada.hasta) : "9999-12-31";
 
