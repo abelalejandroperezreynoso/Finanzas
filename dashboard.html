@@ -16128,7 +16128,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, recurrentes: recurrentesParaAsistente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -16205,6 +16205,40 @@
                                     <g class="patas-a">${r(3, 10, 1, 1, cuerpo)}${r(10, 10, 1, 1, cuerpo)}</g>
                                     <g class="patas-b">${r(5, 10, 1, 1, cuerpo)}${r(8, 10, 1, 1, cuerpo)}</g>
                                 </svg>`;
+                            }
+
+                            // Las recurrencias que la app ya detectó (las de Recurrentes), con sus próximas fechas en los
+                            // siguientes 45 días calculadas igual que la proyección de la gráfica. Viajan con cada mensaje
+                            // para que el asistente y su pronóstico usen las mismas fechas y montos.
+                            function recurrentesParaAsistente() {
+                                const hoy = new Date();
+                                hoy.setHours(0, 0, 0, 0);
+                                const limite = new Date(hoy);
+                                limite.setDate(limite.getDate() + 45);
+                                const dia = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                try {
+                                    return (datosCategorias || []).filter(c => c.diasRecurrencia > 0 && c.siguienteFechaRecurrencia && c.tipo !== 'salud').slice(0, 80).map(c => {
+                                        const siguiente = new Date(c.siguienteFechaRecurrencia);
+                                        siguiente.setHours(0, 0, 0, 0);
+                                        const fechas = [];
+                                        let f = new Date(siguiente);
+                                        for (let vueltas = 0; f <= limite && fechas.length < 8 && vueltas < 60; vueltas++) {
+                                            fechas.push(dia(c.anclasRecurrencia ? f : ajustarADiaHabil(f, c.perfilDiasHabiles)));
+                                            if (c.anclasRecurrencia) {
+                                                const sig = siguienteOcurrencia(c, f);
+                                                if (!sig) break;
+                                                f = new Date(sig);
+                                                f.setHours(0, 0, 0, 0);
+                                            } else f.setDate(f.getDate() + c.diasRecurrencia);
+                                        }
+                                        return {
+                                            categoria_id: c.id, cada_dias: c.diasRecurrencia, siguiente: dia(siguiente), fechas,
+                                            monto: Math.round(Math.abs(parseFloat(c.montoSugerido) || 0) * 100) / 100,
+                                            monto_promedio: !!c.esMontoPromedio, exacto: !!c.esExactoRecurrencia,
+                                            seguidos: c.periodosRecurrencia || 0, vencido: siguiente < hoy,
+                                        };
+                                    });
+                                } catch (e) { return []; }
                             }
 
                             window.revisarMesAsistente = () => enviarMensajeAsistente('¿Cómo voy este mes y dónde puedo ajustar?');

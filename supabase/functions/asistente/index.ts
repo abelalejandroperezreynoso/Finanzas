@@ -300,6 +300,14 @@ const HERRAMIENTAS: Json[] = [
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "listar_recurrentes",
+    description:
+      "Pagos y cobros recurrentes que la app detectó en su historial (los de su pantalla Recurrentes): cada cuántos días, próxima fecha, si está vencido, " +
+      "monto sugerido, si es exacto o aproximado, cuántos periodos seguidos lleva y las fechas de los próximos 45 días. Úsala para \"¿qué pagos vienen?\", " +
+      "\"¿cuándo me cae…?\" o para avisar de lo vencido.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "pronostico_mes",
     description:
       "Cómo va el mes en curso y cómo terminaría, calculado con sus datos (sólo cuentas que suman al saldo total): lo que lleva gastado e ingresado contra lo normal " +
@@ -478,7 +486,21 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // conInversion: la app sabe aplicar propuestas de inversión
 // conAltas: la app sabe crear cuentas y categorías propuestas y cambiar el saldo inicial
 // conPorNombre: la app sabe registrar un movimiento en una categoría propuesta que aún no existe
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean };
+// recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; recurrentes?: Json[] };
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+function limpiarRecurrentes(lista: unknown): Json[] | undefined {
+  if (!Array.isArray(lista)) return undefined;
+  return lista.slice(0, 80).map((r: Json) => ({
+    categoria_id: String(r?.categoria_id ?? ""), cada_dias: Number(r?.cada_dias) || null,
+    siguiente: FECHA.test(String(r?.siguiente)) ? String(r.siguiente) : null,
+    fechas: (Array.isArray(r?.fechas) ? r.fechas : []).map(String).filter((f: string) => FECHA.test(f)).slice(0, 8),
+    monto: Math.abs(Number(r?.monto) || 0), monto_promedio: r?.monto_promedio === true, exacto: r?.exacto === true,
+    seguidos: Number(r?.seguidos) || 0, vencido: r?.vencido === true,
+  })).filter((r: Json) => r.categoria_id && r.siguiente);
+}
+// Como en la gráfica de la app: ingresos y deudas entran; gastos, préstamos e inversiones salen
+const signoRecurrente = (tipo: string) => (tipo === "ingreso" || tipo === "deuda" ? 1 : -1);
 const sufijoZona = (z: Zona) => {
   const m = -z.desfase;
   const signo = m >= 0 ? "+" : "-";
@@ -720,6 +742,22 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }),
       };
     }
+    case "listar_recurrentes": {
+      if (!zona.recurrentes) return { texto: "Esta versión de la app no manda las recurrencias: dile que la actualice.", error: true };
+      const cuentaDe = (id: unknown) => catalogo.cuentas.find((c: Json) => String(c.id) === String(id))?.nombre ?? null;
+      const catDe = (id: string) => catalogo.categorias.find((c: Json) => String(c.id) === id);
+      const filas = zona.recurrentes.map((r: Json) => {
+        const c = catDe(r.categoria_id);
+        return c ? [catalogo.etiqueta[String(c.id)] ?? c.nombre, c.tipo, cuentaDe(c.cuenta_id), r.cada_dias, r.siguiente, r.vencido,
+          signoRecurrente(c.tipo) * r.monto, r.monto_promedio ? "promedio" : "fijo", r.exacto ? "exacto" : "aproximado", r.seguidos, r.fechas.join(" ")] : null;
+      }).filter(Boolean).sort((a: Json, b: Json) => String(a[4]).localeCompare(String(b[4])));
+      return {
+        texto: recortar({
+          nota: "monto negativo = sale, positivo = entra. vencido = la fecha esperada ya pasó y no se ha registrado.",
+          recurrentes: tabla(["categoria", "tipo", "cuenta", "cada_dias", "siguiente", "vencido", "monto", "monto_es", "fecha", "periodos_seguidos", "fechas_proximas"], filas as Json[][]),
+        }),
+      };
+    }
     case "pronostico_mes": {
       // Sólo lo que mueve la cifra grande de la app: categorías de dinero en cuentas que suman al total
       const incluidas = new Set(catalogo.cuentas.filter((c: Json) => c.incluir_en_total !== false).map((c: Json) => String(c.id)));
@@ -764,8 +802,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         else x.despues[Math.min(diaR, diasMes)] = (x.despues[Math.min(diaR, diasMes)] ?? 0) + m;
       }
       const n = conDatos.size;
-      if (!n) return { texto: "Todavía no hay meses anteriores con movimientos para comparar." };
-      const prom = (o: Record<string, number>) => Object.values(o).reduce((t, v) => t + v, 0) / n;
+      if (!n && !zona.recurrentes?.length) return { texto: "Todavía no hay meses anteriores con movimientos para comparar." };
+      const prom = (o: Record<string, number>) => n ? Object.values(o).reduce((t, v) => t + v, 0) / n : 0;
 
       const { data: saldos } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
       const porCuenta: Record<string, number> = {};
@@ -780,13 +818,33 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const filas: Json[] = [];
       const porVenir: Json[] = [];
       let gastoMtd = 0, gastoNormalHoy = 0, gastoNormalMes = 0, ingresoMtd = 0, ingresoNormalHoy = 0, ingresoNormalMes = 0;
+      const recPorCat: Record<string, Json> = {};
+      (zona.recurrentes ?? []).forEach((r: Json) => { if (r.monto > 0) recPorCat[r.categoria_id] = r; });
       for (const c of cats) {
-        const x = h[String(c.id)];
-        if (!x) continue;
-        const normalMes = prom(x.total), normalHoy = prom(x.hasta);
-        const falta = normalMes < 0 ? Math.min(0, normalMes - x.mtd) : Math.max(0, normalMes - x.mtd);
+        const x = h[String(c.id)] ?? { mtd: 0, total: {}, hasta: {}, despues: {} };
+        const rec = recPorCat[String(c.id)];
+        // Lo que se repite cada más de mes y medio (un fondo de ahorro, un seguro anual) no es "normal" de un mes
+        const esporadico = rec && rec.cada_dias > 45;
+        const normalMes = esporadico ? 0 : prom(x.total), normalHoy = esporadico ? 0 : prom(x.hasta);
+        if (!h[String(c.id)] && !rec) continue;
         if (c.tipo === "gasto") { gastoMtd -= x.mtd; gastoNormalHoy -= normalHoy; gastoNormalMes -= normalMes; }
         if (c.tipo === "ingreso") { ingresoMtd += x.mtd; ingresoNormalHoy += normalHoy; ingresoNormalMes += normalMes; }
+        if (rec) {
+          // Recurrente: las fechas y el monto que detectó la app. Lo vencido (o de hoy, sin registrar) va mañana.
+          const signo = signoRecurrente(c.tipo);
+          const fechasMes = rec.fechas.filter((f: string) => f.slice(0, 7) === mesActual || f < hoyL);
+          let total = 0, vencido = 0;
+          fechasMes.forEach((f: string) => {
+            const v = signo * rec.monto;
+            total += v;
+            if (f <= hoyL) { vencido += v; porDia[Math.min(dia + 1, diasMes)] += v; } else porDia[Number(f.slice(8, 10))] += v;
+          });
+          if (Math.abs(total) >= 1) {
+            porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(total), origen: "recurrente",
+              fechas: fechasMes.filter((f: string) => f > hoyL), atrasado: Math.round(vencido), exacto: rec.exacto });
+          }
+        }
+        const falta = rec ? 0 : normalMes < 0 ? Math.min(0, normalMes - x.mtd) : Math.max(0, normalMes - x.mtd);
         if (Math.abs(falta) >= 1) {
           const despues = Object.entries(x.despues).map(([d, v]) => [Number(d), v / n] as [number, number]);
           const sumaDespues = despues.reduce((t, [, v]) => t + v, 0);
@@ -798,7 +856,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           } else atrasado = falta;
           if (Math.abs(atrasado) >= 1) porDia[Math.min(dia + 1, diasMes)] += atrasado;
           const dias = despues.filter(([, v]) => Math.sign(v) === Math.sign(falta)).map(([d]) => d).sort((a, b) => a - b);
-          porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta),
+          porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta), origen: "promedio",
             dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
         }
         if (c.tipo === "gasto" && (x.mtd !== 0 || normalMes !== 0)) {
@@ -823,7 +881,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ingresos: { llevas: r0(ingresoMtd), normal_a_esta_fecha: r0(ingresoNormalHoy), normal_del_mes: r0(ingresoNormalMes), diferencia: r0(ingresoMtd - ingresoNormalHoy) },
           gastos_por_categoria: tabla(["categoria", "prioridad", "llevas", "normal_a_esta_fecha", "normal_del_mes", "diferencia"], filas.slice(0, 15)),
           por_venir: porVenir.slice(0, 15),
-          nota: "Estimación: supone que el resto del mes será como un mes normal (promedio de los meses comparados). monto negativo en por_venir = saldrá; " +
+          nota: "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
+            "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
             "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo supone que llega mañana; si no llega, el saldo quedaría más bajo). Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
       };
@@ -1212,7 +1271,7 @@ Que al usuario le quede más dinero cada mes y su patrimonio crezca. Lo mides co
 - Gastos: ahorros concretos con montos, empezando por lo prescindible y lo que creció frente a lo normal.
 - Ingresos: avisa si bajaron o se retrasaron. Deudas: primero las más caras. Dinero parado: sugiere ponerlo a rendir según sus metas.
 - Datos correctos: si algo no cuadra (monto atípico, duplicado, categoría o tipo que no corresponde), dilo y propón la corrección.
-- Anticípate a pagos recurrentes y gastos que van más rápido que otros meses. Conecta tus consejos con sus metas y compromisos y dales seguimiento con cifras.
+- Anticípate a pagos y cobros recurrentes (listar_recurrentes; avisa de lo vencido) y a gastos que van más rápido que otros meses. Conecta tus consejos con sus metas y compromisos y dales seguimiento con cifras.
 
 # Tu memoria
 Está al final de estas instrucciones y la mantienes tú, sin pedir permiso (la app le muestra los cambios; no los anuncies):
@@ -1542,7 +1601,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, recurrentes: limpiarRecurrentes(entrada.recurrentes) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];
