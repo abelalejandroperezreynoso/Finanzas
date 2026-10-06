@@ -537,7 +537,12 @@ const DIAS_SEMANA_FECHA = ["domingo", "lunes", "martes", "miércoles", "jueves",
 const fechaConDia = (iso: string, z: Zona) => {
   const f = fechaLocal(iso, z);
   const d = new Date(`${f.slice(0, 10)}T12:00:00Z`);
-  return isNaN(d.getTime()) ? f : `${DIAS_SEMANA_FECHA[d.getUTCDay()]} ${f}`;
+  if (isNaN(d.getTime())) return f;
+  // Y cuánto hace, ya contado: "antier" lo ponía en el día equivocado
+  const hoy = new Date(`${fechaLocal(new Date().toISOString(), z).slice(0, 10)}T12:00:00Z`);
+  const dias = Math.round((hoy.getTime() - d.getTime()) / 86400000);
+  const hace = dias === 0 ? "hoy" : dias === 1 ? "ayer" : dias === 2 ? "antier" : dias > 0 ? `hace ${dias} días` : dias === -1 ? "mañana" : `en ${-dias} días`;
+  return `${DIAS_SEMANA_FECHA[d.getUTCDay()]} ${f} (${hace})`;
 };
 
 // Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
