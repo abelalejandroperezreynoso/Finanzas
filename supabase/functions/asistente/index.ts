@@ -675,7 +675,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cuentas: Record<string, Json> = {};
       const empresas: Record<string, Json> = {};
       const actividad: Record<string, Json> = {};
-      const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, ultima_aportacion: null };
+      const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, dolares_compras_directas: 0, dolares_ventas_directas: 0, ultima_aportacion: null };
       for (const r of movs) {
         const cat = catPorId[String(r.categoria_id)];
         const tipo = tipoDe(r);
@@ -698,7 +698,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const nombre = catalogo.etiqueta[String(cat.id)] ?? cat.nombre;
           if (tipo === "compra" || tipo === "compra_directa") {
             e.acciones += acciones; e.costo_usd += usd;
-            if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else cta.pesos_compras_directas += pesos;
+            if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else { cta.pesos_compras_directas += pesos; cta.dolares_compras_directas += usd; }
             if (act) act.compras[nombre] = (act.compras[nombre] ?? 0) + usd;
           } else if (tipo === "venta" || tipo === "venta_directa") {
             const promedio = e.acciones > 0 ? e.costo_usd / e.acciones : 0;
@@ -706,7 +706,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             e.realizada_usd += usd - promedio * vendidas;
             e.acciones -= vendidas; e.costo_usd -= promedio * vendidas;
             if (e.acciones <= 0.00001) { e.acciones = 0; e.costo_usd = 0; }
-            if (tipo === "venta") cta.caja_usd += usd; else cta.pesos_ventas_directas += pesos;
+            if (tipo === "venta") cta.caja_usd += usd; else { cta.pesos_ventas_directas += pesos; cta.dolares_ventas_directas += usd; }
             if (act) act.ventas[nombre] = (act.ventas[nombre] ?? 0) + usd;
           }
         }
@@ -748,10 +748,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const valorUsd = c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0);
         const puesto = c.pesos_aportados + c.pesos_compras_directas - c.pesos_retirados - c.pesos_ventas_directas;
         const valorMxn = tc ? valorUsd * tc : null;
+        // La ganancia en pesos se parte en dos: lo que hicieron las acciones (los dólares de más, al tipo de
+        // cambio de hoy) y lo que hizo el tipo de cambio con los dólares que se pusieron. Sin esto el modelo
+        // lo adivinaba y llegó a decir que el dólar ayudaba cuando había bajado.
+        const dolaresNetos = c.dolares_aportados + c.dolares_compras_directas - c.dolares_retirados - c.dolares_ventas_directas;
+        const efectoTc = tc ? dolaresNetos * tc - puesto : null;
         return [
           nombreCuenta(id), r2(c.pesos_aportados), r2(c.dolares_aportados), r2(c.pesos_retirados), r2(c.dolares_retirados),
           r2(c.caja_usd), r2((c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0)), r2(valorUsd), valorMxn !== null ? r2(valorMxn) : null,
           r2(puesto), valorMxn !== null ? r2(valorMxn - puesto) : null, valorMxn !== null && puesto > 0 ? r2((valorMxn / puesto - 1) * 100) : null,
+          valorMxn !== null && efectoTc !== null ? r2(valorMxn - puesto - efectoTc) : null, efectoTc !== null ? r2(efectoTc) : null,
           c.ultima_aportacion,
         ];
       });
@@ -760,9 +766,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         texto: recortar({
           tipo_de_cambio_hoy: tc,
           nota: "Dólares salvo donde dice pesos. precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
-            "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio.",
+            "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
+            "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
+            "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú.",
           cuentas: tabla(["cuenta", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "valor_acciones_usd",
-            "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ultima_aportacion"], filasCuentas),
+            "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio", "invertido", "precio", "precio_del_dia", "valor",
             "plusvalia", "plusvalia_pct", "ganancia_realizada"], filasEmpresas),
           ...(desdeA ? {
