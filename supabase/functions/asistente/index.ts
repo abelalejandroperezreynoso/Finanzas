@@ -732,7 +732,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ? `${tipo === "aportacion" ? "Aportación" : "Retiro"}: $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} MXN ${tipo === "aportacion" ? "→" : "←"} $${Number(datos.monto_usd).toFixed(2)} USD en la Caja GBM`
           : tipo === "comision" ? `Comisión de GBM: $${Number(datos.monto_usd).toFixed(2)} USD de la Caja GBM`
           : `${tipo === "compra" ? "Compra" : "Venta"} de ${Number(datos.cantidad_acciones)} ${cat.nombre} [${cat.ticker}] a $${Number(datos.costo_accion).toFixed(2)} USD`,
-        datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
+        datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || (tipo === "comision" ? "Comisión de GBM" : "") },
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." + aviso };
     }

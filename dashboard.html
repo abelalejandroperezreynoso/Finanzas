@@ -10719,7 +10719,7 @@
 
                                                                                                                                                 // Al menos un renglón de la descripción, aunque no quepa entera: es
                                                                                                                                                 // lo que distingue dos movimientos de la misma categoría.
-                                                                                                                                                const textoDescripcion = String(r.descripcion || '').replace(/\s+/g, ' ').trim();
+                                                                                                                                                const textoDescripcion = String(r.descripcion || (tipoMovR === 'comision' ? 'Comisión de GBM' : '')).replace(/\s+/g, ' ').trim();
                                                                                                                                                 const descripcionRenglon = textoDescripcion
                                                                                                                                                     ? `<small class="movimiento-desc">${escaparHtml(textoDescripcion)}</small>`
                                                                                                                                                     : '';
