@@ -751,8 +751,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const idCuenta = f.pop();
         const valorFila = f[8] ?? (Number(f[3]) > 0 ? f[5] : 0);
         const caja = cuentas[idCuenta]?.caja_usd ?? 0;
-        f.push(totalUsd > 0 ? r2((valorFila / totalUsd) * 100) : null, f[6] ? Math.floor((caja / f[6]) * 10000) / 10000 : null);
+        f.push(totalUsd > 0 ? r2((valorFila / totalUsd) * 100) : null, f[6] ? Math.floor((caja / f[6]) * 10000) / 10000 : null,
+          f[6] ? r2(Math.max(0, f[6] - caja)) : null);
       });
+      const concentrada = filasEmpresas.find((f: Json[]) => Number(f[12]) > 50);
 
       const filasCuentas = Object.entries(cuentas).map(([id, c]: [string, Json]) => {
         // Sin precio, una empresa cuenta por lo que costó
@@ -780,11 +782,13 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
             "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú. " +
-            "peso_pct = parte de todo lo invertido (caja incluida) que es esa empresa. acciones_que_alcanza_la_caja = acciones de esa empresa que se pueden comprar hoy con la Caja GBM de su cuenta.",
+            "peso_pct = parte de todo lo invertido (caja incluida) que es esa empresa. acciones_que_alcanza_la_caja = acciones de esa empresa que se pueden comprar hoy con la Caja GBM de su cuenta; usd_que_faltan_para_una_accion = dólares que le faltan a esa caja para una acción entera. " +
+            "Si viene aviso_concentracion, menciónalo cuando hable de comprar, vender o de cómo van.",
           cuentas: tabla(["cuenta", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio", "invertido", "precio", "precio_del_dia", "valor",
-            "plusvalia", "plusvalia_pct", "ganancia_realizada", "peso_pct", "acciones_que_alcanza_la_caja"], filasEmpresas),
+            "plusvalia", "plusvalia_pct", "ganancia_realizada", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"], filasEmpresas),
+          ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
               cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: r2(a.pesos_aportados), dolares_aportados: r2(a.dolares_aportados),
@@ -949,7 +953,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const { data, error } = await sb.from("registros").select("fecha, monto, categoria_id")
         .gte("fecha", inicioDeDia(d.toISOString().slice(0, 10), zona)).limit(20000);
       if (error) return { texto: `Error: ${error.message}`, error: true };
-      return { texto: recortar(tabla(COLUMNAS_FLUJO, flujoPorMes(data ?? [], (r) => catalogo.tipo[String(r.categoria_id)], zona))) };
+      const filas = flujoPorMes(data ?? [], (r) => catalogo.tipo[String(r.categoria_id)], zona);
+      // El mes en curso va a medias: sin decirlo, el modelo lo tomaba como lo normal de cada mes
+      const completos = filas.filter((f) => f[0] < hoyL.slice(0, 7)).slice(-3);
+      return {
+        texto: recortar({
+          mes_en_curso: `${hoyL.slice(0, 7)} va al día ${Number(hoyL.slice(8, 10))}: incompleto, no lo tomes como lo normal`,
+          promedio_queda_meses_completos: completos.length ? Math.round(completos.reduce((t, f) => t + Number(f[3]), 0) / completos.length) : null,
+          meses_completos_promediados: completos.length,
+          meses: tabla(COLUMNAS_FLUJO, filas),
+        }),
+      };
     }
     case "recordar": {
       const nota = String(entrada.nota ?? "").trim();
@@ -1329,8 +1343,8 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
-- "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (cuánto le queda al mes). Con eso da los datos que importan para su decisión y relaciónalo con su meta.
-- Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): después de la cuenta, compara el monto mensual con lo que le queda al mes según flujo_mensual (promedio de los últimos 3 meses completos; si hay menos, dilo). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
+- "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Con eso da los datos que importan para su decisión y relaciónalo con su meta.
+- Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): después de la cuenta, compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es menor a 3 o es null, dilo: es poca historia). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
 
 # "¿Cómo voy?"
