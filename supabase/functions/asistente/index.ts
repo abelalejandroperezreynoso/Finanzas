@@ -768,6 +768,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       });
       const concentrada = filasEmpresas.find((f: Json[]) => Number(f[12]) > 50);
 
+      // Cada cifra sale con su moneda escrita. Con números sueltos y una nota general de "dólares salvo
+      // donde dice pesos", el modelo los mezclaba ("$6,141 en dólares, menos de $111 en pesos").
+      const dinero = (n: unknown, moneda: "MXN" | "USD", conSigno = false) => {
+        if (n === null || n === undefined || !Number.isFinite(Number(n))) return null;
+        const v = Number(n);
+        const signo = v < 0 ? "-" : (conSigno && v > 0 ? "+" : "");
+        return `${signo}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moneda}`;
+      };
+      const pct = (n: unknown, conSigno = true) => (n === null || n === undefined) ? null : `${conSigno && Number(n) > 0 ? "+" : ""}${n} %`;
+
       const filasCuentas = Object.entries(cuentas).map(([id, c]: [string, Json]) => {
         // Sin precio, una empresa cuenta por lo que costó
         const valorUsd = c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0);
@@ -778,35 +788,46 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         // lo adivinaba y llegó a decir que el dólar ayudaba cuando había bajado.
         const dolaresNetos = c.dolares_aportados + c.dolares_compras_directas - c.dolares_retirados - c.dolares_ventas_directas;
         const efectoTc = tc ? dolaresNetos * tc - puesto : null;
+        const ganancia = valorMxn !== null ? valorMxn - puesto : null;
+        const porAcciones = ganancia !== null && efectoTc !== null ? ganancia - efectoTc : null;
+        const accionesUsd = (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0);
+        const enPocasPalabras = valorMxn !== null
+          ? `${nombreCuenta(id)} vale hoy ${dinero(valorMxn, "MXN")} (${dinero(valorUsd, "USD")}): ${dinero(accionesUsd * (tc ?? 0), "MXN")} en acciones y ${dinero(c.caja_usd * (tc ?? 0), "MXN")} (${dinero(c.caja_usd, "USD")}) en la Caja GBM. ` +
+            `Pusiste netos ${dinero(puesto, "MXN")}. Ganancia ${dinero(ganancia, "MXN", true)}: ${dinero(porAcciones, "MXN", true)} por las acciones y ${dinero(efectoTc, "MXN", true)} por el tipo de cambio.`
+          : `${nombreCuenta(id)}: ${dinero(valorUsd, "USD")} (sin tipo de cambio de hoy para pasarlo a pesos).`;
         return [
-          nombreCuenta(id), r2(c.pesos_aportados), r2(c.dolares_aportados), r2(c.pesos_retirados), r2(c.dolares_retirados),
-          r2(c.caja_usd), r2((c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0)), r2(valorUsd), valorMxn !== null ? r2(valorMxn) : null,
-          r2(puesto), valorMxn !== null ? r2(valorMxn - puesto) : null, valorMxn !== null && puesto > 0 ? r2((valorMxn / puesto - 1) * 100) : null,
-          valorMxn !== null && efectoTc !== null ? r2(valorMxn - puesto - efectoTc) : null, efectoTc !== null ? r2(efectoTc) : null,
+          nombreCuenta(id), enPocasPalabras, dinero(c.pesos_aportados, "MXN"), dinero(c.dolares_aportados, "USD"), dinero(c.pesos_retirados, "MXN"), dinero(c.dolares_retirados, "USD"),
+          dinero(c.caja_usd, "USD"), tc ? dinero(c.caja_usd * tc, "MXN") : null, dinero(accionesUsd, "USD"), dinero(valorUsd, "USD"), dinero(valorMxn, "MXN"),
+          dinero(puesto, "MXN"), dinero(ganancia, "MXN", true), valorMxn !== null && puesto > 0 ? pct(r2((valorMxn / puesto - 1) * 100)) : null,
+          dinero(porAcciones, "MXN", true), dinero(efectoTc, "MXN", true),
           c.ultima_aportacion,
         ];
       });
 
       return {
         texto: recortar({
-          tipo_de_cambio_hoy: tc,
-          nota: "Dólares salvo donde dice pesos. precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
+          tipo_de_cambio_hoy: tc ? `1 USD = ${tc} MXN` : null,
+          nota: "Cada cifra trae su moneda escrita (MXN o USD): úsala tal cual, no conviertas ni cambies la moneda, y nunca digas pesos de una cifra en USD ni al revés. " +
+            "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
+            "precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
             "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú. " +
             "peso_pct = parte de todo lo invertido (caja incluida) que es esa empresa. acciones_que_alcanza_la_caja = acciones de esa empresa que se pueden comprar hoy con la Caja GBM de su cuenta; usd_que_faltan_para_una_accion = dólares que le faltan a esa caja para una acción entera. " +
             "Si viene aviso_concentracion, menciónalo cuando hable de comprar, vender o de cómo van.",
-          cuentas: tabla(["cuenta", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "valor_acciones_usd",
+          cuentas: tabla(["cuenta", "en_pocas_palabras", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "caja_gbm_pesos", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
-          empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio", "invertido", "precio", "precio_del_dia", "valor",
-            "plusvalia", "plusvalia_pct", "ganancia_realizada", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"], filasEmpresas),
+          empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio_usd", "invertido_usd", "precio_usd", "precio_del_dia", "valor_usd",
+            "plusvalia_usd", "plusvalia_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
+            filasEmpresas.map((f: Json[]) => [f[0], f[1], f[2], f[3], dinero(f[4], "USD"), dinero(f[5], "USD"), dinero(f[6], "USD"), f[7], dinero(f[8], "USD"),
+              dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
           ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
-              cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: r2(a.pesos_aportados), dolares_aportados: r2(a.dolares_aportados),
-              pesos_retirados: r2(a.pesos_retirados), dolares_retirados: r2(a.dolares_retirados),
-              compras_usd_por_empresa: Object.fromEntries(Object.entries(a.compras).map(([k, v]) => [k, r2(v as number)])),
-              ventas_usd_por_empresa: Object.fromEntries(Object.entries(a.ventas).map(([k, v]) => [k, r2(v as number)])),
+              cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: dinero(a.pesos_aportados, "MXN"), dolares_aportados: dinero(a.dolares_aportados, "USD"),
+              pesos_retirados: dinero(a.pesos_retirados, "MXN"), dolares_retirados: dinero(a.dolares_retirados, "USD"),
+              compras_por_empresa: Object.fromEntries(Object.entries(a.compras).map(([k, v]) => [k, dinero(v, "USD")])),
+              ventas_por_empresa: Object.fromEntries(Object.entries(a.ventas).map(([k, v]) => [k, dinero(v, "USD")])),
             })),
           } : {}),
         }),
