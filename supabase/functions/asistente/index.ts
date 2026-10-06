@@ -1404,7 +1404,23 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
   }
 }
 
-const SISTEMA_CHAT = (hoy: string, usd: number | null) => `Eres el asistente de una app personal de finanzas (México, montos en MXN). Hoy es ${hoy}.${usd ? ` Tipo de cambio de hoy: 1 USD = $${usd.toFixed(2)} MXN.` : ""}
+// Los días de la semana ya calculados: con sólo "2026-10-06" el modelo los sacaba de cabeza y fallaba
+// ("hoy, lunes 6", cuando era martes).
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+function calendarioCercano(hoy: string) {
+  const base = new Date(`${hoy}T12:00:00Z`);
+  const dias: string[] = [];
+  for (let k = -14; k <= 7; k++) {
+    const d = new Date(base.getTime() + k * 86400000);
+    const etiqueta = k === 0 ? " (hoy)" : k === -1 ? " (ayer)" : k === -2 ? " (antier)" : k === 1 ? " (mañana)" : "";
+    dias.push(`${DIAS_SEMANA[d.getUTCDay()]} ${d.getUTCDate()} ${MESES_CORTOS[d.getUTCMonth()]}${etiqueta}`);
+  }
+  return dias.join(", ");
+}
+
+const SISTEMA_CHAT = (hoy: string, usd: number | null) => `Eres el asistente de una app personal de finanzas (México, montos en MXN). Hoy es ${DIAS_SEMANA[new Date(`${hoy}T12:00:00Z`).getUTCDay()]} ${hoy}.${usd ? ` Tipo de cambio de hoy: 1 USD = $${usd.toFixed(2)} MXN.` : ""}
+Calendario (úsalo para los días de la semana; no los calcules): ${calendarioCercano(hoy)}.
 
 # Cómo respondes
 - En español de México, de tú (nunca voseo: "pagas", no "pagás"), claro y breve, como en un chat. No supongas su género: "Te doy la bienvenida", no "Bienvenido". Listas cortas si ayudan y **negritas** para las cifras clave. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
@@ -1443,6 +1459,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 
 # Tipos de categoría
 - gasto, ingreso, deuda, prestamo, inversion y salud. Salud no es dinero: lleva una cantidad y monto 0. Prioridad de los gastos (4 N): vital, operativa, util, prescindible.
+- En Salud la cantidad es lo que mida la categoría según su descripción (veces, vasos, horas, kilos…). Si la descripción no lo dice, es cuántas veces pasó: 1 por cada vez. No inventes escalas que la app no guarda (intensidad, nivel, duración): sólo existe la cantidad. Si de verdad no sabes qué mide, pregúntalo una vez y propón ponerlo en la descripción de la categoría.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
@@ -1722,7 +1739,7 @@ Deno.serve(async (req) => {
       p.system = SISTEMA_REVISION;
       p.messages = [{
         role: "user",
-        content: `Hoy es ${hoyR}. El mes en curso va incompleto.\n\nTu memoria sobre el usuario:\n${textoMemoria(notasR)}\n\n` +
+        content: `Hoy es ${DIAS_SEMANA[new Date(`${hoyR}T12:00:00Z`).getUTCDay()]} ${hoyR}. Calendario: ${calendarioCercano(hoyR)}. El mes en curso va incompleto.\n\nTu memoria sobre el usuario:\n${textoMemoria(notasR)}\n\n` +
           `Lo que le quedó cada mes:\n${JSON.stringify(tabla(COLUMNAS_FLUJO, flujo))}\n\n` +
           `Lo que le señalaste en revisiones anteriores (últimos 45 días):\n${anteriores.length ? JSON.stringify(tabla(["dia", "tipo", "titulo", "detalle", "estado"], anteriores)) : "(nada)"}\n\n` +
           `Categorías con movimientos en los últimos meses:\n${JSON.stringify(categorias)}\n\nMovimientos de los últimos 35 días:\n${JSON.stringify(recientes)}`,
