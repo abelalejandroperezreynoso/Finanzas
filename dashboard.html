@@ -2028,7 +2028,7 @@
             </div>
     <!-- Finanzas · Inversiones · Salud, a la vista. Antes se cambiaba tocando el título y nada lo
          decía. Las opciones sin datos (sin inversiones o sin Salud) no salen. -->
-    <div id="segmentoModo" class="segmento-ios" role="tablist" aria-label="Qué ver">
+    <div id="segmentoModo" class="segmento-ios solo-uno" role="tablist" aria-label="Qué ver">
         <button type="button" data-modo="finanzas" role="tab" onclick="irAModoInicio('finanzas')">Finanzas</button>
         <button type="button" data-modo="inversiones" role="tab" onclick="irAModoInicio('inversiones')">Inversiones</button>
         <button type="button" data-modo="salud" role="tab" onclick="irAModoInicio('salud')">Salud</button>
@@ -12473,6 +12473,9 @@
                                 const seg = document.getElementById('segmentoModo');
                                 if (!seg) return;
                                 const actual = modoSaludInicio ? 'salud' : (tipoTreemapCategorias === 'inversion' ? 'inversiones' : 'finanzas');
+                                // Escondido hasta que lleguen las categorías: antes de eso no se sabe qué modos hay,
+                                // y se veían los tres un momento aunque la cuenta no tuviera inversiones ni Salud
+                                if (window.sinInversiones === undefined) { seg.classList.add('solo-uno'); return; }
                                 const visibles = { finanzas: true, inversiones: !window.sinInversiones, salud: categoriasSalud().length > 0 };
                                 let cuantos = 0;
                                 seg.querySelectorAll('button').forEach(b => {
