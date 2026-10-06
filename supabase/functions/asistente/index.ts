@@ -1757,8 +1757,14 @@ Deno.serve(async (req) => {
       nuevos.push({ role: "assistant", content: [{ type: "text", text: "Me quedé sin pasos para terminar; pregúntame de nuevo para seguir." }] });
     }
 
-    const ultimo = nuevos[nuevos.length - 1];
-    const texto = (ultimo?.content ?? []).filter((b: Json) => b.type === "text").map((b: Json) => b.text).join("\n").trim();
+    // La respuesta es el texto del último mensaje. Pero a veces el modelo contesta y, en el mismo
+    // mensaje, guarda algo en su memoria; tras esa herramienta cierra sin texto y la respuesta se
+    // perdía: el usuario sólo veía "Recordé…". Entonces vale el último texto que sí escribió.
+    const textoDe = (m: Json) => (Array.isArray(m?.content) ? m.content : []).filter((b: Json) => b.type === "text").map((b: Json) => b.text).join("\n").trim();
+    let texto = "";
+    for (let i = nuevos.length - 1; i >= 0 && !texto; i--) {
+      if (nuevos[i].role === "assistant") texto = textoDe(nuevos[i]);
+    }
     await anotar("asistente", modeloUsado, usos);
     return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria, listas });
   } catch (error) {
