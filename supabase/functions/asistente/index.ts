@@ -245,14 +245,14 @@ const HERRAMIENTAS: Json[] = [
       "aportacion (pesos que entran a la Caja GBM convertidos a dólares; pide pesos cobrados y dólares acreditados), " +
       "retiro (dólares que salen de la Caja GBM convertidos a pesos; pide pesos recibidos y dólares que salieron), " +
       "compra y venta (acciones de una empresa pagadas o cobradas con la Caja GBM, sin pesos; pide acciones y precio por acción en USD). " +
-      "categoria_id: sólo en compra/venta, la categoría de la empresa. En aportación/retiro NO uses ni preguntes categoría: el dinero siempre entra o sale de la Caja GBM de la cuenta (se crea si no existe); " +
+      "Compra/venta: pasa el ticker y la función encuentra la categoría (si es una empresa nueva, propón antes la categoría). En aportación/retiro NO uses ni preguntes categoría: el dinero siempre entra o sale de la Caja GBM de la cuenta (se crea si no existe); " +
       "omite categoria_id y también cuenta_id si el usuario tiene una sola cuenta con inversiones. Una captura de GBM \"Smart Cash → USA\" es una aportación: toma de ahí pesos, dólares, fecha y hora.",
     input_schema: {
       type: "object",
       properties: {
         tipo: { type: "string", enum: ["aportacion", "retiro", "compra", "venta"] },
         categoria_id: { type: "string", description: "Sólo compra/venta: la categoría de la empresa" },
-        categoria_nueva: { type: "string", description: "Compra: nombre exacto de la categoría de inversión que acabas de proponer y aún no tiene id" },
+        ticker: { type: "string", description: "Compra/venta: el ticker de la empresa (Emisora en el comprobante). Con él la función encuentra la categoría; no hace falta categoria_id" },
         cuenta_id: { type: "string", description: "Sólo aportación/retiro, y sólo si tiene varias cuentas con inversiones" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         hora: { type: "string", description: "HH:MM o \"ahora\"; omítela si no se sabe" },
@@ -613,16 +613,22 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       // Una compra en la empresa que se acaba de proponer: todavía no tiene id. Se toma la cuenta de GBM
       // (la única con inversiones, o la de cuenta_id) y la app la busca por nombre al confirmar.
       let categoriaNueva: string | null = null;
-      if (!cat && tipo === "compra" && entrada.categoria_nueva) {
-        if (!zona.conInversionNueva) return { texto: "Esta versión de la app no registra compras en categorías nuevas: dile que la actualice.", error: true };
-        categoriaNueva = String(entrada.categoria_nueva).trim().slice(0, 80);
-        const yaCreada = catalogo.categorias.find((c: Json) => c.tipo === "inversion" && String(c.nombre).trim().toLowerCase() === categoriaNueva!.toLowerCase());
-        if (yaCreada) { cat = yaCreada; categoriaNueva = null; }
+      if (tipo === "compra" || tipo === "venta") {
+        // La empresa se identifica por su ticker, no por el id que elija el modelo: llegó a meter una
+        // compra de Visa en la categoría de Apple
+        const tk = String(entrada.ticker ?? (cat?.ticker ?? "")).trim().toUpperCase();
+        if (!tk) return { texto: "Falta el ticker de la empresa (la Emisora del comprobante).", error: true };
+        const porTicker = catalogo.categorias.find((c: Json) => c.tipo === "inversion" && String(c.ticker ?? "").toUpperCase() === tk
+          && (!entrada.cuenta_id || String(c.cuenta_id) === String(entrada.cuenta_id)));
+        if (porTicker) cat = porTicker;
         else {
-          const cuentasInv = [...new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)))];
-          const cuenta = entrada.cuenta_id ? String(entrada.cuenta_id) : (cuentasInv.length === 1 ? cuentasInv[0] : null);
-          if (!cuenta) return { texto: "Pasa cuenta_id: tiene varias cuentas con inversiones.", error: true };
-          cat = { id: null, cuenta_id: cuenta, tipo: "inversion", nombre: categoriaNueva, ticker: "nueva" };
+          const propuesta = propuestas.find((p: Json) => p.tipo === "nueva_categoria" && String(p.datos?.ticker ?? "") === tk);
+          if (tipo === "venta" || !propuesta) {
+            return { texto: tipo === "venta" ? `No tiene ninguna categoría con el ticker ${tk}: no se puede vender lo que no está registrado.` : `No tiene categoría para ${tk}. Primero propón la categoría con proponer_nueva_categoria (tipo inversion, ticker ${tk}) y luego vuelve a proponer la compra.`, error: true };
+          }
+          if (!zona.conInversionNueva) return { texto: "Esta versión de la app no registra compras en categorías nuevas: dile que la actualice.", error: true };
+          categoriaNueva = String(propuesta.datos.nombre);
+          cat = { id: null, cuenta_id: propuesta.datos.cuenta_id, tipo: "inversion", nombre: categoriaNueva, ticker: tk };
         }
       }
       if (!cat && (tipo === "aportacion" || tipo === "retiro")) {
@@ -711,7 +717,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         tipo: "movimiento_inversion", categoria,
         resumen: (tipo === "aportacion" || tipo === "retiro")
           ? `${tipo === "aportacion" ? "Aportación" : "Retiro"}: $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} MXN ${tipo === "aportacion" ? "→" : "←"} $${Number(datos.monto_usd).toFixed(2)} USD en la Caja GBM`
-          : String(entrada.resumen).slice(0, 200),
+          : `${tipo === "compra" ? "Compra" : "Venta"} de ${Number(datos.cantidad_acciones)} ${cat.nombre} [${cat.ticker}] a $${Number(datos.costo_accion).toFixed(2)} USD`,
         datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." + aviso };
@@ -1428,7 +1434,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (yaEsta) return { texto: `Ya existe la categoría ${yaEsta.nombre} [${ticker}] (id ${yaEsta.id}): úsala, no crees otra.`, error: true };
         empresa = await nombreDeTicker(ticker);
         if (!empresa) return { texto: `No encontré el ticker ${ticker} en el mercado de EE. UU. Pregúntale cómo aparece exactamente en GBM.`, error: true };
-        if (!nombre) nombre = nombreCortoEmpresa(empresa);
+        // El nombre lo pone la función: el modelo escribió "Vanguard" aun sabiendo que V es Visa
+        nombre = nombreCortoEmpresa(empresa);
       }
       if (!nombre) return { texto: "Falta el nombre de la categoría.", error: true };
       let cuentaId: string | null = null;
@@ -1449,11 +1456,13 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         return { texto: `Ya existe la categoría "${nombre}" en esa cuenta.`, error: true };
       }
       if (entrada.prioridad && entrada.tipo !== "gasto") return { texto: "La prioridad sólo aplica a categorías de gasto.", error: true };
-      const d = textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
+      // En una empresa la descripción tampoco la escribe el modelo: inventaba a qué se dedica
+      const d = ticker ? { texto: "", error: null } : textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
       if (d.error) return { texto: d.error, error: true };
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
-        tipo: "nueva_categoria", resumen: String(entrada.resumen).slice(0, 200), cuenta: cuentaNombre,
+        tipo: "nueva_categoria", cuenta: cuentaNombre,
+        resumen: ticker ? `Nueva categoría de inversión: ${nombre} [${ticker}]` : String(entrada.resumen).slice(0, 200),
         datos: {
           ...(cuentaId ? { cuenta_id: cuentaId } : {}), nombre, tipo: entrada.tipo,
           prioridad: entrada.tipo === "gasto" ? (entrada.prioridad ?? null) : null,
@@ -1462,7 +1471,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         },
       });
       if (ticker) {
-        return { texto: `Propuesta registrada: ${nombre} [${ticker}] es ${empresa}. Todavía NO está creada. Si es para registrar una compra o venta, propónla ya con proponer_movimiento_inversion y categoria_nueva="${nombre}": el usuario confirma primero la categoría y luego el movimiento.` };
+        return { texto: `Propuesta registrada: la categoría se llamará ${nombre} [${ticker}] (${empresa}); llámala así. Todavía NO está creada. Si es para una compra, propónla ya con proponer_movimiento_inversion y ticker="${ticker}": el usuario confirma primero la categoría y luego la compra.` };
       }
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Los movimientos que ya existen no se mueven solos a ella: para pasar uno, proponlo con proponer_cambio_movimiento y categoria_nueva." };
     }
@@ -1582,7 +1591,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
-- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión no se registra: la app guarda el precio puro de las acciones. Busca la categoría por su ticker; si no existe, en el mismo turno propón la categoría (proponer_nueva_categoria, tipo inversion, con el ticker, en la cuenta de GBM) y la compra con categoria_nueva. No digas qué empresa es un ticker hasta que la herramienta te lo diga.
+- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión no se registra: la app guarda el precio puro de las acciones. Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría. Si no existe, en el mismo turno propón primero la categoría (proponer_nueva_categoria, tipo inversion, con el ticker, en la cuenta de GBM) y después la compra. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto y lo que le queda en él no es dinero sin invertir: puede que ya lo haya movido). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado. Con eso da los datos que importan para su decisión y relaciónalo con su meta.
