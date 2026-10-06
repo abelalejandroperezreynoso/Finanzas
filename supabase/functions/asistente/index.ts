@@ -809,6 +809,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           tipo_de_cambio_hoy: tc ? `1 USD = ${tc} MXN` : null,
           nota: "Cada cifra trae su moneda escrita (MXN o USD): úsala tal cual, no conviertas ni cambies la moneda, y nunca digas pesos de una cifra en USD ni al revés. " +
             "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
+            "Lo que costó cada empresa sólo se conoce en USD: no lo pases a pesos con el tipo de cambio de hoy, porque no es lo que pagó (lo que pagó en pesos dependió del cambio de cada aportación). Su valor de hoy en pesos sí viene en valor_pesos_hoy. " +
             "precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
@@ -818,9 +819,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           cuentas: tabla(["cuenta", "en_pocas_palabras", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "caja_gbm_pesos", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio_usd", "invertido_usd", "precio_usd", "precio_del_dia", "valor_usd",
-            "plusvalia_usd", "plusvalia_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
+            "valor_pesos_hoy", "plusvalia_usd", "plusvalia_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
             filasEmpresas.map((f: Json[]) => [f[0], f[1], f[2], f[3], dinero(f[4], "USD"), dinero(f[5], "USD"), dinero(f[6], "USD"), f[7], dinero(f[8], "USD"),
-              dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
+              tc && f[8] !== null ? dinero(Number(f[8]) * tc, "MXN") : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
           ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
