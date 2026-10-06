@@ -1308,6 +1308,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const duplicados = Object.values(grupos).filter((g) => g.length > 1)
         .map((g) => `${g.length} × ${nombreCat(g[0].categoria_id)} de ${pesos(Number(g[0].monto), true)} el ${fechaConDia(g[0].fecha, zona)} (ids ${g.map((r) => r.id).join(", ")})`);
 
+      // ¿Ya sabe dónde guarda su dinero y cómo paga? Si no, es lo primero que hay que preguntar: sin eso
+      // no hay por dónde empezar a buscar, y se pierde para la próxima vez.
+      const { data: notasHabitos } = await sb.from("memoria_ia").select("nota");
+      const conoceHabitos = (notasHabitos ?? []).some((n: Json) => /efectivo|d[eé]bito|tarjeta|ahorro|paga|guarda|cajero/i.test(String(n.nota)));
+
       const sentido = Math.abs(diferencia) < 0.5 ? "cuadra"
         : diferencia < 0 ? "tiene MENOS de lo que dice la app: faltan gastos o retiros por registrar, o hay un ingreso de más o duplicado"
         : "tiene MÁS de lo que dice la app: falta un ingreso por registrar, o hay un gasto de más o duplicado";
@@ -1323,7 +1328,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           recurrentes_que_tocaban_y_no_estan: vencidos,
           habituales_que_faltan_este_mes: habituales,
           posibles_duplicados: duplicados,
-          guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos, preguntando con preguntar_al_usuario lo que haya que confirmar. " +
+          ...(conoceHabitos ? {} : { antes_que_nada: "Tu memoria no dice dónde guarda su dinero ni cómo suele pagar. En este mismo turno, después de decir la diferencia en una frase, pregúntalo con preguntar_al_usuario (p. ej. \"¿Cómo pagas casi siempre?\" con opciones Débito, Efectivo, Tarjeta de crédito, De todo un poco; y \"¿Tienes una cuenta de ahorro aparte?\" Sí/No). Con la respuesta, guárdalo con recordar (tema contexto) y sigue con las pistas." }),
+          guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos. Toda pregunta va con preguntar_al_usuario, nunca en el texto. " +
             "Lo que recuerde, propónlo con proponer_nuevo_movimiento; un duplicado se corrige proponiendo el cambio, nunca lo borras. Lo que no recuerde es normal: " +
             "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra). No toques el saldo inicial.",
         }),
