@@ -360,6 +360,7 @@
         .chat-preguntas .cp-cerrar, .chat-preguntas .cp-cerrar:hover { width: 44px; height: 44px; margin: 0; padding: 0; border-radius: 50%; background: #f5f4ef;
             color: #141413; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08); }
         .cp-titulo { font-size: 18px; font-weight: 600; line-height: 1.35; color: #141413; margin: 4px 0 8px; }
+        .cp-nota { font-size: 13px; color: #8a8880; margin: -4px 0 6px; }
         .chat-preguntas .cp-opcion, .chat-preguntas .cp-opcion:hover { width: 100%; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
             background: none; color: #141413; text-align: left; font-size: 15px; font-weight: 500; padding: 16px 0;
             border: none; border-bottom: 0.5px solid #e3e1d8; border-radius: 0; }
@@ -15796,16 +15797,42 @@
                             var chatEnviando = false;
                             const claveChat = () => `chatAsistente:${currentUser ? currentUser.id : 'anonimo'}`;
 
-                            // La conversación vive sólo mientras la app está abierta: al recargar empieza una
-                            // nueva, para que no crezca lo que se reenvía a la IA en cada mensaje.
+                            // La conversación vive mientras la app está abierta: al recargar empieza una nueva,
+                            // para que no crezca lo que se reenvía a la IA en cada mensaje. La excepción es
+                            // cuando iOS cierra la app a media plática: si se vuelve antes de MINUTOS_CHAT, se
+                            // recupera, para no perder propuestas sin confirmar.
+                            const MINUTOS_CHAT = 30;
                             let chatCargadoPara = null;
                             function cargarChatAsistente() {
                                 if (chatCargadoPara === claveChat()) return;
                                 chatCargadoPara = claveChat();
                                 chatApi = [];
                                 chatUi = [];
-                                // Las versiones anteriores la guardaban en el teléfono: se limpia lo que quedó
-                                try { localStorage.removeItem(claveChat()); } catch (e) { /* sin almacenamiento */ }
+                                try {
+                                    const guardado = JSON.parse(localStorage.getItem(claveChat()) || 'null');
+                                    if (guardado && Date.now() - guardado.hora < MINUTOS_CHAT * 60000
+                                        && Array.isArray(guardado.api) && Array.isArray(guardado.ui)) {
+                                        chatApi = guardado.api;
+                                        // Lo que se estaba guardando al cerrarse no se sabe si llegó
+                                        chatUi = guardado.ui.map(m => m.estado === 'aplicando' ? { ...m, estado: 'interrumpida' } : m);
+                                    } else {
+                                        localStorage.removeItem(claveChat());
+                                    }
+                                } catch (e) { /* sin almacenamiento */ }
+                            }
+
+                            // Se guarda sólo entre mensajes (nunca a medio envío) y sin los archivos que se
+                            // mandaron a la IA, que pesan demasiado para el teléfono
+                            function guardarChatAsistente() {
+                                if (chatEnviando || chatCargadoPara !== claveChat()) return;
+                                try {
+                                    if (!chatUi.length) { localStorage.removeItem(claveChat()); return; }
+                                    const sinArchivo = b => (b && (b.type === 'image' || b.type === 'document'))
+                                        ? { type: 'text', text: '(Adjunto que ya no está disponible)' } : b;
+                                    const api = chatApi.map(m => Array.isArray(m.content) ? { ...m, content: m.content.map(sinArchivo) } : m);
+                                    // Las burbujas guardan sólo la miniatura del adjunto, que es chica
+                                    localStorage.setItem(claveChat(), JSON.stringify({ hora: Date.now(), api, ui: chatUi }));
+                                } catch (e) { /* lleno o sin almacenamiento: la conversación sigue en memoria */ }
                             }
 
                             function abrirAsistente() {
@@ -16001,6 +16028,7 @@
                             }
 
                             function pintarChatAsistente(sinDesplazar) {
+                                guardarChatAsistente();
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
                                 pintarPreguntasAsistente();
@@ -16077,7 +16105,7 @@
                                                    <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
                                                    <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
                                                </div>`
-                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : 'Cancelado'}</div>`;
+                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : m.estado === 'interrumpida' ? 'Se cerró la app: revisa si se guardó' : 'Cancelado'}</div>`;
                                         if (m.estado === 'reemplazada') return `<div class="chat-propuesta reemplazada"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="estado">Reemplazada por la nueva propuesta</div></div>`;
                                         return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
                                     }
@@ -17028,6 +17056,10 @@
                             const respuestaDePregunta = (item, k) => {
                                 const r = item.respuestas[k];
                                 if (!r) return '';
+                                // Varias a la vez: lo marcado y lo escrito, juntos
+                                if (item.preguntas[k].varias) {
+                                    return [...(r.elegidas || []).map(i => item.preguntas[k].opciones[i]), (r.texto || '').trim()].filter(Boolean).join(', ');
+                                }
                                 if (r.texto && r.texto.trim()) return r.texto.trim();
                                 return r.opcion !== null && r.opcion !== undefined ? item.preguntas[k].opciones[r.opcion] : '';
                             };
@@ -17065,8 +17097,9 @@
                                         </button>
                                     </div>
                                     <div class="cp-titulo">${escaparHtml(q.pregunta)}</div>
+                                    ${q.varias ? '<div class="cp-nota">Elige todas las que quieras</div>' : ''}
                                     ${q.opciones.map((o, i) => {
-                                        const elegida = r.opcion === i && !(r.texto && r.texto.trim());
+                                        const elegida = q.varias ? (r.elegidas || []).includes(i) : r.opcion === i && !(r.texto && r.texto.trim());
                                         return `<button type="button" class="cp-opcion${elegida ? ' elegida' : ''}" onclick="elegirOpcionAsistente(${i})"><span>${escaparHtml(o)}</span>${elegida ? palomita : ''}</button>`;
                                     }).join('')}
                                     <input type="text" class="cp-otra" id="cpOtra" placeholder="${escaparHtml(q.ejemplo || 'Escribe tu respuesta…')}" value="${escaparHtml(r.texto || '')}"
@@ -17089,6 +17122,14 @@
                                 const item = preguntasPendientesAsistente();
                                 if (!item) return;
                                 const k = item.actual || 0;
+                                // Varias a la vez: cada toque marca o desmarca, y no se avanza solo
+                                if (item.preguntas[k].varias) {
+                                    const r = item.respuestas[k];
+                                    const elegidas = r.elegidas || [];
+                                    r.elegidas = elegidas.includes(i) ? elegidas.filter(x => x !== i) : [...elegidas, i].sort((a, b) => a - b);
+                                    pintarPreguntasAsistente();
+                                    return;
+                                }
                                 item.respuestas[k] = { opcion: i, texto: '' };
                                 if (item.registro && k === 0) opcionesRegistroAsistente(item);
                                 pintarPreguntasAsistente();
@@ -17104,9 +17145,11 @@
                                 const k = item.actual || 0;
                                 item.respuestas[k].texto = valor;
                                 if (item.registro && k === 0) opcionesRegistroAsistente(item);
-                                const conTexto = !!valor.trim();
+                                const conTexto = !!valor.trim() && !item.preguntas[k].varias;
                                 document.querySelectorAll('#chatPreguntas .cp-opcion').forEach((b, i) => {
-                                    const elegida = !conTexto && item.respuestas[k].opcion === i;
+                                    const elegida = item.preguntas[k].varias
+                                        ? (item.respuestas[k].elegidas || []).includes(i)
+                                        : !conTexto && item.respuestas[k].opcion === i;
                                     b.classList.toggle('elegida', elegida);
                                     const svg = b.querySelector('svg');
                                     if (svg && !elegida) svg.remove();
@@ -21790,17 +21833,22 @@
             
             timeoutBusqueda = setTimeout(async () => {
                 document.getElementById('textoRangoFechas').textContent = `Buscando...`;
-                const textoLower = textoBusqueda.toLowerCase();
+                // Sin acentos ni mayúsculas: "super" encuentra "Súper"
+                const sinAcentos = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                const textoLower = sinAcentos(textoBusqueda);
 
                 // Como los nombres de categoría están en otra tabla, buscamos primero las coincidencias locales
                 const categoriasMatch = datosCategorias
-                    .filter(c => c.nombre.toLowerCase().includes(textoLower))
+                    .filter(c => sinAcentos(c.nombre || '').includes(textoLower))
                     .map(c => c.id);
 
-                // Construimos la consulta "OR" de Supabase: (descripcion ilike texto O categoria_id en lista)
-                // Entre comillas, para que una coma o un paréntesis no rompan el filtro de Supabase
-                const patron = `%${textoLower}%`.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                let orQuery = `descripcion.ilike."${patron}"`;
+                // Construimos la consulta "OR" de Supabase: (descripcion coincide O categoria_id en lista).
+                // La descripción se busca con una expresión regular en la que cada vocal acepta su
+                // versión con acento. Va entre comillas para que una coma o un paréntesis no rompan el filtro.
+                const variantes = { a: '[aáàä]', e: '[eéèë]', i: '[iíìï]', o: '[oóòö]', u: '[uúùü]', n: '[nñ]' };
+                const regex = [...textoLower].map(ch => variantes[ch] || ch.replace(/[\\.^$|?*+()[\]{}]/g, '\\$&')).join('');
+                const patron = regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                let orQuery = `descripcion.imatch."${patron}"`;
                 if (categoriasMatch.length > 0) {
                     orQuery += `,categoria_id.in.(${categoriasMatch.join(',')})`;
                 }

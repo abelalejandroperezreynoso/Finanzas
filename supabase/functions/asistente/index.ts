@@ -375,6 +375,7 @@ const HERRAMIENTAS: Json[] = [
             properties: {
               pregunta: { type: "string", description: "Pregunta corta y directa, por ejemplo: ¿Qué descripción le ponemos?" },
               opciones: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" }, description: "Las alternativas tal cual se aplicarían (por ejemplo el texto exacto de cada descripción propuesta), breves. Normalmente 2 a 4; una sola cuando sólo hay una sugerencia y lo demás lo escribe el usuario" },
+              varias: { type: "boolean", description: "true si puede elegir varias opciones a la vez (por ejemplo sus gastos más frecuentes); si no, sólo una" },
             },
             required: ["pregunta", "opciones"],
             additionalProperties: false,
@@ -389,11 +390,12 @@ const HERRAMIENTAS: Json[] = [
 
 // Las preguntas no se ejecutan aquí: vuelven a la app, que las muestra en una tarjeta. Se
 // validan para no mandar al teléfono algo que no se pueda pintar.
-const limpiarPreguntas = (entrada: Json): { pregunta: string; opciones: string[] }[] | null => {
+const limpiarPreguntas = (entrada: Json): { pregunta: string; opciones: string[]; varias?: boolean }[] | null => {
   const lista = Array.isArray(entrada?.preguntas) ? entrada.preguntas : [];
   const limpias = lista.slice(0, 4).map((q: Json) => ({
     pregunta: String(q?.pregunta ?? "").trim().slice(0, 300),
     opciones: (Array.isArray(q?.opciones) ? q.opciones : []).map((o: unknown) => String(o ?? "").trim().slice(0, 120)).filter(Boolean).slice(0, 4),
+    ...(q?.varias === true ? { varias: true } : {}),
   })).filter((q: { pregunta: string; opciones: string[] }) => q.pregunta && q.opciones.length >= 1);
   return limpias.length ? limpias : null;
 };
@@ -1237,7 +1239,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
 const SISTEMA_CHAT = (hoy: string, usd: number | null) => `Eres el asistente de una app personal de finanzas (México, montos en MXN). Hoy es ${hoy}.${usd ? ` Tipo de cambio de hoy: 1 USD = $${usd.toFixed(2)} MXN.` : ""}
 
 # Cómo respondes
-- En español, claro y breve, como en un chat. Listas cortas si ayudan y **negritas** para las cifras clave. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
+- En español de México, de tú (nunca voseo: "pagas", no "pagás"), claro y breve, como en un chat. No supongas su género: "Te doy la bienvenida", no "Bienvenido". Listas cortas si ayudan y **negritas** para las cifras clave. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
 - Nunca preguntes en el texto. Para preguntar o para ofrecer alternativas (nombres, montos, categorías, qué hacer después) usa preguntar_al_usuario, con una o dos frases de contexto antes y sin repetir las opciones. Pregunta sólo lo que no puedas deducir.
 - Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones; para saldos usa listar_cuentas: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
 - Todo cambio va con una herramienta proponer_*: deja una tarjeta que el usuario confirma. Después di qué propusiste y que lo confirme; nunca digas que ya quedó hecho.
@@ -1252,7 +1254,7 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 - Dólares: conviértelos a pesos con el tipo de cambio de hoy y deja el monto original en la descripción ("Créditos IA (5 USD)").
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 - Categoría: la que le queda por nombre, descripción o por dónde registró antes cosas parecidas (también por dónde está ahora, si la app lo dice). Si dos son igual de probables, pregunta.
-- Si ninguna le queda de verdad, no la metas en la más parecida (un limpiador facial no es Ropa): en el mismo turno, primero proponer_nueva_categoria (nombre general como "Cuidado personal", descripción, prioridad, en la cuenta de sus demás gastos; si no es obvia la cuenta, pregunta) y luego proponer_nuevo_movimiento con categoria_nueva. Dile que confirme primero la categoría.
+- Si ninguna le queda de verdad, no la metas en la más parecida ni en la única que haya (un limpiador facial no es Ropa; un Uber no es Comida): en el mismo turno, primero proponer_nueva_categoria (nombre general como "Cuidado personal", descripción, prioridad, en la cuenta de sus demás gastos; si no es obvia la cuenta, pregunta) y luego proponer_nuevo_movimiento con categoria_nueva. Dile que confirme primero la categoría.
 - Para pasar movimientos que ya existen a una categoría nueva: proponer_nueva_categoria y, en el mismo turno, proponer_cambio_movimiento con categoria_nueva por cada uno. Nunca se mueven solos.
 - Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento de hoy, 360, categoría del Hyundai, descripción "Aceite"; luego: "Te dejé el registro para confirmar."
 - Si pide que lo guíes: pregunta categoría (las 3 o 4 que más usa) y cuándo (Hoy, Ayer); luego monto y descripción con opciones de sus movimientos anteriores; luego propón. No repitas lo que ya dijo.
@@ -1265,7 +1267,7 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 # Usuario nuevo
 Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, empezando por su cuenta principal (donde le pagan o con la que paga casi todo):
 1. Pregunta exactamente "¿Cómo se llama tu cuenta principal?", sin paréntesis ni ejemplos, con la única opción "Principal" (si quiere otro nombre, lo escribe). Pregunta también cuánto tiene hoy en ella, con opciones aproximadas y "No sé, lo pongo después".
-2. Pregunta qué gastos tiene más seguido (Comida, Transporte, Renta, Servicios…) y cómo recibe su ingreso (Sueldo, Negocio propio, Freelance…).
+2. Pregunta qué gastos tiene más seguido (Comida, Transporte, Renta, Servicios…), con varias: true para que elija todos los que tenga, y cómo recibe su ingreso (Sueldo, Negocio propio, Freelance…).
 3. En un mismo turno propón la cuenta y sus categorías (cuenta_nueva con el nombre exacto de la cuenta): su ingreso y los gastos que eligió, con prioridad. No crees de más. Dile que confirme primero la cuenta.
 4. Cuando confirme, pregunta si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y créalas igual. Luego pregunta su meta principal y guárdala.
 
