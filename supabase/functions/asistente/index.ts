@@ -278,6 +278,22 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "resumen_inversiones",
+    description:
+      "Cómo van las inversiones (GBM), calculado de todos sus movimientos: por cuenta, pesos y dólares aportados y retirados, saldo de la Caja GBM en dólares, " +
+      "valor del portafolio y ganancia neta en pesos (incluye el tipo de cambio); por empresa, acciones, costo promedio, lo invertido, precio, valor, plusvalía " +
+      "y ganancia ya realizada por ventas, en dólares. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja y en qué empresas se compró o vendió. " +
+      "Úsala para cualquier pregunta de inversiones; las compras y ventas tienen monto 0 en pesos porque se pagan con la caja en dólares.",
+    input_schema: {
+      type: "object",
+      properties: {
+        desde: { type: "string", description: "Inicio del periodo de actividad, AAAA-MM-DD (opcional)" },
+        hasta: { type: "string", description: "Fin del periodo de actividad, AAAA-MM-DD (opcional; hoy si se omite)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "flujo_mensual",
     description:
       "Cuánto le quedó al usuario mes por mes: ingresos, gastos y lo que queda (ingresos menos gastos), más lo que se movió en deudas, préstamos e inversiones " +
@@ -436,8 +452,8 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
 }
 const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial", "saldo_pendiente"],
   k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, Number(c.saldo_inicial) || 0, c.saldo_inicial_pendiente === true]));
-const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion"],
-  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null]));
+const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker"],
+  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null]));
 
 // Las fechas se guardan en UTC, pero el usuario habla de días de su zona horaria. La app
 // manda su desfase (minutos, como getTimezoneOffset: 360 = UTC-6) y con él se arman los
@@ -522,6 +538,141 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       listas.push({ titulo: String(entrada.titulo ?? "Movimientos").slice(0, 80), movimientos });
       return { texto: `Se mostraron ${movimientos.length} movimientos en una tarjeta. No los repitas en el texto: si acaso, una frase con lo más importante.` };
     }
+    case "resumen_inversiones": {
+      const cats = catalogo.categorias.filter((c: Json) => c.tipo === "inversion");
+      if (!cats.length) return { texto: "El usuario no tiene categorías de inversión." };
+      const catPorId: Record<string, Json> = {};
+      cats.forEach((c: Json) => { catPorId[String(c.id)] = c; });
+      const nombreCuenta = (id: unknown) => catalogo.cuentas.find((c: Json) => String(c.id) === String(id))?.nombre ?? null;
+
+      // Todos los movimientos de inversión, del más viejo al más nuevo (el costo promedio depende del orden)
+      const movs: Json[] = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("registros")
+          .select("fecha, monto, monto_usd, tipo_cambio, cantidad_acciones, costo_accion, tipo_movimiento, categoria_id")
+          .in("categoria_id", cats.map((c: Json) => c.id)).order("fecha").range(desde, desde + 999);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        movs.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+
+      // Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
+      // la usan (las "directas", de registros viejos, van de pesos a acciones sin pasar por ella)
+      const tipoDe = (r: Json) => r.tipo_movimiento || ((Number(r.cantidad_acciones) || 0) > 0 ? ((Number(r.monto) || 0) < 0 ? "compra_directa" : "venta_directa") : null);
+      const usdDe = (r: Json) => {
+        const usd = Number(r.monto_usd) || 0;
+        if (usd > 0) return usd;
+        const acciones = Number(r.cantidad_acciones) || 0, precio = Number(r.costo_accion) || 0, tc = Number(r.tipo_cambio) || 0;
+        if (acciones > 0 && precio > 0) return acciones * precio;
+        return tc > 1 ? Math.abs(Number(r.monto) || 0) / tc : 0;
+      };
+      const desdeA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.desde ?? "")) ? String(entrada.desde) : null;
+      const hastaA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.hasta ?? "")) ? String(entrada.hasta) : "9999-12-31";
+
+      const cuentas: Record<string, Json> = {};
+      const empresas: Record<string, Json> = {};
+      const actividad: Record<string, Json> = {};
+      const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, ultima_aportacion: null };
+      for (const r of movs) {
+        const cat = catPorId[String(r.categoria_id)];
+        const tipo = tipoDe(r);
+        if (!cat || !tipo) continue;
+        const cta = cuentaDe(String(cat.cuenta_id));
+        const usd = usdDe(r);
+        const pesos = Math.abs(Number(r.monto) || 0);
+        const acciones = Number(r.cantidad_acciones) || 0;
+        const dia = fechaLocal(r.fecha, zona).slice(0, 10);
+        const enPeriodo = desdeA !== null && dia >= desdeA && dia <= hastaA;
+        const act = enPeriodo ? (actividad[String(cat.cuenta_id)] ??= { pesos_aportados: 0, dolares_aportados: 0, aportaciones: 0, pesos_retirados: 0, dolares_retirados: 0, compras: {}, ventas: {} }) : null;
+        if (tipo === "aportacion") {
+          cta.caja_usd += usd; cta.pesos_aportados += pesos; cta.dolares_aportados += usd; cta.ultima_aportacion = dia;
+          if (act) { act.pesos_aportados += pesos; act.dolares_aportados += usd; act.aportaciones++; }
+        } else if (tipo === "retiro") {
+          cta.caja_usd = Math.max(0, cta.caja_usd - usd); cta.pesos_retirados += pesos; cta.dolares_retirados += usd;
+          if (act) { act.pesos_retirados += pesos; act.dolares_retirados += usd; }
+        } else if (acciones > 0) {
+          const e = empresas[String(cat.id)] ??= { cat, acciones: 0, costo_usd: 0, realizada_usd: 0 };
+          const nombre = catalogo.etiqueta[String(cat.id)] ?? cat.nombre;
+          if (tipo === "compra" || tipo === "compra_directa") {
+            e.acciones += acciones; e.costo_usd += usd;
+            if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else cta.pesos_compras_directas += pesos;
+            if (act) act.compras[nombre] = (act.compras[nombre] ?? 0) + usd;
+          } else if (tipo === "venta" || tipo === "venta_directa") {
+            const promedio = e.acciones > 0 ? e.costo_usd / e.acciones : 0;
+            const vendidas = Math.min(acciones, e.acciones);
+            e.realizada_usd += usd - promedio * vendidas;
+            e.acciones -= vendidas; e.costo_usd -= promedio * vendidas;
+            if (e.acciones <= 0.00001) { e.acciones = 0; e.costo_usd = 0; }
+            if (tipo === "venta") cta.caja_usd += usd; else cta.pesos_ventas_directas += pesos;
+            if (act) act.ventas[nombre] = (act.ventas[nombre] ?? 0) + usd;
+          }
+        }
+      }
+
+      // Precio: el último cierre que guardó la app de cada empresa (puede ser de días atrás)
+      const vivas = Object.values(empresas).filter((e: Json) => e.acciones > 0 && e.cat.ticker);
+      const precios: Record<string, Json> = {};
+      await Promise.all([...new Set(vivas.map((e: Json) => String(e.cat.ticker)))].map(async (t) => {
+        const { data } = await sb.from("precios_historicos").select("dia, cierre").eq("ticker", t).order("dia", { ascending: false }).limit(1);
+        if (data?.[0]) precios[t] = { cierre: Number(data[0].cierre), dia: data[0].dia };
+      }));
+      let tc = await tipoDeCambio(fechaLocal(new Date().toISOString(), zona).slice(0, 10));
+      if (!tc) {
+        const { data } = await sb.from("precios_historicos").select("cierre").eq("ticker", "USDMXN").order("dia", { ascending: false }).limit(1);
+        tc = data?.[0] ? Number(data[0].cierre) : null;
+      }
+
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const filasEmpresas = Object.values(empresas)
+        .filter((e: Json) => e.acciones > 0 || Math.abs(e.realizada_usd) > 0.005)
+        .map((e: Json) => {
+          const p = e.cat.ticker ? precios[String(e.cat.ticker)] : null;
+          const valor = p && e.acciones > 0 ? e.acciones * p.cierre : null;
+          if (valor !== null) cuentaDe(String(e.cat.cuenta_id)).valor_acciones_usd = (cuentaDe(String(e.cat.cuenta_id)).valor_acciones_usd ?? 0) + valor;
+          else if (e.acciones > 0) cuentaDe(String(e.cat.cuenta_id)).sin_precio = (cuentaDe(String(e.cat.cuenta_id)).sin_precio ?? 0) + e.costo_usd;
+          return [
+            nombreCuenta(e.cat.cuenta_id), catalogo.etiqueta[String(e.cat.id)] ?? e.cat.nombre, e.cat.ticker ?? null,
+            Math.round(e.acciones * 10000) / 10000, e.acciones > 0 ? r2(e.costo_usd / e.acciones) : null, r2(e.costo_usd),
+            p ? p.cierre : null, p ? p.dia : null, valor !== null ? r2(valor) : null,
+            valor !== null ? r2(valor - e.costo_usd) : null, valor !== null && e.costo_usd > 0 ? r2((valor / e.costo_usd - 1) * 100) : null,
+            r2(e.realizada_usd),
+          ];
+        })
+        .sort((a: Json, b: Json) => (b[8] ?? b[5] ?? 0) - (a[8] ?? a[5] ?? 0));
+
+      const filasCuentas = Object.entries(cuentas).map(([id, c]: [string, Json]) => {
+        // Sin precio, una empresa cuenta por lo que costó
+        const valorUsd = c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0);
+        const puesto = c.pesos_aportados + c.pesos_compras_directas - c.pesos_retirados - c.pesos_ventas_directas;
+        const valorMxn = tc ? valorUsd * tc : null;
+        return [
+          nombreCuenta(id), r2(c.pesos_aportados), r2(c.dolares_aportados), r2(c.pesos_retirados), r2(c.dolares_retirados),
+          r2(c.caja_usd), r2((c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0)), r2(valorUsd), valorMxn !== null ? r2(valorMxn) : null,
+          r2(puesto), valorMxn !== null ? r2(valorMxn - puesto) : null, valorMxn !== null && puesto > 0 ? r2((valorMxn / puesto - 1) * 100) : null,
+          c.ultima_aportacion,
+        ];
+      });
+
+      return {
+        texto: recortar({
+          tipo_de_cambio_hoy: tc,
+          nota: "Dólares salvo donde dice pesos. precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
+            "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio.",
+          cuentas: tabla(["cuenta", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "valor_acciones_usd",
+            "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ultima_aportacion"], filasCuentas),
+          empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio", "invertido", "precio", "precio_del_dia", "valor",
+            "plusvalia", "plusvalia_pct", "ganancia_realizada"], filasEmpresas),
+          ...(desdeA ? {
+            actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
+              cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: r2(a.pesos_aportados), dolares_aportados: r2(a.dolares_aportados),
+              pesos_retirados: r2(a.pesos_retirados), dolares_retirados: r2(a.dolares_retirados),
+              compras_usd_por_empresa: Object.fromEntries(Object.entries(a.compras).map(([k, v]) => [k, r2(v as number)])),
+              ventas_usd_por_empresa: Object.fromEntries(Object.entries(a.ventas).map(([k, v]) => [k, r2(v as number)])),
+            })),
+          } : {}),
+        }),
+      };
+    }
     case "flujo_mensual": {
       const n = Math.min(12, Math.max(1, Number(entrada.meses) || 6));
       const hoyL = fechaLocal(new Date().toISOString(), zona);
@@ -569,7 +720,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
     case "listar_categorias":
       return { texto: recortar(tablaCategorias(catalogo)) };
     case "consultar_movimientos": {
-      let q = sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar")
+      let q = sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar, tipo_movimiento, monto_usd, cantidad_acciones, costo_accion")
         .order("fecha", { ascending: false })
         .limit(Math.min(MAX_FILAS, Math.max(1, Number(entrada.limite) || 100)));
       if (entrada.desde) q = q.gte("fecha", inicioDeDia(entrada.desde, zona));
@@ -586,12 +737,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       }
       const conCantidad = filas.some((r: Json) => catalogo.tipo[String(r.categoria_id)] === "salud");
       const conLugar = filas.some((r: Json) => r.lugar);
+      // Inversiones: las compras y ventas van en dólares y acciones, con 0 pesos
+      const esInv = (r: Json) => catalogo.tipo[String(r.categoria_id)] === "inversion";
+      const conInv = filas.some(esInv);
       return {
         texto: recortar(tabla(
-          ["id", "fecha", "monto", "descripcion", "categoria", ...(conCantidad ? ["cantidad"] : []), ...(conLugar ? ["lugar"] : [])],
+          ["id", "fecha", "monto", "descripcion", "categoria", ...(conCantidad ? ["cantidad"] : []), ...(conLugar ? ["lugar"] : []),
+            ...(conInv ? ["inv_tipo", "inv_usd", "inv_acciones", "inv_precio_usd"] : [])],
           filas.map((r: Json) => [
             r.id, fechaLocal(r.fecha, zona), Number(r.monto), r.descripcion || null, catalogo.etiqueta[String(r.categoria_id)] ?? null,
             ...(conCantidad ? [r.cantidad ?? null] : []), ...(conLugar ? [r.lugar ?? null] : []),
+            ...(conInv ? (esInv(r) ? [r.tipo_movimiento ?? null, r.monto_usd != null ? Number(r.monto_usd) : null, Number(r.cantidad_acciones) || null, Number(r.costo_accion) || null] : [null, null, null, null]) : []),
           ]),
         )),
       };
@@ -851,6 +1007,7 @@ Inversiones (GBM): usa proponer_movimiento_inversion. "Ingresé/metí/aporté X 
 - Aportación y retiro necesitan pesos y dólares. Si sólo dice uno, pregunta el otro con preguntar_al_usuario, ofreciendo como opción la estimación con el tipo de cambio de hoy (por ejemplo "≈ 54.30 USD (estimado)") y avisando que lo exacto viene en su comprobante.
 - Compra y venta necesitan acciones y precio por acción en USD; si sólo da el total, pregunta lo que falte.
 - No digas que no puedes registrar inversiones: sí puedes, con esa herramienta.
+- Para preguntas de inversiones ("¿cómo va mi inversión?", "¿cuánto he metido?", "¿en qué compré?", plusvalías) usa resumen_inversiones (con desde/hasta si pregunta por un periodo) antes de afirmar cifras. Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM: nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento con fecha de hoy, importe 360, la categoría del Hyundai y descripción "Aceite"; luego una frase: "Te dejé el registro para confirmar."
 
 Tu objetivo es que al usuario le quede más dinero cada mes y que su patrimonio crezca. Lo mides con flujo_mensual (ingresos menos gastos) y con el avance hacia sus metas. Trabaja en todos los frentes, no sólo en recortar:
