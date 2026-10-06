@@ -684,6 +684,37 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const desdeA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.desde ?? "")) ? String(entrada.desde) : null;
       const hastaA = /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.hasta ?? "")) ? String(entrada.hasta) : "9999-12-31";
 
+      // Con la misma fecha y hora, primero lo que mete dólares a la caja y después lo que los gasta,
+      // igual que la app: aportar y comprar en el mismo minuto es lo normal.
+      const ordenMismoInstante = (r: Json) => ({ aportacion: 0, venta: 1 } as Record<string, number>)[tipoDe(r) ?? ""] ?? 2;
+      movs.sort((a, b) => (new Date(a.fecha).getTime() - new Date(b.fecha).getTime()) || (ordenMismoInstante(a) - ordenMismoInstante(b)));
+
+      // Lo que costó cada empresa en pesos, con las reglas de la app (calcularBalances): los dólares
+      // aportados cuestan al tipo de cambio de la aportación más cercana, los que volvieron de una venta
+      // a lo que costaron, y lo vendido sale a costo promedio. Sin esto el modelo pasaba el costo en
+      // dólares a pesos con el cambio de hoy y lo daba como lo que se pagó.
+      const aportacionesPorCuenta: Record<string, { t: number; tc: number }[]> = {};
+      for (const r of movs) {
+        const cat = catPorId[String(r.categoria_id)];
+        if (!cat || tipoDe(r) !== "aportacion") continue;
+        const pesosA = Math.abs(Number(r.monto) || 0), usdA = Math.abs(Number(r.monto_usd) || 0);
+        const tcA = pesosA > 0 && usdA > 0 ? pesosA / usdA : (Number(r.tipo_cambio) || 0);
+        const t = new Date(r.fecha).getTime();
+        if (tcA > 0 && !isNaN(t)) (aportacionesPorCuenta[String(cat.cuenta_id)] ??= []).push({ t, tc: tcA });
+      }
+      const tcAportacionCercana = (idCuenta: string, fecha: string) => {
+        const t = new Date(fecha).getTime();
+        let mejor: { t: number; tc: number } | null = null, distancia = Infinity;
+        for (const a of aportacionesPorCuenta[idCuenta] ?? []) {
+          const d = Math.abs(a.t - t);
+          if (d < distancia || (d === distancia && mejor && a.t < mejor.t)) { mejor = a; distancia = d; }
+        }
+        return mejor ? mejor.tc : 0;
+      };
+      const bolsas: Record<string, { usd: number; usdA: number; mxnA: number; usdV: number; mxnV: number }> = {};
+      const bolsaDe = (id: string) => bolsas[id] ??= { usd: 0, usdA: 0, mxnA: 0, usdV: 0, mxnV: 0 };
+      const vaciarSiNoQueda = (b: Json) => { if (b.usd < 0.00001) { b.usd = 0; b.usdA = 0; b.mxnA = 0; b.usdV = 0; b.mxnV = 0; } };
+
       const cuentas: Record<string, Json> = {};
       const empresas: Record<string, Json> = {};
       const actividad: Record<string, Json> = {};
@@ -699,25 +730,48 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const dia = fechaLocal(r.fecha, zona).slice(0, 10);
         const enPeriodo = desdeA !== null && dia >= desdeA && dia <= hastaA;
         const act = enPeriodo ? (actividad[String(cat.cuenta_id)] ??= { pesos_aportados: 0, dolares_aportados: 0, aportaciones: 0, pesos_retirados: 0, dolares_retirados: 0, compras: {}, ventas: {} }) : null;
+        const bolsa = bolsaDe(String(cat.cuenta_id));
         if (tipo === "aportacion") {
+          bolsa.usd += usd; bolsa.usdA += usd; bolsa.mxnA += pesos;
           cta.caja_usd += usd; cta.pesos_aportados += pesos; cta.dolares_aportados += usd; cta.ultima_aportacion = dia;
           if (act) { act.pesos_aportados += pesos; act.dolares_aportados += usd; act.aportaciones++; }
         } else if (tipo === "retiro") {
+          const parte = bolsa.usd > 0.00001 ? Math.min(1, usd / bolsa.usd) : 1;
+          bolsa.usdA *= 1 - parte; bolsa.mxnA *= 1 - parte; bolsa.usdV *= 1 - parte; bolsa.mxnV *= 1 - parte;
+          bolsa.usd = Math.max(0, bolsa.usd - usd); vaciarSiNoQueda(bolsa);
           cta.caja_usd = Math.max(0, cta.caja_usd - usd); cta.pesos_retirados += pesos; cta.dolares_retirados += usd;
           if (act) { act.pesos_retirados += pesos; act.dolares_retirados += usd; }
         } else if (acciones > 0) {
-          const e = empresas[String(cat.id)] ??= { cat, acciones: 0, costo_usd: 0, realizada_usd: 0 };
+          const e = empresas[String(cat.id)] ??= { cat, acciones: 0, costo_usd: 0, costo_mxn: 0, realizada_usd: 0 };
           const nombre = catalogo.etiqueta[String(cat.id)] ?? cat.nombre;
           if (tipo === "compra" || tipo === "compra_directa") {
-            e.acciones += acciones; e.costo_usd += usd;
+            let mxn = pesos;
+            if (tipo === "compra") {
+              // Primero los dólares aportados, al cambio de su aportación; luego los de ventas, a lo que costaron
+              const cercano = tcAportacionCercana(String(cat.cuenta_id), r.fecha);
+              const tcLote = cercano > 0 ? cercano : (bolsa.usd > 0.00001 ? (bolsa.mxnA + bolsa.mxnV) / bolsa.usd : (Number(r.tipo_cambio) || 1));
+              const deA = Math.min(usd, bolsa.usdA);
+              const deV = Math.min(usd - deA, bolsa.usdV);
+              const tcV = bolsa.usdV > 0.00001 ? bolsa.mxnV / bolsa.usdV : tcLote;
+              const mxnDeAportado = (usd - deV) * tcLote;
+              mxn = mxnDeAportado + deV * tcV;
+              bolsa.mxnA = Math.max(0, bolsa.mxnA - Math.min(mxnDeAportado, bolsa.mxnA));
+              bolsa.mxnV = Math.max(0, bolsa.mxnV - deV * tcV);
+              bolsa.usdA = Math.max(0, bolsa.usdA - deA); bolsa.usdV = Math.max(0, bolsa.usdV - deV);
+              bolsa.usd = Math.max(0, bolsa.usd - usd); vaciarSiNoQueda(bolsa);
+            }
+            e.acciones += acciones; e.costo_usd += usd; e.costo_mxn += mxn;
             if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else { cta.pesos_compras_directas += pesos; cta.dolares_compras_directas += usd; }
             if (act) act.compras[nombre] = (act.compras[nombre] ?? 0) + usd;
           } else if (tipo === "venta" || tipo === "venta_directa") {
             const promedio = e.acciones > 0 ? e.costo_usd / e.acciones : 0;
+            const promedioMxn = e.acciones > 0 ? e.costo_mxn / e.acciones : 0;
             const vendidas = Math.min(acciones, e.acciones);
             e.realizada_usd += usd - promedio * vendidas;
-            e.acciones -= vendidas; e.costo_usd -= promedio * vendidas;
-            if (e.acciones <= 0.00001) { e.acciones = 0; e.costo_usd = 0; }
+            // Lo que costó en pesos lo vendido vuelve a la caja con esos dólares (venta) o sale con los pesos (venta directa)
+            if (tipo === "venta") { bolsa.usd += usd; bolsa.usdV += usd; bolsa.mxnV += promedioMxn * vendidas; }
+            e.acciones -= vendidas; e.costo_usd -= promedio * vendidas; e.costo_mxn -= promedioMxn * vendidas;
+            if (e.acciones <= 0.00001) { e.acciones = 0; e.costo_usd = 0; e.costo_mxn = 0; }
             if (tipo === "venta") cta.caja_usd += usd; else { cta.pesos_ventas_directas += pesos; cta.dolares_ventas_directas += usd; }
             if (act) act.ventas[nombre] = (act.ventas[nombre] ?? 0) + usd;
           }
@@ -750,7 +804,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             Math.round(e.acciones * 10000) / 10000, e.acciones > 0 ? r2(e.costo_usd / e.acciones) : null, r2(e.costo_usd),
             p ? p.cierre : null, p ? p.dia : null, valor !== null ? r2(valor) : null,
             valor !== null ? r2(valor - e.costo_usd) : null, valor !== null && e.costo_usd > 0 ? r2((valor / e.costo_usd - 1) * 100) : null,
-            r2(e.realizada_usd), String(e.cat.cuenta_id),
+            r2(e.realizada_usd), r2(e.costo_mxn), String(e.cat.cuenta_id),
           ];
         })
         .sort((a: Json, b: Json) => (b[8] ?? b[5] ?? 0) - (a[8] ?? a[5] ?? 0));
@@ -761,10 +815,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const totalUsd = Object.values(cuentas).reduce((t: number, c: Json) => t + c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0), 0);
       filasEmpresas.forEach((f: Json[]) => {
         const idCuenta = f.pop();
+        const costoMxn = f.pop();
         const valorFila = f[8] ?? (Number(f[3]) > 0 ? f[5] : 0);
         const caja = cuentas[idCuenta]?.caja_usd ?? 0;
         f.push(totalUsd > 0 ? r2((valorFila / totalUsd) * 100) : null, f[6] ? Math.floor((caja / f[6]) * 10000) / 10000 : null,
-          f[6] ? r2(Math.max(0, f[6] - caja)) : null);
+          f[6] ? r2(Math.max(0, f[6] - caja)) : null, costoMxn);
       });
       const concentrada = filasEmpresas.find((f: Json[]) => Number(f[12]) > 50);
 
@@ -809,7 +864,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           tipo_de_cambio_hoy: tc ? `1 USD = ${tc} MXN` : null,
           nota: "Cada cifra trae su moneda escrita (MXN o USD): úsala tal cual, no conviertas ni cambies la moneda, y nunca digas pesos de una cifra en USD ni al revés. " +
             "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
-            "Lo que costó cada empresa sólo se conoce en USD: no lo pases a pesos con el tipo de cambio de hoy, porque no es lo que pagó (lo que pagó en pesos dependió del cambio de cada aportación). Su valor de hoy en pesos sí viene en valor_pesos_hoy. " +
+            "Lo que costó cada empresa en pesos viene en costo_pesos (al cambio de las aportaciones con que se pagó, no al de hoy) y plusvalia_pesos = valor_pesos_hoy menos costo_pesos, con el tipo de cambio incluido. Nunca conviertas costo_usd a pesos tú. " +
             "precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
@@ -819,9 +874,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           cuentas: tabla(["cuenta", "en_pocas_palabras", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "caja_gbm_pesos", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio_usd", "invertido_usd", "precio_usd", "precio_del_dia", "valor_usd",
-            "valor_pesos_hoy", "plusvalia_usd", "plusvalia_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
+            "valor_pesos_hoy", "costo_pesos", "plusvalia_pesos", "plusvalia_usd", "plusvalia_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
             filasEmpresas.map((f: Json[]) => [f[0], f[1], f[2], f[3], dinero(f[4], "USD"), dinero(f[5], "USD"), dinero(f[6], "USD"), f[7], dinero(f[8], "USD"),
-              tc && f[8] !== null ? dinero(Number(f[8]) * tc, "MXN") : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
+              tc && f[8] !== null ? dinero(Number(f[8]) * tc, "MXN") : null, Number(f[3]) > 0 ? dinero(f[15], "MXN") : null,
+              tc && f[8] !== null && Number(f[3]) > 0 ? dinero(Number(f[8]) * tc - Number(f[15]), "MXN", true) : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
           ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
