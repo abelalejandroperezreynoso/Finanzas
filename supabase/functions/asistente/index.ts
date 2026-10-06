@@ -447,6 +447,18 @@ const COLUMNAS_FLUJO = ["mes", "ingresos", "gastos", "queda", "deudas", "prestam
 const TEMAS_MEMORIA = ["meta", "ingreso", "deuda", "compromiso", "preferencia", "contexto"];
 const MAX_NOTAS = 40;
 const MAX_NOTA = 300;
+// Qué tanto se parecen dos notas: palabras en común sobre el total de palabras (sin acentos,
+// mayúsculas ni signos). 1 = las mismas palabras; dos redacciones de la misma meta llegan a 0.5 o más; notas distintas quedan cerca de 0.1.
+function parecidoNotas(a: string, b: string): number {
+  const palabras = (t: string) => new Set(t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9ñ$ ]+/g, " ").split(/\s+/).filter((w) => w.length > 2));
+  const x = palabras(a), y = palabras(b);
+  if (!x.size || !y.size) return 0;
+  let comunes = 0;
+  x.forEach((w) => { if (y.has(w)) comunes++; });
+  return comunes / (x.size + y.size - comunes);
+}
+
 async function leerMemoria(sb: SupabaseClient): Promise<Json[]> {
   const { data, error } = await sb.from("memoria_ia").select("id, tema, nota, actualizado_en").order("tema").order("actualizado_en", { ascending: false });
   return error ? [] : data ?? [];
@@ -970,9 +982,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!nota) return { texto: "La nota está vacía.", error: true };
       if (nota.length > MAX_NOTA) return { texto: `La nota tiene ${nota.length} caracteres y el máximo es ${MAX_NOTA}. Escríbela más corta.`, error: true };
       const tema = TEMAS_MEMORIA.includes(entrada.tema) ? entrada.tema : "contexto";
-      // La misma nota dos veces no aporta nada y el usuario la veía repetida en Configuración
-      const { data: igual } = await sb.from("memoria_ia").select("id").eq("nota", nota).limit(1);
-      if (igual?.length) return { texto: `Eso ya estaba en tu memoria (id ${(igual[0] as Json).id}); no se repitió.` };
+      // Una nota que ya está, aunque con otras palabras, no se vuelve a guardar. El modelo no siempre
+      // revisa su memoria antes de recordar y la reescribía en cada conversación: el usuario veía la
+      // misma meta tres o cuatro veces en Ajustes.
+      const { data: delTema } = await sb.from("memoria_ia").select("id, nota").eq("tema", tema);
+      const parecida = (delTema ?? []).find((n: Json) => parecidoNotas(String(n.nota), nota) >= 0.5);
+      if (parecida) {
+        return {
+          texto: `Ya tienes una nota así (id ${parecida.id}): "${parecida.nota}". No se guardó otra. Si cambió algo, usa corregir_recuerdo con ese id; si no, no hagas nada y no lo menciones.`,
+        };
+      }
       const { count } = await sb.from("memoria_ia").select("id", { count: "exact", head: true });
       if ((count ?? 0) >= MAX_NOTAS) return { texto: `Tu memoria ya tiene ${MAX_NOTAS} notas. Corrige una que ya no sirva con corregir_recuerdo.`, error: true };
       const { data, error } = await sb.from("memoria_ia").insert({ user_id: userId, tema, nota }).select("id").single();
