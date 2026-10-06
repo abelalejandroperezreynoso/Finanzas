@@ -243,12 +243,14 @@ const HERRAMIENTAS: Json[] = [
       "aportacion (pesos que entran a la Caja GBM convertidos a dólares; pide pesos cobrados y dólares acreditados), " +
       "retiro (dólares que salen de la Caja GBM convertidos a pesos; pide pesos recibidos y dólares que salieron), " +
       "compra y venta (acciones de una empresa pagadas o cobradas con la Caja GBM, sin pesos; pide acciones y precio por acción en USD). " +
-      "categoria_id: en compra/venta la categoría de la empresa; en aportación/retiro cualquier categoría de inversión de esa cuenta (se usa su Caja GBM, que se crea si no existe).",
+      "categoria_id: sólo en compra/venta, la categoría de la empresa. En aportación/retiro NO uses ni preguntes categoría: el dinero siempre entra o sale de la Caja GBM de la cuenta (se crea si no existe); " +
+      "omite categoria_id y también cuenta_id si el usuario tiene una sola cuenta con inversiones. Una captura de GBM \"Smart Cash → USA\" es una aportación: toma de ahí pesos, dólares, fecha y hora.",
     input_schema: {
       type: "object",
       properties: {
         tipo: { type: "string", enum: ["aportacion", "retiro", "compra", "venta"] },
-        categoria_id: { type: "string" },
+        categoria_id: { type: "string", description: "Sólo compra/venta: la categoría de la empresa" },
+        cuenta_id: { type: "string", description: "Sólo aportación/retiro, y sólo si tiene varias cuentas con inversiones" },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         hora: { type: "string", description: "HH:MM o \"ahora\"; omítela si no se sabe" },
         pesos: { type: "number", description: "Aportación/retiro: pesos (positivo)" },
@@ -259,7 +261,7 @@ const HERRAMIENTAS: Json[] = [
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
         resumen: { type: "string" },
       },
-      required: ["tipo", "categoria_id", "fecha", "resumen"],
+      required: ["tipo", "fecha", "resumen"],
       additionalProperties: false,
     },
   },
@@ -580,10 +582,22 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
   switch (nombre) {
     case "proponer_movimiento_inversion": {
       if (!zona.conInversion) return { texto: "Esta versión de la app no registra inversiones desde el chat: dile que la actualice o que use el formulario de registro.", error: true };
-      const cat = catalogo.categorias.find((c: Json) => String(c.id) === String(entrada.categoria_id));
+      const tipo = String(entrada.tipo);
+      let cat = catalogo.categorias.find((c: Json) => String(c.id) === String(entrada.categoria_id));
+      if (!cat && (tipo === "aportacion" || tipo === "retiro")) {
+        // La aportación y el retiro van a la Caja GBM de la cuenta: basta saber la cuenta, y si sólo hay
+        // una con inversiones no hay nada que preguntar
+        const deInversion = catalogo.categorias.filter((c: Json) => c.tipo === "inversion");
+        const cuentasInv = [...new Set(deInversion.map((c: Json) => String(c.cuenta_id)))];
+        const cuenta = entrada.cuenta_id ? String(entrada.cuenta_id) : (cuentasInv.length === 1 ? cuentasInv[0] : null);
+        if (!cuenta) {
+          const nombres = cuentasInv.map((id) => catalogo.cuentas.find((c: Json) => String(c.id) === id)?.nombre).filter(Boolean).join(", ");
+          return { texto: cuentasInv.length ? `Tiene varias cuentas con inversiones (${nombres}): pregúntale a cuál con preguntar_al_usuario y pasa cuenta_id.` : "No tiene cuentas con inversiones: dile que cree la categoría de inversión en el formulario de la app.", error: true };
+        }
+        cat = deInversion.find((c: Json) => String(c.cuenta_id) === cuenta);
+      }
       if (!cat || cat.tipo !== "inversion") return { texto: "Esa categoría no es de inversión.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
-      const tipo = String(entrada.tipo);
       const esCaja = (c: Json) => c.tipo === "inversion" && !c.ticker && String(c.nombre ?? "").trim().toLowerCase() === "caja gbm";
       let hora: string | undefined;
       if (entrada.hora === "ahora") hora = fechaLocal(new Date().toISOString(), zona).slice(11, 16);
@@ -1476,7 +1490,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En Salud la cantidad es lo que mida la categoría según su descripción (veces, vasos, horas, kilos…). Si la descripción no lo dice, es cuántas veces pasó: 1 por cada vez. No inventes escalas que la app no guarda (intensidad, nivel, duración): sólo existe la cantidad. Si de verdad no sabes qué mide, pregúntalo una vez y propón ponerlo en la descripción de la categoría.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
-- Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
+- Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM. Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto y lo que le queda en él no es dinero sin invertir: puede que ya lo haya movido). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado. Con eso da los datos que importan para su decisión y relaciónalo con su meta.
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
