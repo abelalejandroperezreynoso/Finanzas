@@ -7873,9 +7873,14 @@
             return;
         }
 
-        if (cat && cat.montoSugerido) {
+        // En un préstamo o una deuda vale lo que se hizo en esa misma dirección
+        const direccionReg = (document.getElementById('regTipoSelect') || {}).value;
+        const sugerido = cat && cat.montoSugeridoPorDireccion
+            ? cat.montoSugeridoPorDireccion[direccionReg]
+            : (cat ? cat.montoSugerido : null);
+        if (sugerido) {
                 // Autocompleta el monto sugerido para ahorrarle tiempo al usuario
-                inputMonto.value = cat.montoSugerido;
+                inputMonto.value = sugerido;
                 inputMonto.dataset.autofill = 'true'; // Encendemos la marca
             } else {
                 // Si el monto anterior fue prellenado, lo limpiamos para que vuelva a 0
@@ -8273,6 +8278,7 @@
 
                             const usoMap = {};
                             const montosRecientesMap = {};
+                            const montosPorDireccionMap = {};
                             const registrosPorCat = {};
                             const ultimaFechaMap = {};
                             diasConRegistroPorCat = {};
@@ -8384,6 +8390,13 @@
                             const historialMontos = montosRecientesMap[u.categoria_id];
                             historialMontos.push(montoAbsHist);
                             if (historialMontos.length > 12) historialMontos.shift();
+                            // Y otro por dirección: en un préstamo o una deuda la misma categoría lleva lo
+                            // que sale (prestar, abonar) y lo que entra (cobrar, recibir), y mezclados el
+                            // formulario proponía prestar lo que te habían pagado.
+                            const signoHist = parseFloat(u.monto) > 0 ? 'entrada' : 'salida';
+                            const porSigno = (montosPorDireccionMap[u.categoria_id] = montosPorDireccionMap[u.categoria_id] || { entrada: [], salida: [] })[signoHist];
+                            porSigno.push(montoAbsHist);
+                            if (porSigno.length > 12) porSigno.shift();
                             }
 
                             const fechaRegistro = new Date(u.fecha);
@@ -8821,8 +8834,19 @@
                             esMontoPromedio = sugerencia.esEstimado;
                             }
 
+                            // Préstamos y deudas: una sugerencia para cada dirección
+                            let montoSugeridoPorDireccion = null;
+                            if ((cat.tipo === 'prestamo' || cat.tipo === 'deuda') && montosPorDireccionMap[cat.id]) {
+                            montoSugeridoPorDireccion = {};
+                            ['entrada', 'salida'].forEach(dir => {
+                            const lista = montosPorDireccionMap[cat.id][dir];
+                            if (lista.length) montoSugeridoPorDireccion[dir] = estimarMontoSugerido([...lista].reverse()).monto;
+                            });
+                            }
+
                             return {
                             ...cat,
+                            montoSugeridoPorDireccion,
                             balanceReal: totalSuma,
                             vecesUsada,
                             totalAcciones: accionesMap[cat.id] || 0,
