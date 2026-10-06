@@ -16523,7 +16523,9 @@
                                 const esperado = gastoProm * hoyD.getDate() / diasMes;
                                 const flujo = actual.ingresos - actual.gastos;
                                 const saldo = Number(saldoTotalFinanzas) || 0;
-                                const cifra = n => fMoneda(Math.round(n), fNumSaldo);
+                                // El signo menos pegado a la cifra: con el guion normal el renglón se cortaba justo
+                                // después de él y quedaba "Tu saldo está en -" arriba y "$1,883" abajo
+                                const cifra = n => fMoneda(Math.round(n), fNumSaldo).replace(/^-/, '\u2212\u2060');
                                 if (saldo < 0) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
                                 if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
                                 if (previos.length >= 2 && quedaProm < 0) return { nivel: 'mal', texto: 'Los últimos meses gastaste más de lo que entró. Hay que ajustar' };
