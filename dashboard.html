@@ -287,20 +287,14 @@
         .chat-inicio.con-avisos .chat-inicio-centro { margin: 12px 0 4px; }
         .chat-bienvenida { font-size: 16px; line-height: 1.4; color: #73726c; text-align: center; max-width: 300px; text-wrap: balance; margin-top: -8px; }
         .chat-saludo { font-family: ui-serif, "New York", Georgia, serif; font-size: 26px; line-height: 1.25; color: #3d3d3a; text-align: center; max-width: 320px; text-wrap: balance; }
-        .cochinito { overflow: visible; }
-        .cochinito .cuerpo { animation: cochiRespira 1.6s steps(2) infinite; }
-        .cochinito .ojo { transform-box: fill-box; transform-origin: center; animation: cochiParpadea 4.5s infinite; }
-        .cochinito .patas-a { animation: cochiPatas 1.6s steps(1) infinite; }
-        .cochinito .patas-b { animation: cochiPatas 1.6s steps(1) infinite reverse; }
-        .cochinito .moneda { opacity: 0; animation: cochiMoneda 5s infinite; }
-        .cochinito.pensando .cuerpo { animation-duration: 0.5s; }
-        .cochinito.pensando .patas-a, .cochinito.pensando .patas-b { animation-duration: 0.5s; }
-        .cochinito.pensando .moneda { animation-duration: 1.6s; }
-        @keyframes cochiRespira { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.6px); } }
-        @keyframes cochiParpadea { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
-        @keyframes cochiPatas { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.35; } }
-        @keyframes cochiMoneda { 0%, 55% { opacity: 0; transform: translateY(-3px); } 62% { opacity: 1; transform: translateY(-3px); }
-            85% { opacity: 1; transform: translateY(4px); } 90%, 100% { opacity: 0; transform: translateY(5px); } }
+        /* Robotito en pixeles: el cuerpo fijo y la cabeza encima, que respira y parpadea */
+        .robotito { position: relative; width: 100px; height: 124px; flex-shrink: 0; }
+        .robotito img { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; -webkit-user-drag: none; user-select: none; }
+        .robotito .cabeza { position: absolute; inset: 0; animation: robotRespira 2.4s steps(1) infinite; }
+        .robotito .parpadeo { opacity: 0; animation: robotParpadea 4.5s steps(1) infinite; }
+        .robotito.pensando .cabeza { animation-duration: 0.6s; }
+        @keyframes robotRespira { 0%, 49% { transform: translateY(0); } 50%, 100% { transform: translateY(-2px); } }
+        @keyframes robotParpadea { 0%, 93% { opacity: 0; } 94%, 96% { opacity: 1; } 97%, 100% { opacity: 0; } }
         /* Sugerencias como fichas sobre la caja de escribir, con el chat vacío */
         .chat-chips { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; scrollbar-width: none; }
         .chat-chips:empty { display: none; }
@@ -16268,7 +16262,7 @@
                                     if (window.usuarioSinCuentas && !cargandoDatos) {
                                         caja.innerHTML = `<div class="chat-inicio">
                                                 <div class="chat-inicio-centro">
-                                                    ${personajeAsistenteSvg(false)}
+                                                    ${personajeAsistenteHtml(false)}
                                                     <div class="chat-saludo">Te doy la bienvenida</div>
                                                     <div class="chat-bienvenida">Soy tu asistente de finanzas. Empecemos con tu cuenta principal: me dices cuánto tienes y yo la creo.</div>
                                                 </div>
@@ -16283,7 +16277,7 @@
                                     const estado = cargandoDatos ? null : estadoFinanzasAsistente();
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
-                                                ${personajeAsistenteSvg(ocupado)}
+                                                ${personajeAsistenteHtml(ocupado)}
                                                 <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado }))}</div>
                                             </div>
                                         </div>`;
@@ -16463,24 +16457,21 @@
                             }
 
                             // ---- Personaje y saludo de la pantalla de inicio del chat ----
-                            // Un cochinito alcancía en pixeles: respira, parpadea y de vez en cuando le cae una
-                            // moneda. Mientras la IA revisa, se mueve más rápido.
-                            function personajeAsistenteSvg(pensando) {
-                                const r = (x, y, w, h, c, cls = '') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"${cls ? ` class="${cls}"` : ''}/>`;
-                                const cuerpo = '#d97757', oscuro = '#a8543a', claro = '#ec9a7f';
-                                return `<svg class="cochinito${pensando ? ' pensando' : ''}" viewBox="0 -5 16 16" width="96" height="96" shape-rendering="crispEdges" aria-hidden="true">
-                                    <g class="moneda">${r(6, -4, 3, 3, '#e8b04a')}${r(7, -4, 1, 3, '#f3cd77')}</g>
-                                    <g class="cuerpo">
-                                        ${r(0, 3, 1, 1, cuerpo)}${r(1, 4, 1, 1, cuerpo)}
-                                        ${r(2, 3, 11, 6, cuerpo)}${r(3, 2, 9, 1, cuerpo)}${r(3, 9, 9, 1, cuerpo)}
-                                        ${r(10, 1, 2, 1, cuerpo)}${r(11, 0, 1, 1, cuerpo)}
-                                        ${r(13, 5, 2, 3, claro)}${r(14, 6, 1, 1, oscuro)}
-                                        ${r(6, 2, 3, 1, oscuro)}
-                                        <g class="ojo">${r(10, 4, 1, 1, '#141413')}</g>
-                                    </g>
-                                    <g class="patas-a">${r(3, 10, 1, 1, cuerpo)}${r(10, 10, 1, 1, cuerpo)}</g>
-                                    <g class="patas-b">${r(5, 10, 1, 1, cuerpo)}${r(8, 10, 1, 1, cuerpo)}</g>
-                                </svg>`;
+                            // Un robotito de lata en pixeles (48×60, a doble tamaño): cuerpo y cabeza son capas
+                            // aparte para que la cabeza respire y parpadee. Mientras la IA revisa, se le prende
+                            // la antena, mira hacia arriba y se mueve más rápido.
+                            const ROBOT_PNG = {
+                                cuerpo: 'iVBORw0KGgoAAAANSUhEUgAAADIAAAA+CAYAAABp/UjKAAADxElEQVR42u1YzUsbURD/RTwU2krwIHGtSXBLKSJBWqGpFOq5lCKtEA/BP0BSEJFQevAsIZSCUopH8VCpoocgpYciEuIWQggSigcjiR9rkCLBUii9bC/O4+0m6364/YC+H4Tl7ZvM7OzMb2b2AQICAgICAgICAgICAgICAgICAgICAgICAv8XfF4rjMiSZkduu6z6/llHIrKkLc6O6+6pByr2qzUAwEZ+DwBQrZ3h2/cfnjrj8+rtb5dVX0SWtD65w/b/S+UTz6Lk8+LtK9kC5pYUAICTiJA8ycwtKa6daXHrhLK1jpsDj9m9PrkDH1dTOrmOG2EAQDAUAAC8Sk8h3NWOh3fD6JM7QDqkbonpsMsxTxwBgN18Brv5DNQDFZXjOgBgciqtk6E1RYTWlaNTUx1u4doRJVtgKUEP9mJiRCdDa4rI0EAPACDc1c7STskWdDr+KEcisqQlYlGW816BHHXDlVYvDD8ZfYqTw4qOG83W6oFqqiuZWmP6ErEo5pYUzYkzPrfRoDeXiEURDAUYYY0Vi+dIvbiDYMAPKdCGt/kak+OrGK/biSMtbp3g0cwJ/j5xxN9/G7mdGj4c/9TJhQJtrI9QGU/Eoo4qmOvUIoMAMPN62f4fr7Xhq01iO0mxVifRULbWsbk6j2RqjXVy6g/ECeodtK5ns7g1Gm/gSP/9QRS3cjqOcFHRErEo4hPTCIbmkUytWTrTateJxdlx7OYz2K/WcP3qFV3Yi1s5lkaTU2lWdtUDFQj1YHIqzYhcOa6jcnSKhZWcjiNGRB/cabB3kTO2OUI1fyO/1zDw8RzhewndH3s2qNNFfcTIEX7mij9/Y2rv0hwJhgIoNakmjjji0N5YKMDS7lLlNyJLWio5zPKYd4KqGN9HviyvY79Wx9jMSx1viCM8N+qfi/Df62+q28q2pw2xGUd6Rx6h95wrlFJKtsBkF1b08xgOc0058sdmLR7U8KhiEVeMfYTnR7V2xn5Gjrj5+myxU62kbgn71VrDmM03ML7kmnV2swm3VD4xTRupW4LULSERi1445l86taju8x3Z2DCNTS7c6dfte/HJa+mInYpEDxKRJS0+MY3dfAaV4zoymzsNxeGifbf2bXFkaKAHpfIJu1rNQOxDyWQMsdp3a98yIpTXxqsZ3r3/dOFDWu27td9qI2U0k2tThDv9jAPN5Kz23dr37FyJwp1KDrMTESOR7cj8NrI7mYyJA1Sdzj+FNZqUrWT+qiM0ptDDsQOJ81w+P7BrkOHznWQu44xnfcRIUCI0NTs7MhAAfgFCs8IwzOBUpwAAAABJRU5ErkJggg==',
+                                normal: 'iVBORw0KGgoAAAANSUhEUgAAADIAAAA+CAYAAABp/UjKAAAD4ElEQVR42u2YUUhTURjH/xsSPcnwYW7XzV2YTyES0kBF6sV6CJGZgkElPUiQ+CAhwwfpIXqYI2xUFIT0kBKCKyWGRIGEiAqNEJHwQWVzep0+yPCph8Ae6tzOds/Z7u7uhazzf7k752y753fP//u+cw/wj8hm1R83+KUTVv/almI7NSANfunk40yEOXalM2QJTIVVK3K4mwQAtN0YBQD0BQNI7h1ZZq0Kq737OnwLALCwsnG6Y2TyaT+mpucRX9iwNEbsVoGwJmwVhGXW4mUs0v/XBzuZaCQU1IwN9DQBAJL7WQAwHchmNoDklaCkFW3Qv13C2KMhvJ96R2BMjRubGRCTT/sBAHUX2gEAm4m4Ok5DsWCSe0dY3zosG8ZuJsRmIp4DAQCSV1I/93a14N7QI3RcvwbZ7cDI6BjkmirU+53cuLIchIZwemTmlQVDq+/mbQAwBcZmlp1o5a9KfswQiz15/ErtI1XfqM3sRiG+xebw4dkb5nf0rojsdmj6jK6MvVQIOrXuZr9z91l6YUZGx1R7lQNTch2RvBKcHhl14efo+N03GX2Am4P3c1aEbBp59qLjhIYoVFgLWc5mNDaUtKI+ZTLJhZUNJPeOMDzYXRBiJ5XB58Q2ertaNHWH1Z6ani+apu1GIS523kHdhXb1pjupDGS3A3JNFcLRWFFbyTVVON/cAgA43/wLiNc23VpkFcjENhNx9A5P/LFJMMD9HS+W6KxX6apHpasem4m4WpecHhnjs1/QFvCbB0IAnB4ZCzMv0Ts8gYODNKqrvQDAvCGBp1eOl6rpuCL9DZfump+1lLSClcWvOTckELRlUpljhKMxdfI8iPxx3tV0EMkroam1EUpa0UyKLmw+V6UayLRqfS6u7cqB0G2tBr90MtDTpNpkJ5VBrc+FvmAA47Nf1O/RtmLtgvPheQ+D1sO7lzHy4pO5wU6e8OfENuT9LGS3A20BP+SaKs3Bgp4nSnbAxaTn4MJQ1hoe7EY4GlP/PP8mrPrAAiC/S2WO4XNVquP5bV7BLLkgEms1tTYCALKLi3C0tqrj4WiMWQTzs1Wtz6XaKbu6gVqXA2snZ5kPg2h961BXZS85awHIgQCggWDFCA0BAKs/zuBc99WCEDRAsR2xTc9qAADv5NCoVpeXCm5LSDsUmdX1OmzXc/RJtiakfph15SUGuh0JBREJBYvuhm3FQFaW5zT9x5l15mT0pFw64GW3g5u58u1W7IVLt7UioaAmYI1MjqRqVsouFOxlxwjv3aDe77TkxJDOUqUcFRk+gin31KOUo1YhISEhISEhISEhISEhISEhISEhIaH/Uz8Bw0pTm56pwIYAAAAASUVORK5CYII=',
+                                parpadeo: 'iVBORw0KGgoAAAANSUhEUgAAADIAAAA+CAYAAABp/UjKAAADRElEQVR42u1Yz0sUURz/zOQfYB4Wfbq6tFIEJhEGIhEREQUhaz9Q6AcdpIN4iJChg5du7iAGGR06dAiJBSslRKKDiCy6xCIRFh5UdtdVNw+25KWbnd7wdufNzpvxDWa9Dyxv34+Z+X7m+/1833ce8I9AC+rGrVGyxxv/urqpHRoirVGy92nC5M5d7jICIVMVlEe28xkAwKXbcQBAb+wsMhs7gYVWVdCx+3roLgBgLrV8uDUyNtqHxPgMpuaWA9WIHhQRnsFBkQgstJwyFh3/68VODTWNmG2uv7sdAJDZKgKAdEKabAIkTLC5vmkX/bt5jAwP4EPiPSUjVTeaDBJjo30AgOa2awCAlfSUNc+S4pHJbOxgaXV732R0mSRW0lMlJACAhIn1/96NDjwaGEZnz3VE6qoxGB9BpL4GLdGQo64CJ8KSCDVEuC2PDIveO/cBQAoZTVY4sSj3SrlmaIg9e/rKGqO7vt8w0/2S+P52Gh+fv+GuEfVIpK7aNubXM7pXEmxqzRd/O9ZZomQG4yNWeO2HjOd9hIQJQg0RNA+9QCeAuYmXVso93/XA8ggtGp3Ci9UJS6LSxlop5DS/2nAyjPf2y9fmsgU0NtV61qZhTjqS0WWT4M07hdWBFY3UwFy2INS6hVUuW7B+In1pREiYIJVcRGNTbcnDeP1UctEiwXrEiazXvlSPuD2Urne67sCqXxImyGULmE2vua690HbMVkCynhO5hxccERV6f3c7dG0PJ08dR369gNMn6gBNc2yvXO3gZitrMyRHK17Paz9/y+PHz90nUjRCd+TMVrFi65bZrOqXuU6kL1Uj7efO2Ixh28am2oopt9wor30pGgGAYjKJnlsXAQCJ8Rlrno6x2YoVOtWIyBumoB9fUnZ2qhG3N+22MbIamU2v4fHDm0iMz1Q87xKthjUREgDgdHLoF18W5ks8zZJm+4Y5KfQ5rIscfdLShBaCslonz7F904jBNGKu1bDmRiS1MG0b/1VY4hrDO3hw2gTdslF5uLmFmHBomUbMVo74MS5SX1PSumFpdVsotITL+HLXtkRDgZQa1HCvp5O+j2D2e+rh5ahVQUFBQUFBQUFBQUFBQUFBQUFBQUHh/8QfIkY+0y0q8vEAAAAASUVORK5CYII=',
+                                pensando: 'iVBORw0KGgoAAAANSUhEUgAAADIAAAA+CAYAAABp/UjKAAAD4UlEQVR42u1YT0gUURz+dpHoJIuHdR133YGVhBALUTDRTnYJkU0Fi0wiJEg8SMhiIB0iaF3EJKMgooNICZpKiIWBiIkKSZhISGjMuuu47kE2Tx0CO9gb386+2b8zkfW+y5v33szu++b3fb/fmwf8IzAZ9cMlLuGANb66KZuODZESl3DweeIFc+6M+4YhZLKMisj3t68AAKcejAEAvt6pN1RahhHZlWQAwIcrFVH9Y+uRoYE2DI/MYHJu3VCPmI0iwlqwUSQMk5ZWxiLjf73ZyUJ9HnfMXHvToVeknQgA6E7IpDcBwSFADsQae/D1Avp6O/FmeIyQ0dU3Jj1IDA20AQAKy2oBABvLk8o8TYpFRtrew9pmOGMyZj1JbCxPRpEAAMEhKNctDZW43dmLusv1EPMs6O7pg5ifg2KXVdNXhhOhSVjtIrNlkaHR2nwdAHQhY9JLTjTUUVF7hkjs0cOjbYy0vQcAacvMnC6JL6NTePf4JfOeZCMi5llixtKNjDlVEnRqDUZ+MO8LB6WkyXT39CnyyoRMynVEcAiw2kUUep+g7vfYUP89NHfcjYpIOCjFlRftE5pEvMIaT3KmdL0hB2TlLZNFzi2tQ9reQ1dHY1wSW/4QZpe/oaWhMqbusPrDIzMJ03RWuiTOX7p5KImiauWe+7cuAAC8/aNRZFhFUszPwdlzlQgHJaUlkVT3n098RE25Sz+PkMWQSIhF1djdDRzp/en7uM+xvFRYVotsWzGsdhHZtmIUltUq4+GghJqrPfp7hBCw2kXMjT8DAOTmOqLuIWmUJkFHZMsf0kzVtK/UKVzXrCUHZCzNf4oxsloy/tA+vP2jyuK1SKjntVrdiQgOARVVpZADMrb8IQx6r0VnIHc5pO09OG3ZipFpFDhtmrLTatX/kZG0SlzCQXtThSKTLX8IBU4b5pbW0eouZ8qKZXB1RNR9LZAXpLtHZpe/QdyJQMyzHF7n5zC9kQhkB/zHP6xIRLo6GuHtH1UWrybBqg8sAuQ5f2gfTlu2Mq/uaxXMlAsikVZFVSkAIDI/D0tVlTKvrhta2arAaVPkFFlZR4HNgtWDk8yXQbC2GU6qsqdVR2gSAGJIsDxCkwCAlZ8ncLrxYlwSNIFEO2JTMtEAgOlxn66HBSuLC3G3JaTv8U0k9TlsTkRietwHsjUh9UOvVisx0H2fxw2fx51wN2xKRGRpcSpmfD+0xlxMMimXNryYZ9HMXGq5JfrgSlpaPo87xrDpLI6kalbKjmf2jD2i9W1Q7LIacmJIZ6lUjorSPoLJ9NQjlaNWDg4ODg4ODg4ODg4ODg4ODg4ODg6O/xO/APm5YbADRV2WAAAAAElFTkSuQmCC'
+                            };
+                            function personajeAsistenteHtml(pensando) {
+                                const img = (clave, clase = '') => `<img${clase ? ` class="${clase}"` : ''} src="data:image/png;base64,${ROBOT_PNG[clave]}" alt="">`;
+                                return `<div class="robotito${pensando ? ' pensando' : ''}" aria-hidden="true">
+                                    ${img('cuerpo')}
+                                    <div class="cabeza">${img(pensando ? 'pensando' : 'normal')}${pensando ? '' : img('parpadeo', 'parpadeo')}</div>
+                                </div>`;
                             }
 
                             // Las recurrencias que la app ya detectó (las de Recurrentes), con sus próximas fechas en los
