@@ -531,6 +531,15 @@ const fechaLocal = (iso: string, z: Zona) => {
   return isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
 };
 
+// La fecha con su día de la semana por delante ("sábado 2026-10-03 02:40"), para lo que lee el modelo:
+// con el calendario en las instrucciones aún se equivocaba al deducirlo de la fecha.
+const DIAS_SEMANA_FECHA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const fechaConDia = (iso: string, z: Zona) => {
+  const f = fechaLocal(iso, z);
+  const d = new Date(`${f.slice(0, 10)}T12:00:00Z`);
+  return isNaN(d.getTime()) ? f : `${DIAS_SEMANA_FECHA[d.getUTCDay()]} ${f}`;
+};
+
 // Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
 // la usan (las "directas", de registros viejos, van de pesos a acciones sin pasar por ella)
 const tipoDe = (r: Json) => r.tipo_movimiento || ((Number(r.cantidad_acciones) || 0) > 0 ? ((Number(r.monto) || 0) < 0 ? "compra_directa" : "venta_directa") : null);
@@ -1137,7 +1146,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ["id", "fecha", "monto", "descripcion", "categoria", ...(conCantidad ? ["cantidad"] : []), ...(conLugar ? ["lugar"] : []),
             ...(conInv ? ["inv_tipo", "inv_usd", "inv_acciones", "inv_precio_usd"] : [])],
           filas.map((r: Json) => [
-            r.id, fechaLocal(r.fecha, zona), Number(r.monto), r.descripcion || null, catalogo.etiqueta[String(r.categoria_id)] ?? null,
+            r.id, fechaConDia(r.fecha, zona), Number(r.monto), r.descripcion || null, catalogo.etiqueta[String(r.categoria_id)] ?? null,
             ...(conCantidad ? [r.cantidad ?? null] : []), ...(conLugar ? [r.lugar ?? null] : []),
             ...(conInv ? (esInv(r) ? [r.tipo_movimiento ?? null, r.monto_usd != null ? Number(r.monto_usd) : null, Number(r.cantidad_acciones) || null, Number(r.costo_accion) || null] : [null, null, null, null]) : []),
           ]),
