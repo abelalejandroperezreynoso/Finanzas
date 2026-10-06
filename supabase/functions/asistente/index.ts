@@ -239,6 +239,7 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         categoria_id: { type: "string" },
         categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este movimiento) y que aún no existe" },
+        cuenta_id: { type: "string", description: "La cuenta donde pasó el movimiento. Pásala siempre que el usuario tenga categorías con el mismo nombre en varias cuentas (p. ej. al cuadrar)" },
         importe: { type: "number" },
         operacion: {
           type: "string", enum: ["presto", "me_pagan", "me_prestan", "pago"],
@@ -1331,7 +1332,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ...(conoceHabitos ? {} : { antes_que_nada: "Tu memoria no dice dónde guarda su dinero ni cómo suele pagar. En este mismo turno, después de decir la diferencia en una frase, pregúntalo con preguntar_al_usuario (p. ej. \"¿Cómo pagas casi siempre?\" con opciones Débito, Efectivo, Tarjeta de crédito, De todo un poco; y \"¿Tienes una cuenta de ahorro aparte?\" Sí/No). Con la respuesta, guárdalo con recordar (tema contexto) y sigue con las pistas." }),
           guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos. Toda pregunta va con preguntar_al_usuario, nunca en el texto. " +
             "Lo que recuerde, propónlo con proponer_nuevo_movimiento; un duplicado se corrige proponiendo el cambio, nunca lo borras. Lo que no recuerde es normal: " +
-            "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra). No toques el saldo inicial.",
+            "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra) en ESTA cuenta, pasando su cuenta_id; si la categoría no existe aquí, propónla en esta cuenta antes. No toques el saldo inicial.",
         }),
       };
     }
@@ -1615,14 +1616,28 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
     }
     case "proponer_nuevo_movimiento": {
       let c: Json = null;
+      // La cuenta, si la dijo: una categoría con el mismo nombre en dos cuentas ("Gastos sin identificar" en
+      // BBVA y en Efectivo) mandaba los $300 del efectivo a la de BBVA
+      const cuentaPedida = entrada.cuenta_id ? catalogo.cuentas.find((x: Json) => String(x.id) === String(entrada.cuenta_id)) : null;
+      if (entrada.cuenta_id && !cuentaPedida) return { texto: "No encontré esa cuenta.", error: true };
       if (entrada.categoria_id) {
-        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo").eq("id", entrada.categoria_id).maybeSingle());
+        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo, cuenta_id").eq("id", entrada.categoria_id).maybeSingle());
+        if (c && cuentaPedida && String((c as Json).cuenta_id) !== String(cuentaPedida.id)) {
+          const otra = catalogo.categorias.find((x: Json) => String(x.cuenta_id) === String(cuentaPedida.id) && String(x.nombre).trim().toLowerCase() === String((c as Json).nombre).trim().toLowerCase());
+          if (!otra) return { texto: `Esa categoría es de otra cuenta. Si no hay "${(c as Json).nombre}" en ${cuentaPedida.nombre}, propónla ahí primero y usa categoria_nueva.`, error: true };
+          c = { id: otra.id, nombre: otra.nombre, tipo: otra.tipo, cuenta_id: otra.cuenta_id };
+        }
       } else if (entrada.categoria_nueva) {
         // Una categoría propuesta en este turno: el movimiento la busca por nombre al confirmarse
         if (!zona.conPorNombre) return { texto: "Esta versión de la app no registra en una categoría que aún no existe: espera a que confirme la categoría y propón el movimiento después.", error: true };
         const nombre = String(entrada.categoria_nueva).trim().toLowerCase();
-        const nueva = propuestas.find((x: Json) => x.tipo === "nueva_categoria" && String(x.datos?.nombre).trim().toLowerCase() === nombre);
-        if (!nueva) return { texto: "categoria_nueva debe ser el nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno, antes del movimiento.", error: true };
+        const nueva = propuestas.find((x: Json) => x.tipo === "nueva_categoria" && String(x.datos?.nombre).trim().toLowerCase() === nombre
+          && (!cuentaPedida || String(x.cuenta).trim().toLowerCase() === String(cuentaPedida.nombre).trim().toLowerCase()));
+        if (!nueva) {
+          return { texto: cuentaPedida
+            ? `No propusiste "${entrada.categoria_nueva}" en ${cuentaPedida.nombre}: propónla primero en esa cuenta (proponer_nueva_categoria con su cuenta_id) y luego este movimiento.`
+            : "categoria_nueva debe ser el nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno, antes del movimiento.", error: true };
+        }
         c = { id: null, nombre: nueva.datos.nombre, tipo: nueva.datos.tipo, cuenta: nueva.cuenta };
       }
       if (!c) return { texto: "No encontré esa categoría.", error: true };
