@@ -554,6 +554,22 @@ const inicioDeDia = (f: string, z: Zona) => `${f}T00:00:00${sufijoZona(z)}`;
 const finDeDia = (f: string, z: Zona) => `${f}T23:59:59.999${sufijoZona(z)}`;
 const comprobanteDe = (entrada: Json) => Number(entrada?.pesos_comprobante) || 0;
 
+// Español de México, de tú. El modelo a veces se va al voseo ("confirmá", "tenés") aunque las instrucciones
+// lo prohíben: se corrigen las formas que más salen antes de que lleguen a la app.
+const VOSEO: Record<string, string> = {
+  "confirmá": "confirma", "mirá": "mira", "fijate": "fíjate", "tenés": "tienes", "podés": "puedes", "querés": "quieres",
+  "sabés": "sabes", "hacé": "haz", "decime": "dime", "contame": "cuéntame", "revisá": "revisa", "escribí": "escribe",
+  "mandá": "manda", "agregá": "agrega", "registrá": "registra", "elegí": "elige", "tocá": "toca", "probá": "prueba",
+  "andá": "ve", "vení": "ven", "decí": "di", "pensá": "piensa", "avisame": "avísame", "pasame": "pásame", "sos": "eres",
+};
+function sinVoseo(texto: string): string {
+  return texto.replace(/[a-záéíóúñ]+/gi, (p) => {
+    const r = VOSEO[p.toLowerCase()];
+    if (!r) return p;
+    return p[0] === p[0].toUpperCase() ? r[0].toUpperCase() + r.slice(1) : r;
+  });
+}
+
 // La misma clave pública de Finnhub que usa la app para precios y perfiles (está en dashboard.html)
 const TOKEN_FINNHUB = "d9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0";
 async function nombreDeTicker(ticker: string): Promise<string> {
@@ -2178,6 +2194,7 @@ Deno.serve(async (req) => {
     for (let i = nuevos.length - 1; i >= 0 && !texto; i--) {
       if (nuevos[i].role === "assistant") texto = textoDe(nuevos[i]);
     }
+    texto = sinVoseo(texto);
     await anotar("asistente", modeloUsado, usos);
     return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria, listas });
   } catch (error) {
