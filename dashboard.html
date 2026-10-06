@@ -8725,7 +8725,9 @@
                             // Solo si NO ha superado el límite de abandono, lo registramos como recurrente
                             if (diasDesdeUltimo <= limiteAbandono) {
                             recurrenciasMap[catId] = Math.round(avgIntervalReal);
-                            periodosMap[catId] = intervalosValidos.length;
+                            // Cuántas veces ha caído, no cuántos huecos hay entre ellas: cinco quincenas
+                            // cobradas son cuatro intervalos, y la lista decía "4 quincenas seguidas".
+                            periodosMap[catId] = intervalosValidos.length + 1;
 
                             const variacionMax = Math.max(...intervalosValidos) - Math.min(...intervalosValidos);
                             exactitudMap[catId] = variacionMax <= 4;

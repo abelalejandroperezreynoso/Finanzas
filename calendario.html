@@ -210,8 +210,8 @@
             const selectCuenta = document.getElementById('evCuenta');
             
             datosCuentas.forEach(c => {
-                selectFiltro.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
-                selectCuenta.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+                selectFiltro.innerHTML += `<option value="${c.id}">${escaparHtml(c.nombre)}</option>`;
+                selectCuenta.innerHTML += `<option value="${c.id}">${escaparHtml(c.nombre)}</option>`;
             });
         }
 
@@ -229,7 +229,7 @@
                 selCat.innerHTML = '<option value="" disabled selected>No hay servicios en esta agenda</option>';
             } else {
                 catsFiltradas.forEach(c => {
-                    selCat.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+                    selCat.innerHTML += `<option value="${c.id}">${escaparHtml(c.nombre)}</option>`;
                 });
             }
             
@@ -344,6 +344,9 @@
             }
         }
 
+        // El nombre y las notas pueden venir de la página pública de citas: se pintan como texto
+        const escaparHtml = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
         function mostrarDetallesCita(evento) {
             citaActivaId = evento.id;
             eventoActivo = evento;
@@ -359,15 +362,15 @@
             let htmlDetalles = `
                 <div class="detalle-item">
                     <div class="detalle-label">Cita / Cliente</div>
-                    <div class="detalle-valor">${evento.extendedProps.cliente || '-'}</div>
+                    <div class="detalle-valor">${escaparHtml(evento.extendedProps.cliente || '-')}</div>
                 </div>
                 <div class="detalle-item">
                     <div class="detalle-label">Fecha y Hora</div>
-                    <div class="detalle-valor" style="text-transform: capitalize;">${fechaFormateada} <br> ${horaInicio} - ${horaFin}</div>
+                    <div class="detalle-valor">${fechaFormateada.charAt(0).toUpperCase() + fechaFormateada.slice(1)} <br> ${horaInicio} - ${horaFin}</div>
                 </div>
                 <div class="detalle-item">
                     <div class="detalle-label">Agenda (Servicio)</div>
-                    <div class="detalle-valor">${cuenta ? cuenta.nombre : '-'} (${categoria ? categoria.nombre : '-'})</div>
+                    <div class="detalle-valor">${escaparHtml(cuenta ? cuenta.nombre : '-')} (${escaparHtml(categoria ? categoria.nombre : '-')})</div>
                 </div>
             `;
 
@@ -398,7 +401,7 @@
                 htmlDetalles += `
                     <div class="detalle-item" style="margin-top: 15px;">
                         <div class="detalle-label">Notas</div>
-                        <div class="detalle-valor" style="background: #333; padding: 10px; border-radius: 8px; font-size: 0.9em; white-space: pre-wrap;">${evento.extendedProps.notas}</div>
+                        <div class="detalle-valor" style="background: #333; padding: 10px; border-radius: 8px; font-size: 0.9em; white-space: pre-wrap;">${escaparHtml(evento.extendedProps.notas)}</div>
                     </div>
                 `;
             }
@@ -442,11 +445,13 @@
             
             document.getElementById('modalEvento').classList.add('activa');
             
+            // Fecha y hora locales. Antes se corría la fecha por la zona horaria para sacar el día
+            // con toISOString y la hora se leía de esa fecha corrida: en México salía 6 horas antes.
             const hoy = new Date();
-            hoy.setMinutes(hoy.getMinutes() - hoy.getTimezoneOffset());
-            document.getElementById('evFecha').value = hoy.toISOString().slice(0,10);
+            const dosCifras = n => String(n).padStart(2, '0');
+            document.getElementById('evFecha').value = `${hoy.getFullYear()}-${dosCifras(hoy.getMonth() + 1)}-${dosCifras(hoy.getDate())}`;
             
-            const hora = hoy.getHours().toString().padStart(2, '0');
+            const hora = dosCifras(hoy.getHours());
             document.getElementById('evHora').value = `${hora}:00`;
         }
 
