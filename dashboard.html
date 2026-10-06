@@ -16615,6 +16615,29 @@
                                 return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                             };
                             const fechaCorta = dia => new Date(dia + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+                            // Una fecha como se dice: "hoy", "antier", "el sábado", "el lunes pasado", "el 28 del mes
+                            // pasado". "El 5 oct" obligaba a hacer la cuenta de qué día era eso.
+                            const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                            function fechaRelativa(dia) {
+                                const f = new Date(dia + 'T12:00:00');
+                                const hoyF = new Date(diaLocal(new Date()) + 'T12:00:00');
+                                if (isNaN(f)) return dia;
+                                const d = Math.round((hoyF - f) / 86400000);
+                                if (d === 0) return 'hoy';
+                                if (d === 1) return 'ayer';
+                                if (d === 2) return 'antier';
+                                if (d === -1) return 'mañana';
+                                if (d === -2) return 'pasado mañana';
+                                if (d > 0 && d <= 6) return `el ${DIAS_SEMANA[f.getDay()]}`;
+                                if (d > 0 && d <= 13) return `el ${DIAS_SEMANA[f.getDay()]} pasado`;
+                                if (d < 0 && d >= -6) return `el ${DIAS_SEMANA[f.getDay()]}`;
+                                const meses = (f.getFullYear() - hoyF.getFullYear()) * 12 + f.getMonth() - hoyF.getMonth();
+                                if (meses === 0) return `el ${f.getDate()} de este mes`;
+                                if (meses === -1) return `el ${f.getDate()} del mes pasado`;
+                                if (meses === 1) return `el ${f.getDate()} del próximo mes`;
+                                return `el ${fechaCorta(dia)}`;
+                            }
+                            const conMayuscula = t => t.charAt(0).toUpperCase() + t.slice(1);
 
                             function avisosAsistente() {
                                 const descartados = avisosDescartados();
@@ -16691,10 +16714,10 @@
                                     .forEach(({ c, dia }) => {
                                         const clave = `rec:${c.id}:${dia}`;
                                         if (!vigente(clave)) return;
-                                        const cuando = dia === hoy ? 'Hoy' : `El ${fechaCorta(dia)}`;
+                                        const cuando = conMayuscula(fechaRelativa(dia));
                                         const monto = c.montoSugerido ? ` (aprox. ${fMoneda(c.montoSugerido)})` : '';
                                         avisos.push({
-                                            clave, categoria_id: c.id, etiqueta: 'Pago recurrente', texto: `${cuando} toca ${c.nombre}${monto}.`,
+                                            clave, categoria_id: c.id, etiqueta: 'Pago recurrente', texto: `${cuando} ${dia < hoy ? 'tocaba' : 'toca'} ${c.nombre}${monto}.`,
                                             detalle: '¿Ya quedó?',
                                             primario: { texto: 'Ya quedó', mensaje: `${cuando} tocaba ${c.nombre}${monto} y ya quedó. Propónme registrarlo; pregúntame el monto exacto si hace falta.` },
                                             secundario: { texto: 'Todavía no', dias: 1 }
@@ -16719,7 +16742,7 @@
                                     const dia = diaLocal(g[0].fecha);
                                     raros++;
                                     avisos.push({
-                                        clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `${g.length} movimientos iguales en ${c.nombre} el ${fechaCorta(dia)}.`,
+                                        clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `${g.length} movimientos iguales en ${c.nombre} ${fechaRelativa(dia)}.`,
                                         detalle: `Todos por ${fMoneda(Math.abs(Number(g[0].monto)))}. ¿Alguno está repetido?`,
                                         primario: { texto: 'Revisar', mensaje: `Veo ${g.length} movimientos iguales en ${c.nombre} el ${dia}, por ${fMoneda(Math.abs(Number(g[0].monto)))} cada uno. Revísalos y dime si parece que alguno está duplicado.` },
                                         secundario: { texto: 'Están bien', dias: null }
@@ -16737,7 +16760,7 @@
                                         const clave = `atipico:${r.id}`;
                                         if (monto > 500 && monto > mediana * 3 && vigente(clave)) {
                                             avisos.push({
-                                                clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `Un gasto de ${fMoneda(monto)} en ${c.nombre} el ${fechaCorta(diaLocal(r.fecha))}.`,
+                                                clave, categoria_id: c.id, etiqueta: 'Algo raro', texto: `Un gasto de ${fMoneda(monto)} en ${c.nombre} ${fechaRelativa(diaLocal(r.fecha))}.`,
                                                 detalle: `Lo normal ahí es cerca de ${fMoneda(mediana)}. ¿Está bien el monto?`,
                                                 primario: { texto: 'Revisar', mensaje: `El ${diaLocal(r.fecha)} hay un gasto de ${fMoneda(monto)} en ${c.nombre}, cuando lo normal ahí es cerca de ${fMoneda(mediana)}. Revisa ese movimiento y dime si parece un error.` },
                                                 secundario: { texto: 'Está bien', dias: null }
@@ -16940,15 +16963,23 @@
                                 const pesos = n => '$' + Math.round(n).toLocaleString('es-MX');
                                 const movs = (datosUsoCompleto || []).filter(r => String(r.categoria_id) === String(c.id))
                                     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}${cuentaObj.descripcion ? ` (${cuentaObj.descripcion})` : ''}${cuenta && fueraDelSaldo ? ', que no suma a tu saldo total' : ''}.`;
+                                // Sin la descripción de la cuenta: la escribiste para el asistente, y aquí sólo alargaba
+                                // la tarjeta con algo que ya sabes
+                                let texto = `${c.nombre} es ${queEs[c.tipo] || c.tipo}${cuenta ? ` de la cuenta ${cuenta}` : ''}${cuenta && fueraDelSaldo ? ', que no suma a tu saldo total' : ''}.`;
                                 if (!movs.length) return texto + ' Todavía no tiene movimientos.';
 
-                                const dias = Math.round((new Date(diaLocal(new Date()) + 'T12:00:00') - new Date(diaLocal(movs[0].fecha) + 'T12:00:00')) / 86400000);
-                                const cuando = dias <= 0 ? 'hoy' : dias === 1 ? 'ayer' : dias < 15 ? `hace ${dias} días` : `el ${fechaCorta(diaLocal(movs[0].fecha))}`;
-                                const recientes = movs.filter(r => (Date.now() - new Date(r.fecha)) < 90 * 86400000).length;
-                                const porMes = recientes / 3;
-                                const frecuencia = porMes >= 8 ? 'varias veces por semana' : porMes >= 2.5 ? `unas ${Math.round(porMes)} veces al mes`
-                                    : porMes >= 0.8 ? 'más o menos una vez al mes' : 'de vez en cuando';
+                                const cuando = fechaRelativa(diaLocal(movs[0].fecha));
+                                // Si la app ya le encontró un patrón, ése; si no, el ritmo de los últimos tres meses,
+                                // repartido entre los meses que de verdad hay (con dos meses de historia, dividir
+                                // entre tres decía "una vez al mes" de una quincena).
+                                const recientesMovs = movs.filter(r => (Date.now() - new Date(r.fecha)) < 90 * 86400000);
+                                const masViejo = recientesMovs.length ? new Date(recientesMovs[recientesMovs.length - 1].fecha) : new Date();
+                                const mesesVistos = Math.min(3, Math.max(1, (Date.now() - masViejo) / (30.4 * 86400000)));
+                                const porMes = recientesMovs.length / mesesVistos;
+                                const d = c.diasRecurrencia || 0;
+                                const frecuencia = d >= 6 && d <= 8 ? 'cada semana' : d >= 13 && d <= 17 ? 'cada quincena' : d >= 26 && d <= 34 ? 'cada mes'
+                                    : porMes >= 8 ? 'varias veces por semana' : porMes >= 2.5 ? `unas ${Math.round(porMes)} veces al mes`
+                                    : porMes >= 1.5 ? 'unas 2 veces al mes' : porMes >= 0.8 ? 'más o menos una vez al mes' : 'de vez en cuando';
                                 texto += ` Se usó por última vez ${cuando} y suele aparecer ${frecuencia}.`;
 
                                 if (c.tipo !== 'salud') {
