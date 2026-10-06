@@ -22,6 +22,10 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   `recordatorios` y `suscripciones_push` y se los pasa con el secreto del Vault
   (`avisos_secreto`). La app sincroniza `recordatorios` con los pagos recurrentes de
   fecha exacta. Las claves las pone una vez el flujo `configurar-avisos.yml`.
+- `herramientas/robotito.py`: dibuja al robotito del asistente (pixeles, por capas) y
+  reescribe `ROBOT_PNG` en `dashboard.html`. Para cambiar el dibujo se edita este
+  archivo y se corre; las animaciones están en el CSS `.robotito`. No edites los
+  base64 a mano.
 - `migracion_*.sql` en la raíz: migraciones ya aplicadas a mano; quedan como
   historial.
 - `supabase/sql/`: migraciones nuevas (ver abajo).
