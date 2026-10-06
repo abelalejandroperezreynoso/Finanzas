@@ -37,7 +37,7 @@
             width: 100%;
             max-width: 100%; 
             /* Lo último de cada sección no queda debajo de la barra de pestañas */
-            padding-bottom: calc(110px + env(safe-area-inset-bottom));
+            padding-bottom: 110px;
             padding-left: 0;
             padding-right: 0;
         }
@@ -70,7 +70,10 @@
         @media (hover: hover) { button:hover { background-color: #2eb87c; } }
 
         /* ---- Barra de pestañas (iOS 26: cápsula de vidrio flotante y el + en su círculo) ---- */
-        .barra-pestanas { position: fixed; left: 16px; right: 16px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 1000;
+        .barra-pestanas { position: fixed; z-index: 1000;
+            /* El mismo aire a los lados y abajo, como en iOS 26: la barra se mete en la zona de la barra de
+               inicio en vez de quedarse encima de ella. */
+            --aire-pestanas: 16px; left: var(--aire-pestanas); right: var(--aire-pestanas); bottom: var(--aire-pestanas);
             display: flex; align-items: center; gap: 10px; pointer-events: none; }
         html.sin-pestanas .barra-pestanas { display: none; }
         .barra-pestanas-capsula, .barra-pestanas-mas { pointer-events: auto;
