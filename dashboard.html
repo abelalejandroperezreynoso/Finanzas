@@ -2144,7 +2144,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
     <h3 id="tituloHistorial" style="margin: 0; text-align: left;">Historial</h3>
     </div>
-    <input type="text" id="buscadorMovimientos" placeholder="Buscar por categoría o descripción..." onkeyup="buscarEnTodosLosMovimientos()" style="margin-bottom: 15px; background-color: #222; border: none; border-radius: 50px; padding-left: 42px; padding-right: 20px; background-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%238e8e93%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Ccircle cx=%2711%27 cy=%2711%27 r=%278%27%3E%3C/circle%3E%3Cline x1=%2721%27 y1=%2721%27 x2=%2716.65%27 y2=%2716.65%27%3E%3C/line%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: 16px center; background-size: 16px 16px;">
+    <input type="text" id="buscadorMovimientos" placeholder="Buscar por categoría o descripción..." oninput="buscarEnTodosLosMovimientos()" style="margin-bottom: 15px; background-color: #222; border: none; border-radius: 50px; padding-left: 42px; padding-right: 20px; background-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%238e8e93%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Ccircle cx=%2711%27 cy=%2711%27 r=%278%27%3E%3C/circle%3E%3Cline x1=%2721%27 y1=%2721%27 x2=%2716.65%27 y2=%2716.65%27%3E%3C/line%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: 16px center; background-size: 16px 16px;">
     <ul id="listaHistorial" class="lista-items"></ul>
     </div>
 
@@ -13932,6 +13932,17 @@
                 tituloTendenciaEl.textContent = 'Tendencia de Balance';
             }
 
+            // Un periodo sin movimientos no pasa por actualizarDetallesUI: sin esto se quedaba
+            // la cifra del periodo visto antes. Sin movimientos, el saldo es el de su inicio.
+            if (datosGraf.length === 0) {
+                const el = document.getElementById('balanceAlCierreDinamico');
+                if (el) {
+                    el.textContent = fMoneda(balanceInicial);
+                    el.style.color = balanceInicial >= 0 ? '#3ecf8e' : '#ff5c5c';
+                    el.style.opacity = '1';
+                }
+            }
+
             const hoy = new Date();
             hoy.setMinutes(hoy.getMinutes() - hoy.getTimezoneOffset());
             const hoyStr = hoy.toISOString().slice(0, 10);
@@ -15927,7 +15938,7 @@
                                     if ('cantidad' in c) filas.push(`Cantidad: ${flecha(a.cantidad, c.cantidad)}`);
                                     if ('fecha' in c) filas.push(`Fecha: ${flecha((a.fecha || '').slice(0, 10), c.fecha)}`);
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
-                                    if ('categoria_id' in c) filas.push(`Categoría: ${flecha(a.categoria, p.categoria_nueva)}`);
+                                    if ('categoria_id' in c || p.categoria_por_nombre) filas.push(`Categoría: ${flecha(a.categoria, p.categoria_nueva)}`);
                                     filas.unshift(`Movimiento: ${escaparHtml(a.categoria || '')} · ${escaparHtml((a.fecha || '').slice(0, 10))} · ${escaparHtml(fMoneda(Math.abs(a.monto || 0)))}`);
                                 } else if (p.tipo === 'cambio_categoria') {
                                     const c = p.cambios || {}, a = p.antes || {};
@@ -16128,7 +16139,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, recurrentes: recurrentesParaAsistente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, recurrentes: recurrentesParaAsistente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17270,9 +17281,20 @@
                                 if (p.tipo === 'cambio_movimiento') {
                                     const cambios = { ...p.cambios };
                                     if (cambios.fecha) cambios.fecha = fechaDeDiaLocal(cambios.fecha);
-                                    res = await clienteSupabase.from('registros').update(cambios).eq('id', p.registro_id);
+                                    // A una categoría propuesta en el mismo chat: se busca por nombre ya confirmada
+                                    const destino = p.categoria_por_nombre;
+                                    if (destino && !cambios.categoria_id) {
+                                        const { data: cats } = await clienteSupabase.from('categorias').select('id, nombre, cuentas(nombre)');
+                                        const igual = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+                                        const candidatas = (cats || []).filter(c => igual(c.nombre, destino.nombre));
+                                        const cat = candidatas.find(c => igual(c.cuentas && c.cuentas.nombre, destino.cuenta)) || candidatas[0];
+                                        if (cat) cambios.categoria_id = cat.id;
+                                    }
+                                    res = destino && !cambios.categoria_id
+                                        ? { falta: `Primero confirma la categoría "${destino.nombre}".` }
+                                        : await clienteSupabase.from('registros').update(cambios).eq('id', p.registro_id);
                                     // Un movimiento que cambia deja de estar auditado, como al editarlo a mano
-                                    if (!res.error) clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).eq('id', p.registro_id).then(() => {}, () => {});
+                                    if (!res.error && !res.falta) clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).eq('id', p.registro_id).then(() => {}, () => {});
                                 } else if (p.tipo === 'cambio_categoria') {
                                     res = await clienteSupabase.from('categorias').update(p.cambios).eq('id', p.categoria_id);
                                     // Pasar a Salud: cada movimiento guarda su monto como cantidad y queda en 0 pesos.
@@ -21776,7 +21798,9 @@
                     .map(c => c.id);
 
                 // Construimos la consulta "OR" de Supabase: (descripcion ilike texto O categoria_id en lista)
-                let orQuery = `descripcion.ilike.%${textoLower}%`;
+                // Entre comillas, para que una coma o un paréntesis no rompan el filtro de Supabase
+                const patron = `%${textoLower}%`.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                let orQuery = `descripcion.ilike."${patron}"`;
                 if (categoriasMatch.length > 0) {
                     orQuery += `,categoria_id.in.(${categoriasMatch.join(',')})`;
                 }

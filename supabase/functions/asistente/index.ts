@@ -111,7 +111,8 @@ const HERRAMIENTAS: Json[] = [
     name: "proponer_cambio_movimiento",
     description:
       "Propone modificar un movimiento existente. NO lo aplica: el usuario lo confirmará en la app. Puedes cambiar importe (siempre positivo; el signo se conserva), " +
-      "fecha (AAAA-MM-DD), descripción o categoría (sólo a otra del mismo tipo). En inversiones sólo se cambian fecha y descripción.",
+      "fecha (AAAA-MM-DD), descripción o categoría (sólo a otra del mismo tipo). En inversiones sólo se cambian fecha y descripción. " +
+      "Para pasarlo a una categoría que aún no existe, propón antes la nueva con proponer_nueva_categoria en este mismo turno y usa categoria_nueva.",
     input_schema: {
       type: "object",
       properties: {
@@ -120,6 +121,7 @@ const HERRAMIENTAS: Json[] = [
         fecha: { type: "string" },
         descripcion: { type: "string" },
         categoria_id: { type: "string" },
+        categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este cambio) y que aún no existe" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string", description: "Qué se cambia, en una frase para el usuario" },
       },
@@ -486,8 +488,9 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // conInversion: la app sabe aplicar propuestas de inversión
 // conAltas: la app sabe crear cuentas y categorías propuestas y cambiar el saldo inicial
 // conPorNombre: la app sabe registrar un movimiento en una categoría propuesta que aún no existe
+// conMoverANueva: la app sabe pasar un movimiento existente a una categoría propuesta que aún no existe
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; recurrentes?: Json[] };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; recurrentes?: Json[] };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
   if (!Array.isArray(lista)) return undefined;
@@ -1017,12 +1020,25 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         cambios.categoria_id = (cat as Json).id;
         categoriaNueva = (cat as Json).nombre;
       }
-      if (Object.keys(cambios).length === 0) return { texto: "No hay nada que cambiar.", error: true };
+      // A una categoría propuesta en este turno: la app la busca por nombre al confirmar
+      let porNombre: Json = null;
+      if (!entrada.categoria_id && entrada.categoria_nueva) {
+        if (!zona.conMoverANueva) return { texto: "Esta versión de la app no mueve movimientos a una categoría que aún no existe: espera a que confirme la categoría y propón el cambio después.", error: true };
+        if (tipo === "inversion") return { texto: "En inversiones no se cambia la categoría desde aquí.", error: true };
+        const nombre = String(entrada.categoria_nueva).trim().toLowerCase();
+        const nueva = propuestas.find((x: Json) => x.tipo === "nueva_categoria" && String(x.datos?.nombre).trim().toLowerCase() === nombre);
+        if (!nueva) return { texto: "categoria_nueva debe ser el nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno, antes del cambio.", error: true };
+        if (nueva.datos.tipo !== tipo) return { texto: "Sólo se puede mover a una categoría del mismo tipo.", error: true };
+        porNombre = { nombre: nueva.datos.nombre, cuenta: nueva.cuenta };
+        categoriaNueva = nueva.datos.nombre;
+      }
+      if (Object.keys(cambios).length === 0 && !porNombre) return { texto: "No hay nada que cambiar.", error: true };
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_movimiento", registro_id: r.id, cambios, resumen: String(entrada.resumen).slice(0, 200),
         antes: { fecha: fechaLocal(r.fecha, zona), monto: Number(r.monto), cantidad: r.cantidad, descripcion: r.descripcion, categoria: (r as Json).categorias?.nombre },
         categoria_nueva: categoriaNueva,
+        ...(porNombre ? { categoria_por_nombre: porNombre } : {}),
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
     }
@@ -1159,7 +1175,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ...(d.texto ? { descripcion: d.texto } : {}),
         },
       });
-      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada." };
+      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Los movimientos que ya existen no se mueven solos a ella: para pasar uno, proponlo con proponer_cambio_movimiento y categoria_nueva." };
     }
     case "proponer_nuevo_movimiento": {
       let c: Json = null;
@@ -1237,6 +1253,7 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 - Categoría: la que le queda por nombre, descripción o por dónde registró antes cosas parecidas (también por dónde está ahora, si la app lo dice). Si dos son igual de probables, pregunta.
 - Si ninguna le queda de verdad, no la metas en la más parecida (un limpiador facial no es Ropa): en el mismo turno, primero proponer_nueva_categoria (nombre general como "Cuidado personal", descripción, prioridad, en la cuenta de sus demás gastos; si no es obvia la cuenta, pregunta) y luego proponer_nuevo_movimiento con categoria_nueva. Dile que confirme primero la categoría.
+- Para pasar movimientos que ya existen a una categoría nueva: proponer_nueva_categoria y, en el mismo turno, proponer_cambio_movimiento con categoria_nueva por cada uno. Nunca se mueven solos.
 - Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento de hoy, 360, categoría del Hyundai, descripción "Aceite"; luego: "Te dejé el registro para confirmar."
 - Si pide que lo guíes: pregunta categoría (las 3 o 4 que más usa) y cuándo (Hoy, Ayer); luego monto y descripción con opciones de sus movimientos anteriores; luego propón. No repitas lo que ya dijo.
 
@@ -1601,7 +1618,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, recurrentes: limpiarRecurrentes(entrada.recurrentes) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, recurrentes: limpiarRecurrentes(entrada.recurrentes) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];
