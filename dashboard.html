@@ -16022,17 +16022,20 @@
                                     // Minimalista, como Claude: sólo el personaje y el saludo. Los pendientes no se
                                     // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
                                     // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
+                                    const estado = cargandoDatos ? null : estadoFinanzasAsistente();
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 ${personajeAsistenteSvg(ocupado)}
-                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion }))}</div>
+                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado }))}</div>
                                             </div>
                                         </div>`;
                                     // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
                                     if (chips && !sinConexion) {
                                         chips.innerHTML = (avisos.length
                                             ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '') + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
+                                            : '')
+                                            + (estado && !avisos.length ? `<button type="button" class="chip-pendientes" onclick="revisarMesAsistente()"><span class="punto"></span>Revisar mi mes</button>` : '')
+                                            + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
                                     }
                                     pintarPreguntasAsistente();
                                     return;
@@ -16204,11 +16207,37 @@
                                 </svg>`;
                             }
 
+                            window.revisarMesAsistente = () => enviarMensajeAsistente('¿Cómo voy este mes y dónde puedo ajustar?');
                             window.empezarComoNuevo = () => enviarMensajeAsistente('Quiero empezar',
                                 '[Nota de la app: el usuario es nuevo y no tiene cuentas. Empieza por su cuenta principal.]');
 
+                            // Cómo van las finanzas, para que el saludo no diga "todo tranquilo" cuando no lo está.
+                            // Mira el saldo total, el mes en curso y los tres meses anteriores (sólo cuentas que
+                            // suman al total). Devuelve el problema más serio con su frase, o null si todo va bien.
+                            function estadoFinanzasAsistente() {
+                                if (!(datosUsoCompleto || []).length) return null;
+                                const hoyD = new Date();
+                                const ymDe = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                const actual = resumirMesReporte(ymDe(hoyD));
+                                const previos = [1, 2, 3].map(k => resumirMesReporte(ymDe(new Date(hoyD.getFullYear(), hoyD.getMonth() - k, 1))))
+                                    .filter(r => r.movimientos > 0);
+                                const gastoProm = previos.length ? previos.reduce((t, r) => t + r.gastos, 0) / previos.length : 0;
+                                const quedaProm = previos.length ? previos.reduce((t, r) => t + r.ingresos - r.gastos, 0) / previos.length : 0;
+                                const diasMes = new Date(hoyD.getFullYear(), hoyD.getMonth() + 1, 0).getDate();
+                                const esperado = gastoProm * hoyD.getDate() / diasMes;
+                                const flujo = actual.ingresos - actual.gastos;
+                                const saldo = Number(saldoTotalFinanzas) || 0;
+                                const cifra = n => fMoneda(Math.round(n), fNumSaldo);
+                                if (saldo < 0) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
+                                if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
+                                if (previos.length >= 2 && quedaProm < 0) return { nivel: 'mal', texto: 'Los últimos meses gastaste más de lo que entró. Hay que ajustar' };
+                                if (flujo < 0 && -flujo > gastoProm * 0.1) return { nivel: 'atento', texto: `Este mes vas ${cifra(-flujo)} abajo. Veamos dónde ajustar` };
+                                if (esperado > 0 && actual.gastos > esperado * 1.2) return { nivel: 'atento', texto: 'Este mes vas gastando más rápido que otros meses' };
+                                return null;
+                            }
+
                             let semillaSaludo = Math.random();
-                            function saludoAsistente(pendientes, revisando, { cargando = false, sinConexion = false } = {}) {
+                            function saludoAsistente(pendientes, revisando, { cargando = false, sinConexion = false, estado = null } = {}) {
                                 const h = new Date().getHours();
                                 const hola = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
                                 let opciones;
@@ -16229,6 +16258,8 @@
                                     ];
                                 } else if (revisando) {
                                     opciones = ['Dame un momento, estoy revisando tus finanzas', `${hola}, déjame revisar cómo vas`, 'Estoy repasando tus números'];
+                                } else if (estado) {
+                                    return estado.texto;
                                 } else {
                                     opciones = [`${hola}, todo en orden por ahora`, 'Sin pendientes. ¿Qué revisamos hoy?', `${hola}, ¿en qué te ayudo?`, 'Tus números se ven tranquilos hoy', 'Nada urgente. ¿Buscamos dónde ahorrar?'];
                                 }
