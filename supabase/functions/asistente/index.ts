@@ -652,12 +652,19 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         aviso = ` Al confirmar, la Caja GBM quedará en $${despues.toFixed(2)} USD (hoy tiene $${caja.toFixed(2)} USD).`;
       }
       if ((tipo === "aportacion" || tipo === "retiro") && comprobanteDe(entrada) > 0 && Math.abs(Math.abs(Number(datos.monto)) - comprobanteDe(entrada)) >= 0.005) {
-        aviso += ` Dile en una frase: registras los $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} que salieron de su cuenta; GBM muestra $${comprobanteDe(entrada).toLocaleString("en-US", { minimumFractionDigits: 2 })} porque su tipo de cambio es referencial.`;
+        const registrados = Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 });
+        const delComprobante = comprobanteDe(entrada).toLocaleString("en-US", { minimumFractionDigits: 2 });
+        aviso += ` OJO: se registran $${registrados}, NO $${delComprobante}. Dile en una frase que registras los $${registrados} que ${tipo === "aportacion" ? "salieron de Smart Cash" : "llegaron a Smart Cash"} y que GBM muestra $${delComprobante} porque su tipo de cambio es referencial; no digas que se registran $${delComprobante}.`;
       }
       if (entrada.pendiente === true) aviso += " Avísale que la transferencia sigue pendiente: los dólares pueden cambiar al completarse, y que te mande el comprobante final para corregirlo si cambian.";
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
-        tipo: "movimiento_inversion", resumen: String(entrada.resumen).slice(0, 200), categoria,
+        // En aportación y retiro el título lo arma la función con las cifras finales: el del modelo se
+        // escribía antes de redondear y decía $999.93 de una propuesta de $1,000
+        tipo: "movimiento_inversion", categoria,
+        resumen: (tipo === "aportacion" || tipo === "retiro")
+          ? `${tipo === "aportacion" ? "Aportación" : "Retiro"}: $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} MXN ${tipo === "aportacion" ? "→" : "←"} $${Number(datos.monto_usd).toFixed(2)} USD en la Caja GBM`
+          : String(entrada.resumen).slice(0, 200),
         datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." + aviso };
