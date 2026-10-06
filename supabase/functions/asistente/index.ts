@@ -74,6 +74,22 @@ function costoDe(modelo: string, u: Json): number {
 
 const HERRAMIENTAS: Json[] = [
   {
+    name: "revisar_cuadre",
+    description:
+      "Compara el saldo real que dice el usuario de UNA cuenta contra el de la app y busca de dónde puede venir la diferencia: pagos recurrentes que tocaban y no están, " +
+      "gastos de cada mes que este mes faltan, días sin registros con lo que suele gastar por día, posibles duplicados y lo último que se registró. " +
+      "Úsala para cualquier \"cuadrar\", \"no me cuadra\" o \"tengo X en tal cuenta\" de una cuenta que ya tiene movimientos. Una llamada por cuenta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cuenta_id: { type: "string" },
+        saldo_real: { type: "number", description: "Lo que el usuario dice que tiene hoy en esa cuenta, en pesos" },
+      },
+      required: ["cuenta_id", "saldo_real"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "listar_cuentas",
     description: "Saldo actual de cada cuenta (saldo inicial más movimientos) y el saldo total que el usuario ve en la app: la suma de las cuentas que cuentan en el total. Úsalos tal cual, sin recalcular.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
@@ -1221,6 +1237,98 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       memoria.push({ accion: "corregida", nota });
       return { texto: "Nota corregida." };
     }
+    case "revisar_cuadre": {
+      const cuenta = catalogo.cuentas.find((c: Json) => String(c.id) === String(entrada.cuenta_id));
+      if (!cuenta) return { texto: "No encontré esa cuenta.", error: true };
+      const saldoReal = Number(entrada.saldo_real);
+      if (!Number.isFinite(saldoReal)) return { texto: "Falta el saldo real (un número en pesos).", error: true };
+      const catsCuenta = catalogo.categorias.filter((c: Json) => String(c.cuenta_id) === String(cuenta.id));
+      if (catsCuenta.some((c: Json) => c.tipo === "inversion")) {
+        return { texto: "Es una cuenta de inversión: su saldo en pesos no es dinero disponible. Para revisarla compara la Caja GBM en dólares con resumen_inversiones o con el estado de cuenta de GBM.", error: true };
+      }
+      const { data: saldos, error: eS } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
+      if (eS) return { texto: `Error: ${eS.message}`, error: true };
+      const mov = (saldos ?? []).find((x: Json) => String(x.id_cuenta) === String(cuenta.id));
+      const saldoApp = (Number(cuenta.saldo_inicial) || 0) + (Number(mov?.balance) || 0);
+      const diferencia = saldoReal - saldoApp;
+      const r2c = (n: number) => Math.round(n * 100) / 100;
+      const pesos = (n: number, signo = false) => `${n < 0 ? "-" : signo && n > 0 ? "+" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      const hoyL = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const diaMs = 86400000;
+      const hace = (n: number) => new Date(new Date(`${hoyL}T12:00:00Z`).getTime() - n * diaMs).toISOString().slice(0, 10);
+      const ids = catsCuenta.filter((c: Json) => c.tipo !== "salud").map((c: Json) => c.id);
+      const tipoDeCat: Record<string, string> = {};
+      catsCuenta.forEach((c: Json) => { tipoDeCat[String(c.id)] = c.tipo; });
+      let regs: Json[] = [];
+      if (ids.length) {
+        const { data, error } = await sb.from("registros").select("id, fecha, monto, descripcion, categoria_id")
+          .in("categoria_id", ids).gte("fecha", inicioDeDia(hace(95), zona)).order("fecha", { ascending: false }).limit(3000);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        regs = (data ?? []).map((r: Json) => ({ ...r, dia: fechaLocal(r.fecha, zona).slice(0, 10) }));
+      }
+      const nombreCat = (id: unknown) => catalogo.etiqueta[String(id)] ?? "?";
+
+      // Lo último que se registró en la cuenta
+      const ultimos = regs.slice(0, 5).map((r: Json) => `${fechaConDia(r.fecha, zona)} · ${nombreCat(r.categoria_id)} · ${pesos(Number(r.monto), true)}${r.descripcion ? ` · ${r.descripcion}` : ""}`);
+
+      // Días sin registros en los últimos 30, y lo que suele salir por día (gastos de los últimos 60)
+      const diasCon = new Set(regs.map((r: Json) => r.dia));
+      const sinRegistro: string[] = [];
+      for (let k = 1; k <= 30; k++) { const d = hace(k); if (!diasCon.has(d)) sinRegistro.push(d); }
+      const gasto60 = regs.filter((r: Json) => r.dia >= hace(60) && tipoDeCat[String(r.categoria_id)] === "gasto")
+        .reduce((t: number, r: Json) => t - (Number(r.monto) || 0), 0);
+      const gastoDiario = gasto60 / 60;
+
+      // Pagos recurrentes que tocaban y no están (los calcula la app)
+      const vencidos = (zona.recurrentes ?? []).filter((r: Json) => ids.some((id: unknown) => String(id) === r.categoria_id) && r.vencido)
+        .map((r: Json) => `${nombreCat(r.categoria_id)}: tocaba el ${r.siguiente}${r.monto ? `, de unos ${pesos(signoRecurrente(tipoDeCat[r.categoria_id]) * r.monto, true)}` : ""}`);
+
+      // Lo que apareció los dos meses anteriores y este mes todavía no, ya pasado su día de costumbre
+      const mesDe = (d: string) => d.slice(0, 7);
+      const mesHoy = mesDe(hoyL), diaHoy = Number(hoyL.slice(8, 10));
+      const mesAnt = (m: string) => { const d = new Date(`${m}-15T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
+      const m1 = mesAnt(mesHoy), m2 = mesAnt(m1);
+      const habituales: string[] = [];
+      catsCuenta.filter((c: Json) => c.tipo === "gasto" || c.tipo === "ingreso").forEach((c: Json) => {
+        const deCat = regs.filter((r: Json) => String(r.categoria_id) === String(c.id));
+        const en = (m: string) => deCat.filter((r: Json) => mesDe(r.dia) === m);
+        const a1 = en(m1), a2 = en(m2);
+        if (!a1.length || !a2.length || en(mesHoy).length) return;
+        const diaUsual = Math.max(...a1.map((r: Json) => Number(r.dia.slice(8, 10))));
+        if (diaHoy <= diaUsual + 2) return;
+        const tipico = a1.reduce((t: number, r: Json) => t + Number(r.monto || 0), 0) / a1.length;
+        habituales.push(`${nombreCat(c.id)}: los dos meses anteriores apareció (el mes pasado hacia el día ${diaUsual}, unos ${pesos(tipico, true)}) y este mes todavía no`);
+      });
+
+      // Posibles duplicados del último mes: misma categoría, mismo monto, mismo día
+      const grupos: Record<string, Json[]> = {};
+      regs.filter((r: Json) => r.dia >= hace(30) && Math.abs(Number(r.monto)) > 0.005)
+        .forEach((r: Json) => { (grupos[`${r.categoria_id}|${r.dia}|${Number(r.monto).toFixed(2)}`] ??= []).push(r); });
+      const duplicados = Object.values(grupos).filter((g) => g.length > 1)
+        .map((g) => `${g.length} × ${nombreCat(g[0].categoria_id)} de ${pesos(Number(g[0].monto), true)} el ${fechaConDia(g[0].fecha, zona)} (ids ${g.map((r) => r.id).join(", ")})`);
+
+      const sentido = Math.abs(diferencia) < 0.5 ? "cuadra"
+        : diferencia < 0 ? "tiene MENOS de lo que dice la app: faltan gastos o retiros por registrar, o hay un ingreso de más o duplicado"
+        : "tiene MÁS de lo que dice la app: falta un ingreso por registrar, o hay un gasto de más o duplicado";
+      return {
+        texto: recortar({
+          cuenta: cuenta.nombre,
+          saldo_app: pesos(saldoApp), saldo_real: pesos(saldoReal), diferencia: pesos(diferencia, true), sentido,
+          ultimos_movimientos: ultimos,
+          dias_sin_registros_ultimos_30: sinRegistro.length,
+          ultimos_dias_sin_registros: sinRegistro.slice(0, 7).map((d) => fechaConDia(`${d}T18:00:00Z`, { ...zona, desfase: 0 })),
+          gasto_diario_tipico: pesos(gastoDiario),
+          estimado_dias_sin_registro: pesos(gastoDiario * sinRegistro.length),
+          recurrentes_que_tocaban_y_no_estan: vencidos,
+          habituales_que_faltan_este_mes: habituales,
+          posibles_duplicados: duplicados,
+          guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos, preguntando con preguntar_al_usuario lo que haya que confirmar. " +
+            "Lo que recuerde, propónlo con proponer_nuevo_movimiento; un duplicado se corrige proponiendo el cambio, nunca lo borras. Lo que no recuerde es normal: " +
+            "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra). No toques el saldo inicial.",
+        }),
+      };
+    }
     case "listar_cuentas": {
       const { data: saldos, error } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
       if (error) return { texto: `Error: ${error.message}`, error: true };
@@ -1600,7 +1708,7 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 # Cuentas y saldo inicial
 - Cada categoría pertenece a una cuenta y sus movimientos mueven su saldo. Saldo actual = saldo inicial + movimientos.
 - Lo que el usuario ya tiene en una cuenta ("tengo 5,000 en BBVA", "mi tarjeta debe 3,000") es saldo inicial (negativo si debe), nunca un ingreso o gasto. Va al crear la cuenta (proponer_nueva_cuenta) o se corrige con proponer_cambio_cuenta.
-- Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda. Cuando diga cuánto tiene hoy, o quiera cuadrar una cuenta con su banco sin que falten movimientos, usa proponer_cambio_cuenta con saldo_actual: el saldo inicial se calcula solo.
+- Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda. Cuando diga cuánto tiene en una cuenta nueva, sin movimientos, usa proponer_cambio_cuenta con saldo_actual: el saldo inicial se calcula solo.
 
 # Usuario nuevo
 Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, empezando por su cuenta principal (donde le pagan o con la que paga casi todo):
@@ -1629,6 +1737,14 @@ Para cómo va el mes, si llega a fin de mes o dónde ajustar, llama a pronostico
 2. Pronóstico: saldo estimado a fin de mes y, si queda en negativo, el día aproximado. Menciona ingresos atrasados o pagos grandes por venir que lo expliquen. Aclara que es una estimación.
 3. Máximo 3 acciones concretas, ordenadas por cuánto ayudan, cada una con monto ("Si dejas Restaurante en $2,500 este mes, ahorras $1,800 frente a tu promedio"). Prioriza lo prescindible y lo útil que va arriba de lo normal; no propongas recortar lo vital.
 No enlistes todas las categorías ni cifras pequeñas que no cambian el resultado. Antes de interpretar una categoría, lee su descripción.
+
+# Cuadrar cuentas
+Cuando diga cuánto tiene de verdad en una cuenta que ya tiene movimientos, o que algo no le cuadra:
+1. Si tu memoria no dice dónde guarda su dinero y cómo suele pagar (efectivo, débito, tarjeta, cuenta de ahorro), pregúntalo una vez con preguntar_al_usuario y guárdalo con recordar (tema contexto). Úsalo para buscar: si paga casi todo en efectivo, ahí es donde se olvidan los gastos; un retiro del cajero es dinero que sale del banco y entra al efectivo.
+2. Si no te dio el saldo real de cada cuenta que suma al total, pídeselo. Por cada una llama a revisar_cuadre.
+3. Explica la diferencia en una frase ("En BBVA tienes $5,707 menos de lo que dice la app") y repasa las pistas de la herramienta, de la más probable a la menos. Lo que confirme, propónlo.
+4. Olvidar gastos es normal y no se regaña. Lo que no se identifique, propónlo como un solo movimiento "Sin identificar" en esa cuenta: gasto si falta dinero (categoría "Gastos sin identificar", prioridad prescindible) o ingreso si sobra ("Ingresos sin identificar"); si la categoría no existe, propónla antes. Así cuadra sin borrar el problema y se ve cuánto se fue sin registrar.
+5. Nunca cuadres cambiando el saldo actual o el saldo inicial de una cuenta que ya tiene movimientos, salvo que el usuario lo pida explícitamente después de saber la diferencia.
 
 # Tu objetivo
 Que al usuario le quede más dinero cada mes y su patrimonio crezca. Lo mides con flujo_mensual y con el avance hacia sus metas. Aunque no te lo pida:
