@@ -30,6 +30,8 @@ COLORES = {
     'G': '#9b988f',    # perilla
     'D': '#141413',    # ojos
     'A': '#f7c46c',    # perilla encendida mientras piensa
+    'R': '#e5484d',    # perilla de alarma (saldo en cero, negativo o muy bajo)
+    'B': '#8ec5ea',    # gotita de sudor
 }
 
 CABEZA = [
@@ -78,6 +80,14 @@ def cabeza(estado):
     pintar(img, CABEZA)
     if estado == 'pensando':
         for x in (4, 5): celda(img, x, 0, COLORES['A'])
+    if estado == 'alarma':            # sólo la perilla en rojo, encima de la cara de alerta
+        img = lienzo()
+        for x in (4, 5): celda(img, x, 0, COLORES['R'])
+        return img
+    if estado == 'alerta':            # cejas de preocupación (más altas hacia el centro) y sudor
+        d = COLORES['D']
+        for x0, y0 in ((6, 4), (7, 3), (12, 3), (13, 4)): img[y0][x0] = d
+        for x0, y0 in ((18, 5), (18, 6), (19, 6)): img[y0][x0] = COLORES['B']
     for x in OJOS:
         if estado == 'parpadeo':      # ojos cerrados: media celda abajo
             celda(img, x, 3, COLORES['D'], y0=1, h=1)
@@ -116,6 +126,8 @@ def generar():
         'normal': png(cabeza('normal')),
         'parpadeo': png(cabeza('parpadeo')),
         'pensando': png(cabeza('pensando')),
+        'alerta': png(cabeza('alerta')),
+        'alarma': png(cabeza('alarma')),
     }
 
 
@@ -137,6 +149,7 @@ def vista(out, ruta):
         ('Normal', ['pie_izq', 'pie_der', 'brazos', 'cuerpo', 'normal'], {}),
         ('Pensando', ['pie_izq', 'pie_der', 'brazos', 'cuerpo', 'pensando'], {}),
         ('Parpadeo', ['pie_izq', 'pie_der', 'brazos', 'cuerpo', 'parpadeo'], {}),
+        ('Alerta', ['pie_izq', 'pie_der', 'brazos', 'cuerpo', 'alerta', 'alarma'], {}),
         ('Estirado', ['pie_izq', 'pie_der', 'brazos_arriba', 'cuerpo', 'parpadeo'],
          {'brazos_arriba': -0.5, 'cuerpo': -0.5, 'parpadeo': -1}),
     ]

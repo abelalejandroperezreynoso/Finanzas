@@ -305,6 +305,17 @@
         .robotito .brazos-arriba, .robotito .ojos-estira { animation: robotBrazosArriba 14s steps(1) infinite; }
         .robotito.pensando .cabeza { animation-duration: 0.5s; }
         .robotito.pensando :is(.pie-der, .pie-izq, .torso, .cuello, .brazos, .brazos-arriba, .ojos-estira) { animation: none; }
+        .robotito.alerta { animation: robotTiembla 2.4s steps(1) infinite; }
+        .robotito.alerta .cabeza { animation-duration: 0.8s; }
+        .robotito.alerta :is(.pie-der, .pie-izq, .torso, .cuello) { animation: none; }
+        .robotito.alerta .brazos { animation: robotPanicoAbajo 2.4s steps(1) infinite; }
+        .robotito.alerta .brazos-arriba { animation: robotPanicoArriba 2.4s steps(1) infinite; }
+        .robotito .alarma { animation: robotAlarma 0.8s steps(1) infinite; }
+        @keyframes robotTiembla { 0%, 59% { transform: translateX(0); } 60%, 66%, 72% { transform: translateX(-2px); }
+            63%, 69%, 75% { transform: translateX(2px); } 78%, 100% { transform: translateX(0); } }
+        @keyframes robotPanicoAbajo { 0%, 59% { opacity: 1; } 60%, 77% { opacity: 0; } 78%, 100% { opacity: 1; } }
+        @keyframes robotPanicoArriba { 0%, 59% { opacity: 0; } 60%, 77% { opacity: 1; } 78%, 100% { opacity: 0; } }
+        @keyframes robotAlarma { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
         @keyframes robotRespira { 0%, 49% { transform: translateY(0); } 50%, 100% { transform: translateY(-2px); } }
         @keyframes robotParpadea { 0%, 93% { opacity: 0; } 94%, 96% { opacity: 1; } 97%, 100% { opacity: 0; } }
         @keyframes robotPieDer { 0%, 29% { transform: translateY(0); } 30% { transform: translateY(-5px); } 31%, 32% { transform: translateY(0); }
@@ -16298,7 +16309,7 @@
                                     const estado = cargandoDatos ? null : estadoFinanzasAsistente();
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
-                                                ${personajeAsistenteHtml(ocupado)}
+                                                ${personajeAsistenteHtml(ocupado, !ocupado && !!(estado && estado.alerta))}
                                                 <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado }))}</div>
                                             </div>
                                         </div>`;
@@ -16489,14 +16500,21 @@
                                 cuerpo: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAANklEQVR42mNgGAWjYOABIy6J8+Xh//FpNOxciVUvE81dCHOZrKw0UQaI5PQx0tSFowaOgsEAAO30CA8NYx4rAAAAAElFTkSuQmCC',
                                 normal: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAWklEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RPi4k1WW4XEp1F+I0UKNhIYNGw0KixWkfhm+mFP2nxCCaheEoGAWjgBgAANv1FTX7mSC2AAAAAElFTkSuQmCC',
                                 parpadeo: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAWklEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RPi4k1WW4XEp1F9LPQI2GhQwaDQuJFscIwzdTiv5T4jKaheEoGAWjgBgAADuCFTX2na4EAAAAAElFTkSuQmCC',
-                                pensando: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAXklEQVR42mNkIAC+H8n5j8zntJnCiE89EwOVAYZt58vD/zMwMDDIykoTZYBITh8jfVxIqstwuRSnCzUaFjJoNCwkWpxmXmbBJXGjIZ4kcQwDyQ07mnt5FIyCUUAMAACtpRT9HFaIUgAAAABJRU5ErkJggg=='
+                                pensando: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAXklEQVR42mNkIAC+H8n5j8zntJnCiE89EwOVAYZt58vD/zMwMDDIykoTZYBITh8jfVxIqstwuRSnCzUaFjJoNCwkWpxmXmbBJXGjIZ4kcQwDyQ07mnt5FIyCUUAMAACtpRT9HFaIUgAAAABJRU5ErkJggg==',
+                                alerta: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAgElEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RaBdqNCwkSgyrC9FdptGwkOFGQzxOi9DlYC7F6UJchuGS6zv66j9eAzUaFuL0Mi5v9x199Z+FWrFbZC3GiBKGb6YU/afEQIJhOApGwSigJQAAIT8oc2r7MRYAAAAASUVORK5CYII=',
+                                alarma: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAJElEQVR42mNkIACeevj+R+ZL79jMiE89E8MoGAWjYBSMghEKAMemBAQsVNznAAAAAElFTkSuQmCC'
                             };
-                            function personajeAsistenteHtml(pensando) {
+                            // Con alerta (saldo en cero, negativo o muy bajo) pone cara de preocupación, la
+                            // perilla parpadea en rojo y a ratos tiembla con los brazos arriba.
+                            function personajeAsistenteHtml(pensando, alerta = false) {
                                 const img = (clave, clase = '') => `<img${clase ? ` class="${clase}"` : ''} src="data:image/png;base64,${ROBOT_PNG[clave]}" alt="">`;
-                                return `<div class="robotito${pensando ? ' pensando' : ''}" aria-hidden="true">
+                                const cara = pensando ? img('pensando')
+                                    : alerta ? img('alerta') + img('alarma', 'alarma')
+                                    : img('normal') + img('parpadeo', 'parpadeo') + img('parpadeo', 'ojos-estira');
+                                return `<div class="robotito${pensando ? ' pensando' : alerta ? ' alerta' : ''}" aria-hidden="true">
                                     ${img('pie_izq', 'pie-izq')}${img('pie_der', 'pie-der')}
                                     <div class="torso">${img('brazos', 'brazos')}${img('brazos_arriba', 'brazos-arriba')}${img('cuerpo')}</div>
-                                    <div class="cuello"><div class="cabeza">${img(pensando ? 'pensando' : 'normal')}${pensando ? '' : img('parpadeo', 'parpadeo') + img('parpadeo', 'ojos-estira')}</div></div>
+                                    <div class="cuello"><div class="cabeza">${cara}</div></div>
                                 </div>`;
                             }
 
@@ -16557,8 +16575,9 @@
                                 // El signo menos pegado a la cifra: con el guion normal el renglón se cortaba justo
                                 // después de él y quedaba "Tu saldo está en -" arriba y "$1,883" abajo
                                 const cifra = n => fMoneda(Math.round(n), fNumSaldo).replace(/^-/, '\u2212\u2060');
-                                if (saldo < 0) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
-                                if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
+                                // alerta: saldo en cero, negativo o muy bajo; el robotito del chat se preocupa
+                                if (saldo <= 0) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
+                                if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
                                 if (previos.length >= 2 && quedaProm < 0) return { nivel: 'mal', texto: 'Los últimos meses gastaste más de lo que entró. Hay que ajustar' };
                                 if (flujo < 0 && -flujo > gastoProm * 0.1) return { nivel: 'atento', texto: `Este mes vas ${cifra(-flujo)} abajo. Veamos dónde ajustar` };
                                 if (esperado > 0 && actual.gastos > esperado * 1.2) return { nivel: 'atento', texto: 'Este mes vas gastando más rápido que otros meses' };
