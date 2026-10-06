@@ -7039,7 +7039,12 @@
                                     }
                                     setTimeout(ocultarSplashCarga, 15000);
 
-    async function refrescarTodo() { await cargarCuentas(); await cargarCategorias(); await cargarDatosBase(); }
+    async function refrescarTodo() {
+        await cargarCuentas(); await cargarCategorias(); await cargarDatosBase();
+        // El saludo del chat vacío habla del saldo: con los datos nuevos se vuelve a pintar
+        const chat = document.getElementById('sec-asistente');
+        if (chat && chat.classList.contains('activa') && typeof chatUi !== 'undefined' && !chatUi.length && typeof pintarChatAsistente === 'function') pintarChatAsistente();
+    }
 
         // Función para manejar la selección visual de los botones Entrada/Salida
         function seleccionarTipoRegistro(tipo) {
@@ -7104,6 +7109,13 @@
                 const saldoBase = parseFloat(c.saldo_inicial) || 0;
                 return { ...c, balanceReal: saldoBase + saldoMovimientos };
             });
+            // El saldo total sólo depende de las cuentas, así que se calcula aquí. Antes sólo lo hacía el
+            // render general, y con un filtro de categoría, cuenta o búsqueda la recarga se lo saltaba: el
+            // chat seguía diciendo el saldo de antes de los gastos que se acababan de confirmar.
+            saldoTotalFinanzas = datosCuentas
+                .filter(c => c.incluir_en_total !== false)
+                .reduce((acc, c) => acc + (c.balanceReal || 0), 0);
+            if (typeof actualizarSaldoPrincipal === 'function') actualizarSaldoPrincipal();
             
             renderizarListaCuentas();
         }
