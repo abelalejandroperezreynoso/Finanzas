@@ -8416,7 +8416,9 @@
                             // ventas ya salieron del banco una vez; al reinvertirlos vuelven a pasar por la
                             // compra, y sin distinguirlos lo invertido parecía superar a lo ingresado.
                             // mxnBase es siempre la suma de las dos, y es lo que usa el resto del cálculo.
-                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0, mesesPonderados: 0, mxnAportado: 0, mxnDeVentas: 0 };
+                            // Cada bolsa lleva también sus dólares, para saber a qué costo sale cada dólar
+                            // que se gasta: no cuesta lo mismo uno aportado que uno que devolvió una venta.
+                            if (!cajaPorCuenta[idCuentaCat]) cajaPorCuenta[idCuentaCat] = { usd: 0, mxnBase: 0, mesesPonderados: 0, mxnAportado: 0, mxnDeVentas: 0, usdAportado: 0, usdDeVentas: 0 };
                             const caja = cajaPorCuenta[idCuentaCat];
                             const usdRegistro = parseFloat(u.monto_usd) || 0;
 
@@ -8424,6 +8426,7 @@
                             // Smart Cash → Trading USA: entran dólares a la caja, salen pesos
                             const usdAportado = usdRegistro || (Math.abs(monto) / (parseFloat(u.tipo_cambio) || 1));
                             caja.usd += usdAportado;
+                            caja.usdAportado = (caja.usdAportado || 0) + usdAportado;
                             caja.mxnAportado = (caja.mxnAportado || 0) + Math.abs(monto);
                             caja.mxnBase = (caja.mxnAportado || 0) + (caja.mxnDeVentas || 0);
                             caja.mesesPonderados += Math.abs(monto) * mesesTranscurridos(u.fecha);
@@ -8447,8 +8450,11 @@
                             caja.mxnDeVentas = Math.max(0, (caja.mxnDeVentas || 0) * (1 - parteRetirada));
                             caja.mxnBase = (caja.mxnAportado || 0) + (caja.mxnDeVentas || 0);
                             caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteRetirada));
+                            const parteUsdRetirada = caja.usd > 0.00001 ? Math.min(1, usdRetirado / caja.usd) : 1;
+                            caja.usdAportado = Math.max(0, (caja.usdAportado || 0) * (1 - parteUsdRetirada));
+                            caja.usdDeVentas = Math.max(0, (caja.usdDeVentas || 0) * (1 - parteUsdRetirada));
                             caja.usd = Math.max(0, caja.usd - usdRetirado);
-                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; }
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; caja.usdAportado = 0; caja.usdDeVentas = 0; }
 
                             } else if (acciones > 0 && (tipoMov === 'compra' || tipoMov === 'compra_directa')) {
                             if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
@@ -8480,24 +8486,33 @@
                             tcLote = tcCercano > 0
                             ? tcCercano
                             : (caja.usd > 0.00001 ? (caja.mxnBase / caja.usd) : (parseFloat(u.tipo_cambio) || globalUsdToMxn || 1));
-                            mxnCompra = usdCompra * tcLote;
-                            // La caja no puede pagar más pesos de los que tiene, pero lo que no alcanza a
-                            // cubrir no abarata el lote: esos dólares costaron lo que costaron. Se le cobra a
-                            // la caja lo que le queda y el costo del lote se queda al tipo de cambio de su
-                            // aportación. Dejarlo en el remanente anotaba compras de 58 USD como 31 pesos y
-                            // sacaba plusvalías en pesos de miles por ciento.
-                            const mxnCobradoCaja = (caja.mxnBase > 0.005 && mxnCompra > caja.mxnBase)
-                            ? caja.mxnBase
-                            : mxnCompra;
-                            const mxnBaseAntesCompra = caja.mxnBase;
-
-                            // La compra gasta primero los pesos recién aportados y sólo después los que
+                            // La compra gasta primero los dólares recién aportados y sólo después los que
                             // devolvió una venta. Es el orden real: se aporta para comprar ese mismo día, y lo
                             // que vuelve de vender se queda esperando hasta que haya una compra sin aportación
                             // detrás. Repartirlo a prorrata entre las dos bolsas apuntaba dinero reinvertido a
                             // compras que se habían pagado con su propia aportación.
-                            const deLoAportado = Math.min(mxnCobradoCaja, caja.mxnAportado || 0);
-                            const deLasVentas = mxnCobradoCaja - deLoAportado;
+                            //
+                            // Cada parte cuesta lo que costaron sus dólares: los aportados, al tipo de cambio
+                            // de su aportación; los de una venta, a lo que vale su bolsa por dólar. Cobrarlo
+                            // todo al de la aportación, aunque esos dólares ya se hubieran gastado, encarecía
+                            // la compra y dejaba la caja con unos pesos de base que no cuadraban con sus
+                            // dólares: una ganancia cambiaria que no existe.
+                            const usdDeAportado = Math.min(usdCompra, caja.usdAportado || 0);
+                            const usdDeVentas = Math.min(usdCompra - usdDeAportado, caja.usdDeVentas || 0);
+                            const tcVentas = (caja.usdDeVentas || 0) > 0.00001 ? (caja.mxnDeVentas || 0) / caja.usdDeVentas : tcLote;
+                            const deLasVentas = usdDeVentas * tcVentas;
+                            // Los dólares que la caja no alcanza a cubrir no abaratan el lote: costaron lo
+                            // que costaron, al tipo de cambio de su aportación. Dejarlo en el remanente
+                            // anotaba compras de 58 USD como 31 pesos y sacaba plusvalías de miles por ciento.
+                            const mxnAportadoCompra = (usdCompra - usdDeVentas) * tcLote;
+                            mxnCompra = mxnAportadoCompra + deLasVentas;
+                            if (usdCompra > 0) tcLote = mxnCompra / usdCompra;
+                            const deLoAportado = Math.min(mxnAportadoCompra, caja.mxnAportado || 0);
+                            const mxnCobradoCaja = deLoAportado + deLasVentas;
+                            const mxnBaseAntesCompra = caja.mxnBase;
+
+                            caja.usdAportado = Math.max(0, (caja.usdAportado || 0) - usdDeAportado);
+                            caja.usdDeVentas = Math.max(0, (caja.usdDeVentas || 0) - usdDeVentas);
                             caja.mxnAportado = Math.max(0, (caja.mxnAportado || 0) - deLoAportado);
                             caja.mxnDeVentas = Math.max(0, (caja.mxnDeVentas || 0) - deLasVentas);
                             window.reinvertidoMxnLoteMap[u.id] = deLasVentas;
@@ -8513,7 +8528,7 @@
                             // de la caja, así que lo que queda en pesos ya no es exactamente proporcional a los
                             // dólares que quedan. Con la caja vacía no puede sobrar base en pesos: serían pesos
                             // sin dólares detrás, y falsearían el tipo de cambio promedio de la cuenta.
-                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; }
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; caja.usdAportado = 0; caja.usdDeVentas = 0; }
                             }
 
                             accionesMap[u.categoria_id] += acciones;
@@ -8562,6 +8577,7 @@
                             window.gananciaRealizadaUsdMap[u.id] = usdVenta - costoDeLoVendidoUsd;
                             realizadaUsdCatMap[u.categoria_id] = (realizadaUsdCatMap[u.categoria_id] || 0) + (usdVenta - costoDeLoVendidoUsd);
                             caja.usd += usdVenta;
+                            caja.usdDeVentas = (caja.usdDeVentas || 0) + usdVenta;
                             caja.mxnDeVentas = (caja.mxnDeVentas || 0) + costoDeLoVendido;
                             caja.mxnBase = (caja.mxnAportado || 0) + (caja.mxnDeVentas || 0);
                             }
