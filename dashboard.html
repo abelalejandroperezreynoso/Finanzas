@@ -3378,6 +3378,13 @@
                                         return { dias, tramos };
                                     }
 
+                                    function primerDiaHabilISO(diaIso) {
+                                        const d = new Date(`${diaIso}T12:00:00`);
+                                        if (isNaN(d.getTime())) return diaIso;
+                                        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+                                        return diaISO(d);
+                                    }
+
                                     function avanceDelHistorico() {
                                         const desdePorTicker = tickersDelHistorico();
                                         const hoy = obtenerFechaLocalCortada(new Date().toISOString());
@@ -3388,7 +3395,9 @@
                                         ).map(ticker => {
                                             const desde = desdePorTicker[ticker];
                                             const guardados = (cacheHistoricoPrecios[ticker] || []).filter(p => p.dia >= desde);
-                                            const necesarios = diasEntreISO(desde, hoy);
+                                            // Una compra en sábado o domingo no tiene cierre ese día: la serie se
+                                            // cuenta desde el primer día hábil, o nunca llegaría al 100 %.
+                                            const necesarios = diasEntreISO(primerDiaHabilISO(desde), hoy);
                                             const primero = guardados.length ? guardados[0].dia : null;
                                             const cubiertos = primero ? diasEntreISO(primero, hoy) : 0;
                                             const huecos = primero ? huecosDeLaSerie(guardados, primero, hoy) : { dias: 0, tramos: 0 };
@@ -3416,7 +3425,8 @@
                                     // "Faltan 14 meses" se entiende de un vistazo; "faltan 431 días", no. Por
                                     // debajo de dos meses los días dicen más, que es cuando ya casi está.
                                     function huecoEnPalabras(dias) {
-                                        if (dias <= 1) return '';
+                                        if (dias <= 0) return '';
+                                        if (dias === 1) return 'falta 1 día';
                                         if (dias < 60) return `faltan ${dias} días`;
                                         const meses = Math.round(dias / 30.4);
                                         if (meses < 24) return `faltan ${meses} meses`;
@@ -3494,7 +3504,7 @@
                                         const trozos = [];
 
                                         if (avance.completo) trozos.push('El tramo está completo: la curva empieza en tu primera compra.');
-                                        else if (quedan > 0) trozos.push(`Quedan ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada con ▸ y cualquier fila se puede tocar para traer esa. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
+                                        else if (quedan > 0) trozos.push(`${quedan === 1 ? 'Queda' : 'Quedan'} ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada con ▸ y cualquier fila se puede tocar para traer esa. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
                                         else if (!(localStorage.getItem(CLAVE_API_TWELVE) || '').trim()) trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae. Pega una clave gratuita de Twelve Data abajo: esa sí trae años de cierres.');
                                         else trozos.push('Lo que falta por detrás no lo tiene tampoco Twelve Data: suele pasar con empresas que empezaron a cotizar después de tu compra o con símbolos que ella escribe distinto.');
 
@@ -3603,10 +3613,13 @@
                                             return;
                                         }
 
+                                        // Una fuente puede repetir un día (Twelve Data lo hace con el tipo de
+                                        // cambio en fin de semana) y la base rechaza el lote entero si un día va
+                                        // dos veces. Se queda el último que llegó.
                                         const desde = desdePorTicker[ticker];
-                                        const filas = puntos
-                                            .filter(p => p.dia >= desde)
-                                            .map(p => ({ user_id: currentUser.id, ticker, dia: p.dia, cierre: p.cierre }));
+                                        const porDia = new Map();
+                                        puntos.filter(p => p.dia >= desde).forEach(p => porDia.set(p.dia, p.cierre));
+                                        const filas = [...porDia].map(([dia, cierre]) => ({ user_id: currentUser.id, ticker, dia, cierre }));
 
                                         // De golpe pueden ser miles de filas: se mandan por tandas para no
                                         // pasarse del tamaño que aguanta una petición.
