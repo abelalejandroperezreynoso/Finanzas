@@ -36,7 +36,8 @@
         .main-container {
             width: 100%;
             max-width: 100%; 
-            padding-bottom: 60px;
+            /* Lo último de cada sección no queda debajo de la barra de pestañas */
+            padding-bottom: calc(110px + env(safe-area-inset-bottom));
             padding-left: 0;
             padding-right: 0;
         }
@@ -64,7 +65,40 @@
                 }
         
         button { width: 100%; padding: 12px; background-color: #3ecf8e; color: #000000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; transition: background-color 0.2s; }
-        button:hover { background-color: #2eb87c; }
+        /* Sólo con ratón: en el iPhone el :hover se queda pegado después de tocar y teñía de verde
+           botones como "Recurrentes", con el texto gris encima. */
+        @media (hover: hover) { button:hover { background-color: #2eb87c; } }
+
+        /* ---- Barra de pestañas (iOS 26: cápsula de vidrio flotante y el + en su círculo) ---- */
+        .barra-pestanas { position: fixed; left: 16px; right: 16px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 1000;
+            display: flex; align-items: center; gap: 10px; pointer-events: none; }
+        html.sin-pestanas .barra-pestanas { display: none; }
+        .barra-pestanas-capsula, .barra-pestanas-mas { pointer-events: auto;
+            /* Vidrio oscuro: sobre el mapa blanco uno más claro dejaba las pestañas sin leerse */
+            background: rgba(28, 28, 30, 0.78); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+            border: 0.5px solid rgba(255, 255, 255, 0.14); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+        .barra-pestanas-capsula { flex: 1; display: flex; height: 62px; padding: 4px; border-radius: 31px; box-sizing: border-box; }
+        .barra-pestanas-capsula button, .barra-pestanas-capsula button:hover { flex: 1; width: auto; margin: 0; padding: 0; background: none; border-radius: 27px;
+            color: #aeaeb2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+            font-size: 10px; font-weight: 600; letter-spacing: 0.1px; -webkit-tap-highlight-color: transparent; transition: background-color 0.2s, color 0.2s; }
+        .barra-pestanas-capsula button svg { width: 24px; height: 24px; }
+        .barra-pestanas-capsula button.activa { color: #ffffff; background: rgba(255, 255, 255, 0.14); }
+        .barra-pestanas-mas, .barra-pestanas-mas:hover { width: 62px; height: 62px; flex-shrink: 0; margin: 0; padding: 0; border-radius: 50%;
+            color: #ffffff; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .barra-pestanas-mas svg { width: 26px; height: 26px; }
+        .barra-pestanas-capsula button:active, .barra-pestanas-mas:active { transform: scale(0.94); }
+
+        /* ---- Control segmentado de iOS (Finanzas · Inversiones · Salud) ---- */
+        .segmento-ios { display: flex; gap: 2px; padding: 2px; margin: -6px 0 6px; border-radius: 10px; background: rgba(118, 118, 128, 0.24); }
+        .segmento-ios button, .segmento-ios button:hover { flex: 1; width: auto; margin: 0; padding: 7px 4px; border-radius: 8px; background: none;
+            color: #ffffff; font-size: 13px; font-weight: 600; -webkit-tap-highlight-color: transparent; transition: background-color 0.2s; }
+        .segmento-ios button.activo { background: #636366; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12); }
+        .segmento-ios.solo-uno { display: none; }
+
+        /* ---- La moneda junto a la cifra de Inversiones: se ve que se puede tocar ---- */
+        .saldo-moneda { font-size: 0.3em; font-weight: 600; letter-spacing: 0; color: #d1d1d6; background: rgba(118, 118, 128, 0.32);
+            border-radius: 999px; padding: 0.25em 0.65em; margin-left: 0.4em; vertical-align: middle; }
+        .saldo-moneda.cambiable::after { content: ' \21C4'; color: #8e8e93; }
         .btn-logout { background-color: #ff5c5c; color: white; margin-top: 20px; }
         .btn-secondary { background-color: #444; color: white; margin-top: 10px; }
         .btn-shortcut { background-color: #444; color: #ffffff; font-size: 0.85em; padding: 8px; margin: 0; }
@@ -1986,17 +2020,17 @@
                                     </svg>
                                 </button>
 
-                    <button onclick="cambiarSeccion('sec-lista')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-            </button>
-            <button onclick="cambiarSeccion('sec-ajustes')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            </button>
-            <button onclick="abrirRegistroDesdeInicio()" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
+                    <!-- Datos, Ajustes y el + viven ahora en la barra de pestañas de abajo -->
             </div>
             </div>
+    <!-- Finanzas · Inversiones · Salud, a la vista. Antes se cambiaba tocando el título y nada lo
+         decía. Las opciones sin datos (sin inversiones o sin Salud) no salen. -->
+    <div id="segmentoModo" class="segmento-ios" role="tablist" aria-label="Qué ver">
+        <button type="button" data-modo="finanzas" role="tab" onclick="irAModoInicio('finanzas')">Finanzas</button>
+        <button type="button" data-modo="inversiones" role="tab" onclick="irAModoInicio('inversiones')">Inversiones</button>
+        <button type="button" data-modo="salud" role="tab" onclick="irAModoInicio('salud')">Salud</button>
+    </div>
+
     <div class="card" style="background: #000000; padding: 1.5rem; text-align: center;">
     <!-- El tamaño de partida lo pone el CSS; si la cifra no cabe de una línea, ajustarSaldoAlAncho() la encoge -->
     <!-- En el modo Inversiones, tocar la cifra cambia la moneda (pesos ↔ dólares) de todo el portafolio -->
@@ -2114,7 +2148,7 @@
 
             <div id="sec-lista" class="seccion">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-                    <h2 class="titulo-seccion" style="margin: 0;">Gestión de Datos</h2>
+                    <h2 class="titulo-seccion" style="margin: 0;">Datos</h2>
                     <div style="display: flex; align-items: center;">
                         <!-- Botón de Quitar Filtro (Oculto por defecto) -->
                                 <button id="btnQuitarFiltroLista" onclick="quitarFiltroDeLista()" style="display: none; width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; align-items: center;">
@@ -2124,10 +2158,7 @@
                                     </svg>
                                 </button>
 
-                        <!-- Botón de Cerrar existente -->
-                        <button onclick="cambiarSeccion('sec-inicio')" style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        </button>
+                        <!-- Sin ✕: se sale con la barra de pestañas -->
                     </div>
                 </div>
 
@@ -2379,15 +2410,9 @@
 
     <div id="sec-ajustes" class="seccion">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <h2 class="titulo-seccion" style="margin: 0;">Configuración</h2>
+        <h2 class="titulo-seccion" style="margin: 0;">Ajustes</h2>
 
-        <button type="button" onclick="cambiarSeccion('sec-inicio', document.querySelectorAll('.menu-btn')[0])"
-        style="width: auto; margin: 0; padding: 0 0 5px 15px; background: none; border: none; color: #ffffff; cursor: pointer; display: flex; align-items: center;">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-        </button>
+        <!-- Sin ✕: se sale con la barra de pestañas -->
         </div>
 
     <div style="text-align: center; margin-bottom: 25px; padding: 15px; background: #222; border-radius: 8px; border: 1px solid #333;">
@@ -2403,7 +2428,7 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Calendario</h3>
         <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
-            Los movimientos del mes repartidos por día, con lo previsto por delante.
+            Tu agenda de citas, con lo que cobras y el anticipo de cada una.
         </p>
         <button onclick="window.location.href='calendario.html'" aria-label="Abrir el calendario"
                 style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
@@ -2577,10 +2602,10 @@
 </div>
 
     <div class="modal-overlay hoja-ios" id="modalFiltros" onclick="if (event.target === this) cerrarModalFiltros();">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Panel de control">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Filtros">
     <div class="hoja-ios-tirador" id="tiradorHojaFiltros"></div>
     <div class="hoja-ios-encabezado" id="encabezadoHojaFiltros">
-        <h3>Panel de control</h3>
+        <h3>Filtros</h3>
         <button type="button" class="hoja-ios-accion" onclick="confirmarHojaFiltros()" aria-label="Listo" title="Listo">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.6l4.7 4.7L19 7"/></svg>
         </button>
@@ -2627,7 +2652,7 @@
             </select>
         </label>
         <label class="rango-ios-fila">
-            <span>Calcular desde hoy</span>
+            <span>Contar hacia atrás desde hoy<small style="display:block; color:#8e8e93; font-size:0.8em; font-weight:normal;">Últimos 30 días en vez del mes</small></span>
             <span class="ios-switch">
                 <input type="checkbox" id="checkDesdeHoy" onchange="reaplicarPeriodoFiltro()">
                 <span class="ios-switch-pista"></span>
@@ -5643,6 +5668,9 @@
                             }
                             document.getElementById(id).classList.add('activa');
                             document.documentElement.classList.toggle('chat-claro', id === 'sec-asistente');
+                            // La barra de pestañas se va mientras se registra y en el chat, que tienen su propio pie
+                            document.documentElement.classList.toggle('sin-pestanas', id === 'sec-registro' || id === 'sec-asistente');
+                            document.querySelectorAll('#barraPestanas [data-sec]').forEach(b => b.classList.toggle('activa', b.dataset.sec === id));
                             if (id === 'sec-inicio') {
                             // La tarjeta ya tiene medidas: si quedó un mapa por dibujar, es el momento
                             reintentarTreemapPendiente();
@@ -5753,10 +5781,10 @@
 
                         // Agrupamos por tipo igual que en la lista principal
                         const gruposCategorias = [
-                        { id: 'ingreso', titulo: 'Ingresos Fijos (+)' },
-                        { id: 'gasto', titulo: 'Gastos Fijos (-)' },
-                        { id: 'deuda', titulo: 'Deudas Recurrentes (+)' },
-                        { id: 'prestamo', titulo: 'Préstamos Recurrentes (-)' },
+                        { id: 'ingreso', titulo: 'Ingresos fijos' },
+                        { id: 'gasto', titulo: 'Gastos fijos' },
+                        { id: 'deuda', titulo: 'Deudas recurrentes' },
+                        { id: 'prestamo', titulo: 'Préstamos recurrentes' },
                         { id: 'inversion', titulo: 'Inversiones Recurrentes' }
                         ];
 
@@ -7102,7 +7130,7 @@
                             <div class="swipe-content" style="cursor:pointer;" onclick="filtrarCategoriasPorCuenta('${c.id}')">
                             <div style="flex:1;">
                             <strong style="color:#ffffff;">${c.nombre}</strong><br>
-                            <small style="color:#aaa;">Base: ${fMoneda(c.saldo_inicial || 0)}</small>
+                            <small style="color:#aaa;">Saldo inicial: ${fMoneda(c.saldo_inicial || 0)}</small>
                             </div>
                             <div style="text-align: right;">
                             <small style="font-weight:bold; color:${c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${fMoneda(c.balanceReal)}</small>
@@ -8963,10 +8991,10 @@
 
                     // Definimos el orden de los grupos y sus títulos
                     const gruposCategorias = [
-                        { id: 'ingreso', titulo: 'Ingresos (+)' },
-                        { id: 'gasto', titulo: 'Gastos (-)' },
-                        { id: 'deuda', titulo: 'Deudas (+)' },
-                        { id: 'prestamo', titulo: 'Préstamos (-)' },
+                        { id: 'ingreso', titulo: 'Ingresos' },
+                        { id: 'gasto', titulo: 'Gastos' },
+                        { id: 'deuda', titulo: 'Deudas · lo que debes' },
+                        { id: 'prestamo', titulo: 'Préstamos · lo que te deben' },
                         { id: 'inversion', titulo: 'Inversiones' },
                         { id: 'salud', titulo: 'Salud' }
                     ];
@@ -9202,8 +9230,9 @@
                                                                                                                                                                                 Total: ${fCantidadSalud(totalSaludDeCategoria(cat.id))}
                                                                                                                                                                                 </small>
                                                                                                                                                                             ` : `
-                                                                                                                                                                                <small style="font-weight:bold; color:${cat.esPositivo ? '#3ecf8e' : '#ff5c5c'};">
-                                                                                                                                                                                Total: ${cat.esPositivo ? '+' : '-'}${fMoneda(Math.abs(cat.totalSuma))}
+                                                                                                                                                                                ${pendienteDeCategoria(cat.tipo, cat.totalSuma) ? `<small style="font-weight:bold; color:${pendienteDeCategoria(cat.tipo, cat.totalSuma).color};">
+                                                                                                                                                                                ${pendienteDeCategoria(cat.tipo, cat.totalSuma).etiqueta}${pendienteDeCategoria(cat.tipo, cat.totalSuma).monto ? ' ' + fMoneda(pendienteDeCategoria(cat.tipo, cat.totalSuma).monto) : ''}` : `<small style="font-weight:bold; color:${cat.esPositivo ? '#3ecf8e' : '#ff5c5c'};">
+                                                                                                                                                                                Total histórico: ${cat.esPositivo ? '+' : '-'}${fMoneda(Math.abs(cat.totalSuma))}`}
                                                                                                                                                                                 </small>
                                                                                                                                                                             `}
                                                                                                                                                                             </div>
@@ -9643,6 +9672,24 @@
 
     function categoriasSalud() {
         return (datosCategorias || []).filter(c => c.tipo === 'salud');
+    }
+
+    // Una deuda o un préstamo se dice con lo que significa —"Debes", "Te debe"— y no con un
+    // signo: "+$2,000" en verde se leía como algo bueno y era lo que se debía. null en los
+    // demás tipos.
+    function pendienteDeCategoria(tipo, saldo) {
+        const s = Number(saldo) || 0;
+        if (tipo === 'deuda') {
+            if (s > 0.005) return { etiqueta: 'Debes', monto: s, color: '#ff9f0a' };
+            if (s < -0.005) return { etiqueta: 'Pagaste de más', monto: -s, color: '#3ecf8e' };
+            return { etiqueta: 'Saldada', monto: 0, color: '#8e8e93' };
+        }
+        if (tipo === 'prestamo') {
+            if (s < -0.005) return { etiqueta: 'Te debe', monto: -s, color: '#3abff8' };
+            if (s > 0.005) return { etiqueta: 'Te pagó de más', monto: s, color: '#3ecf8e' };
+            return { etiqueta: 'Saldado', monto: 0, color: '#8e8e93' };
+        }
+        return null;
     }
 
     function esCategoriaSalud(idCat) {
@@ -12400,6 +12447,41 @@
                                 if (sec) sec.classList.toggle('modo-salud', modoSaludInicio);
                             })();
 
+                            function irAPestana(id) {
+                                if (id === 'sec-asistente') { abrirAsistente(); return; }
+                                cambiarSeccion(id);
+                            }
+
+                            // El control segmentado de Inicio. Los modos son los mismos que recorría el título.
+                            function irAModoInicio(modo) {
+                                const enInversiones = tipoTreemapCategorias === 'inversion';
+                                if (modo === 'salud') {
+                                    if (modoSaludInicio) return;
+                                    if (enInversiones) cambiarTipoTreemapCategorias('inversion');
+                                    fijarModoSalud(true);
+                                    return;
+                                }
+                                if (modoSaludInicio) fijarModoSalud(false);
+                                if ((modo === 'inversiones') !== (tipoTreemapCategorias === 'inversion')) cambiarTipoTreemapCategorias('inversion');
+                                pintarSegmentoModo();
+                            }
+
+                            function pintarSegmentoModo() {
+                                const seg = document.getElementById('segmentoModo');
+                                if (!seg) return;
+                                const actual = modoSaludInicio ? 'salud' : (tipoTreemapCategorias === 'inversion' ? 'inversiones' : 'finanzas');
+                                const visibles = { finanzas: true, inversiones: !window.sinInversiones, salud: categoriasSalud().length > 0 };
+                                let cuantos = 0;
+                                seg.querySelectorAll('button').forEach(b => {
+                                    const ver = !!visibles[b.dataset.modo];
+                                    b.style.display = ver ? '' : 'none';
+                                    if (ver) cuantos++;
+                                    b.classList.toggle('activo', b.dataset.modo === actual);
+                                    b.setAttribute('aria-selected', b.dataset.modo === actual ? 'true' : 'false');
+                                });
+                                seg.classList.toggle('solo-uno', cuantos < 2);
+                            }
+
                             function alternarModoInicio() {
                                 // Sin inversiones, el título sólo alterna Finanzas ↔ Salud (si hay Salud)
                                 if (window.sinInversiones && !modoSaludInicio && tipoTreemapCategorias !== 'inversion') {
@@ -12654,16 +12736,18 @@
                                 saldoInicialPendiente = null;
                                 if (pendiente) pintarSaldoAnimado(pendiente.el, pendiente.texto, pendiente.sufijo);
                             }
+                            // MXN o USD en una pastilla con ⇄: tocarla cambia la moneda, y ahora se nota
+                            function pastillaMonedaSaldo(sufijo) {
+                                const moneda = document.createElement('span');
+                                moneda.className = 'saldo-moneda' + (tipoTreemapCategorias === 'inversion' ? ' cambiable' : '');
+                                moneda.textContent = String(sufijo).trim();
+                                return moneda;
+                            }
+
                             function pintarSaldoAnimado(el, texto, sufijo) {
                                 const pintarPlano = () => {
                                     el.textContent = texto;
-                                    if (sufijo) {
-                                        const moneda = document.createElement('span');
-                                        moneda.textContent = sufijo;
-                                        moneda.style.fontSize = '0.35em';
-                                        moneda.style.color = '#888';
-                                        el.appendChild(moneda);
-                                    }
+                                    if (sufijo) el.appendChild(pastillaMonedaSaldo(sufijo));
                                     ajustarSaldoAlAncho();
                                 };
 
@@ -12736,21 +12820,14 @@
                                     el.appendChild(rodillo);
                                 }
                                 if (sufijo) {
-                                    const moneda = document.createElement('span');
-                                    moneda.textContent = sufijo;
-                                    moneda.style.fontSize = '0.35em';
-                                    moneda.style.color = '#888';
-                                    el.appendChild(moneda);
+                                    el.appendChild(pastillaMonedaSaldo(sufijo));
                                 }
                                 // Se mide ya con la cifra final, para que el tamaño vaya cambiando mientras los
                                 // dígitos bajan y no dé un salto al terminar.
                                 ajustarSaldoAlAncho(copia => {
                                     copia.textContent = texto;
                                     if (sufijo) {
-                                        const moneda = document.createElement('span');
-                                        moneda.textContent = sufijo;
-                                        moneda.style.fontSize = '0.35em';
-                                        copia.appendChild(moneda);
+                                        copia.appendChild(pastillaMonedaSaldo(sufijo));
                                     }
                                 });
 
@@ -12763,6 +12840,7 @@
                             }
 
                             function actualizarTituloInicio() {
+                                pintarSegmentoModo();
                                 const titulo = document.getElementById('tituloInicio');
                                 if (!titulo) return;
                                 if (modoSaludInicio) { titulo.textContent = 'Salud'; return; }
@@ -15202,7 +15280,9 @@
                                 </div>` : ''}
                                 ${cat.tipo === 'gasto' ? filaDetalleIos('Prioridad', nombresPrioridad[cat.prioridad] || 'Sin asignar') : ''}
                                 ${filaDetalleIos('Uso histórico', `${cat.vecesUsada || 0} veces`)}
-                                ${filaDetalleIos('Balance', fMoneda(Math.abs(cat.balanceReal)), true)}
+                                ${pendienteDeCategoria(cat.tipo, cat.balanceReal)
+                                    ? filaDetalleIos(pendienteDeCategoria(cat.tipo, cat.balanceReal).etiqueta, fMoneda(pendienteDeCategoria(cat.tipo, cat.balanceReal).monto), true)
+                                    : filaDetalleIos('Total histórico', fMoneda(Math.abs(cat.balanceReal)), true)}
                             </div>
                             ${detallesInversion}
                             `;
@@ -22615,5 +22695,29 @@
                         }
                         </script>
 
-                                                </body>
+                                                <!-- Barra de pestañas flotante, de vidrio, como en iOS 26. El + va aparte, en su propio círculo. -->
+<nav id="barraPestanas" class="barra-pestanas" aria-label="Secciones">
+    <div class="barra-pestanas-capsula">
+        <button type="button" data-sec="sec-inicio" class="activa" onclick="irAPestana('sec-inicio')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9v11h4.5v-6h4v6h4.5V9"/></svg>
+            <span>Inicio</span>
+        </button>
+        <button type="button" data-sec="sec-lista" onclick="irAPestana('sec-lista')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span>Datos</span>
+        </button>
+        <button type="button" data-sec="sec-asistente" onclick="irAPestana('sec-asistente')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.6L3.5 20.5l1.4-4.6A8.5 8.5 0 1 1 21 11.5z"/></svg>
+            <span>Asistente</span>
+        </button>
+        <button type="button" data-sec="sec-ajustes" onclick="irAPestana('sec-ajustes')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Ajustes</span>
+        </button>
+    </div>
+    <button type="button" class="barra-pestanas-mas" onclick="abrirRegistroDesdeInicio()" aria-label="Registrar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+</nav>
+</body>
                                                 </html>

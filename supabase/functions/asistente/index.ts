@@ -970,6 +970,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!nota) return { texto: "La nota está vacía.", error: true };
       if (nota.length > MAX_NOTA) return { texto: `La nota tiene ${nota.length} caracteres y el máximo es ${MAX_NOTA}. Escríbela más corta.`, error: true };
       const tema = TEMAS_MEMORIA.includes(entrada.tema) ? entrada.tema : "contexto";
+      // La misma nota dos veces no aporta nada y el usuario la veía repetida en Configuración
+      const { data: igual } = await sb.from("memoria_ia").select("id").eq("nota", nota).limit(1);
+      if (igual?.length) return { texto: `Eso ya estaba en tu memoria (id ${(igual[0] as Json).id}); no se repitió.` };
       const { count } = await sb.from("memoria_ia").select("id", { count: "exact", head: true });
       if ((count ?? 0) >= MAX_NOTAS) return { texto: `Tu memoria ya tiene ${MAX_NOTAS} notas. Corrige una que ya no sirva con corregir_recuerdo.`, error: true };
       const { data, error } = await sb.from("memoria_ia").insert({ user_id: userId, tema, nota }).select("id").single();
