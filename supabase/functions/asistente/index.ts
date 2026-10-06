@@ -75,7 +75,7 @@ function costoDe(modelo: string, u: Json): number {
 const HERRAMIENTAS: Json[] = [
   {
     name: "listar_cuentas",
-    description: "Saldo actual de cada cuenta (saldo inicial más movimientos). Los demás datos de las cuentas ya vienen en tus instrucciones.",
+    description: "Saldo actual de cada cuenta (saldo inicial más movimientos) y el saldo total que el usuario ve en la app: la suma de las cuentas que cuentan en el total. Úsalos tal cual, sin recalcular.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -750,10 +750,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (error) return { texto: `Error: ${error.message}`, error: true };
       const porCuenta: Record<string, number> = {};
       (saldos ?? []).forEach((s: Json) => { porCuenta[String(s.id_cuenta)] = Number(s.balance) || 0; });
+      // El mismo cálculo que la cifra grande de la app: saldo inicial + movimientos, sólo de las cuentas que cuentan en el total
+      const filas = catalogo.cuentas.map((c: Json) => [
+        c.id, c.nombre, c.incluir_en_total !== false, Math.round(((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)) * 100) / 100,
+      ]);
+      const total = filas.filter((f) => f[2]).reduce((t, f) => t + (f[3] as number), 0);
       return {
-        texto: recortar(tabla(["id", "nombre", "saldo"], catalogo.cuentas.map((c: Json) => [
-          c.id, c.nombre, Math.round(((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)) * 100) / 100,
-        ]))),
+        texto: recortar({
+          saldo_total: Math.round(total * 100) / 100,
+          nota: "saldo_total es la cifra grande que el usuario ve en la app: suma sólo las cuentas con cuenta_en_total = true.",
+          cuentas: tabla(["id", "nombre", "cuenta_en_total", "saldo"], filas),
+        }),
       };
     }
     case "consultar_movimientos": {
@@ -1041,7 +1048,7 @@ const SISTEMA_CHAT = (hoy: string, usd: number | null) => `Eres el asistente de 
 # Cómo respondes
 - En español, claro y breve, como en un chat. Listas cortas si ayudan y **negritas** para las cifras clave. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
 - Nunca preguntes en el texto. Para preguntar o para ofrecer alternativas (nombres, montos, categorías, qué hacer después) usa preguntar_al_usuario, con una o dos frases de contexto antes y sin repetir las opciones. Pregunta sólo lo que no puedas deducir.
-- Antes de afirmar cifras, consúltalas con las herramientas; no inventes. Las cuentas y categorías ya están al final de estas instrucciones; para saldos usa listar_cuentas.
+- Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones; para saldos usa listar_cuentas: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
 - Todo cambio va con una herramienta proponer_*: deja una tarjeta que el usuario confirma. Después di qué propusiste y que lo confirme; nunca digas que ya quedó hecho.
 - Si responde sobre una propuesta aún sin confirmar (pide un cambio, aclara o dice que así está bien), vuelve a llamar a la misma herramienta con la versión completa y corrige_anterior: true. Nunca digas que una propuesta cambió sin haberla llamado en ese turno.
 - No puedes borrar nada (tampoco notas de tu memoria). Si algo no se puede con tus herramientas, dilo; nunca uses rodeos que dejen datos mal clasificados.
