@@ -431,6 +431,16 @@
         /* Lo adjuntado también se ve en tu burbuja */
         .chat-usuario-adjuntos { align-self: flex-end; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-bottom: -10px; }
         .chat-usuario-adjuntos .chat-adjunto { width: 84px; height: 84px; }
+        .chat-adjunto-imagen { cursor: zoom-in; -webkit-tap-highlight-color: transparent; }
+        /* Visor de imágenes del chat: pantalla completa, fondo negro; se cierra con la ✕ o con cualquier toque */
+        .visor-imagen-chat { position: fixed; inset: 0; z-index: 4000; background: rgba(0, 0, 0, 0.94); display: flex; align-items: center; justify-content: center;
+            padding: calc(60px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); box-sizing: border-box;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+        .visor-imagen-chat.abierto { opacity: 1; pointer-events: auto; }
+        .visor-imagen-chat img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; }
+        .visor-imagen-chat button, .visor-imagen-chat button:hover { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 16px; width: 44px; height: 44px;
+            margin: 0; padding: 0; border-radius: 50%; background: rgba(120, 120, 128, 0.36); color: #fff; display: flex; align-items: center; justify-content: center;
+            -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 
         /* Modo Salud del inicio: su panel en lugar de la gráfica y el mapa de dinero */
         #panelSalud { display: none; }
@@ -16293,7 +16303,13 @@
                                 const notas = [contextoApi, aqui].filter(Boolean).join('\n');
                                 bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (notas ? `\n\n${notas}` : '') });
                                 const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
-                                const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => ({ tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura })) };
+                                const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => {
+                                    // La imagen completa se queda en memoria (no se guarda en el teléfono, pesa mucho);
+                                    // la burbuja sólo lleva cómo encontrarla
+                                    const ref = a.tipo === 'imagen' && a.data ? 'img' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) : undefined;
+                                    if (ref) imagenesChatEnMemoria.set(ref, a.data);
+                                    return { tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura, ...(ref ? { ref } : {}) };
+                                }) };
                                 chatUi.push(burbuja);
                                 await conversarConAsistente(mensaje, () => {
                                     // No llegó: el texto y lo adjunto vuelven a la caja
@@ -17070,8 +17086,33 @@
 
                             const miniaturaAdjuntoHtml = (a, i) => a.tipo === 'pdf'
                                 ? `<div class="chat-adjunto"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#c96442" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span>${escaparHtml(a.nombre || 'PDF')}</span>${typeof i === 'number' && i >= 0 ? botonQuitarAdjunto(i) : ''}</div>`
-                                : `<div class="chat-adjunto"><img src="${a.miniatura}" alt="">${typeof i === 'number' && i >= 0 ? botonQuitarAdjunto(i) : ''}</div>`;
-                            const botonQuitarAdjunto = i => `<button type="button" aria-label="Quitar" onclick="quitarAdjuntoAsistente(${i})"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+                                : `<div class="chat-adjunto chat-adjunto-imagen" role="button" aria-label="Ver imagen" onclick="verImagenChat(this)"${typeof i === 'number' && i >= 0 ? ` data-caja="${i}"` : ''}${a.ref ? ` data-ref="${escaparHtml(a.ref)}"` : ''}><img src="${a.miniatura}" alt="">${typeof i === 'number' && i >= 0 ? botonQuitarAdjunto(i) : ''}</div>`;
+                            const botonQuitarAdjunto = i => `<button type="button" aria-label="Quitar" onclick="event.stopPropagation(); quitarAdjuntoAsistente(${i})"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+
+                            // Las imágenes enviadas en esta visita, completas, para abrirlas desde su burbuja
+                            const imagenesChatEnMemoria = new Map();
+
+                            // Abre una imagen del chat a pantalla completa: la de la caja de escribir, la de una
+                            // burbuja (completa si sigue en memoria) o, de un chat recuperado, su miniatura.
+                            function verImagenChat(el) {
+                                let src = '';
+                                if (el.dataset.caja !== undefined) {
+                                    const a = chatAdjuntos[Number(el.dataset.caja)];
+                                    if (a && a.data) src = 'data:image/jpeg;base64,' + a.data;
+                                } else if (el.dataset.ref && imagenesChatEnMemoria.has(el.dataset.ref)) {
+                                    src = 'data:image/jpeg;base64,' + imagenesChatEnMemoria.get(el.dataset.ref);
+                                }
+                                if (!src) { const img = el.querySelector('img'); src = img ? img.src : ''; }
+                                if (!src) return;
+                                const visor = document.getElementById('visorImagenChat');
+                                visor.querySelector('img').src = src;
+                                visor.classList.add('abierto');
+                            }
+                            function cerrarVisorImagenChat() {
+                                const visor = document.getElementById('visorImagenChat');
+                                visor.classList.remove('abierto');
+                                setTimeout(() => { if (!visor.classList.contains('abierto')) visor.querySelector('img').removeAttribute('src'); }, 250);
+                            }
 
                             function pintarAdjuntosAsistente() {
                                 const caja = document.getElementById('chatAdjuntos');
@@ -22732,7 +22773,13 @@
                         }
                         </script>
 
-                                                <!-- Barra de pestañas flotante, de vidrio, como en iOS 26. El + va aparte, en su propio círculo. -->
+                                                <!-- Cualquier toque lo cierra: la imagen ocupa casi toda la pantalla y casi no queda fondo que tocar -->
+<div id="visorImagenChat" class="visor-imagen-chat" onclick="cerrarVisorImagenChat()" role="dialog" aria-label="Imagen">
+    <button type="button" aria-label="Cerrar" onclick="event.stopPropagation(); cerrarVisorImagenChat()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <img alt="">
+</div>
+
+<!-- Barra de pestañas flotante, de vidrio, como en iOS 26. El + va aparte, en su propio círculo. -->
 <nav id="barraPestanas" class="barra-pestanas" aria-label="Secciones">
     <div class="barra-pestanas-capsula">
         <button type="button" data-sec="sec-inicio" class="activa" onclick="irAPestana('sec-inicio')">
