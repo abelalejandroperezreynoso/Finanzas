@@ -262,6 +262,7 @@ const HERRAMIENTAS: Json[] = [
         pendiente: { type: "boolean", description: "true si el comprobante dice que la transferencia está pendiente" },
         acciones: { type: "number", description: "Compra/venta: número de acciones (positivo, puede tener decimales)" },
         precio_usd: { type: "number", description: "Compra/venta: precio por acción en USD" },
+        comision_usd: { type: "number", description: "Compra/venta: la comisión que cobró GBM en USD (en el comprobante); se registra aparte" },
         descripcion: { type: "string" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
         resumen: { type: "string" },
@@ -290,7 +291,7 @@ const HERRAMIENTAS: Json[] = [
     description:
       "Cómo van las inversiones (GBM), calculado de todos sus movimientos: por cuenta, pesos y dólares aportados y retirados, saldo de la Caja GBM en dólares, " +
       "valor del portafolio y ganancia neta en pesos (incluye el tipo de cambio); por empresa, acciones, costo promedio, lo invertido, precio, valor, plusvalía " +
-      "y ganancia ya realizada por ventas, en dólares. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja y en qué empresas se compró o vendió. " +
+      "y ganancia ya realizada por ventas, en dólares, y las comisiones pagadas a GBM. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja, en qué empresas se compró o vendió y cuánto se pagó de comisiones. " +
       "Úsala para cualquier pregunta de inversiones; las compras y ventas tienen monto 0 en pesos porque se pagan con la caja en dólares.",
     input_schema: {
       type: "object",
@@ -597,7 +598,7 @@ async function cajaUsdDeCuenta(sb: SupabaseClient, catalogo: Catalogo, cuentaId:
     for (const r of data ?? []) {
       const tipo = tipoDe(r), usd = usdDe(r);
       if (tipo === "aportacion" || tipo === "venta") caja += usd;
-      else if (tipo === "retiro" || tipo === "compra") caja = Math.max(0, caja - usd);
+      else if (tipo === "retiro" || tipo === "compra" || tipo === "comision") caja = Math.max(0, caja - usd);
     }
     if (!data || data.length < 1000) break;
   }
@@ -691,17 +692,21 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const acciones = Number(entrada.acciones), precio = Number(entrada.precio_usd);
         if (!(acciones > 0) || !(precio > 0)) return { texto: "Para una compra o venta hacen falta las acciones y el precio por acción en USD. Si falta, pregúntalo con preguntar_al_usuario.", error: true };
         categoria = categoriaNueva ? `${categoriaNueva} (se creará al confirmar)` : (catalogo.etiqueta[String(cat.id)] ?? cat.nombre);
+        const comision = Number(entrada.comision_usd) > 0 ? Math.round(Number(entrada.comision_usd) * 100) / 100 : 0;
         datos = { ...(categoriaNueva ? { categoria_nueva: categoriaNueva } : { categoria_id: cat.id }), cuenta_id: cat.cuenta_id, tipo_movimiento: tipo, monto: 0, monto_usd: Math.round(acciones * precio * 10000) / 10000,
+          ...(comision ? { comision_usd: comision } : {}),
           tipo_cambio: await tipoDeCambio(fechaLocal(new Date().toISOString(), zona).slice(0, 10)) ?? 0, cantidad_acciones: acciones, costo_accion: precio };
       } else return { texto: "Tipo no válido.", error: true };
       // Una compra o un retiro que no caben en la caja: la app lo avisará al confirmar; que el usuario lo sepa desde ya
       let aviso = "";
       const caja = await cajaUsdDeCuenta(sb, catalogo, String(cat.cuenta_id));
-      if ((tipo === "compra" || tipo === "retiro") && caja !== null && Number(datos.monto_usd) > caja + 0.01) {
-        aviso = ` Ojo: la Caja GBM registrada tiene $${caja.toFixed(2)} USD y esto usa $${Number(datos.monto_usd).toFixed(2)} USD. Díselo y pregúntale si le faltó registrar una aportación o una venta.`;
+      const comisionCaja = Number(datos.comision_usd) || 0;
+      const usaDeCaja = Number(datos.monto_usd) + (tipo === "compra" ? comisionCaja : 0);
+      if ((tipo === "compra" || tipo === "retiro") && caja !== null && usaDeCaja > caja + 0.01) {
+        aviso = ` Ojo: la Caja GBM registrada tiene $${caja.toFixed(2)} USD y esto usa $${usaDeCaja.toFixed(2)} USD. Díselo y pregúntale si le faltó registrar una aportación o una venta.`;
       } else if (caja !== null) {
         // El saldo que quedará, ya hecho: lo calculaba de cabeza y decía que la caja tendría sólo lo aportado
-        const despues = caja + (tipo === "aportacion" || tipo === "venta" ? 1 : -1) * Number(datos.monto_usd);
+        const despues = caja + (tipo === "aportacion" || tipo === "venta" ? 1 : -1) * Number(datos.monto_usd) - comisionCaja;
         aviso = ` Al confirmar, la Caja GBM quedará en $${despues.toFixed(2)} USD (hoy tiene $${caja.toFixed(2)} USD).`;
       }
       if ((tipo === "aportacion" || tipo === "retiro") && comprobanteDe(entrada) > 0 && Math.abs(Math.abs(Number(datos.monto)) - comprobanteDe(entrada)) >= 0.005) {
@@ -826,7 +831,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cuentas: Record<string, Json> = {};
       const empresas: Record<string, Json> = {};
       const actividad: Record<string, Json> = {};
-      const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, dolares_compras_directas: 0, dolares_ventas_directas: 0, ultima_aportacion: null };
+      const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, dolares_compras_directas: 0, dolares_ventas_directas: 0, comisiones_usd: 0, comisiones_mxn: 0, ultima_aportacion: null };
       for (const r of movs) {
         const cat = catPorId[String(r.categoria_id)];
         const tipo = tipoDe(r);
@@ -843,6 +848,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           bolsa.usd += usd; bolsa.usdA += usd; bolsa.mxnA += pesos;
           cta.caja_usd += usd; cta.pesos_aportados += pesos; cta.dolares_aportados += usd; cta.ultima_aportacion = dia;
           if (act) { act.pesos_aportados += pesos; act.dolares_aportados += usd; act.aportaciones++; }
+        } else if (tipo === "comision") {
+          // Dólares que GBM cobró: salen de la caja sin devolver pesos
+          const parte = bolsa.usd > 0.00001 ? Math.min(1, usd / bolsa.usd) : 1;
+          cta.comisiones_mxn += (bolsa.mxnA + bolsa.mxnV) * parte;
+          bolsa.usdA *= 1 - parte; bolsa.mxnA *= 1 - parte; bolsa.usdV *= 1 - parte; bolsa.mxnV *= 1 - parte;
+          bolsa.usd = Math.max(0, bolsa.usd - usd); vaciarSiNoQueda(bolsa);
+          cta.caja_usd = Math.max(0, cta.caja_usd - usd); cta.comisiones_usd += usd;
+          if (act) act.comisiones_usd = (act.comisiones_usd ?? 0) + usd;
         } else if (tipo === "retiro") {
           const parte = bolsa.usd > 0.00001 ? Math.min(1, usd / bolsa.usd) : 1;
           bolsa.usdA *= 1 - parte; bolsa.mxnA *= 1 - parte; bolsa.usdV *= 1 - parte; bolsa.mxnV *= 1 - parte;
@@ -956,7 +969,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const accionesUsd = (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0);
         const enPocasPalabras = valorMxn !== null
           ? `${nombreCuenta(id)} vale hoy ${dinero(valorMxn, "MXN")} (${dinero(valorUsd, "USD")}): ${dinero(accionesUsd * (tc ?? 0), "MXN")} en acciones y ${dinero(c.caja_usd * (tc ?? 0), "MXN")} (${dinero(c.caja_usd, "USD")}) en la Caja GBM. ` +
-            `Pusiste netos ${dinero(puesto, "MXN")}. Ganancia ${dinero(ganancia, "MXN", true)}: ${dinero(porAcciones, "MXN", true)} por las acciones y ${dinero(efectoTc, "MXN", true)} por el tipo de cambio.`
+            `Pusiste netos ${dinero(puesto, "MXN")}. Ganancia ${dinero(ganancia, "MXN", true)}: ${dinero(porAcciones, "MXN", true)} por las acciones y ${dinero(efectoTc, "MXN", true)} por el tipo de cambio.` +
+            (c.comisiones_usd > 0.005 ? ` Comisiones pagadas a GBM: ${dinero(c.comisiones_usd, "USD")} (≈ ${dinero(c.comisiones_mxn, "MXN")}), ya descontadas de la caja.` : "")
           : `${nombreCuenta(id)}: ${dinero(valorUsd, "USD")} (sin tipo de cambio de hoy para pasarlo a pesos).`;
         return [
           nombreCuenta(id), enPocasPalabras, dinero(c.pesos_aportados, "MXN"), dinero(c.dolares_aportados, "USD"), dinero(c.pesos_retirados, "MXN"), dinero(c.dolares_retirados, "USD"),
@@ -992,6 +1006,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
               cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: dinero(a.pesos_aportados, "MXN"), dolares_aportados: dinero(a.dolares_aportados, "USD"),
               pesos_retirados: dinero(a.pesos_retirados, "MXN"), dolares_retirados: dinero(a.dolares_retirados, "USD"),
+              comisiones: dinero(a.comisiones_usd ?? 0, "USD"),
               compras_por_empresa: Object.fromEntries(Object.entries(a.compras).map(([k, v]) => [k, dinero(v, "USD")])),
               ventas_por_empresa: Object.fromEntries(Object.entries(a.ventas).map(([k, v]) => [k, dinero(v, "USD")])),
             })),
@@ -1591,7 +1606,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
-- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión no se registra: la app guarda el precio puro de las acciones. Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría. Si no existe, en el mismo turno propón primero la categoría (proponer_nueva_categoria, tipo inversion, con el ticker, en la cuenta de GBM) y después la compra. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
+- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría. Si no existe, en el mismo turno propón primero la categoría (proponer_nueva_categoria, tipo inversion, con el ticker, en la cuenta de GBM) y después la compra. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto y lo que le queda en él no es dinero sin invertir: puede que ya lo haya movido). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado. Con eso da los datos que importan para su decisión y relaciónalo con su meta.

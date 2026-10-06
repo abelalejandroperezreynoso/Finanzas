@@ -8523,6 +8523,24 @@
                             caja.usd = Math.max(0, caja.usd - usdRetirado);
                             if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; caja.usdAportado = 0; caja.usdDeVentas = 0; }
 
+                            } else if (tipoMov === 'comision') {
+                            // Comisión de GBM: dólares que salen de la caja sin devolver pesos. Se lleva su
+                            // parte de la base en pesos, y eso es lo que costó: una pérdida ya realizada.
+                            const usdComision = Math.abs(usdRegistro);
+                            const parteComision = caja.usd > 0.00001 ? Math.min(1, usdComision / caja.usd) : 0;
+                            const baseComision = (caja.mxnBase || 0) * parteComision;
+                            window.gananciaRealizadaMap[u.id] = -baseComision;
+                            realizadaFueraCajaCuentaMap[idCuentaCat] = (realizadaFueraCajaCuentaMap[idCuentaCat] || 0) - baseComision;
+                            costoRealizadoFueraCajaCuentaMap[idCuentaCat] = (costoRealizadoFueraCajaCuentaMap[idCuentaCat] || 0) + baseComision;
+                            caja.mxnAportado = Math.max(0, (caja.mxnAportado || 0) * (1 - parteComision));
+                            caja.mxnDeVentas = Math.max(0, (caja.mxnDeVentas || 0) * (1 - parteComision));
+                            caja.usdAportado = Math.max(0, (caja.usdAportado || 0) * (1 - parteComision));
+                            caja.usdDeVentas = Math.max(0, (caja.usdDeVentas || 0) * (1 - parteComision));
+                            caja.mxnBase = (caja.mxnAportado || 0) + (caja.mxnDeVentas || 0);
+                            caja.mesesPonderados = Math.max(0, caja.mesesPonderados * (1 - parteComision));
+                            caja.usd = Math.max(0, caja.usd - usdComision);
+                            if (caja.usd < 0.00001) { caja.mxnBase = 0; caja.mesesPonderados = 0; caja.mxnAportado = 0; caja.mxnDeVentas = 0; caja.usdAportado = 0; caja.usdDeVentas = 0; }
+
                             } else if (acciones > 0 && (tipoMov === 'compra' || tipoMov === 'compra_directa')) {
                             if (!accionesMap[u.categoria_id]) accionesMap[u.categoria_id] = 0;
                             if (!costoBaseMap[u.categoria_id]) costoBaseMap[u.categoria_id] = 0;
@@ -10470,7 +10488,13 @@
 
                                                                                                 const tipoMovR = tipoCat === 'inversion' ? tipoMovInversion(r) : null;
 
-                                                                                                if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
+                                                                                                if (tipoMovR === 'comision') {
+                                                                                                    // Comisión de GBM: no mueve pesos, así que el $0.00 no dice nada; va lo que se cobró en dólares
+                                                                                                    const usdComisionLista = Math.abs(parseFloat(r.monto_usd) || 0);
+                                                                                                    const costoComisionLista = window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined ? -window.gananciaRealizadaMap[r.id] : 0;
+                                                                                                    montoArribaHtml = `<strong class="error" style="white-space: nowrap; display: flex; align-items: center;">-${fMoneda(usdComisionLista)} USD</strong>`;
+                                                                                                    infoDetalleInversion = `<div style="width: 100%; box-sizing: border-box; padding: 10px; background: #222; border-radius: 6px; margin-top: 10px; color: #aaa; font-size: 0.85em; line-height: 1.5;">🧾 Comisión de GBM · salió de la caja${costoComisionLista > 0.005 ? ` · ≈ ${fMoneda(costoComisionLista)} MXN` : ''}</div>`;
+                                                                                                } else if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
                                                     // --- MOVIMIENTO DE CAJA GBM (MXN ↔ USD, sin acciones) ---
                                                     const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
                                                     const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
@@ -16176,6 +16200,7 @@
                                     } else {
                                         filas.push(`Acciones: <b>${escaparHtml(String(Number(d.cantidad_acciones) || 0))}</b> a ${escaparHtml(usd(d.costo_accion))}`);
                                         filas.push(`Importe: <b>${escaparHtml(usd(d.monto_usd))}</b> (${d.tipo_movimiento === 'compra' ? 'sale de' : 'entra a'} la Caja GBM)`);
+                                        if (Number(d.comision_usd) > 0) filas.push(`Comisión: <b>${escaparHtml(usd(d.comision_usd))}</b> (aparte, sale de la caja)`);
                                     }
                                     filas.push(`Fecha: <b>${escaparHtml(fechaAmigable(d.fecha, d.hora))}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
@@ -17609,7 +17634,7 @@
                                 } else if (p.tipo === 'movimiento_inversion') {
                                     // Las mismas reglas que el formulario: la aportación y el retiro van en la Caja GBM
                                     // de la cuenta (se crea si falta) y se avisa si la caja o las acciones no alcanzan
-                                    const { hora, cuenta_id, caja_id, categoria_nueva, ...resto } = p.datos || {};
+                                    const { hora, cuenta_id, caja_id, categoria_nueva, comision_usd, ...resto } = p.datos || {};
                                     let { categoria_id, ...d } = resto;
                                     // Una compra en la empresa que se propuso en el mismo chat: se busca ya confirmada
                                     if (!categoria_id && categoria_nueva) {
@@ -17628,8 +17653,9 @@
                                         const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cuenta_id] : null;
                                         const disponible = cajaCta ? cajaCta.usd : 0;
                                         let seguir = true;
-                                        if ((d.tipo_movimiento === 'retiro' || d.tipo_movimiento === 'compra') && Number(d.monto_usd) > disponible + 0.01) {
-                                            seguir = await confirmarIos(`⚠️ ${d.tipo_movimiento === 'retiro' ? 'Este retiro' : 'Esta compra'} usa ${fMoneda(Number(d.monto_usd))} USD pero la caja GBM registrada tiene ${fMoneda(disponible)} USD.\n\n¿Te faltó registrar alguna aportación o venta? Puedes guardar de todas formas.`);
+                                        const usaCaja = Number(d.monto_usd) + (d.tipo_movimiento === 'compra' ? (Number(comision_usd) || 0) : 0);
+                                        if ((d.tipo_movimiento === 'retiro' || d.tipo_movimiento === 'compra') && usaCaja > disponible + 0.01) {
+                                            seguir = await confirmarIos(`⚠️ ${d.tipo_movimiento === 'retiro' ? 'Este retiro' : 'Esta compra'} usa ${fMoneda(usaCaja)} USD pero la caja GBM registrada tiene ${fMoneda(disponible)} USD.\n\n¿Te faltó registrar alguna aportación o venta? Puedes guardar de todas formas.`);
                                         }
                                         if (d.tipo_movimiento === 'venta') {
                                             const cat = datosCategorias.find(c => String(c.id) === String(categoria_id));
@@ -17646,6 +17672,16 @@
                                         res = !idCat
                                             ? { error: { message: 'No se pudo preparar la Caja GBM.' } }
                                             : await clienteSupabase.from('registros').insert([{ ...d, categoria_id: idCat, fecha: fechaDeDiaLocal(d.fecha, hora), user_id: currentUser.id }]);
+                                        // La comisión de la orden, aparte: sale de la caja y no es parte del precio
+                                        if (!res.error && Number(comision_usd) > 0 && (d.tipo_movimiento === 'compra' || d.tipo_movimiento === 'venta')) {
+                                            const idCajaCom = await obtenerCategoriaCajaGbm(cuenta_id);
+                                            const resCom = idCajaCom
+                                                ? await clienteSupabase.from('registros').insert([{ categoria_id: idCajaCom, tipo_movimiento: 'comision', monto: 0, monto_usd: Number(comision_usd),
+                                                    tipo_cambio: d.tipo_cambio || 0, cantidad_acciones: 0, costo_accion: 0, fecha: fechaDeDiaLocal(d.fecha, hora),
+                                                    descripcion: `Comisión de la ${d.tipo_movimiento}${d.descripcion ? ` · ${d.descripcion}` : ''}`.slice(0, 200), user_id: currentUser.id }])
+                                                : { error: { message: 'No se encontró la Caja GBM' } };
+                                            if (resCom.error) chatUi.push({ rol: 'error', texto: `La ${d.tipo_movimiento} se guardó, pero la comisión no: ${resCom.error.message}. Regístrala a mano.` });
+                                        }
                                     }
                                 } else {
                                     res = { error: { message: 'Tipo de propuesta desconocido' } };
@@ -19563,7 +19599,8 @@
                                             clase: tipo === 'compra' || tipo === 'compra_directa' ? 'compra'
                                                 : tipo === 'venta' || tipo === 'venta_directa' ? 'venta'
                                                     : tipo === 'aportacion' ? 'aportacion'
-                                                        : tipo === 'retiro' ? 'retiro' : null,
+                                                        : tipo === 'retiro' ? 'retiro'
+                                                            : tipo === 'comision' ? 'comision' : null,
                                             directo: tipo === 'compra_directa' || tipo === 'venta_directa',
                                             acciones: parseFloat(r.cantidad_acciones) || 0,
                                             precio: parseFloat(r.costo_accion) || 0,
@@ -19833,7 +19870,8 @@
                                     const comprasApp = suma(hastaCorte.filter(m => m.clase === 'compra'), m => m.usd);
                                     const ventasApp = suma(hastaCorte.filter(m => m.clase === 'venta'), m => m.usd);
                                     const retirosApp = suma(hastaCorte.filter(m => m.clase === 'retiro'), m => m.usd);
-                                    const cajaApp = aportApp + ventasApp - comprasApp - retirosApp;
+                                    const comisionesApp = suma(hastaCorte.filter(m => m.clase === 'comision'), m => m.usd);
+                                    const cajaApp = aportApp + ventasApp - comprasApp - retirosApp - comisionesApp;
 
                                     const efectivoGbm = ec.asignacion.efectivo;
                                     const depGbm = suma(ec.actividad.filter(m => m.clase === 'aportacion'), m => m.usd);
@@ -19843,8 +19881,9 @@
                                     const enPeriodo = m => ec.periodo && m.dia >= ec.periodo.desde && m.dia <= ec.periodo.hasta;
                                     const salidaGbm = suma(ec.actividad.filter(m => m.clase === 'compra'), m => m.neto) -
                                         suma(ec.actividad.filter(m => m.clase === 'venta'), m => m.neto);
+                                    const comisionesAppPeriodo = suma(movsApp.filter(m => m.clase === 'comision' && enPeriodo(m)), m => m.usd);
                                     const salidaApp = suma(movsApp.filter(m => !m.directo && m.clase === 'compra' && enPeriodo(m)), m => m.usd) -
-                                        suma(movsApp.filter(m => !m.directo && m.clase === 'venta' && enPeriodo(m)), m => m.usd);
+                                        suma(movsApp.filter(m => !m.directo && m.clase === 'venta' && enPeriodo(m)), m => m.usd) + comisionesAppPeriodo;
                                     const aportPeriodo = suma(movsApp.filter(m => !m.directo && m.clase === 'aportacion' && enPeriodo(m)), m => m.usd);
 
                                     const desfaseFondeo = aportPeriodo - depGbm;
@@ -19853,7 +19892,7 @@
                                     // una es normal y la otra es un error que hay que corregir.
                                     const brechaOperaciones = salidaGbm - salidaApp;
                                     const comisionesNoRegistradas = suma(ec.actividad.filter(m =>
-                                        m.clase === 'compra' || m.clase === 'venta'), m => m.comision);
+                                        m.clase === 'compra' || m.clase === 'venta'), m => m.comision) - comisionesAppPeriodo;
                                     const erroresDeCaptura = brechaOperaciones - comisionesNoRegistradas;
                                     const dividendosNoRegistrados = suma(ec.actividad.filter(m =>
                                         m.clase === 'dividendo' || m.clase === 'retencion' || m.clase === 'interes'), m => m.importe);
@@ -21203,7 +21242,11 @@
             ? ` <span style="color:#4da6ff; font-size: 0.85em;">(no movió pesos: ${tipoMovR === 'venta' ? 'los dólares quedaron en la caja GBM' : 'se pagó con la caja GBM'})</span>`
             : '';
 
-        if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
+        if (tipoMovR === 'comision') {
+            const usdComision = Math.abs(parseFloat(r.monto_usd) || 0);
+            const costoComision = window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined ? -window.gananciaRealizadaMap[r.id] : 0;
+            detallesInversion = `<br><br><strong style="color:#fff;">🧾 COMISIÓN DE GBM</strong><br>Salió de la caja: ${fMoneda(usdComision)} USD${costoComision > 0.005 ? `<br>Costo en pesos: ${fMoneda(costoComision)} MXN` : ''}`;
+        } else if (tipoMovR === 'aportacion' || tipoMovR === 'retiro') {
             const tcMovCaja = parseFloat(r.tipo_cambio) || 1;
             const usdMovCaja = parseFloat(r.monto_usd) || (montoAbsoluto / tcMovCaja);
             if (tipoMovR === 'aportacion') {
