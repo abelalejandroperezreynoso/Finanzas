@@ -8023,7 +8023,8 @@
                                                                     // registros antiguos que la usaron se siguen leyendo y se pueden editar.
                                                                     selTipoInv.innerHTML = `
                                                                         <option value="compra">🛒 USD→ACCIONES</option>
-                                                                        <option value="aportacion">💵 MXN→USD</option>`;
+                                                                        <option value="aportacion">💵 MXN→USD</option>
+                                                                        <option value="comision">🧾 Comisión</option>`;
                                                                 }
 
                                                                 // Tipo y categoría tienen que contar lo mismo, y manda el último que se tocó.
@@ -8031,7 +8032,7 @@
                                                                 // Caja GBM sólo mueve dinero entre monedas, y una empresa sólo compra o vende.
                                                                 // El sentido contrario —elegir el tipo y que la categoría se acomode— lo
                                                                 // resuelve actualizarCamposInversion.
-                                                                const esMovimientoDeCaja = t => t === 'aportacion' || t === 'retiro';
+                                                                const esMovimientoDeCaja = t => t === 'aportacion' || t === 'retiro' || t === 'comision';
                                                                 const categoriaEsCaja = esCategoriaCajaGbm(cat);
                                                                 const previoSirve = valorPrevio
                                                                     && [...selTipoInv.options].some(o => o.value === valorPrevio)
@@ -8084,8 +8085,10 @@
                                 const labelTC = document.getElementById('labelRegTipoCambio');
                                 const hint = document.getElementById('hintInversion');
 
-                                const usaAcciones = tipoInv !== 'aportacion' && tipoInv !== 'retiro';
-                                const muevePesos = tipoInv !== 'compra' && tipoInv !== 'venta';
+                                // La comisión de GBM sale de la caja en dólares: ni acciones ni pesos
+                                const esComision = tipoInv === 'comision';
+                                const usaAcciones = tipoInv !== 'aportacion' && tipoInv !== 'retiro' && !esComision;
+                                const muevePesos = tipoInv !== 'compra' && tipoInv !== 'venta' && !esComision;
 
                                 const selCat = document.getElementById('regCategoriaSelect');
                                 const idCat = selCat.value;
@@ -8101,7 +8104,7 @@
 
                                 // Aportaciones y retiros pertenecen a la Caja GBM, no a una empresa: fijamos
                                 // la categoría visiblemente y la bloqueamos mientras dure ese tipo de movimiento
-                                const esMovCaja = tipoInv === 'aportacion' || tipoInv === 'retiro';
+                                const esMovCaja = tipoInv === 'aportacion' || tipoInv === 'retiro' || esComision;
                                 if (esMovCaja) {
                                     // Sin categoría elegida (por ejemplo, se soltó al pasar por USD→ACCIONES)
                                     // se toma la de la cuenta: su Caja GBM si ya existe, o si no cualquiera de
@@ -8192,7 +8195,7 @@
                                 const labelMonto = document.getElementById('labelRegMonto');
                                 const labelUsd = document.getElementById('labelRegMontoUsd');
 
-                                document.getElementById('divRegMontoUsd').style.display = esConversion ? '' : 'none';
+                                document.getElementById('divRegMontoUsd').style.display = (esConversion || esComision) ? '' : 'none';
 
                                 inputMonto.readOnly = false;
                                 inputMonto.placeholder = '0.00';
@@ -8205,6 +8208,10 @@
                                     inputTc.readOnly = true;
                                     inputTc.placeholder = 'Se calcula solo';
                                     inputTc.classList.add('ios-calculado');
+                                } else if (esComision) {
+                                    if (labelUsd) labelUsd.textContent = 'Comisión (USD)';
+                                    inputTc.readOnly = false;
+                                    inputTc.classList.remove('ios-calculado');
                                 } else {
                                     if (labelMonto) labelMonto.textContent = 'Monto';
                                     // Si se viene de una aportación, el campo trae el tipo de cambio que
@@ -8232,6 +8239,7 @@
                                 let muestraTC = true;
                                 if (tipoInv === 'venta') muestraTC = !!editIdMov;
                                 if (tipoInv === 'compra') muestraTC = !hayCaja;
+                                if (esComision) muestraTC = false;
                                 divTC.style.display = muestraTC ? '' : 'none';
 
                                 labelCosto.textContent = (tipoInv === 'venta' || tipoInv === 'venta_directa') ? 'Precio Venta (USD)' : 'Costo Acción (USD)';
@@ -8244,6 +8252,7 @@
                                 if (tipoInv === 'aportacion') textoHint = `Copia del comprobante los dos importes: los pesos que GBM cobró y los dólares que acreditó. El tipo de cambio sale de ellos —el del comprobante viene redondeado y no cuadra al centavo—. ${cajaTxt}`;
                                 else if (tipoInv === 'compra') textoHint = `Compra pagada con los dólares de la caja GBM; no mueve pesos. ${cajaTxt}${hayCaja ? '' : ' Sin caja, el costo en pesos del lote se estima con el TC capturado.'}`;
                                 else if (tipoInv === 'venta') textoHint = `El dinero de la venta se queda en dólares en la caja GBM; no mueve pesos. ${cajaTxt}`;
+                                else if (esComision) textoHint = `Lo que GBM cobró de comisión en una orden: sale de la caja en dólares y no mueve pesos. ${cajaTxt}`;
                                 else if (tipoInv === 'retiro') textoHint = `Pesos que regresaste de Trading USA a Smart Cash. Captura los dos importes del comprobante —los pesos recibidos y los dólares retirados— y el tipo de cambio se calcula solo. ${cajaTxt}`;
                                 hint.textContent = textoHint;
                                 hint.style.display = textoHint ? 'block' : 'none';
@@ -21439,14 +21448,14 @@
                         const tipoInvSel = esInversion ? document.getElementById('regTipoInversion').value : '';
                         // Los movimientos "directos" (pesos → acciones en un paso) se guardan sin tipo,
                         // igual que los registros históricos, y se interpretan por el signo del monto.
-                        const tipoMovimiento = (tipoInvSel === 'compra' || tipoInvSel === 'venta' || tipoInvSel === 'aportacion' || tipoInvSel === 'retiro') ? tipoInvSel : null;
+                        const tipoMovimiento = (tipoInvSel === 'compra' || tipoInvSel === 'venta' || tipoInvSel === 'aportacion' || tipoInvSel === 'retiro' || tipoInvSel === 'comision') ? tipoInvSel : null;
                         let montoUsd = 0;
 
                         // Un tipo de cambio escrito sin punto —1779.68 en vez de 17.7968— no lo detectaba
                         // nadie y se quedaba guardado. Se compara con el de hoy: un peso que valga la mitad
                         // o el doble de un día a otro es un error de captura, no un movimiento del mercado.
                         // Las aportaciones y retiros lo calculan solos, así que no se revisan aquí.
-                        const tcFueraDeRango = esInversion && tipoInvSel !== 'aportacion' && tipoInvSel !== 'retiro' && globalUsdToMxn > 0
+                        const tcFueraDeRango = esInversion && tipoInvSel !== 'aportacion' && tipoInvSel !== 'retiro' && tipoInvSel !== 'comision' && globalUsdToMxn > 0
                             && (tipoCambio > globalUsdToMxn * 2 || tipoCambio < globalUsdToMxn / 2);
                         const divTcVisible = (document.getElementById('divRegTipoCambio') || {}).style;
                         const tcEscondido = !!divTcVisible && divTcVisible.display === 'none';
@@ -21491,6 +21500,16 @@
                                 if (!editIdMov && montoUsd > cajaDisponibleUsd + 0.01) {
                                     if (!await confirmarIos(`⚠️ Este retiro usa ${fMoneda(montoUsd)} USD pero la caja GBM registrada tiene ${fMoneda(cajaDisponibleUsd)} USD.\n\n¿Te faltó registrar alguna venta o aportación? Puedes guardar de todas formas.`)) return;
                                 }
+                            } else if (tipoMovimiento === 'comision') {
+                                montoUsd = Math.abs(parseFloat(document.getElementById('regMontoUsd').value)) || 0;
+                                if (!montoUsd || montoUsd <= 0) {
+                                    alert("⚠️ Captura la comisión que cobró GBM, en dólares.");
+                                    return;
+                                }
+                                montoFinal = 0;
+                                cantidadAcciones = 0;
+                                costoAccion = 0;
+                                tipoCambio = 0;
                             } else if (tipoMovimiento === 'compra' || tipoMovimiento === 'venta') {
                                 if (!cantidadAcciones || cantidadAcciones <= 0 || costoAccion <= 0) {
                                     alert("⚠️ Para una compra o venta captura la cantidad de acciones y el precio en USD.");
@@ -21519,7 +21538,7 @@
                         // Las aportaciones y retiros no pertenecen a ninguna empresa: se guardan en la
                         // categoría "Caja GBM" de la cuenta, que se crea sola la primera vez
                         let categoriaFinalId = catId;
-                        if (tipoMovimiento === 'aportacion' || tipoMovimiento === 'retiro') {
+                        if (tipoMovimiento === 'aportacion' || tipoMovimiento === 'retiro' || tipoMovimiento === 'comision') {
                             const idCatCaja = await obtenerCategoriaCajaGbm(catSeleccionada.cuenta_id);
                             if (!idCatCaja) return;
                             categoriaFinalId = idCatCaja;
@@ -21740,6 +21759,7 @@
                                                                         document.getElementById('regMontoUsd').value = usdGuardado > 0 ? usdGuardado.toFixed(2) : '';
                                                                     }
                                                                     actualizarCamposInversion();
+                                                                    if (tipoGuardado === 'comision') document.getElementById('regMontoUsd').value = (parseFloat(r.monto_usd) || 0).toFixed(2);
                                                                     if (r.tipo_movimiento === 'compra' || r.tipo_movimiento === 'venta') {
                                                                         document.getElementById('regMonto').value = '';
                                                                         // Si el formulario venía de una aportación, cambiar de tipo pone el TC
