@@ -311,10 +311,10 @@
         .robotito.alerta .brazos { animation: robotPanicoAbajo 2.4s steps(1) infinite; }
         .robotito.alerta .brazos-arriba { animation: robotPanicoArriba 2.4s steps(1) infinite; }
         .robotito .alarma { animation: robotAlarma 0.8s steps(1) infinite; }
-        @keyframes robotTiembla { 0%, 59% { transform: translateX(0); } 60%, 66%, 72% { transform: translateX(-2px); }
-            63%, 69%, 75% { transform: translateX(2px); } 78%, 100% { transform: translateX(0); } }
-        @keyframes robotPanicoAbajo { 0%, 59% { opacity: 1; } 60%, 77% { opacity: 0; } 78%, 100% { opacity: 1; } }
-        @keyframes robotPanicoArriba { 0%, 59% { opacity: 0; } 60%, 77% { opacity: 1; } 78%, 100% { opacity: 0; } }
+        @keyframes robotTiembla { 0%, 9% { transform: translateX(0); } 10%, 16%, 22% { transform: translateX(-2px); }
+            13%, 19%, 25% { transform: translateX(2px); } 28%, 100% { transform: translateX(0); } }
+        @keyframes robotPanicoAbajo { 0%, 9% { opacity: 1; } 10%, 27% { opacity: 0; } 28%, 100% { opacity: 1; } }
+        @keyframes robotPanicoArriba { 0%, 9% { opacity: 0; } 10%, 27% { opacity: 1; } 28%, 100% { opacity: 0; } }
         @keyframes robotAlarma { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
         @keyframes robotRespira { 0%, 49% { transform: translateY(0); } 50%, 100% { transform: translateY(-2px); } }
         @keyframes robotParpadea { 0%, 93% { opacity: 0; } 94%, 96% { opacity: 1; } 97%, 100% { opacity: 0; } }
@@ -15583,6 +15583,7 @@
                                         if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
                                             modo = 'lado';
                                             // El chat se pinta ya, con lo último a la vista, para que entre completo
+                                            alertaRobotVista = false;
                                             reajustarAsistente();
                                             cargarChatAsistente();
                                             pintarChatAsistente(true);
@@ -16078,6 +16079,7 @@
                             }
 
                             function abrirAsistente() {
+                                alertaRobotVista = false;
                                 reajustarAsistente();
                                 precalentarUbicacion();
                                 cargarChatAsistente();
@@ -16309,7 +16311,7 @@
                                     const estado = cargandoDatos ? null : estadoFinanzasAsistente();
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
-                                                ${personajeAsistenteHtml(ocupado, !ocupado && !!(estado && estado.alerta))}
+                                                ${personajeAsistenteHtml(ocupado, !ocupado && robotConAlerta(!!(estado && estado.alerta)))}
                                                 <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado }))}</div>
                                             </div>
                                         </div>`;
@@ -16505,7 +16507,20 @@
                                 alarma: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAJElEQVR42mNkIACeevj+R+ZL79jMiE89E8MoGAWjYBSMghEKAMemBAQsVNznAAAAAElFTkSuQmCC'
                             };
                             // Con alerta (saldo en cero, negativo o muy bajo) pone cara de preocupación, la
-                            // perilla parpadea en rojo y a ratos tiembla con los brazos arriba.
+                            // perilla parpadea en rojo y tiembla con los brazos arriba.
+                            // La alerta sólo se ve unos segundos (dos temblores) al abrir el chat; luego el robotito
+                            // vuelve a la normalidad hasta la siguiente vez que se abra.
+                            var DURACION_ALERTA_ROBOT = 4800;
+                            var alertaRobotVista = false, alertaRobotHasta = 0;
+                            function robotConAlerta(alerta) {
+                                if (!alerta) return false;
+                                if (!alertaRobotVista) {
+                                    alertaRobotVista = true;
+                                    alertaRobotHasta = Date.now() + DURACION_ALERTA_ROBOT;
+                                    setTimeout(() => document.querySelectorAll('.robotito.alerta').forEach(r => { r.outerHTML = personajeAsistenteHtml(false); }), DURACION_ALERTA_ROBOT);
+                                }
+                                return Date.now() < alertaRobotHasta;
+                            }
                             function personajeAsistenteHtml(pensando, alerta = false) {
                                 const img = (clave, clase = '') => `<img${clase ? ` class="${clase}"` : ''} src="data:image/png;base64,${ROBOT_PNG[clave]}" alt="">`;
                                 const cara = pensando ? img('pensando')
