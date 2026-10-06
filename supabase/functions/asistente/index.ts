@@ -217,14 +217,18 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_nuevo_movimiento",
     description:
-      "Propone registrar un movimiento nuevo en una categoría de gasto, ingreso o salud. Importe siempre positivo (el signo sale del tipo de categoría); " +
-      "en Salud es la cantidad. NO lo aplica: el usuario lo confirmará. Si ninguna categoría le queda, propón antes la nueva y usa categoria_nueva.",
+      "Propone registrar un movimiento nuevo en una categoría de gasto, ingreso, salud, préstamo o deuda. Importe siempre positivo (el signo sale del tipo de categoría " +
+      "y, en préstamos y deudas, de operacion); en Salud es la cantidad. NO lo aplica: el usuario lo confirmará. Si ninguna categoría le queda, propón antes la nueva y usa categoria_nueva.",
     input_schema: {
       type: "object",
       properties: {
         categoria_id: { type: "string" },
         categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este movimiento) y que aún no existe" },
         importe: { type: "number" },
+        operacion: {
+          type: "string", enum: ["presto", "me_pagan", "me_prestan", "pago"],
+          description: "Sólo en préstamos y deudas. Préstamo: presto (le presta dinero, sale) o me_pagan (le devuelven, entra). Deuda: me_prestan (recibe el préstamo o la compra a crédito, entra) o pago (abona, sale)",
+        },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         hora: { type: "string", description: "Hora local HH:MM (24 h) si la dijo, o \"ahora\" si acaba de pasar (\"acabo de\", \"ahorita\"). Omítela si no se sabe." },
         descripcion: { type: "string", description: "Qué fue, con el detalle que dio el usuario (por ejemplo \"Sushi\"); nunca vacía" },
@@ -292,6 +296,13 @@ const HERRAMIENTAS: Json[] = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "resumen_prestamos_deudas",
+    description:
+      "Estado de cada préstamo (dinero que le deben al usuario) y cada deuda (dinero que él debe): cuánto se prestó o recibió, cuánto se ha cobrado o abonado, " +
+      "lo pendiente y las fechas del primer y último movimiento. Úsala para cualquier pregunta de préstamos o deudas.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "flujo_mensual",
@@ -537,6 +548,39 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!zona.conListas) return { texto: `Esta versión de la app no muestra tarjetas: escríbelos tú, en una lista corta.\n${recortar(movimientos)}` };
       listas.push({ titulo: String(entrada.titulo ?? "Movimientos").slice(0, 80), movimientos });
       return { texto: `Se mostraron ${movimientos.length} movimientos en una tarjeta. No los repitas en el texto: si acaso, una frase con lo más importante.` };
+    }
+    case "resumen_prestamos_deudas": {
+      const cats = catalogo.categorias.filter((c: Json) => c.tipo === "prestamo" || c.tipo === "deuda");
+      if (!cats.length) return { texto: "El usuario no tiene categorías de préstamo ni de deuda." };
+      const movs: Json[] = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("registros").select("fecha, monto, categoria_id")
+          .in("categoria_id", cats.map((c: Json) => c.id)).order("fecha").range(desde, desde + 999);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        movs.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+      const por: Record<string, Json> = {};
+      movs.forEach((r: Json) => {
+        const k = String(r.categoria_id), m = Number(r.monto) || 0, dia = fechaLocal(r.fecha, zona).slice(0, 10);
+        const x = (por[k] ??= { entra: 0, sale: 0, movimientos: 0, primero: dia, ultimo: dia });
+        if (m > 0) x.entra += m; else x.sale += -m;
+        x.movimientos++; x.ultimo = dia;
+      });
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const filas = cats.map((c: Json) => {
+        const x = por[String(c.id)] ?? { entra: 0, sale: 0, movimientos: 0, primero: null, ultimo: null };
+        // Préstamo: sale lo prestado y entra lo cobrado. Deuda: entra lo recibido y sale lo abonado.
+        const [base, pagado] = c.tipo === "prestamo" ? [x.sale, x.entra] : [x.entra, x.sale];
+        return [catalogo.etiqueta[String(c.id)] ?? c.nombre, c.tipo === "prestamo" ? "préstamo (te deben)" : "deuda (debes)", c.cuentas?.nombre ?? null,
+          r2(base), r2(pagado), r2(base - pagado), base > 0 ? Math.round((pagado / base) * 100) : null, x.movimientos, x.primero, x.ultimo];
+      });
+      return {
+        texto: recortar({
+          nota: "pendiente = prestado menos cobrado (préstamo) o recibido menos abonado (deuda). Negativo: se cobró o abonó de más, o falta registrar el monto original.",
+          tabla: tabla(["categoria", "tipo", "cuenta", "prestado_o_recibido", "cobrado_o_abonado", "pendiente", "avance_pct", "movimientos", "primero", "ultimo"], filas),
+        }),
+      };
     }
     case "resumen_inversiones": {
       const cats = catalogo.categorias.filter((c: Json) => c.tipo === "inversion");
@@ -956,7 +1000,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       }
       if (!c) return { texto: "No encontré esa categoría.", error: true };
       const tipo = (c as Json).tipo;
-      if (!["gasto", "ingreso", "salud"].includes(tipo)) return { texto: "Desde aquí sólo se registran gastos, ingresos o Salud.", error: true };
+      if (!["gasto", "ingreso", "salud", "prestamo", "deuda"].includes(tipo)) return { texto: "Desde aquí no se registran inversiones: usa proponer_movimiento_inversion.", error: true };
+      // Préstamos y deudas: el signo depende de si el dinero sale o entra
+      let sale = tipo === "gasto";
+      if (tipo === "prestamo" || tipo === "deuda") {
+        const validas = tipo === "prestamo" ? ["presto", "me_pagan"] : ["me_prestan", "pago"];
+        if (!validas.includes(entrada.operacion)) return { texto: `En una categoría de ${tipo === "prestamo" ? "préstamo" : "deuda"} indica operacion: ${validas.join(" o ")}.`, error: true };
+        sale = entrada.operacion === "presto" || entrada.operacion === "pago";
+      }
       if (!(Number(entrada.importe) > 0)) return { texto: "El importe debe ser mayor que cero.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
       const importe = Math.abs(Number(entrada.importe));
@@ -981,7 +1032,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           // Pasó ahora mismo: la app puede anotar dónde, si el usuario lo activó
           ...(zona.conHora && entrada.hora === "ahora" ? { en_el_momento: true } : {}),
           descripcion: dNueva.texto || "",
-          monto: tipo === "salud" ? 0 : tipo === "gasto" ? -importe : importe,
+          monto: tipo === "salud" ? 0 : sale ? -importe : importe,
           ...(tipo === "salud" ? { cantidad: importe } : {}),
         },
       });
@@ -1032,6 +1083,7 @@ Datos de la app:
 - Saldo inicial: lo que había en una cuenta antes de su primer movimiento en la app. Saldo actual = saldo inicial + movimientos. Cuando el usuario dice cuánto tiene ya en una cuenta ("tengo 5,000 en BBVA", "mi tarjeta debe 3,000"), eso es saldo inicial (negativo si debe): ponlo al crear la cuenta con proponer_nueva_cuenta o corrígelo con proponer_cambio_cuenta. Nunca lo registres como ingreso o gasto: inflaría sus ingresos o gastos del mes. Si el saldo de la app no coincide con su banco y no falta ningún movimiento, se ajusta el saldo inicial.
 - Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda como pendiente. Cuando te diga cuánto tiene hoy en una cuenta con saldo_pendiente (o quiera cuadrarla con su banco), usa proponer_cambio_cuenta con saldo_actual, no saldo_inicial: el saldo inicial se calcula solo restando lo ya registrado.
 - Tipos de categoría: gasto, ingreso, deuda, prestamo, inversion y salud (salud no es dinero: lleva una cantidad, con monto 0).
+- Préstamos y deudas: el tipo de la categoría ya dice quién le debe a quién, nunca lo preguntes. prestamo = dinero que el usuario le prestó a alguien (se lo deben): monto negativo = le prestó, positivo = le pagaron (cobro); lo pendiente por cobrar es lo prestado menos lo cobrado. deuda = dinero que el usuario debe (le prestaron o compró a crédito): monto positivo = recibió el préstamo, negativo = abonó; lo pendiente por pagar es lo recibido menos lo abonado. El nombre de la categoría suele ser la persona o el bien (por ejemplo "Abel" o "Audi A7"); la descripción de cada movimiento dice el motivo. Para saber cómo van usa resumen_prestamos_deudas. Para registrar uno usa proponer_nuevo_movimiento con operacion ("le presté 5,000 a Abel" = presto; "Abel me pagó 2,000" = me_pagan; "saqué a crédito" = me_prestan; "abonó a la tarjeta" = pago).
 - Prioridad de los gastos (técnica de las 4 N): vital, operativa, util, prescindible.
 
 Cómo trabajar:
@@ -1131,6 +1183,7 @@ const ESQUEMA_SALDO = {
 const SISTEMA_REVISION = `Eres el asistente proactivo de una app personal de finanzas (México, MXN). Tu objetivo es que al usuario le quede más dinero cada mes y que su patrimonio crezca; sus datos correctos son la base.
 Recibes: tu memoria sobre el usuario (metas, ingresos esperados, deudas, compromisos, preferencias), lo que le quedó cada mes (ingresos menos gastos, más deudas, préstamos e inversiones), sus categorías (con tipo, prioridad y descripción) con lo que se movió en cada una mes por mes, sus movimientos recientes y lo que le señalaste en revisiones anteriores con lo que hizo (pendiente, atendido o descartado).
 Monto negativo = salió dinero; positivo = entró. Tipos: gasto, ingreso, deuda, prestamo, inversion, salud (salud no es dinero: lleva cantidad y monto 0).
+Préstamos y deudas: el tipo de la categoría ya dice quién le debe a quién, nunca lo preguntes. prestamo = dinero que el usuario le prestó a alguien (se lo deben): monto negativo = le prestó, positivo = le pagaron (cobro); lo pendiente por cobrar es lo prestado menos lo cobrado. deuda = dinero que el usuario debe (le prestaron o compró a crédito): monto positivo = recibió el préstamo, negativo = abonó; lo pendiente por pagar es lo recibido menos lo abonado. El nombre de la categoría suele ser la persona o el bien (por ejemplo "Abel" o "Audi A7"); la descripción de cada movimiento dice el motivo.
 
 Busca, en este orden de importancia:
 1. Posibles errores en categorías importantes: montos atípicos, movimientos duplicados, una categoría o un tipo que no corresponde (por ejemplo un síntoma registrado como gasto debería ser salud; algo que siempre entra dinero registrado como gasto), descripciones que no cuadran.
