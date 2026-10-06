@@ -16151,8 +16151,8 @@
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'nueva_categoria') {
                                     const d = p.datos || {};
-                                    const nombresTipoCat = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', salud: 'Salud' };
-                                    filas.push(`Categoría nueva: <b>${escaparHtml(d.nombre || '')}</b>`);
+                                    const nombresTipoCat = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', salud: 'Salud', inversion: 'Inversión' };
+                                    filas.push(`Categoría nueva: <b>${escaparHtml(d.nombre || '')}</b>${d.ticker ? ` [${escaparHtml(d.ticker)}]` : ''}`);
                                     filas.push(`Cuenta: <b>${escaparHtml(p.cuenta || '')}</b>`);
                                     filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
@@ -16329,7 +16329,7 @@
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, recurrentes: recurrentesParaAsistente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, recurrentes: recurrentesParaAsistente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17609,9 +17609,20 @@
                                 } else if (p.tipo === 'movimiento_inversion') {
                                     // Las mismas reglas que el formulario: la aportación y el retiro van en la Caja GBM
                                     // de la cuenta (se crea si falta) y se avisa si la caja o las acciones no alcanzan
-                                    const { hora, cuenta_id, caja_id, categoria_id, ...d } = p.datos || {};
+                                    const { hora, cuenta_id, caja_id, categoria_nueva, ...resto } = p.datos || {};
+                                    let { categoria_id, ...d } = resto;
+                                    // Una compra en la empresa que se propuso en el mismo chat: se busca ya confirmada
+                                    if (!categoria_id && categoria_nueva) {
+                                        const { data: cats } = await clienteSupabase.from('categorias').select('id, nombre, tipo, cuenta_id').eq('tipo', 'inversion');
+                                        const igual = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+                                        const cat = (cats || []).find(c => igual(c.nombre, categoria_nueva) && String(c.cuenta_id) === String(cuenta_id))
+                                            || (cats || []).find(c => igual(c.nombre, categoria_nueva));
+                                        if (cat) categoria_id = cat.id;
+                                    }
                                     if (!(datosCategorias || []).length) {
                                         res = { error: { message: 'Tus datos todavía se están cargando. Espera un momento y vuelve a confirmar.' } };
+                                    } else if (!categoria_id && categoria_nueva && d.tipo_movimiento !== 'aportacion' && d.tipo_movimiento !== 'retiro') {
+                                        res = { falta: `Primero confirma la categoría "${categoria_nueva}".` };
                                     } else {
                                         const esCaja = d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro';
                                         const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cuenta_id] : null;
