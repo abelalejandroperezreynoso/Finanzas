@@ -738,10 +738,21 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             Math.round(e.acciones * 10000) / 10000, e.acciones > 0 ? r2(e.costo_usd / e.acciones) : null, r2(e.costo_usd),
             p ? p.cierre : null, p ? p.dia : null, valor !== null ? r2(valor) : null,
             valor !== null ? r2(valor - e.costo_usd) : null, valor !== null && e.costo_usd > 0 ? r2((valor / e.costo_usd - 1) * 100) : null,
-            r2(e.realizada_usd),
+            r2(e.realizada_usd), String(e.cat.cuenta_id),
           ];
         })
         .sort((a: Json, b: Json) => (b[8] ?? b[5] ?? 0) - (a[8] ?? a[5] ?? 0));
+
+      // Cuánto pesa cada empresa en todo lo invertido (caja incluida) y cuántas acciones más alcanza a
+      // comprar la caja de su cuenta: lo que hace falta para hablar de concentración o de una compra sin
+      // preguntarle al usuario lo que ya está en sus datos.
+      const totalUsd = Object.values(cuentas).reduce((t: number, c: Json) => t + c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0), 0);
+      filasEmpresas.forEach((f: Json[]) => {
+        const idCuenta = f.pop();
+        const valorFila = f[8] ?? (Number(f[3]) > 0 ? f[5] : 0);
+        const caja = cuentas[idCuenta]?.caja_usd ?? 0;
+        f.push(totalUsd > 0 ? r2((valorFila / totalUsd) * 100) : null, f[6] ? Math.floor((caja / f[6]) * 10000) / 10000 : null);
+      });
 
       const filasCuentas = Object.entries(cuentas).map(([id, c]: [string, Json]) => {
         // Sin precio, una empresa cuenta por lo que costó
@@ -768,11 +779,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           nota: "Dólares salvo donde dice pesos. precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
-            "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú.",
+            "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú. " +
+            "peso_pct = parte de todo lo invertido (caja incluida) que es esa empresa. acciones_que_alcanza_la_caja = acciones de esa empresa que se pueden comprar hoy con la Caja GBM de su cuenta.",
           cuentas: tabla(["cuenta", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio", "invertido", "precio", "precio_del_dia", "valor",
-            "plusvalia", "plusvalia_pct", "ganancia_realizada"], filasEmpresas),
+            "plusvalia", "plusvalia_pct", "ganancia_realizada", "peso_pct", "acciones_que_alcanza_la_caja"], filasEmpresas),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
               cuenta: nombreCuenta(id), aportaciones: a.aportaciones, pesos_aportados: r2(a.pesos_aportados), dolares_aportados: r2(a.dolares_aportados),
@@ -968,15 +980,19 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const porCuenta: Record<string, number> = {};
       (saldos ?? []).forEach((s: Json) => { porCuenta[String(s.id_cuenta)] = Number(s.balance) || 0; });
       // El mismo cálculo que la cifra grande de la app: saldo inicial + movimientos, sólo de las cuentas que cuentan en el total
+      const deInversion = new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)));
       const filas = catalogo.cuentas.map((c: Json) => [
         c.id, c.nombre, c.incluir_en_total !== false, Math.round(((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)) * 100) / 100,
+        deInversion.has(String(c.id)),
       ]);
       const total = filas.filter((f) => f[2]).reduce((t, f) => t + (f[3] as number), 0);
       return {
         texto: recortar({
           saldo_total: Math.round(total * 100) / 100,
-          nota: "saldo_total es la cifra grande que el usuario ve en la app: suma sólo las cuentas con cuenta_en_total = true.",
-          cuentas: tabla(["id", "nombre", "cuenta_en_total", "saldo"], filas),
+          nota: "saldo_total es la cifra grande que el usuario ve en la app: suma sólo las cuentas con cuenta_en_total = true. " +
+            "En una cuenta de inversión el saldo son sólo los pesos que entraron y salieron (aportaciones y retiros), no lo que vale: suele salir negativo y es normal. " +
+            "No lo menciones ni lo uses como dinero disponible; lo que vale está en resumen_inversiones.",
+          cuentas: tabla(["id", "nombre", "cuenta_en_total", "saldo", "es_inversion"], filas),
         }),
       };
     }
@@ -1313,6 +1329,8 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
+- "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (cuánto le queda al mes). Con eso da los datos que importan para su decisión y relaciónalo con su meta.
+- Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): después de la cuenta, compara el monto mensual con lo que le queda al mes según flujo_mensual (promedio de los últimos 3 meses completos; si hay menos, dilo). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
 
 # "¿Cómo voy?"
