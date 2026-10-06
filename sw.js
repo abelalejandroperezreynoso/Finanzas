@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v246';
+const CACHE_NAME = 'gastos-app-v247';
 
 // Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
 // cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
