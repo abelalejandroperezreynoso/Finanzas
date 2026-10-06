@@ -9717,6 +9717,16 @@
     // Una deuda o un préstamo se dice con lo que significa —"Debes", "Te debe"— y no con un
     // signo: "+$2,000" en verde se leía como algo bueno y era lo que se debía. null en los
     // demás tipos.
+    // La descripción de una comisión: la empresa de la orden ("Coca-Cola"). Las que guardó la primera
+    // versión decían "Comisión de la compra · Compra de Coca-Cola" y se cortaban en la lista.
+    function descripcionDeComision(desc) {
+        const limpia = String(desc || '')
+            .replace(/^Comisión de la (compra|venta)\s*·?\s*/i, '')
+            .replace(/^(Compra|Venta)\s+de\s+([\d.,]+\s+)?(acciones\s+(de\s+)?)?/i, '')
+            .trim();
+        return (limpia && !/^comisi[oó]n de gbm$/i.test(limpia)) ? limpia : 'Comisión de una orden';
+    }
+
     function pendienteDeCategoria(tipo, saldo) {
         const s = Number(saldo) || 0;
         if (tipo === 'deuda') {
@@ -10473,7 +10483,10 @@
                                                 if (esEntrada && tipoCat === 'prestamo') sufijoReverso = " (Abono)";
                                                 if (!esEntrada && tipoCat === 'deuda') sufijoReverso = " (Pago)";
 
-                                                const textoTitulo = nombreCat;
+                                                // Una comisión se guarda en la Caja GBM (de ahí salen los dólares), pero lo que hay que
+                                                // leer es que fue una comisión, no otra aportación
+                                                const esComisionGbm = tipoCat === 'inversion' && tipoMovInversion(r) === 'comision';
+                                                const textoTitulo = esComisionGbm ? 'Comisión GBM' : nombreCat;
 
                                                 let fechaFormateada = isNaN(fechaObjeto.getTime()) ? r.fecha : fechaObjeto.toLocaleString('es-MX', {
                                                 year: 'numeric', month: '2-digit', day: '2-digit'
@@ -10728,7 +10741,7 @@
 
                                                                                                                                                 // Al menos un renglón de la descripción, aunque no quepa entera: es
                                                                                                                                                 // lo que distingue dos movimientos de la misma categoría.
-                                                                                                                                                const textoDescripcion = String(r.descripcion || (tipoMovR === 'comision' ? 'Comisión de GBM' : '')).replace(/\s+/g, ' ').trim();
+                                                                                                                                                const textoDescripcion = (tipoMovR === 'comision' ? descripcionDeComision(r.descripcion) : String(r.descripcion || '')).replace(/\s+/g, ' ').trim();
                                                                                                                                                 const descripcionRenglon = textoDescripcion
                                                                                                                                                     ? `<small class="movimiento-desc">${escaparHtml(textoDescripcion)}</small>`
                                                                                                                                                     : '';
@@ -17689,7 +17702,7 @@
                                             const resCom = idCajaCom
                                                 ? await clienteSupabase.from('registros').insert([{ categoria_id: idCajaCom, tipo_movimiento: 'comision', monto: 0, monto_usd: Number(comision_usd),
                                                     tipo_cambio: d.tipo_cambio || 0, cantidad_acciones: 0, costo_accion: 0, fecha: fechaDeDiaLocal(d.fecha, hora),
-                                                    descripcion: `Comisión de la ${d.tipo_movimiento}${d.descripcion ? ` · ${d.descripcion}` : ''}`.slice(0, 200), user_id: currentUser.id }])
+                                                    descripcion: String(((datosCategorias || []).find(c => String(c.id) === String(categoria_id)) || {}).nombre || categoria_nueva || 'Comisión de una orden').slice(0, 200), user_id: currentUser.id }])
                                                 : { error: { message: 'No se encontró la Caja GBM' } };
                                             if (resCom.error) chatUi.push({ rol: 'error', texto: `La ${d.tipo_movimiento} se guardó, pero la comisión no: ${resCom.error.message}. Regístrala a mano.` });
                                         }
@@ -21362,7 +21375,7 @@
         const descripcionMov = ('descripcion' in r) ? (r.descripcion || 'Ninguna') : 'No disponible';
 
         const htmlContenido = `
-        <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${nombreCat}</strong><br>
+        <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${tipoMovR === 'comision' ? 'Comisión GBM (sale de la Caja GBM)' : nombreCat}</strong><br>
         <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${descripcionMov}</strong><br>
         ${tipoCat === 'salud'
             ? `<span style="color: #aaa;">Cantidad:</span> <strong style="color: #fff;">${fCantidadSalud(cantidadDeRegistro(r))}</strong><br>`
