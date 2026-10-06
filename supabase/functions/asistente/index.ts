@@ -255,6 +255,8 @@ const HERRAMIENTAS: Json[] = [
         hora: { type: "string", description: "HH:MM o \"ahora\"; omítela si no se sabe" },
         pesos: { type: "number", description: "Aportación/retiro: pesos (positivo)" },
         usd: { type: "number", description: "Aportación/retiro: dólares (positivo)" },
+        pesos_comprobante: { type: "number", description: "Aportación/retiro con captura de GBM: los pesos tal como los muestra el comprobante" },
+        pendiente: { type: "boolean", description: "true si el comprobante dice que la transferencia está pendiente" },
         acciones: { type: "number", description: "Compra/venta: número de acciones (positivo, puede tener decimales)" },
         precio_usd: { type: "number", description: "Compra/venta: precio por acción en USD" },
         descripcion: { type: "string" },
@@ -528,6 +530,8 @@ const sufijoZona = (z: Zona) => {
 };
 const inicioDeDia = (f: string, z: Zona) => `${f}T00:00:00${sufijoZona(z)}`;
 const finDeDia = (f: string, z: Zona) => `${f}T23:59:59.999${sufijoZona(z)}`;
+const comprobanteDe = (entrada: Json) => Number(entrada?.pesos_comprobante) || 0;
+
 const fechaLocal = (iso: string, z: Zona) => {
   const d = new Date(new Date(iso).getTime() - z.desfase * 60_000);
   return isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
@@ -610,7 +614,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (dDesc.error) return { texto: dDesc.error, error: true };
       let datos: Json, categoria: string;
       if (tipo === "aportacion" || tipo === "retiro") {
-        const pesos = Number(entrada.pesos), usd = Number(entrada.usd);
+        let pesos = Number(entrada.pesos);
+        const usd = Number(entrada.usd);
+        // Los pesos de un comprobante de GBM son referenciales: de la cuenta salió la cifra redonda
+        // ($1,000) y GBM enseña $999.93 o $1,000.04. Si están a menos de 1 % de un múltiplo de $100, va el
+        // múltiplo; si el modelo pasó otra cifra a propósito, se respeta.
+        const comprobante = Number(entrada.pesos_comprobante);
+        if (comprobante > 0) {
+          const redondo = Math.round(comprobante / 100) * 100;
+          const cerca = redondo > 0 && Math.abs(redondo - comprobante) <= comprobante * 0.01;
+          if (!(pesos > 0) || Math.abs(pesos - comprobante) < 0.005) pesos = cerca ? redondo : comprobante;
+        }
         if (!(pesos > 0) || !(usd > 0)) return { texto: `Para ${tipo === "aportacion" ? "una aportación" : "un retiro"} hacen falta los pesos y los dólares (los dos positivos). Si falta uno, pregúntalo con preguntar_al_usuario.`, error: true };
         const tc = pesos / usd;
         if (tc < 5 || tc > 50) return { texto: `Con esos montos el tipo de cambio sale en ${tc.toFixed(2)}, que no es razonable. Revisa pesos y dólares.`, error: true };
@@ -629,12 +643,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       } else return { texto: "Tipo no válido.", error: true };
       // Una compra o un retiro que no caben en la caja: la app lo avisará al confirmar; que el usuario lo sepa desde ya
       let aviso = "";
-      if (tipo === "compra" || tipo === "retiro") {
-        const caja = await cajaUsdDeCuenta(sb, catalogo, String(cat.cuenta_id));
-        if (caja !== null && Number(datos.monto_usd) > caja + 0.01) {
-          aviso = ` Ojo: la Caja GBM registrada tiene $${caja.toFixed(2)} USD y esto usa $${Number(datos.monto_usd).toFixed(2)} USD. Díselo y pregúntale si le faltó registrar una aportación o una venta.`;
-        }
+      const caja = await cajaUsdDeCuenta(sb, catalogo, String(cat.cuenta_id));
+      if ((tipo === "compra" || tipo === "retiro") && caja !== null && Number(datos.monto_usd) > caja + 0.01) {
+        aviso = ` Ojo: la Caja GBM registrada tiene $${caja.toFixed(2)} USD y esto usa $${Number(datos.monto_usd).toFixed(2)} USD. Díselo y pregúntale si le faltó registrar una aportación o una venta.`;
+      } else if (caja !== null) {
+        // El saldo que quedará, ya hecho: lo calculaba de cabeza y decía que la caja tendría sólo lo aportado
+        const despues = caja + (tipo === "aportacion" || tipo === "venta" ? 1 : -1) * Number(datos.monto_usd);
+        aviso = ` Al confirmar, la Caja GBM quedará en $${despues.toFixed(2)} USD (hoy tiene $${caja.toFixed(2)} USD).`;
       }
+      if ((tipo === "aportacion" || tipo === "retiro") && comprobanteDe(entrada) > 0 && Math.abs(Math.abs(Number(datos.monto)) - comprobanteDe(entrada)) >= 0.005) {
+        aviso += ` Dile en una frase: registras los $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} que salieron de su cuenta; GBM muestra $${comprobanteDe(entrada).toLocaleString("en-US", { minimumFractionDigits: 2 })} porque su tipo de cambio es referencial.`;
+      }
+      if (entrada.pendiente === true) aviso += " Avísale que la transferencia sigue pendiente: los dólares pueden cambiar al completarse, y que te mande el comprobante final para corregirlo si cambian.";
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "movimiento_inversion", resumen: String(entrada.resumen).slice(0, 200), categoria,
@@ -1491,7 +1511,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
-- Comprobantes de GBM (Smart Cash → USA o al revés): los dólares ("Monto utilizado") son los que de verdad entraron o salieron de la caja; úsalos tal cual. Los pesos del comprobante son referenciales (el tipo de cambio lo es) y no son lo que salió de su cuenta: la gente manda cifras redondas. Si los pesos quedan a menos de 1 % de un múltiplo de $100, registra ese múltiplo (p. ej. $999.93 o $1,000.04 → $1,000) y dilo en una frase ("Registro los $1,000 que salieron; GBM muestra $999.93 por su tipo de cambio"). Si su memoria dice otra cosa, manda la memoria; si te corrige, guárdalo como preferencia. Si el comprobante dice "pendiente", avísale que los dólares pueden cambiar al completarse.
+- Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante (no en pesos, salvo que él te diga cuánto salió de verdad) y pendiente: true si dice "pendiente". La herramienta decide los pesos a registrar y te dice qué avisarle: díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto y lo que le queda en él no es dinero sin invertir: puede que ya lo haya movido). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado. Con eso da los datos que importan para su decisión y relaciónalo con su meta.
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
