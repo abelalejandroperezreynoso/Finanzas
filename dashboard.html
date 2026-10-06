@@ -13777,8 +13777,13 @@
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
                                         : (porSector && !sectorAbierto) ? ['sector', 'sectores']
                                         : (modoActivo ? modoActivo.unidad : null);
-                                    const etiquetaCats = unidadNivel
-                                        ? `${totalCategorias} ${totalCategorias === 1 ? unidadNivel[0] : unidadNivel[1]}`
+                                    // La caja no es una empresa: se nombra aparte, igual que en la plusvalía.
+                                    const hayCajaPie = unidadNivel && unidadNivel[0] === 'empresa' && datos.some(d => d.esCaja);
+                                    const nUnidades = hayCajaPie ? totalCategorias - 1 : totalCategorias;
+                                    const etiquetaCats = hayCajaPie && nUnidades === 0
+                                        ? 'La caja'
+                                        : unidadNivel
+                                        ? `${nUnidades} ${nUnidades === 1 ? unidadNivel[0] : unidadNivel[1]}${hayCajaPie ? ' y la caja' : ''}`
                                         : `${totalCategorias} ${totalCategorias === 1 ? 'categoría' : 'categorías'}`;
 
                                     // En modo avance el pie deja de ser un total y pasa a ser el marcador del mes:
