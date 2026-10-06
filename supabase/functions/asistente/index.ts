@@ -616,14 +616,24 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (tipo === "aportacion" || tipo === "retiro") {
         let pesos = Number(entrada.pesos);
         const usd = Number(entrada.usd);
-        // Los pesos de un comprobante de GBM son referenciales: de la cuenta salió la cifra redonda
-        // ($1,000) y GBM enseña $999.93 o $1,000.04. Si están a menos de 1 % de un múltiplo de $100, va el
-        // múltiplo; si el modelo pasó otra cifra a propósito, se respeta.
+        // Los pesos de un comprobante de GBM son referenciales: de Smart Cash suele salir una cifra
+        // redonda ($1,000) y GBM enseña $999.93 o $1,000.04. No se adivina: si el modelo no trae los pesos
+        // que de verdad salieron, se le pide preguntarlos (o tomarlos de la memoria, si ya los sabe).
         const comprobante = Number(entrada.pesos_comprobante);
-        if (comprobante > 0) {
+        if (comprobante > 0 && !(pesos > 0)) {
           const redondo = Math.round(comprobante / 100) * 100;
-          const cerca = redondo > 0 && Math.abs(redondo - comprobante) <= comprobante * 0.01;
-          if (!(pesos > 0) || Math.abs(pesos - comprobante) < 0.005) pesos = cerca ? redondo : comprobante;
+          const cerca = redondo > 0 && Math.abs(redondo - comprobante) >= 0.005 && Math.abs(redondo - comprobante) <= comprobante * 0.01;
+          const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2 });
+          if (cerca) {
+            return {
+              texto: `Faltan los pesos que de verdad salieron de Smart Cash: el comprobante dice $${fmt(comprobante)} pero es referencial. ` +
+                `Si tu memoria dice que sus aportaciones salen en cifras redondas, vuelve a llamar con pesos=${redondo} sin preguntar. ` +
+                `Si no, pregúntale con preguntar_al_usuario "¿Cuánto salió de Smart Cash?" con las opciones "$${fmt(redondo)}" y "$${fmt(comprobante)}", ` +
+                `y llama de nuevo con pesos = su respuesta. Si eligió $${fmt(redondo)}, guarda con recordar (tema preferencia) que sus aportaciones a GBM salen en cifras redondas.`,
+              error: true,
+            };
+          }
+          pesos = comprobante;
         }
         if (!(pesos > 0) || !(usd > 0)) return { texto: `Para ${tipo === "aportacion" ? "una aportación" : "un retiro"} hacen falta los pesos y los dólares (los dos positivos). Si falta uno, pregúntalo con preguntar_al_usuario.`, error: true };
         const tc = pesos / usd;
@@ -1518,7 +1528,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
-- Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante (no en pesos, salvo que él te diga cuánto salió de verdad) y pendiente: true si dice "pendiente". La herramienta decide los pesos a registrar y te dice qué avisarle: díselo.
+- Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿Me conviene comprar o vender X?": no digas qué comprar ni vender, pero tampoco preguntes lo que ya puedes ver. Antes de contestar revisa resumen_inversiones (Caja GBM: si no alcanza ni para una acción, dilo con cuántas alcanza o cuántos dólares faltan; peso_pct: si una empresa pasa del 50 % de lo invertido, dilo como riesgo de tener todo en una sola), listar_cuentas (dinero disponible fuera de inversiones) y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto y lo que le queda en él no es dinero sin invertir: puede que ya lo haya movido). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado. Con eso da los datos que importan para su decisión y relaciónalo con su meta.
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
