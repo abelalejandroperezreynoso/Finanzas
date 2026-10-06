@@ -244,13 +244,14 @@ const HERRAMIENTAS: Json[] = [
       "Propone un movimiento de inversión (GBM). NO lo aplica: el usuario lo confirma. Tipos: " +
       "aportacion (pesos que entran a la Caja GBM convertidos a dólares; pide pesos cobrados y dólares acreditados), " +
       "retiro (dólares que salen de la Caja GBM convertidos a pesos; pide pesos recibidos y dólares que salieron), " +
-      "compra y venta (acciones de una empresa pagadas o cobradas con la Caja GBM, sin pesos; pide acciones y precio por acción en USD). " +
+      "compra y venta (acciones de una empresa pagadas o cobradas con la Caja GBM, sin pesos; pide acciones y precio por acción en USD), " +
+      "comision (sólo la comisión de una orden que ya está registrada: usd = lo que cobró GBM; sale de la Caja GBM). " +
       "Compra/venta: pasa el ticker y la función encuentra la categoría (si es una empresa nueva, propón antes la categoría). En aportación/retiro NO uses ni preguntes categoría: el dinero siempre entra o sale de la Caja GBM de la cuenta (se crea si no existe); " +
       "omite categoria_id y también cuenta_id si el usuario tiene una sola cuenta con inversiones. Una captura de GBM \"Smart Cash → USA\" es una aportación: toma de ahí pesos, dólares, fecha y hora.",
     input_schema: {
       type: "object",
       properties: {
-        tipo: { type: "string", enum: ["aportacion", "retiro", "compra", "venta"] },
+        tipo: { type: "string", enum: ["aportacion", "retiro", "compra", "venta", "comision"] },
         categoria_id: { type: "string", description: "Sólo compra/venta: la categoría de la empresa" },
         ticker: { type: "string", description: "Compra/venta: el ticker de la empresa (Emisora en el comprobante). Con él la función encuentra la categoría; no hace falta categoria_id" },
         cuenta_id: { type: "string", description: "Sólo aportación/retiro, y sólo si tiene varias cuentas con inversiones" },
@@ -632,7 +633,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           cat = { id: null, cuenta_id: propuesta.datos.cuenta_id, tipo: "inversion", nombre: categoriaNueva, ticker: tk };
         }
       }
-      if (!cat && (tipo === "aportacion" || tipo === "retiro")) {
+      if (!cat && (tipo === "aportacion" || tipo === "retiro" || tipo === "comision")) {
         // La aportación y el retiro van a la Caja GBM de la cuenta: basta saber la cuenta, y si sólo hay
         // una con inversiones no hay nada que preguntar
         const deInversion = catalogo.categorias.filter((c: Json) => c.tipo === "inversion");
@@ -687,6 +688,13 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         // Como en el formulario: en la aportación salen pesos y entran dólares; en el retiro, al revés
         datos = { cuenta_id: cat.cuenta_id, caja_id: caja?.id ?? null, tipo_movimiento: tipo, monto: tipo === "aportacion" ? -pesos : pesos,
           monto_usd: usd, tipo_cambio: Math.round(tc * 10000) / 10000, cantidad_acciones: 0, costo_accion: 0 };
+      } else if (tipo === "comision") {
+        const usd = Number(entrada.usd);
+        if (!(usd > 0)) return { texto: "Para una comisión hace falta lo que cobró GBM en usd.", error: true };
+        const caja = catalogo.categorias.find((c: Json) => String(c.cuenta_id) === String(cat.cuenta_id) && esCaja(c));
+        categoria = caja ? "Caja GBM" : "Caja GBM (se creará al confirmar)";
+        datos = { cuenta_id: cat.cuenta_id, caja_id: caja?.id ?? null, tipo_movimiento: "comision", monto: 0, monto_usd: Math.round(usd * 100) / 100,
+          tipo_cambio: 0, cantidad_acciones: 0, costo_accion: 0 };
       } else if (tipo === "compra" || tipo === "venta") {
         if (esCaja(cat)) return { texto: "Una compra o venta va en la categoría de la empresa, no en la Caja GBM.", error: true };
         const acciones = Number(entrada.acciones), precio = Number(entrada.precio_usd);
@@ -722,6 +730,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         tipo: "movimiento_inversion", categoria,
         resumen: (tipo === "aportacion" || tipo === "retiro")
           ? `${tipo === "aportacion" ? "Aportación" : "Retiro"}: $${Math.abs(Number(datos.monto)).toLocaleString("en-US", { minimumFractionDigits: 2 })} MXN ${tipo === "aportacion" ? "→" : "←"} $${Number(datos.monto_usd).toFixed(2)} USD en la Caja GBM`
+          : tipo === "comision" ? `Comisión de GBM: $${Number(datos.monto_usd).toFixed(2)} USD de la Caja GBM`
           : `${tipo === "compra" ? "Compra" : "Venta"} de ${Number(datos.cantidad_acciones)} ${cat.nombre} [${cat.ticker}] a $${Number(datos.costo_accion).toFixed(2)} USD`,
         datos: { ...datos, fecha: entrada.fecha, ...(hora ? { hora } : {}), descripcion: dDesc.texto || "" },
       });
@@ -1606,6 +1615,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
+- Si la orden ya estaba registrada y sólo falta su comisión, usa tipo comision con usd = la comisión.
 - Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría. Si no existe, en el mismo turno propón primero la categoría (proponer_nueva_categoria, tipo inversion, con el ticker, en la cuenta de GBM) y después la compra. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.

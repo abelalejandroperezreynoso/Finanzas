@@ -16189,11 +16189,13 @@
                                     filas.push(`Descripción: <b>${escaparHtml(d.descripcion || '(vacía)')}</b>`);
                                 } else if (p.tipo === 'movimiento_inversion') {
                                     const d = p.datos || {};
-                                    const nombres = { aportacion: 'Aportación a la Caja GBM', retiro: 'Retiro de la Caja GBM', compra: 'Compra de acciones', venta: 'Venta de acciones' };
+                                    const nombres = { aportacion: 'Aportación a la Caja GBM', retiro: 'Retiro de la Caja GBM', compra: 'Compra de acciones', venta: 'Venta de acciones', comision: 'Comisión de GBM' };
                                     const usd = n => `${fMoneda(Number(n) || 0)} USD`;
                                     filas.push(`Tipo: <b>${escaparHtml(nombres[d.tipo_movimiento] || d.tipo_movimiento || '')}</b>`);
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
-                                    if (d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro') {
+                                    if (d.tipo_movimiento === 'comision') {
+                                        filas.push(`Dólares: <b>${escaparHtml(usd(d.monto_usd))}</b> (salen de la caja)`);
+                                    } else if (d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro') {
                                         filas.push(`Pesos: <b>${escaparHtml(fMoneda(Math.abs(Number(d.monto) || 0)))}</b> (${Number(d.monto) < 0 ? 'salen' : 'entran'})`);
                                         filas.push(`Dólares: <b>${escaparHtml(usd(d.monto_usd))}</b> (${d.tipo_movimiento === 'aportacion' ? 'entran a' : 'salen de'} la caja)`);
                                         filas.push(`Tipo de cambio: <b>${escaparHtml(Number(d.tipo_cambio || 0).toFixed(4))}</b>`);
@@ -17649,7 +17651,7 @@
                                     } else if (!categoria_id && categoria_nueva && d.tipo_movimiento !== 'aportacion' && d.tipo_movimiento !== 'retiro') {
                                         res = { falta: `Primero confirma la categoría "${categoria_nueva}".` };
                                     } else {
-                                        const esCaja = d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro';
+                                        const esCaja = d.tipo_movimiento === 'aportacion' || d.tipo_movimiento === 'retiro' || d.tipo_movimiento === 'comision';
                                         const cajaCta = window.cajaUsdPorCuenta ? window.cajaUsdPorCuenta[cuenta_id] : null;
                                         const disponible = cajaCta ? cajaCta.usd : 0;
                                         let seguir = true;
