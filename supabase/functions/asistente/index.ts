@@ -300,6 +300,14 @@ const HERRAMIENTAS: Json[] = [
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "pronostico_mes",
+    description:
+      "Cómo va el mes en curso y cómo terminaría, calculado con sus datos (sólo cuentas que suman al saldo total): lo que lleva gastado e ingresado contra lo normal " +
+      "a esta misma fecha (promedio de los 3 meses anteriores), por categoría; lo que normalmente aún le falta pagar y cobrar este mes (marcando lo que suele llegar antes " +
+      "de hoy y no ha llegado); y el saldo estimado a fin de mes con el día en que quedaría en negativo. Úsala para \"¿cómo voy?\", \"¿llego a fin de mes?\" o \"¿dónde ajusto?\".",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "flujo_mensual",
     description:
       "Cuánto le quedó al usuario mes por mes: ingresos, gastos y lo que queda (ingresos menos gastos), más lo que se movió en deudas, préstamos e inversiones " +
@@ -712,6 +720,114 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }),
       };
     }
+    case "pronostico_mes": {
+      // Sólo lo que mueve la cifra grande de la app: categorías de dinero en cuentas que suman al total
+      const incluidas = new Set(catalogo.cuentas.filter((c: Json) => c.incluir_en_total !== false).map((c: Json) => String(c.id)));
+      const cats = catalogo.categorias.filter((c: Json) => c.tipo !== "salud" && incluidas.has(String(c.cuenta_id)));
+      if (!cats.length) return { texto: "No hay categorías en cuentas que sumen al total." };
+      const catPorId: Record<string, Json> = {};
+      cats.forEach((c: Json) => { catPorId[String(c.id)] = c; });
+
+      const hoyL = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const [anio, mes, dia] = hoyL.split("-").map(Number);
+      const ym = (a: number, m: number) => { const d = new Date(Date.UTC(a, m - 1, 1)); return d.toISOString().slice(0, 7); };
+      const diasDe = (clave: string) => new Date(Date.UTC(Number(clave.slice(0, 4)), Number(clave.slice(5, 7)), 0)).getUTCDate();
+      const mesActual = ym(anio, mes);
+      const previos = [1, 2, 3].map((k) => ym(anio, mes - k));
+      const diasMes = diasDe(mesActual);
+
+      const movs: Json[] = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("registros").select("fecha, monto, categoria_id")
+          .in("categoria_id", cats.map((c: Json) => c.id)).gte("fecha", inicioDeDia(`${previos[2]}-01`, zona))
+          .order("fecha").range(desde, desde + 999);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        movs.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+
+      // Por categoría: lo de este mes y, de cada mes anterior, cuánto hubo hasta este día y cada día después
+      type Hist = { mtd: number; total: Record<string, number>; hasta: Record<string, number>; despues: Record<number, number> };
+      const h: Record<string, Hist> = {};
+      const conDatos = new Set<string>();
+      for (const r of movs) {
+        const k = String(r.categoria_id), m = Number(r.monto) || 0;
+        if (!m) continue;
+        const f = fechaLocal(r.fecha, zona), mesR = f.slice(0, 7), diaR = Number(f.slice(8, 10));
+        const x = (h[k] ??= { mtd: 0, total: {}, hasta: {}, despues: {} });
+        if (mesR === mesActual) { if (f.slice(0, 10) <= hoyL) x.mtd += m; continue; }
+        if (!previos.includes(mesR)) continue;
+        conDatos.add(mesR);
+        x.total[mesR] = (x.total[mesR] ?? 0) + m;
+        // En un mes más corto, "hasta hoy" llega a su último día
+        if (diaR <= Math.min(dia, diasDe(mesR))) x.hasta[mesR] = (x.hasta[mesR] ?? 0) + m;
+        else x.despues[Math.min(diaR, diasMes)] = (x.despues[Math.min(diaR, diasMes)] ?? 0) + m;
+      }
+      const n = conDatos.size;
+      if (!n) return { texto: "Todavía no hay meses anteriores con movimientos para comparar." };
+      const prom = (o: Record<string, number>) => Object.values(o).reduce((t, v) => t + v, 0) / n;
+
+      const { data: saldos } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
+      const porCuenta: Record<string, number> = {};
+      (saldos ?? []).forEach((x: Json) => { porCuenta[String(x.id_cuenta)] = Number(x.balance) || 0; });
+      const saldoHoy = catalogo.cuentas.filter((c: Json) => incluidas.has(String(c.id)))
+        .reduce((t: number, c: Json) => t + (Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0), 0);
+
+      // Lo que falta del mes: lo normal del mes menos lo que ya pasó, sin pasarse al otro lado (si ya se gastó
+      // o cobró más que lo normal, no falta nada). Se reparte en los días en que suele caer; lo que suele caer
+      // antes de hoy y no ha llegado, va mañana y se marca como atrasado.
+      const porDia: number[] = new Array(diasMes + 2).fill(0);
+      const filas: Json[] = [];
+      const porVenir: Json[] = [];
+      let gastoMtd = 0, gastoNormalHoy = 0, gastoNormalMes = 0, ingresoMtd = 0, ingresoNormalHoy = 0, ingresoNormalMes = 0;
+      for (const c of cats) {
+        const x = h[String(c.id)];
+        if (!x) continue;
+        const normalMes = prom(x.total), normalHoy = prom(x.hasta);
+        const falta = normalMes < 0 ? Math.min(0, normalMes - x.mtd) : Math.max(0, normalMes - x.mtd);
+        if (c.tipo === "gasto") { gastoMtd -= x.mtd; gastoNormalHoy -= normalHoy; gastoNormalMes -= normalMes; }
+        if (c.tipo === "ingreso") { ingresoMtd += x.mtd; ingresoNormalHoy += normalHoy; ingresoNormalMes += normalMes; }
+        if (Math.abs(falta) >= 1) {
+          const despues = Object.entries(x.despues).map(([d, v]) => [Number(d), v / n] as [number, number]);
+          const sumaDespues = despues.reduce((t, [, v]) => t + v, 0);
+          let atrasado = 0;
+          if (sumaDespues !== 0 && Math.sign(sumaDespues) === Math.sign(falta)) {
+            const escala = Math.min(1, falta / sumaDespues);
+            despues.forEach(([d, v]) => { porDia[d] += v * escala; });
+            atrasado = falta - sumaDespues * escala;
+          } else atrasado = falta;
+          if (Math.abs(atrasado) >= 1) porDia[Math.min(dia + 1, diasMes)] += atrasado;
+          const dias = despues.filter(([, v]) => Math.sign(v) === Math.sign(falta)).map(([d]) => d).sort((a, b) => a - b);
+          porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta),
+            dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
+        }
+        if (c.tipo === "gasto" && (x.mtd !== 0 || normalMes !== 0)) {
+          filas.push([catalogo.etiqueta[String(c.id)] ?? c.nombre, c.prioridad ?? null, Math.round(-x.mtd), Math.round(-normalHoy), Math.round(-normalMes), Math.round(-x.mtd + normalHoy)]);
+        }
+      }
+      let saldo = saldoHoy, minimo = saldoHoy, diaMinimo = dia, diaNegativo: number | null = null;
+      for (let d = dia + 1; d <= diasMes; d++) {
+        saldo += porDia[d];
+        if (saldo < minimo) { minimo = saldo; diaMinimo = d; }
+        if (saldo < 0 && diaNegativo === null && saldoHoy >= 0) diaNegativo = d;
+      }
+      const r0 = (v: number) => Math.round(v);
+      filas.sort((a, b) => Math.abs(b[5]) - Math.abs(a[5]) || b[4] - a[4]);
+      porVenir.sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto));
+      return {
+        texto: recortar({
+          hoy: hoyL, dia, dias_del_mes: diasMes, meses_comparados: n,
+          saldo_hoy: r0(saldoHoy), saldo_fin_de_mes_estimado: r0(saldo), saldo_minimo_estimado: r0(minimo), dia_del_minimo: diaMinimo,
+          dia_en_que_quedaria_negativo: diaNegativo,
+          gastos: { llevas: r0(gastoMtd), normal_a_esta_fecha: r0(gastoNormalHoy), normal_del_mes: r0(gastoNormalMes), diferencia: r0(gastoMtd - gastoNormalHoy) },
+          ingresos: { llevas: r0(ingresoMtd), normal_a_esta_fecha: r0(ingresoNormalHoy), normal_del_mes: r0(ingresoNormalMes), diferencia: r0(ingresoMtd - ingresoNormalHoy) },
+          gastos_por_categoria: tabla(["categoria", "prioridad", "llevas", "normal_a_esta_fecha", "normal_del_mes", "diferencia"], filas.slice(0, 15)),
+          por_venir: porVenir.slice(0, 15),
+          nota: "Estimación: supone que el resto del mes será como un mes normal (promedio de los meses comparados). monto negativo en por_venir = saldrá; " +
+            "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo supone que llega mañana; si no llega, el saldo quedaría más bajo). Incluye deudas, préstamos e inversiones de esas cuentas.",
+        }),
+      };
+    }
     case "flujo_mensual": {
       const n = Math.min(12, Math.max(1, Number(entrada.meses) || 6));
       const hoyL = fechaLocal(new Date().toISOString(), zona);
@@ -1083,6 +1199,13 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
+
+# "¿Cómo voy?"
+Para cómo va el mes, si llega a fin de mes o dónde ajustar, llama a pronostico_mes y contesta así, corto:
+1. Veredicto en una frase, comparado con lo normal a esta fecha ("Vas $3,200 arriba de lo normal para el día 6").
+2. Pronóstico: saldo estimado a fin de mes y, si queda en negativo, el día aproximado. Menciona ingresos atrasados o pagos grandes por venir que lo expliquen. Aclara que es una estimación.
+3. Máximo 3 acciones concretas, ordenadas por cuánto ayudan, cada una con monto ("Si dejas Restaurante en $2,500 este mes, ahorras $1,800 frente a tu promedio"). Prioriza lo prescindible y lo útil que va arriba de lo normal; no propongas recortar lo vital.
+No enlistes todas las categorías ni cifras pequeñas que no cambian el resultado. Antes de interpretar una categoría, lee su descripción.
 
 # Tu objetivo
 Que al usuario le quede más dinero cada mes y su patrimonio crezca. Lo mides con flujo_mensual y con el avance hacia sus metas. Aunque no te lo pida:
