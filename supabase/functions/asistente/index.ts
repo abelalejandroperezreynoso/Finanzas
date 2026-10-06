@@ -2145,7 +2145,22 @@ Deno.serve(async (req) => {
       p.tools = HERRAMIENTAS;
       p.messages = [...historial, ...nuevos];
       p.cache_control = { type: "ephemeral" };
-      const r = await client.beta.messages.create(p);
+      // Si el usuario tocó Detener, la app cerró la conexión: no se pide otra vuelta y la que
+      // está en curso se corta, para no seguir gastando.
+      if (req.signal?.aborted) {
+        await anotar("asistente", modeloUsado, usos);
+        return responder({ cancelado: true }, 499);
+      }
+      let r;
+      try {
+        r = await client.beta.messages.create(p, { signal: req.signal });
+      } catch (e) {
+        if (req.signal?.aborted) {
+          await anotar("asistente", modeloUsado, usos);
+          return responder({ cancelado: true }, 499);
+        }
+        throw e;
+      }
       usos.push(r.usage);
       modeloUsado = r.model;
 

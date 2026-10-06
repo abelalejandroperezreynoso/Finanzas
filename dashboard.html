@@ -419,6 +419,7 @@
             border: none; background: #c96442; color: #fff; display: flex; align-items: center; justify-content: center; transition: background-color 0.15s; }
         .chat-barra .cb-enviar.vacio { background: #e2b6a5; }
         .chat-barra .cb-enviar:disabled { background: #e2b6a5; }
+        .chat-barra .cb-enviar.detener, .chat-barra .cb-enviar.detener:hover { background: #141413; }
         /* Lo adjunto, en miniaturas sobre el texto, cada una con su X */
         .chat-adjuntos { display: flex; gap: 8px; overflow-x: auto; padding: 0 6px 10px; }
         .chat-adjuntos:empty { display: none; }
@@ -2413,7 +2414,8 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 <input type="file" id="chatArchivo" accept="image/*,application/pdf" multiple style="display: none;" onchange="adjuntarArchivosAsistente(this)">
-                <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="enviarMensajeAsistente()" aria-label="Enviar">
+                <!-- Mientras la IA contesta se vuelve el botón de detener, como en Claude -->
+                <button type="button" id="chatEnviar" class="cb-enviar vacio" onclick="botonEnviarAsistente()" aria-label="Enviar">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
                 </button>
             </div>
@@ -16385,11 +16387,15 @@
                             async function conversarConAsistente(mensaje, alFallar) {
                                 chatApi.push(mensaje);
                                 chatEnviando = true;
-                                document.getElementById('chatEnviar').disabled = true;
+                                controladorChat = new AbortController();
+                                // La burbuja de este mensaje, por si se detiene: se quita y el texto vuelve a la caja
+                                const burbujaEnviada = chatUi[chatUi.length - 1];
+                                actualizarBotonEnviarAsistente();
                                 pintarChatAsistente();
 
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        signal: controladorChat.signal,
                                         body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, recurrentes: recurrentesParaAsistente() }
                                     });
                                     if (error) {
@@ -16418,6 +16424,13 @@
                                     // El mensaje no llegó a la IA: se saca del historial
                                     const k = chatApi.lastIndexOf(mensaje);
                                     if (k >= 0) chatApi.splice(k, 1);
+                                    if (controladorChat && controladorChat.signal.aborted) {
+                                        // Detenido a propósito: sin aviso de error; el mensaje vuelve a la caja
+                                        if (alFallar) alFallar();
+                                        const j = burbujaEnviada && burbujaEnviada.rol === 'usuario' ? chatUi.indexOf(burbujaEnviada) : -1;
+                                        if (j >= 0) chatUi.splice(j, 1);
+                                        return;
+                                    }
                                     // El mismo aviso dos veces seguidas no aporta: se queda uno
                                     const texto = e.message || '';
                                     const previo = chatUi[chatUi.length - 1];
@@ -16425,7 +16438,7 @@
                                     if (alFallar) alFallar();
                                 } finally {
                                     chatEnviando = false;
-                                    document.getElementById('chatEnviar').disabled = false;
+                                    controladorChat = null;
                                     actualizarBotonEnviarAsistente();
                                     pintarCreditoAsistente();
                                     pintarChatAsistente();
@@ -17230,10 +17243,31 @@
                                 }
                             }
 
+                            const ICONO_ENVIAR_CHAT = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>';
+                            const ICONO_DETENER_CHAT = '<svg width="13" height="13" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor"></rect></svg>';
+                            let controladorChat = null;
+
+                            function botonEnviarAsistente() {
+                                if (chatEnviando) detenerAsistente();
+                                else enviarMensajeAsistente();
+                            }
+
+                            // Corta la respuesta en curso. La función deja de pedir más vueltas a la IA en
+                            // cuanto nota que la app colgó, y lo que quedaba por hacer ya no se cobra.
+                            function detenerAsistente() {
+                                if (controladorChat) controladorChat.abort();
+                            }
+
                             function actualizarBotonEnviarAsistente() {
                                 const boton = document.getElementById('chatEnviar');
                                 const campo = document.getElementById('chatTexto');
-                                if (boton) boton.classList.toggle('vacio', !(campo && campo.value.trim()) && !chatAdjuntos.length);
+                                if (!boton) return;
+                                const detener = !!chatEnviando;
+                                boton.classList.toggle('detener', detener);
+                                boton.classList.toggle('vacio', !detener && !(campo && campo.value.trim()) && !chatAdjuntos.length);
+                                boton.setAttribute('aria-label', detener ? 'Detener' : 'Enviar');
+                                const icono = detener ? ICONO_DETENER_CHAT : ICONO_ENVIAR_CHAT;
+                                if (boton.dataset.icono !== (detener ? 'detener' : 'enviar')) { boton.innerHTML = icono; boton.dataset.icono = detener ? 'detener' : 'enviar'; }
                             }
 
                             // ---- Modelo de Claude ----
