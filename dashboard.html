@@ -16350,7 +16350,7 @@
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 ${personajeAsistenteHtml(ocupado, !ocupado && robotConAlerta(!!(estado && estado.alerta)))}
-                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado }))}</div>
+                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy: (avisos.find(a => a.plan) || {}).saludo }))}</div>
                                             </div>
                                         </div>`;
                                     // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
@@ -16467,7 +16467,7 @@
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, recurrentes: recurrentesParaAsistente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -16475,6 +16475,8 @@
                                         throw new Error(cuerpo.codigo === 'sin_credito' ? 'sin_credito' : (cuerpo.error || ''));
                                     }
                                     chatApi.push(...(data.nuevos || []));
+                                    // El plan que armó o actualizó (o null si ya no hace falta)
+                                    if ('plan' in data) guardarPlanIa(data.plan);
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
                                     (data.listas || []).forEach(l => chatUi.push({ rol: 'movimientos', titulo: l.titulo, movimientos: l.movimientos || [] }));
                                     (data.memoria || []).forEach(n => chatUi.push({ rol: 'memoria', texto: `${n.accion === 'corregida' ? 'Actualicé' : 'Recordé'}: ${n.nota}` }));
@@ -16647,7 +16649,7 @@
                             }
 
                             let semillaSaludo = Math.random();
-                            function saludoAsistente(pendientes, revisando, { cargando = false, sinConexion = false, estado = null } = {}) {
+                            function saludoAsistente(pendientes, revisando, { cargando = false, sinConexion = false, estado = null, planHoy = null } = {}) {
                                 const h = new Date().getHours();
                                 const hola = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
                                 let opciones;
@@ -16656,6 +16658,9 @@
                                 } else if (cargando) {
                                     // Los datos siguen llegando, pero ya se puede escribir: la IA consulta la base por su cuenta
                                     opciones = [`${hola}, estoy cargando tus datos`, 'Mientras cargo tus números, cuéntame qué gastaste', `${hola}. Ya puedes escribirme; tus datos vienen en camino`];
+                                } else if (planHoy) {
+                                    // Hoy toca algo que el plan del asistente dice dejar para después: eso es lo primero
+                                    return planHoy;
                                 } else if (estado) {
                                     // Fuera de control: eso es lo primero, antes que cualquier pendiente
                                     return estado.texto;
@@ -16809,6 +16814,23 @@
                                 const d = new Date(f);
                                 return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                             };
+                            // El plan para llegar al próximo ingreso que dio el asistente: se guarda en el teléfono y viaja
+                            // en cada consulta, para que el asistente siga con ese mismo plan. Vence el día del ingreso.
+                            const clavePlanIa = () => `planIa:${currentUser ? currentUser.id : 'anonimo'}`;
+                            function planIaVigente() {
+                                try {
+                                    const p = JSON.parse(localStorage.getItem(clavePlanIa()) || 'null');
+                                    if (p && p.hasta > diaLocal(new Date()) && Array.isArray(p.mover)) return p;
+                                    if (p) localStorage.removeItem(clavePlanIa());
+                                } catch (e) { /* sin almacenamiento */ }
+                                return null;
+                            }
+                            function guardarPlanIa(plan) {
+                                try {
+                                    if (plan) localStorage.setItem(clavePlanIa(), JSON.stringify({ creado: plan.creado, hasta: plan.hasta, mover: plan.mover, cierre: plan.cierre }));
+                                    else localStorage.removeItem(clavePlanIa());
+                                } catch (e) { /* sin almacenamiento */ }
+                            }
                             const fechaCorta = dia => new Date(dia + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
                             // Una fecha como se dice: "hoy", "antier", "el sábado", "el lunes pasado", "el 28 del mes
                             // pasado". "El 5 oct" obligaba a hacer la cuenta de qué día era eso.
@@ -16911,6 +16933,21 @@
                                         if (!vigente(clave)) return;
                                         const cuando = conMayuscula(fechaRelativa(dia));
                                         const monto = c.montoSugerido ? ` (aprox. ${fMoneda(c.montoSugerido)})` : '';
+                                        const plan = planIaVigente();
+                                        if (plan && dia < plan.hasta && plan.mover.some(m => String(m.categoria_id) === String(c.id))) {
+                                            const hasta = Number(plan.hasta.slice(8, 10));
+                                            const dias = Math.max(1, Math.round((new Date(plan.hasta + 'T12:00:00') - new Date(hoy + 'T12:00:00')) / 86400000));
+                                            const toca = `${cuando} ${dia < hoy ? 'tocaba' : 'toca'} ${c.nombre}`;
+                                            avisos.push({
+                                                clave, categoria_id: c.id, plan: true, etiqueta: 'Tu plan',
+                                                texto: `${toca}${monto}, pero tu plan es dejarlo para el ${hasta}.`,
+                                                saludo: `${toca}: tu plan es dejarlo para el ${hasta}`,
+                                                detalle: plan.cierre ? plan.cierre.replace(/^Con eso/, 'Con tu plan') : `Así llegas al ${hasta} sin quedar en negativo.`,
+                                                primario: { texto: `Entendido, lo dejo para el ${hasta}`, dias },
+                                                secundario: { texto: 'Ya lo hice', mensaje: `${toca}${monto} y ya lo hice, aunque el plan decía dejarlo para el ${hasta}. Propónme registrarlo y dime cómo queda el plan.` }
+                                            });
+                                            return;
+                                        }
                                         avisos.push({
                                             clave, categoria_id: c.id, etiqueta: 'Pago recurrente', texto: `${cuando} ${dia < hoy ? 'tocaba' : 'toca'} ${c.nombre}${monto}.`,
                                             detalle: '¿Ya quedó?',
@@ -17039,7 +17076,7 @@
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
                                 });
-                                return propios.slice(0, 10);
+                                return propios.sort((x, y) => (y.plan ? 1 : 0) - (x.plan ? 1 : 0)).slice(0, 10);
                             }
 
                             // ---- Revisión diaria con IA ----
@@ -17060,7 +17097,7 @@
                                 if (chatUi.length === 0) pintarChatAsistente(true);
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'revision', desfase: new Date().getTimezoneOffset(), ...modeloIaFijo() }
+                                        body: { modo: 'revision', desfase: new Date().getTimezoneOffset(), plan: planIaVigente(), ...modeloIaFijo() }
                                     });
                                     if (!error && data && Array.isArray(data.hallazgos)) {
                                         try { localStorage.setItem(claveRevisionIa(), JSON.stringify({ dia: diaLocal(new Date()), hallazgos: data.hallazgos })); } catch (e) { /* sin almacenamiento */ }
@@ -17125,7 +17162,7 @@
                                     ${(() => {
                                         // El resumen de la categoría sustituye el texto genérico de "Para conocerte mejor"
                                         // y en los demás pendientes va debajo de su detalle
-                                        const resumen = a.categoria_id ? resumenCategoriaPendiente(a.categoria_id) : '';
+                                        const resumen = a.categoria_id && !a.plan ? resumenCategoriaPendiente(a.categoria_id) : '';
                                         const detalle = a.clave.startsWith('desc:') && resumen ? resumen : a.detalle;
                                         const extra = resumen && detalle !== resumen ? `<div class="cp-detalle cp-resumen">${escaparHtml(resumen)}</div>` : '';
                                         return (detalle ? `<div class="cp-detalle">${escaparHtml(detalle)}</div>` : '') + extra;
@@ -17221,6 +17258,7 @@
                             function descartarAvisoAsistente(i) {
                                 const a = avisosMostrados[i];
                                 if (!a) return;
+                                if (a.secundario.mensaje) return tomarAvisoAsistente(i, a.secundario.mensaje);
                                 const descartados = avisosDescartados();
                                 descartados[a.clave] = a.secundario.dias ? Date.now() + a.secundario.dias * 86400000 : 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
@@ -17231,6 +17269,14 @@
                             function tomarAvisoAsistente(i, mensajePropio) {
                                 const a = avisosMostrados[i];
                                 if (!a || chatEnviando) return;
+                                // Un aviso que sólo se acepta (como "Entendido, lo dejo para el 14"): se quita por esos días
+                                if (!mensajePropio && !a.primario.mensaje) {
+                                    const descartados = avisosDescartados();
+                                    descartados[a.clave] = Date.now() + (a.primario.dias || 1) * 86400000;
+                                    try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                    pintarChatAsistente(true);
+                                    return;
+                                }
                                 pendientesAbiertos = false;
                                 ofrecerContinuar = false;
                                 pendienteEnCurso = true;
