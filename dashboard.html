@@ -225,6 +225,19 @@
             border-radius: 50%; background: #f3f2ee; border: 1.5px solid #ffffff; box-shadow: 0 8px 24px rgba(20, 20, 19, 0.10);
             display: flex; align-items: center; justify-content: center; transition: opacity 0.2s, transform 0.2s; }
         #sec-asistente .chat-boton-flotante.oculto { opacity: 0; transform: scale(0.8); pointer-events: none; }
+        /* Tres puntos y Nueva conversación, juntos a la derecha; el menú cae debajo como en iOS */
+        #sec-asistente .chat-botones-derecha { position: relative; display: flex; gap: 10px; }
+        #sec-asistente .chat-menu { position: absolute; top: 52px; right: 0; min-width: 230px; pointer-events: auto; background: rgba(250, 249, 245, 0.96);
+            -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-radius: 14px; box-shadow: 0 10px 34px rgba(20, 20, 19, 0.18);
+            border: 0.5px solid #e4e1d8; overflow: hidden; transform-origin: top right; animation: chatMenuAbre 0.16s ease-out; }
+        #sec-asistente .chat-menu[hidden] { display: none; }
+        #sec-asistente .chat-menu button, #sec-asistente .chat-menu button:hover { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+            margin: 0; padding: 13px 16px; background: transparent; color: #141413; border: none; border-radius: 0; font-size: 16px; font-weight: 400; text-align: left; }
+        #sec-asistente .chat-menu button:active { background: rgba(20, 20, 19, 0.06); }
+        @keyframes chatMenuAbre { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+        #sec-asistente .chat-aviso-copiado { position: absolute; top: calc(66px + env(safe-area-inset-top)); left: 50%; z-index: 4; transform: translate(-50%, -6px);
+            padding: 8px 14px; border-radius: 999px; background: #3d3d3a; color: #fff; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; }
+        #sec-asistente .chat-aviso-copiado.visible { opacity: 1; transform: translate(-50%, 0); }
         /* Los mensajes se desvanecen al pasar por debajo de la zona del botón */
         #sec-asistente::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: calc(56px + env(safe-area-inset-top)); z-index: 2;
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
@@ -2427,10 +2440,22 @@
             <button type="button" class="chat-boton-flotante" onclick="cerrarAsistente()" aria-label="Regresar" title="Regresar">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#141413" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
             </button>
-            <button type="button" class="chat-boton-flotante" id="chatNueva" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación">
-                <svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
-            </button>
+            <div class="chat-botones-derecha">
+                <button type="button" class="chat-boton-flotante oculto" id="chatMas" onclick="alternarMenuChat(event)" aria-label="Más opciones" title="Más opciones" aria-haspopup="menu" aria-expanded="false">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#141413"><circle cx="5" cy="12" r="1.9"></circle><circle cx="12" cy="12" r="1.9"></circle><circle cx="19" cy="12" r="1.9"></circle></svg>
+                </button>
+                <button type="button" class="chat-boton-flotante" id="chatNueva" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación">
+                    <svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
+                </button>
+                <div id="chatMenu" class="chat-menu" role="menu" hidden>
+                    <button type="button" role="menuitem" onclick="copiarConversacionAsistente()">
+                        <span>Copiar conversación</span>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>
+                    </button>
+                </div>
+            </div>
         </div>
+        <div id="chatAvisoCopiado" class="chat-aviso-copiado" aria-live="polite"></div>
         <div class="chat-cargando" aria-live="polite"><span id="chatCargandoTexto">Cargando tus datos…</span><div class="cc-barra"><div class="cc-relleno" id="chatCargandoRelleno"></div></div></div>
         <div id="chatMensajes" class="chat-mensajes"></div>
         <!-- Cuánto se ha usado del crédito de IA: una raya delgada pegada al borde inferior -->
@@ -15664,6 +15689,7 @@
                             // Salir del chat: el botón de la esquina. El chat sale por la derecha y deja ver
                             // el inicio, que ya queda listo debajo.
                             function cerrarAsistente() {
+                                cerrarMenuChat();
                                 const chat = document.getElementById('sec-asistente');
                                 const campo = document.getElementById('chatTexto');
                                 if (campo) campo.blur();
@@ -17443,6 +17469,109 @@
                                 const hayAlgo = chatUi.some(m => !(m.registro && m.estado === 'pendiente'))
                                     || !!(campo && campo.value.trim()) || (chatAdjuntos || []).length > 0;
                                 boton.classList.toggle('oculto', !hayAlgo);
+                                const mas = document.getElementById('chatMas');
+                                if (mas) {
+                                    const hayConversacion = !!textoConversacionAsistente();
+                                    mas.classList.toggle('oculto', !hayConversacion);
+                                    if (!hayConversacion) cerrarMenuChat();
+                                }
+                            }
+
+                            // ---- Menú de los tres puntos del chat ----
+                            function alternarMenuChat(e) {
+                                if (e) e.stopPropagation();
+                                const menu = document.getElementById('chatMenu');
+                                if (!menu) return;
+                                if (menu.hidden) {
+                                    menu.hidden = false;
+                                    document.getElementById('chatMas').setAttribute('aria-expanded', 'true');
+                                    // Un toque fuera lo cierra
+                                    setTimeout(() => document.addEventListener('click', cerrarMenuChatFuera, true), 0);
+                                } else cerrarMenuChat();
+                            }
+                            function cerrarMenuChatFuera(e) {
+                                const menu = document.getElementById('chatMenu');
+                                if (menu && menu.contains(e.target)) return;
+                                if (e.target.closest && e.target.closest('#chatMas')) { e.stopPropagation(); e.preventDefault(); }
+                                cerrarMenuChat();
+                            }
+                            function cerrarMenuChat() {
+                                const menu = document.getElementById('chatMenu');
+                                if (menu) menu.hidden = true;
+                                const mas = document.getElementById('chatMas');
+                                if (mas) mas.setAttribute('aria-expanded', 'false');
+                                document.removeEventListener('click', cerrarMenuChatFuera, true);
+                            }
+
+                            // La conversación como texto: lo que se ve en pantalla, sin botones
+                            function textoConversacionAsistente() {
+                                const html = h => {
+                                    const d = document.createElement('div');
+                                    d.innerHTML = String(h || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p|li|tr|h\d)>/gi, '$&\n');
+                                    return d.textContent.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+                                };
+                                const ESTADOS = { aplicada: '✓ Aplicado', cancelada: 'Cancelado', fallida: '✕ No se pudo guardar', reemplazada: 'Reemplazada', pendiente: 'Sin confirmar', aplicando: 'Guardando…', interrumpida: 'Se cerró la app' };
+                                const partes = [];
+                                chatUi.forEach(m => {
+                                    if (m.registro && m.estado === 'pendiente') return;
+                                    if (m.rol === 'usuario') {
+                                        const n = (m.adjuntos || []).length;
+                                        const texto = [m.texto, n ? `[${n} ${n === 1 ? 'adjunto' : 'adjuntos'}]` : ''].filter(Boolean).join('\n');
+                                        if (texto) partes.push('Tú:\n' + texto);
+                                    } else if (m.rol === 'asistente' && m.texto) {
+                                        partes.push('Asistente:\n' + m.texto.trim());
+                                    } else if (m.rol === 'memoria') {
+                                        partes.push('🧠 ' + m.texto);
+                                    } else if (m.rol === 'movimientos') {
+                                        const lineas = m.titulo ? [m.titulo] : [];
+                                        let diaPrevio = null;
+                                        (m.movimientos || []).forEach(r => {
+                                            const dia = String(r.fecha || '').split(' ')[0];
+                                            if (dia !== diaPrevio) { lineas.push(fechaAmigable(dia) + ':'); diaPrevio = dia; }
+                                            const monto = Number(r.monto) || 0;
+                                            const cifra = r.tipo === 'salud' ? String(r.cantidad ?? '') : `${monto < 0 ? '−' : '+'}${fMoneda(Math.abs(monto))}`;
+                                            const extra = r.descripcion && r.categoria ? ` (${r.categoria})` : '';
+                                            lineas.push(`• ${r.descripcion || r.categoria || 'Movimiento'}${extra}: ${cifra}`);
+                                        });
+                                        partes.push(lineas.join('\n'));
+                                    } else if (m.rol === 'error') {
+                                        const e = errorIaAmigable(m.texto);
+                                        partes.push(`Error: ${e.titulo}. ${e.texto}`);
+                                    } else if (m.rol === 'propuesta') {
+                                        const p = m.propuesta || {};
+                                        const detalle = m.estado === 'reemplazada' ? '' : html(detallePropuestaHtml(p));
+                                        partes.push(['Propuesta: ' + (p.resumen || 'Cambio propuesto'), detalle, ESTADOS[m.estado] || ''].filter(Boolean).join('\n'));
+                                    }
+                                });
+                                return partes.join('\n\n');
+                            }
+
+                            async function copiarConversacionAsistente() {
+                                cerrarMenuChat();
+                                const texto = textoConversacionAsistente();
+                                if (!texto) return;
+                                let ok = false;
+                                try {
+                                    await navigator.clipboard.writeText(texto);
+                                    ok = true;
+                                } catch (e) {
+                                    // Respaldo para navegadores sin el portapapeles moderno
+                                    const area = document.createElement('textarea');
+                                    area.value = texto;
+                                    area.setAttribute('readonly', '');
+                                    area.style.cssText = 'position:fixed; top:0; left:0; opacity:0;';
+                                    document.body.appendChild(area);
+                                    area.select();
+                                    area.setSelectionRange(0, texto.length);
+                                    try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+                                    area.remove();
+                                }
+                                const aviso = document.getElementById('chatAvisoCopiado');
+                                if (!aviso) return;
+                                aviso.textContent = ok ? 'Conversación copiada' : 'No se pudo copiar';
+                                aviso.classList.add('visible');
+                                clearTimeout(copiarConversacionAsistente.t);
+                                copiarConversacionAsistente.t = setTimeout(() => aviso.classList.remove('visible'), 1600);
                             }
 
                             function actualizarBotonEnviarAsistente() {
