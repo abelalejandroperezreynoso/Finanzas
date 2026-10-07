@@ -1277,13 +1277,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const orden = (p: Json) => p.tipo === "inversion" ? 0 : p.prioridad === "prescindible" ? 1 : p.prioridad === "util" ? 2 : 3;
           const candidatos = pagosAntes.filter((p) => p.se_puede_mover).sort((a, b) => orden(a) - orden(b) || a.monto - b.monto);
           // Sólo lo que sube el punto más bajo: un pago posterior a ese día no ayuda y no se mueve de más.
-          // Se repasa otra vez por si, al subir ese punto, el más bajo pasa a otro día.
+          // Se repasa otra vez por si, al subir ese punto, el más bajo pasa a otro día. Se busca llegar con un
+          // colchón (con +$26 cualquier gasto chico lo tiraba), si hay de dónde mover.
+          const COLCHON = 500;
           const mover: Json[] = [];
-          for (let cambio = true; cambio && minimoSin(mover).min < 0;) {
+          for (let cambio = true; cambio && minimoSin(mover).min < COLCHON;) {
             cambio = false;
             for (const p of candidatos) {
               const actual = minimoSin(mover).min;
-              if (actual >= 0) break;
+              if (actual >= COLCHON) break;
               if (!mover.includes(p) && minimoSin([...mover, p]).min > actual) { mover.push(p); cambio = true; }
             }
           }
