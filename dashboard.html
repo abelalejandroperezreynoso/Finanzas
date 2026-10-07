@@ -1778,14 +1778,21 @@
                     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
                     mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 78%, transparent 100%);
                 }
+                /* El ancho de cada ventana es el del dígito que entra: así la cifra animada mide lo
+                   mismo que la final (con la que se calcula el tamaño) y no se corta a la derecha. El
+                   que sale va debajo, centrado, y puede asomar de lado mientras se va. */
                 .saldo-rodillo-columna {
-                    display: flex;
-                    flex-direction: column;
+                    display: block;
+                    position: relative;
                     transform: translateY(-1.1em);
                     transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
                 }
-                .saldo-rodillo-columna > span { height: 1.1em; line-height: 1.1; text-align: center; }
+                .saldo-rodillo-columna > span { display: block; height: 1.1em; line-height: 1.1; text-align: center; }
+                .saldo-rodillo-columna > span + span { position: absolute; top: 1.1em; left: 50%; transform: translateX(-50%); }
                 .saldo-rodillo-columna.baja { transform: translateY(0); }
+                /* Mientras los dígitos bajan la cifra no se recorta: si en algún momento mide un poco
+                   más que la caja, se sale un poco en vez de verse cortada */
+                #saldoTotalDisponible.saldo-animando { overflow: visible; }
 
                 /* La copia invisible con la que ajustarSaldoAlAncho() mide comparte el estilo */
                 #saldoTotalDisponible, #saldoTotalDisponibleMedida {
@@ -12849,6 +12856,7 @@
 
                             function pintarSaldoAnimado(el, texto, sufijo) {
                                 const pintarPlano = () => {
+                                    el.classList.remove('saldo-animando');
                                     el.textContent = texto;
                                     if (sufijo) el.appendChild(pastillaMonedaSaldo(sufijo));
                                     ajustarSaldoAlAncho();
@@ -12898,6 +12906,7 @@
                                 const nuevo = texto.padStart(largo, ' ');
 
                                 el.textContent = '';
+                                el.classList.add('saldo-animando');
                                 let cambiados = 0;
                                 for (let i = 0; i < largo; i++) {
                                     const antes = viejo[i], ahora = nuevo[i];
@@ -12905,7 +12914,11 @@
                                         if (ahora !== ' ') el.appendChild(document.createTextNode(ahora));
                                         continue;
                                     }
-                                    if (ahora === ' ') continue;
+                                    // Un espacio de la cifra nueva se queda (si no, la cifra animada mide menos que la final)
+                                    if (ahora === ' ') {
+                                        if (i >= largo - texto.length) el.appendChild(document.createTextNode(ahora));
+                                        continue;
+                                    }
                                     const rodillo = document.createElement('span');
                                     rodillo.className = 'saldo-rodillo';
                                     const columna = document.createElement('span');
