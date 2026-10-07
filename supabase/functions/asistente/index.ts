@@ -1257,6 +1257,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (saldo < 0 && diaNegativo === null && saldoHoy >= 0) diaNegativo = d;
       }
       const r0 = (v: number) => Math.round(v);
+      const pesos = (v: number) => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
       let hastaIngreso: Json = null;
       if (fechaIngreso) {
         const diaIngreso = Number(fechaIngreso.slice(8, 10));
@@ -1287,9 +1288,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             }
           }
           const conPlan = minimoSin(mover).min;
+          // Cuándo y la frase final, ya escritos: el modelo confundía el día ("hoy" por el 8) y volvía a sumar lo que entra
+          const cuandoEs = (f: string) => f === hoyL ? "hoy" : f === manana ? "mañana" : `el ${Number(f.slice(8, 10))}`;
+          const diaIng = `el ${diaIngreso}`;
           plan = {
-            mover: mover.map((p) => ({ categoria: p.categoria, monto: -p.monto, fecha: p.fecha })),
+            mover: mover.map((p) => ({ categoria: p.categoria, monto: -p.monto, fecha: p.fecha, cuando: cuandoEs(p.fecha) })),
             saldo_minimo_con_plan: r0(conPlan), alcanza: conPlan >= 0,
+            cierre: conPlan >= 0
+              ? `Con eso llegas ${diaIng} con ${pesos(conPlan).replace(/^\$/, "+$")} y ese día entran ${pesos(entraIngreso)}.`
+              : `Aun así te faltarían ${pesos(-conPlan)} para llegar ${diaIng}.`,
           };
         }
         hastaIngreso = {
@@ -1305,7 +1312,6 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       // Si está bajo control lo dice el cálculo, no el modelo: con las mismas reglas que la alerta del chat en
       // la app, más el saldo estimado del resto del mes. Antes el modelo lo juzgaba a ojo y llegó a decir
       // "cierras en negativo" con $101,000 de saldo.
-      const pesos = (v: number) => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
       const quedaPrevios = [...conDatos].map((m) => cats.reduce((t: number, c: Json) =>
         c.tipo === "ingreso" || c.tipo === "gasto" ? t + (h[String(c.id)]?.total[m] ?? 0) : t, 0));
       const quedaProm = quedaPrevios.length ? quedaPrevios.reduce((a, b) => a + b, 0) / quedaPrevios.length : 0;
@@ -2040,7 +2046,7 @@ Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gast
 Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
 2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas: cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y sugiere cobrar lo que le deben o pasar dinero de otra cuenta. Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
-3. Cómo queda si lo hace: plan.saldo_minimo_con_plan es con cuánto llega al ingreso; dilo tal cual, con lo que entra ese día (hasta_el_ingreso.entra). No hagas otras cuentas.
+3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas la etiqueta del veredicto ("atento", "fuera de control"): di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
 "Con $3,100 no llegas a la quincena del 15: te faltan $650.
