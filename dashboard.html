@@ -16298,6 +16298,7 @@
                                         filas.push(`Tipo: ${flecha(nombresTipoCat[a.tipo] || a.tipo, nombresTipoCat[c.tipo] || c.tipo)}`);
                                     }
                                     if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
+                                    if ('sectores' in c) filas.push(`Sectores: ${flecha((a.sectores || []).join(' · ') || 'ninguno', (c.sectores || []).join(' · ') || 'ninguno')}`);
                                     if (p.convertir_a_salud && p.convertir_a_salud.movimientos) {
                                         filas.push(`Movimientos: <b>${p.convertir_a_salud.movimientos}</b> pasan a cantidad; ${escaparHtml(fMoneda(p.convertir_a_salud.total))} dejan de contar como dinero`);
                                     }
@@ -16320,6 +16321,7 @@
                                     filas.push(`Categoría nueva: <b>${escaparHtml(d.nombre || '')}</b>${d.ticker ? ` [${escaparHtml(d.ticker)}]` : ''}`);
                                     filas.push(`Cuenta: <b>${escaparHtml(p.cuenta || '')}</b>`);
                                     filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
+                                    if ((d.sectores || []).length) filas.push(`Sectores: <b>${escaparHtml(d.sectores.join(' · '))}</b>`);
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'recordatorio') {

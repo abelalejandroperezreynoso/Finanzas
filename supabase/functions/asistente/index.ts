@@ -180,7 +180,7 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_cambio_categoria",
     description:
-      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos) o tipo. " +
+      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos), tipo o, en una empresa, sus sectores propios. " +
       "Tipos: entre gasto, ingreso, prestamo y deuda los movimientos conservan su monto y signo. Un gasto o ingreso también puede pasar a salud " +
       "(cuando en realidad registra algo que no es dinero, como síntomas): sus movimientos se convierten, el monto pasa a ser la cantidad y deja de contar como dinero. " +
       "Inversiones y Salud no cambian de tipo. NO lo aplica: el usuario lo confirmará.",
@@ -192,6 +192,7 @@ const HERRAMIENTAS: Json[] = [
         descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
+        sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: la lista completa de sus sectores propios para la empresa (reemplaza los que tenga)" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -252,6 +253,7 @@ const HERRAMIENTAS: Json[] = [
         nombre: { type: "string" },
         tipo: { type: "string", enum: ["gasto", "ingreso", "deuda", "prestamo", "salud", "inversion"] },
         ticker: { type: "string", description: "Sólo inversión: el símbolo tal como lo muestra GBM (\"V\", \"AAPL\", \"BRK.B\")" },
+        sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: sus sectores propios que le quedan a la empresa (1 a 3), tomados de los que ya usa en sus otras empresas (columna sectores); uno nuevo sólo si ninguno le queda" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"], description: "Sólo en gastos" },
         descripcion: { type: "string", description: "Qué entra en la categoría; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
@@ -311,6 +313,7 @@ const HERRAMIENTAS: Json[] = [
         pesos_comprobante: { type: "number", description: "Aportación/retiro con captura de GBM: los pesos tal como los muestra el comprobante" },
         pendiente: { type: "boolean", description: "true si el comprobante dice que la transferencia está pendiente" },
         acciones: { type: "number", description: "Compra/venta: número de acciones (positivo, puede tener decimales)" },
+        sectores: { type: "array", items: { type: "string" }, description: "Compra de una empresa que todavía no tiene categoría: sus sectores propios (ver proponer_nueva_categoria)" },
         precio_usd: { type: "number", description: "Compra/venta: precio por acción en USD" },
         comision_usd: { type: "number", description: "Compra/venta: la comisión que cobró GBM en USD (en el comprobante); se registra aparte" },
         descripcion: { type: "string" },
@@ -583,8 +586,43 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
 // Sin saldos: el saldo inicial se confundía con lo que hay hoy. Los saldos salen de listar_cuentas.
 const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial_pendiente"],
   k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, c.saldo_inicial_pendiente === true]));
-const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker"],
-  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null]));
+const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores"],
+  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null,
+    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null]));
+
+// Sectores propios: los que el usuario le pone a cada empresa para agrupar su portafolio a su manera
+// (columna categorias.sectores). Se limpian como en la app y, si ya usa uno con otra escritura,
+// se toma la suya: "apps" y "Apps" serían dos recuadros distintos en el mapa.
+const LARGO_MAXIMO_SECTOR = 40;
+function vocabularioSectores(k: Catalogo): Map<string, { nombre: string; empresas: string[] }> {
+  const vocab = new Map<string, { nombre: string; empresas: string[] }>();
+  k.categorias.filter((c: Json) => c.tipo === "inversion" && Array.isArray(c.sectores)).forEach((c: Json) => {
+    c.sectores.forEach((x: unknown) => {
+      const nombre = String(x ?? "").replace(/\s+/g, " ").trim().slice(0, LARGO_MAXIMO_SECTOR);
+      if (!nombre) return;
+      const e = vocab.get(nombre.toLowerCase()) ?? { nombre, empresas: [] };
+      e.empresas.push(String(k.etiqueta[String(c.id)] ?? c.nombre));
+      vocab.set(nombre.toLowerCase(), e);
+    });
+  });
+  return vocab;
+}
+function limpiarSectores(lista: unknown, k: Catalogo): string[] {
+  const vocab = vocabularioSectores(k);
+  const vistos = new Set<string>();
+  const limpios: string[] = [];
+  (Array.isArray(lista) ? lista : []).forEach((x: unknown) => {
+    let nombre = String(x ?? "").replace(/\s+/g, " ").trim().slice(0, LARGO_MAXIMO_SECTOR);
+    if (!nombre || vistos.has(nombre.toLowerCase())) return;
+    nombre = vocab.get(nombre.toLowerCase())?.nombre ?? nombre;
+    vistos.add(nombre.toLowerCase());
+    limpios.push(nombre);
+  });
+  return limpios.slice(0, 4);
+}
+const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
+  .sort((a, b) => b.empresas.length - a.empresas.length)
+  .map((e) => `${e.nombre} (${e.empresas.slice(0, 4).join(", ")}${e.empresas.length > 4 ? "…" : ""})`).join("; ");
 
 // Las fechas se guardan en UTC, pero el usuario habla de días de su zona horaria. La app
 // manda su desfase (minutos, como getTimezoneOffset: 360 = UTC-6) y con él se arman los
@@ -657,10 +695,15 @@ function sinVoseo(texto: string): string {
 
 // La misma clave pública de Finnhub que usa la app para precios y perfiles (está en dashboard.html)
 const TOKEN_FINNHUB = "d9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0";
+const industrias = new Map<string, string>();
 async function nombreDeTicker(ticker: string): Promise<string> {
   try {
     const r = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(ticker.replace("-", "."))}&token=${TOKEN_FINNHUB}`);
-    if (r.ok) { const d = await r.json(); if (d && d.name) return String(d.name); }
+    if (r.ok) {
+      const d = await r.json();
+      if (d?.finnhubIndustry) industrias.set(ticker, String(d.finnhubIndustry));
+      if (d && d.name) return String(d.name);
+    }
     // Los ETF no tienen perfil: se busca el símbolo
     const b = await fetch(`https://finnhub.io/api/v1/search?q=${encodeURIComponent(ticker)}&token=${TOKEN_FINNHUB}`);
     if (b.ok) {
@@ -794,11 +837,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             const cuentasInv = [...new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)))];
             const cuentaGbm = entrada.cuenta_id ? String(entrada.cuenta_id) : (cuentasInv.length === 1 ? cuentasInv[0] : null);
             if (!cuentaGbm) return { texto: `No tiene categoría para ${tk} y tiene varias cuentas con inversiones: pregúntale en cuál va con preguntar_al_usuario y vuelve a llamar con cuenta_id.`, error: true };
-            const alta = await ejecutarHerramienta(sb, userId, zona, catalogo, "proponer_nueva_categoria", { tipo: "inversion", ticker: tk, cuenta_id: cuentaGbm, resumen: `Nueva categoría de inversión [${tk}]` }, propuestas, memoria);
+            const alta = await ejecutarHerramienta(sb, userId, zona, catalogo, "proponer_nueva_categoria", { tipo: "inversion", ticker: tk, cuenta_id: cuentaGbm, sectores: entrada.sectores, resumen: `Nueva categoría de inversión [${tk}]` }, propuestas, memoria);
             if (alta.error) return alta;
             propuesta = propuestas.find((p: Json) => p.tipo === "nueva_categoria" && String(p.datos?.ticker ?? "") === tk);
             if (!propuesta) return { texto: `No pude proponer la categoría de ${tk}.`, error: true };
-            avisoCategoria = ` Como no tenía categoría para ${tk}, también le dejé la tarjeta de la categoría ${propuesta.datos.nombre} [${tk}]: que confirme primero esa y luego la compra.`;
+            const sectoresNueva = (propuesta.datos.sectores ?? []) as string[];
+            avisoCategoria = ` Como no tenía categoría para ${tk}, también le dejé la tarjeta de la categoría ${propuesta.datos.nombre} [${tk}]${sectoresNueva.length ? ` con sus sectores ${sectoresNueva.join(" y ")} (díselo en una frase)` : ""}: que confirme primero esa y luego la compra.`;
           }
           if (!zona.conInversionNueva) return { texto: "Esta versión de la app no registra compras en categorías nuevas: dile que la actualice.", error: true };
           categoriaNueva = String(propuesta.datos.nombre);
@@ -1988,6 +2032,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (d.error) return { texto: d.error, error: true };
         cambios.descripcion = d.texto || null;
       }
+      if (entrada.sectores !== undefined) {
+        if ((c as Json).tipo !== "inversion") return { texto: "Los sectores propios sólo son de categorías de inversión.", error: true };
+        const nuevos = limpiarSectores(entrada.sectores, catalogo);
+        cambios.sectores = nuevos.length ? nuevos : null;
+      }
       if (entrada.tipo && entrada.tipo !== (c as Json).tipo) {
         if (["inversion", "salud"].includes((c as Json).tipo)) {
           return { texto: "El tipo de una categoría de inversión o de Salud no se puede cambiar: sus movimientos guardan datos propios de ese tipo.", error: true };
@@ -2013,7 +2062,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_categoria", categoria_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
-        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo },
+        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo, sectores: (c as Json).sectores ?? null },
         ...(conversionSalud ? { convertir_a_salud: conversionSalud } : {}),
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
@@ -2083,6 +2132,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       // Una empresa: el ticker se comprueba en Finnhub (el mismo que da los precios en la app) y de ahí
       // sale el nombre. El modelo lo adivinaba: "V" le salió "Vivavox" y es Visa.
       let ticker: string | null = null, empresa = "";
+      let sectores: string[] = [];
       if (entrada.tipo === "inversion") {
         if (!zona.conInversionNueva) return { texto: "Esta versión de la app no crea categorías de inversión desde el chat: dile que la actualice o que la cree en Categorías.", error: true };
         ticker = String(entrada.ticker ?? "").trim().toUpperCase().replace(/\s+/g, "");
@@ -2093,6 +2143,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (!empresa) return { texto: `No encontré el ticker ${ticker} en el mercado de EE. UU. Pregúntale cómo aparece exactamente en GBM.`, error: true };
         // El nombre lo pone la función: el modelo escribió "Vanguard" aun sabiendo que V es Visa
         nombre = nombreCortoEmpresa(empresa);
+        sectores = limpiarSectores(entrada.sectores, catalogo);
+        // Si ya agrupa sus empresas en sectores propios, la nueva entra con los suyos: sin ellos cae en
+        // "Sin sector propio" y tiene que ir a ponérselos a mano
+        if (!sectores.length && vocabularioSectores(catalogo).size) {
+          const industria = industrias.get(ticker);
+          return {
+            texto: `Faltan los sectores propios de ${nombre} [${ticker}]${industria ? ` (Finnhub la clasifica como ${industria})` : ""}. ` +
+              `Sus sectores y qué empresas tiene en cada uno: ${textoVocabulario(catalogo)}. ` +
+              "Elige de ahí el que le quede (o dos, si de verdad hace las dos cosas), comparándola con las empresas de cada uno; uno nuevo sólo si ninguno le queda. Vuelve a llamar con sectores, sin preguntarle: él lo corrige en la tarjeta si no le late.",
+            error: true,
+          };
+        }
       }
       if (!nombre) return { texto: "Falta el nombre de la categoría.", error: true };
       let cuentaId: string | null = null;
@@ -2124,11 +2186,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ...(cuentaId ? { cuenta_id: cuentaId } : {}), nombre, tipo: entrada.tipo,
           prioridad: entrada.tipo === "gasto" ? (entrada.prioridad ?? null) : null,
           ...(ticker ? { ticker, desactivar_prediccion: true } : {}),
+          ...(sectores.length ? { sectores } : {}),
           ...(d.texto ? { descripcion: d.texto } : {}),
         },
       });
       if (ticker) {
-        return { texto: `Propuesta registrada: la categoría se llamará ${nombre} [${ticker}] (${empresa}); llámala así. Todavía NO está creada. Si es para una compra, propónla ya con proponer_movimiento_inversion y ticker="${ticker}": el usuario confirma primero la categoría y luego la compra.` };
+        return { texto: `Propuesta registrada: la categoría se llamará ${nombre} [${ticker}] (${empresa}); llámala así${sectores.length ? `, con sus sectores ${sectores.join(" y ")}: díselo en una frase` : ""}. Todavía NO está creada. Si es para una compra, propónla ya con proponer_movimiento_inversion y ticker="${ticker}": el usuario confirma primero la categoría y luego la compra.` };
       }
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Los movimientos que ya existen no se mueven solos a ella: para pasarlos, propón proponer_mover_movimientos (o proponer_cambio_movimiento si es uno) con categoria_nueva." };
     }
@@ -2270,7 +2333,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - La frase del usuario también dice quién le debe a quién; tampoco entonces lo preguntes: "le debo X a Judith", "Judith me prestó X" = deuda, me_prestan. "Judith me debe X", "le presté X a Judith" = prestamo, presto. "Le pagué/abone X a Judith" = deuda, pago. "Judith me pagó X" = prestamo, me_pagan. Si la persona no tiene categoría, en el mismo turno propón la categoría (su nombre, el tipo que dice la frase, en la cuenta donde entró o salió el dinero; si no es obvia, pregunta sólo la cuenta) y el movimiento con categoria_nueva. Si ya tiene una del tipo contrario, dilo y propón una nueva del tipo correcto.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
 - Si la orden ya estaba registrada y sólo falta su comisión, usa tipo comision con usd = la comisión y en descripcion sólo el nombre de la empresa (p. ej. "Visa").
-- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría y, si no existe, propone también la categoría en la misma llamada. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
+- Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría y, si no existe, propone también la categoría en la misma llamada. Una empresa nueva lleva sus sectores propios (los que ya usa en sus otras empresas, columna sectores); si una empresa que ya tiene no lleva ninguno, propónselos con proponer_cambio_categoria. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500, si está cara (pe) o muy arriba frente a su historial, qué dicen los analistas y alguna noticia que pese. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
