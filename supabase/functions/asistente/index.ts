@@ -683,7 +683,7 @@ const VOSEO: Record<string, string> = {
   "mandá": "manda", "agregá": "agrega", "registrá": "registra", "elegí": "elige", "tocá": "toca", "probá": "prueba",
   "andá": "ve", "vení": "ven", "decí": "di", "pensá": "piensa", "avisame": "avísame", "pasame": "pásame", "sos": "eres",
   "llegás": "llegas", "pagás": "pagas", "gastás": "gastas", "necesitás": "necesitas", "quedás": "quedas", "invertís": "inviertes",
-  "recordá": "recuerda", "esperá": "espera", "dejá": "deja", "ajustá": "ajusta", "respetás": "respetas", "preferís": "prefieres",
+  "recordá": "recuerda", "móvelo": "muévelo", "móvelos": "muévelos", "móvela": "muévela", "esperá": "espera", "dejá": "deja", "ajustá": "ajusta", "respetás": "respetas", "preferís": "prefieres",
 };
 function sinVoseo(texto: string): string {
   return texto.replace(/[a-záéíóúñ]+/gi, (p) => {
@@ -721,6 +721,49 @@ const fechaLocal = (iso: string, z: Zona) => {
   const d = new Date(new Date(iso).getTime() - z.desfase * 60_000);
   return isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
 };
+
+// De dónde puede salir lo que falta para llegar al ingreso, sólo con lo que dicen sus datos:
+// - le_deben: préstamos con algo pendiente, sin quien ya le pagó este mes (no le toca todavía) y sin los
+//   que no se cobran de golpe frente a lo que falta (un préstamo de $300,000 no cubre $158 este mes)
+// - cuentas_fuera_del_total: cuentas que no suman a su saldo total y tienen dinero. Pasar dinero entre
+//   cuentas que sí suman no cambia nada, así que ésas no se ofrecen.
+async function opcionesSiFalta(sb: SupabaseClient, userId: string, z: Zona, k: Catalogo, hoy: string, falta: number): Promise<Json> {
+  const pesos = (v: number) => `$${Math.round(v).toLocaleString("en-US")}`;
+  const le_deben: string[] = [];
+  const prestamos = k.categorias.filter((c: Json) => c.tipo === "prestamo");
+  if (prestamos.length) {
+    const movs: Json[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data } = await sb.from("registros").select("fecha, monto, categoria_id").in("categoria_id", prestamos.map((c: Json) => c.id)).range(desde, desde + 999);
+      movs.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    const mes = hoy.slice(0, 7);
+    const tope = Math.max(20 * falta, 10_000);
+    prestamos.map((c: Json) => {
+      const deCat = movs.filter((r: Json) => String(r.categoria_id) === String(c.id));
+      const pendiente = -deCat.reduce((t: number, r: Json) => t + (Number(r.monto) || 0), 0);
+      const pagoEsteMes = deCat.some((r: Json) => Number(r.monto) > 0 && fechaLocal(r.fecha, z).slice(0, 7) === mes);
+      return { c, pendiente, pagoEsteMes };
+    }).filter((x) => x.pendiente >= 1 && x.pendiente <= tope && !x.pagoEsteMes)
+      .sort((a, b) => a.pendiente - b.pendiente).slice(0, 4)
+      .forEach(({ c, pendiente }) => le_deben.push(`${k.etiqueta[String(c.id)] ?? c.nombre}: te debe ${pesos(pendiente)}${c.descripcion ? ` (${String(c.descripcion).slice(0, 80)})` : ""}`));
+  }
+  const cuentas_fuera_del_total: string[] = [];
+  const fuera = k.cuentas.filter((c: Json) => c.incluir_en_total === false);
+  if (fuera.length) {
+    const { data: saldos } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
+    fuera.forEach((c: Json) => {
+      const s = (Number(c.saldo_inicial) || 0) + (Number((saldos ?? []).find((x: Json) => String(x.id_cuenta) === String(c.id))?.balance) || 0);
+      if (s >= 1) cuentas_fuera_del_total.push(`${c.nombre}: ${pesos(s)}`);
+    });
+  }
+  return {
+    le_deben, cuentas_fuera_del_total,
+    nota: "Sólo esto: no sugieras cobrar ni pasar dinero de nada más (tu memoria puede estar vieja: un pago ya puede estar registrado). " +
+      "Lo que le deben es el total, no lo que le toca pagar ya: dilo como \"si puedes cobrarle algo a X (te debe $Y)\". Una cuenta fuera del total puede no ser suya del todo: ofrécela como \"si ese dinero es tuyo\". Si las dos listas vienen vacías, di cuánto sigue faltando y que tendrá que recortar algo más o esperar al ingreso.",
+  };
+}
 
 // Un movimiento de inversión ya pasó: no puede ser de una hora que todavía no llega. Los comprobantes
 // de órdenes de GBM USA traen la hora en UTC y el modelo la copiaba tal cual (una compra de la
@@ -1087,8 +1130,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const x = por[String(c.id)] ?? { entra: 0, sale: 0, movimientos: 0, primero: null, ultimo: null };
         // Préstamo: sale lo prestado y entra lo cobrado. Deuda: entra lo recibido y sale lo abonado.
         const [base, pagado] = c.tipo === "prestamo" ? [x.sale, x.entra] : [x.entra, x.sale];
+        // Con el día de la semana y cuánto hace: con la fecha sola dijo "antier" de algo de hace 5 días
+        const conHace = (d: string | null) => d ? fechaConDia(`${d}T18:00:00Z`, { ...zona, desfase: 0 }).replace(/ \d{2}:\d{2}/, "") : null;
         return [catalogo.etiqueta[String(c.id)] ?? c.nombre, c.tipo === "prestamo" ? "préstamo (te deben)" : "deuda (debes)", c.cuentas?.nombre ?? null,
-          r2(base), r2(pagado), r2(base - pagado), base > 0 ? Math.round((pagado / base) * 100) : null, x.movimientos, x.primero, x.ultimo];
+          r2(base), r2(pagado), r2(base - pagado), base > 0 ? Math.round((pagado / base) * 100) : null, x.movimientos, conHace(x.primero), conHace(x.ultimo)];
       });
       return {
         texto: recortar({
@@ -1529,6 +1574,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             }
           }
           const conPlan = minimoSin(mover).min;
+          // Si ni así alcanza: de dónde puede salir lo que falta, con datos. El modelo sugería cobrar unos
+          // intereses que ya estaban pagados (los sacaba de su memoria) y pasar dinero de cuentas sin dinero.
+          let siAunFalta: Json = null;
+          if (conPlan < 0) siAunFalta = await opcionesSiFalta(sb, userId, zona, catalogo, hoyL, -conPlan);
           // Cuándo y la frase final, ya escritos: el modelo confundía el día ("hoy" por el 8) y volvía a sumar lo que entra
           const cuandoEs = (f: string) => f < hoyL ? `ya tocaba (el ${Number(f.slice(8, 10))})` : f === hoyL ? "hoy" : f === manana ? "mañana" : `el ${Number(f.slice(8, 10))}`;
           const diaIng = `el ${diaIngreso}`;
@@ -1542,6 +1591,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
               si_lo_hace: r0(minimoSin(mover.filter((x) => x !== p)).min), ...(planPrevio && !enPlan(p) ? { nuevo: true } : {}) })),
             ...(hechos.length ? { hechos: hechos.map((m: Json) => ({ categoria: m.categoria, monto: m.monto, fecha: m.fecha })) } : {}),
             saldo_minimo_con_plan: r0(conPlan), alcanza: conPlan >= 0,
+            ...(siAunFalta ? { si_aun_falta: siAunFalta } : {}),
             cierre: conPlan >= 0
               ? `Con eso llegas ${diaIng} con ${pesos(conPlan).replace(/^\$/, "+$")} y ese día entran ${pesos(entraIngreso)}.`
               : `Aun así te faltarían ${pesos(-conPlan)} para llegar ${diaIng}.`,
@@ -2291,6 +2341,7 @@ Calendario (úsalo para los días de la semana; no los calcules): ${calendarioCe
 - Nunca preguntes en el texto. Para preguntar o para ofrecer alternativas (nombres, montos, categorías, qué hacer después) usa preguntar_al_usuario, con una o dos frases de contexto antes y sin repetir las opciones. Pregunta sólo lo que no puedas deducir.
 - Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones, sin saldos. Nunca digas un saldo sin llamar antes a listar_cuentas en ese turno: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
 - Todo cambio va con una herramienta proponer_* (o programar_recordatorio): deja una tarjeta que el usuario confirma. Después di qué propusiste y que lo confirme ("Te dejé la aportación para confirmar"); nunca digas "listo", "registré", "guardé" ni que ya quedó hecho.
+- No inventes explicaciones ni costumbres que no salgan de los datos ("llegó con un día de atraso, como otras veces"). Si dice que algo pasó otro día del que está registrado, propón corregir la fecha.
 - Sólo puedes hacer lo que hacen tus herramientas. Nunca digas que hiciste, anotaste o programaste algo sin haber llamado a la herramienta en ese turno, ni inventes estados o funciones que la app no tiene; si algo no se puede, dilo.
 - Si cancela una propuesta y corrige un dato ("el tipo de cambio es 17.99"), vuelve a proponerla de inmediato con el dato corregido; no le preguntes qué quiere hacer.
 - No anuncies lo que vas a mostrar ("déjame mostrarte…"): muéstralo en el mismo turno.
@@ -2344,7 +2395,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
 Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si el nivel es 0, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
-2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como el plan que ya tienen, di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y sugiere cobrar lo que le deben o pasar dinero de otra cuenta. Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
+2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas el nivel ni frases como "estás fuera de control": di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
