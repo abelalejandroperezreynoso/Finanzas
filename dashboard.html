@@ -16322,6 +16322,12 @@
                                     filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
+                                } else if (p.tipo === 'recordatorio') {
+                                    const d = p.datos || {};
+                                    const cuando = new Date(d.enviar_en);
+                                    const local = isNaN(cuando) ? '' : valorFechaLocal(cuando);
+                                    filas.push(`Cuándo: <b>${escaparHtml(local ? fechaAmigable(local.slice(0, 10), local.slice(11, 16)) : '')}</b>`);
+                                    filas.push(`Aviso: <b>${escaparHtml(d.texto || '')}</b>`);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
@@ -16507,7 +16513,7 @@
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -18166,6 +18172,9 @@
                                     res = cuentaId
                                         ? await clienteSupabase.from('categorias').insert([{ ...p.datos, cuenta_id: cuentaId, user_id: currentUser.id }]).select('id')
                                         : { falta: `Primero confirma la cuenta "${p.cuenta}".` };
+                                } else if (p.tipo === 'recordatorio') {
+                                    // Le llega como aviso al teléfono; lo manda la base a su hora (recordatorios_ia)
+                                    res = await clienteSupabase.from('recordatorios_ia').insert([{ enviar_en: p.datos.enviar_en, texto: p.datos.texto, user_id: currentUser.id }]);
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const { hora, en_el_momento, categoria_nueva, cuenta_nueva, ...datos } = p.datos;
                                     // En una categoría propuesta en el mismo chat: se busca por nombre ya confirmada
