@@ -180,7 +180,7 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_cambio_categoria",
     description:
-      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos), tipo o, en una empresa, sus sectores propios. " +
+      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos), tipo, en una empresa sus sectores propios y en Salud su grupo y su medida. " +
       "Tipos: entre gasto, ingreso, prestamo y deuda los movimientos conservan su monto y signo. Un gasto o ingreso también puede pasar a salud " +
       "(cuando en realidad registra algo que no es dinero, como síntomas): sus movimientos se convierten, el monto pasa a ser la cantidad y deja de contar como dinero. " +
       "Inversiones y Salud no cambian de tipo. NO lo aplica: el usuario lo confirmará.",
@@ -193,6 +193,8 @@ const HERRAMIENTAS: Json[] = [
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: la lista completa de sus sectores propios para la empresa (reemplaza los que tenga)" },
+        grupo_salud: { type: "string", enum: ["enfermedad", "habito"], description: "Sólo salud: enfermedad o hábito" },
+        medida_salud: { type: "string", enum: ["intensidad", "veces", "horas"], description: "Sólo salud: qué cuenta la cantidad (cambiarla no convierte los registros que ya tiene)" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -254,6 +256,8 @@ const HERRAMIENTAS: Json[] = [
         tipo: { type: "string", enum: ["gasto", "ingreso", "deuda", "prestamo", "salud", "inversion"] },
         ticker: { type: "string", description: "Sólo inversión: el símbolo tal como lo muestra GBM (\"V\", \"AAPL\", \"BRK.B\")" },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: sus sectores propios que le quedan a la empresa (1 a 3), tomados de los que ya usa en sus otras empresas (columna sectores); uno nuevo sólo si ninguno le queda" },
+        grupo_salud: { type: "string", enum: ["enfermedad", "habito"], description: "Sólo salud (obligatorio): enfermedad = un síntoma o padecimiento (migraña, dolor); habito = algo que hace (dormir, agua, ejercicio)" },
+        medida_salud: { type: "string", enum: ["intensidad", "veces", "horas"], description: "Sólo salud (obligatorio): qué cuenta la cantidad. intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó; horas = cuántas horas" },
         prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"], description: "Sólo en gastos" },
         descripcion: { type: "string", description: "Qué entra en la categoría; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
@@ -600,9 +604,17 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
 // Sin saldos: el saldo inicial se confundía con lo que hay hoy. Los saldos salen de listar_cuentas.
 const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial_pendiente"],
   k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, c.saldo_inicial_pendiente === true]));
-const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores"],
+const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "salud"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null,
-    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null]));
+    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null,
+    c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}` : null]));
+
+// La cantidad de Salud según lo que mide la categoría: una intensidad va de 1 a 10 y unas horas no pasan de 24
+function cantidadSaludInvalida(c: Json, n: number): string | null {
+  if (c?.medida_salud === "intensidad" && (n < 1 || n > 10)) return `En ${c.nombre} la cantidad es la intensidad, de 1 a 10.`;
+  if (c?.medida_salud === "horas" && n > 24) return `En ${c.nombre} la cantidad son horas: no pasa de 24.`;
+  return null;
+}
 
 // Sectores propios: los que el usuario le pone a cada empresa para agrupar su portafolio a su manera
 // (columna categorias.sectores). Se limpian como en la app y, si ya usa uno con otra escritura,
@@ -1151,34 +1163,56 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           return mismoDia - cualquierDia >= 15 ? `${catalogo.etiqueta[String(o.id)] ?? o.nombre} el mismo día: ${mismoDia} % de sus días (en un día cualquiera, ${cualquierDia} %)` : null;
         }).filter(Boolean) : [];
         const senales: string[] = [];
-        if (entre(hace(29), hoyL) >= 10) senales.push(`${entre(hace(29), hoyL)} días con registro en los últimos 30`);
+        const esHabito = c.grupo_salud === "habito";
+        if (!esHabito && entre(hace(29), hoyL) >= 10) senales.push(`${entre(hace(29), hoyL)} días con registro en los últimos 30`);
         // El ritmo del mes sólo pesa a partir del día 10: antes una semana mala lo dispara
         const u30 = entre(hace(29), hoyL);
-        if (normal !== null && u30 >= 4 && u30 >= normal * 1.5) senales.push(`${u30} días en los últimos 30; lo normal son ${normal} al mes`);
-        else if (normal !== null && dia >= 10 && esteMes >= 4 && ritmo >= normal * 1.5) senales.push(`este mes va a ritmo de ${ritmo} días; lo normal son ${normal}`);
+        // En un hábito subir no es malo por fuerza: el cambio se reporta, pero no como señal
+        let cambio: string | null = null;
+        if (normal !== null && u30 >= 4 && u30 >= normal * 1.5) cambio = `${u30} días en los últimos 30; lo normal son ${normal} al mes`;
+        else if (normal !== null && dia >= 10 && esteMes >= 4 && ritmo >= normal * 1.5) cambio = `este mes va a ritmo de ${ritmo} días; lo normal son ${normal}`;
+        else if (esHabito && normal !== null && normal >= 4 && u30 <= normal * 0.5) cambio = `${u30} días en los últimos 30; lo normal son ${normal} al mes`;
+        if (cambio && !esHabito) senales.push(cambio);
+        // La cantidad según lo que mide: intensidad promedio, horas por día o veces sumadas
+        const medida = c.medida_salud ?? null;
+        const ult30 = regs.filter((r: Json) => r.dia >= hace(29));
+        const antes = regs.filter((r: Json) => r.dia < hace(29));
+        const porDiaHoras = (rs: Json[]) => { const d = new Set(rs.map((r: Json) => r.dia)).size; return d ? r1(rs.reduce((t: number, r: Json) => t + (Number(r.cantidad) || 0), 0) / d) : null; };
+        const sumaVeces = (rs: Json[]) => rs.reduce((t: number, r: Json) => t + (Number(r.cantidad) || 0), 0);
+        const cantidad = medida === "intensidad"
+          ? { intensidad_promedio_ultimos_30: prom(cant(hace(29), hoyL)), intensidad_promedio_antes: prom(cant(`${previos[0]}-01`, hace(30))), intensidad_maxima_ultimos_30: cant(hace(29), hoyL).length ? Math.max(...cant(hace(29), hoyL)) : null }
+          : medida === "horas"
+          ? { horas_por_dia_ultimos_30: porDiaHoras(ult30), horas_por_dia_antes: porDiaHoras(antes) }
+          : medida === "veces"
+          ? { veces_ultimos_30: sumaVeces(ult30), veces_por_mes_antes: validos.length ? r1(validos.reduce((t, m) => t + sumaVeces(regs.filter((r: Json) => r.dia.startsWith(m))), 0) / validos.length) : null }
+          : { cantidad_promedio_ultimos_30: prom(cant(hace(29), hoyL)), cantidad_promedio_antes: prom(cant(`${previos[0]}-01`, hace(30))) };
         return {
-          categoria: catalogo.etiqueta[id] ?? c.nombre,
-          que_mide: c.descripcion ? String(c.descripcion).slice(0, 200) : "SIN DESCRIPCIÓN: no sabes qué es ni qué mide la cantidad; no lo adivines",
+          categoria: catalogo.etiqueta[id] ?? c.nombre, categoria_id: id,
+          grupo: c.grupo_salud ?? "SIN DEFINIR", medida: medida ?? "SIN DEFINIR",
+          descripcion: c.descripcion ? String(c.descripcion).slice(0, 200) : "SIN DESCRIPCIÓN",
           dias_ultimos_7: entre(hace(6), hoyL), dias_ultimos_30: entre(hace(29), hoyL),
           este_mes: `${esteMes} días en ${dia} (a este ritmo, ${ritmo} en el mes)`,
           meses_anteriores: validos.map((m, k) => `${m}: ${porMes[k]} días`).join(", ") || "sin meses completos registrados",
           normal_dias_por_mes: normal,
-          cantidad_promedio_ultimos_30: prom(cant(hace(29), hoyL)), cantidad_promedio_antes: prom(cant(`${previos[0]}-01`, hace(30))),
-          cantidad_maxima_ultimos_30: cant(hace(29), hoyL).length ? Math.max(...cant(hace(29), hoyL)) : null,
+          ...cantidad,
+          ...(medida === null ? { cantidades_que_usa: [...new Set(regs.map((r: Json) => Number(r.cantidad)))].sort((a, b) => a - b).slice(0, 10) } : {}),
           racha_dias_seguidos: racha, ultimo: fechaConDia(`${ultimo}T18:00:00Z`, { ...zona, desfase: 0 }).replace(/ \d{2}:\d{2}/, ""),
           ultimos_registros: regs.slice(-8).reverse().map((r: Json) => [fechaConDia(r.fecha, zona), r.cantidad, r.descripcion || null]),
           notas_que_se_repiten: Object.entries(notas).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => `${t} (${n})`),
           dias_de_la_semana_90: semana,
           coincidencias,
           ...(senales.length ? { senales } : {}),
+          ...(cambio && esHabito ? { cambio } : {}),
         };
       });
       if (!categorias.length) return { texto: "No hay registros de Salud en los últimos 4 meses." };
       return {
         texto: recortar({
           hoy: hoyL,
-          nota: "Un día cuenta una vez aunque tenga varios registros. La cantidad es lo que diga que_mide (intensidad, vasos, horas…); las notas son aparte: no las confundas con la cantidad. " +
-            "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra.",
+          nota: "Un día cuenta una vez aunque tenga varios registros. La cantidad es lo que diga medida (o, sin medida, la descripción); las notas son aparte: no las confundas con la cantidad. " +
+            "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra. " +
+            "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman) u horas (por día). " +
+            "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria (deduce de nombre, descripción y cantidades_que_usa: si siempre es 1, son veces); si no es claro, pregúntale.",
           categorias,
         }),
       };
@@ -2132,7 +2166,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (entrada.importe !== undefined) {
         if (tipo === "inversion") return { texto: "En inversiones no se cambia el importe desde aquí.", error: true };
         if (!(Number(entrada.importe) > 0)) return { texto: "El importe debe ser mayor que cero.", error: true };
-        if (tipo === "salud") cambios.cantidad = Number(entrada.importe);
+        if (tipo === "salud") {
+          const catMov = catalogo.categorias.find((x: Json) => String(x.id) === String(r.categoria_id));
+          const mal = cantidadSaludInvalida(catMov, Number(entrada.importe));
+          if (mal) return { texto: mal, error: true };
+          cambios.cantidad = Number(entrada.importe);
+        }
         else cambios.monto = (Number(r.monto) < 0 ? -1 : 1) * Math.abs(Number(entrada.importe));
       }
       if (entrada.fecha) {
@@ -2186,6 +2225,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (d.error) return { texto: d.error, error: true };
         cambios.descripcion = d.texto || null;
       }
+      for (const campo of ["grupo_salud", "medida_salud"]) {
+        if (entrada[campo] === undefined || entrada[campo] === (c as Json)[campo]) continue;
+        if ((c as Json).tipo !== "salud") return { texto: "El grupo y la medida sólo son de categorías de Salud.", error: true };
+        cambios[campo] = entrada[campo];
+      }
       if (entrada.sectores !== undefined) {
         if ((c as Json).tipo !== "inversion") return { texto: "Los sectores propios sólo son de categorías de inversión.", error: true };
         const nuevos = limpiarSectores(entrada.sectores, catalogo);
@@ -2216,7 +2260,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "cambio_categoria", categoria_id: (c as Json).id, cambios, resumen: String(entrada.resumen).slice(0, 200),
-        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo, sectores: (c as Json).sectores ?? null },
+        antes: { nombre: (c as Json).nombre, descripcion: (c as Json).descripcion ?? null, prioridad: (c as Json).prioridad ?? null, tipo: (c as Json).tipo, sectores: (c as Json).sectores ?? null, grupo_salud: (c as Json).grupo_salud ?? null, medida_salud: (c as Json).medida_salud ?? null },
         ...(conversionSalud ? { convertir_a_salud: conversionSalud } : {}),
       });
       return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada." };
@@ -2329,6 +2373,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         return { texto: `Ya existe la categoría "${nombre}" en esa cuenta.`, error: true };
       }
       if (entrada.prioridad && entrada.tipo !== "gasto") return { texto: "La prioridad sólo aplica a categorías de gasto.", error: true };
+      if (entrada.tipo === "salud" && (!["enfermedad", "habito"].includes(entrada.grupo_salud) || !["intensidad", "veces", "horas"].includes(entrada.medida_salud))) {
+        return { texto: "Una categoría de Salud lleva grupo_salud (enfermedad o habito) y medida_salud (intensidad 1–10, veces u horas). Dedúcelos de lo que es (un dolor = enfermedad con intensidad; dormir = hábito en horas); si no es claro, pregúntale.", error: true };
+      }
       // En una empresa la descripción tampoco la escribe el modelo: inventaba a qué se dedica
       const d = ticker ? { texto: "", error: null } : textoCompleto(entrada.descripcion, MAX_DESCRIPCION);
       if (d.error) return { texto: d.error, error: true };
@@ -2341,6 +2388,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           prioridad: entrada.tipo === "gasto" ? (entrada.prioridad ?? null) : null,
           ...(ticker ? { ticker, desactivar_prediccion: true } : {}),
           ...(sectores.length ? { sectores } : {}),
+          ...(entrada.tipo === "salud" ? { grupo_salud: entrada.grupo_salud, medida_salud: entrada.medida_salud } : {}),
           ...(d.texto ? { descripcion: d.texto } : {}),
         },
       });
@@ -2388,6 +2436,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (!(Number(entrada.importe) > 0)) return { texto: "El importe debe ser mayor que cero.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
       const importe = Math.abs(Number(entrada.importe));
+      if (tipo === "salud") {
+        const mal = cantidadSaludInvalida(c, importe);
+        if (mal) return { texto: mal, error: true };
+      }
       // "ahora" se resuelve aquí con la hora local del usuario; sin hora, la app guarda mediodía
       let hora: string | undefined;
       if (!zona.conHora) { /* app vieja: se guarda sin hora, como antes */ }
@@ -2482,7 +2534,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 
 # Tipos de categoría
 - gasto, ingreso, deuda, prestamo, inversion y salud. Salud no es dinero: lleva una cantidad y monto 0. Prioridad de los gastos (4 N): vital, operativa, util, prescindible.
-- En Salud la cantidad es lo que mida la categoría según su descripción (veces, vasos, horas, kilos…). Si la descripción no lo dice, es cuántas veces pasó: 1 por cada vez. No inventes escalas que la app no guarda (intensidad, nivel, duración): sólo existe la cantidad. Si de verdad no sabes qué mide, pregúntalo una vez y propón ponerlo en la descripción de la categoría.
+- En Salud cada categoría es una enfermedad (síntoma o padecimiento) o un hábito, y su cantidad es lo que diga su medida (columna salud): intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó (1 por cada vez); horas = cuántas horas. Sin medida, lo que diga su descripción o 1 por cada vez. Los detalles (si tomó pastilla, qué lo detonó) van en la descripción del registro, no en la cantidad. No inventes escalas que la categoría no tiene.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
 - La frase del usuario también dice quién le debe a quién; tampoco entonces lo preguntes: "le debo X a Judith", "Judith me prestó X" = deuda, me_prestan. "Judith me debe X", "le presté X a Judith" = prestamo, presto. "Le pagué/abone X a Judith" = deuda, pago. "Judith me pagó X" = prestamo, me_pagan. Si la persona no tiene categoría, en el mismo turno propón la categoría (su nombre, el tipo que dice la frase, en la cuenta donde entró o salió el dinero; si no es obvia, pregunta sólo la cuenta) y el movimiento con categoria_nueva. Si ya tiene una del tipo contrario, dilo y propón una nueva del tipo correcto.
@@ -2497,10 +2549,10 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 
 # Salud
 Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y contesta corto, sólo de lo que tuvo registros en los últimos 30 días:
-1. Por categoría, en una o dos líneas: cómo va contra lo normal (días este mes y su ritmo contra normal_dias_por_mes, y la cantidad contra antes), con cifras. Lo que mide la cantidad lo dice que_mide; nunca lo cambies por otra cosa (si la descripción dice intensidad, no son pastillas).
+1. Primero Enfermedades y luego Hábitos. Por categoría, en una o dos líneas: cómo va contra lo normal (días este mes y su ritmo contra normal_dias_por_mes, y la cantidad según su medida contra antes), con cifras. La cantidad es lo que diga medida (intensidad, veces, horas); nunca la cambies por otra cosa (una intensidad no son pastillas).
 2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
 3. Lo que puede hacer: anotar en la nota lo que crea que lo detona, o algo concreto que salga de los datos.
-- Si una categoría dice SIN DESCRIPCIÓN, no adivines qué es: di que no sabes qué mide y pregúntale con preguntar_al_usuario qué es y qué cuenta la cantidad, para proponerle la descripción con proponer_cambio_categoria.
+- Si una categoría no tiene grupo o medida, propónselos en una tarjeta (proponer_cambio_categoria). Si tampoco tiene descripción y su nombre no dice qué es, no adivines: pregúntale qué es con preguntar_al_usuario y propón grupo, medida y descripción juntos.
 - No eres médico: no diagnostiques ni recomiendes medicamentos. Si viene senales (10 o más días en 30, o el mes muy arriba de lo normal), dilo claro y sugiere en una frase verlo con su médico llevando este registro. Sin señales, no lo menciones.
 
 # Bajo control
@@ -2634,7 +2686,7 @@ const SISTEMA_PREGUNTA_REGISTRO = `Redactas la última pregunta de la tarjeta "R
 
 - "modo": "monto" si en esa categoría sólo importa cuánto (gasolina, renta, luz, sueldo…): preguntar "qué fue" sería absurdo. "detalle" si además importa qué fue, qué compró, para quién o dónde (regalo, restaurante, súper, ropa…).
 - "pregunta": en español de México, de tú, máximo 6 palabras, con signos ¿?, hecha a la medida de la categoría. Con "monto", sólo el cuánto ("¿Cuánto cargaste?", "¿Cuánto te pagaron?"). Con "detalle", lo que importa y el cuánto ("¿Qué regalaste y cuánto?", "¿Qué compraste y cuánto?").
-- Tipo salud: no es dinero, es una cantidad (horas, veces, vasos…); pregunta esa cantidad en su unidad ("¿Cuántas horas dormiste?"). Si importa cómo fue, modo "detalle" ("¿Qué tan fuerte y cuántas?").
+- Tipo salud: no es dinero, es una cantidad según la medida de la categoría: intensidad ("¿Qué tan fuerte, del 1 al 10?"), horas ("¿Cuántas horas dormiste?") o veces ("¿Cuántas veces?"). Si importa cómo fue, modo "detalle" para los detalles de la descripción.
 - "ejemplo": lo que se ve de fondo en el campo, empieza con "Ej." y es una respuesta realista y breve, sin signo de pesos ("Ej. Perfume para mamá 800", "Ej. 650"). Si hay registros, básate en ellos.
 - La descripción de la categoría manda sobre lo que sugiera el nombre.`;
 
@@ -2900,6 +2952,7 @@ Deno.serve(async (req) => {
         nombre: String(c.nombre ?? "").slice(0, 80),
         tipo: ["gasto", "ingreso", "salud"].includes(c.tipo) ? c.tipo : "gasto",
         descripcion: c.descripcion ? String(c.descripcion).slice(0, 400) : null,
+        ...(c.tipo === "salud" && ["intensidad", "veces", "horas"].includes(c.medida_salud) ? { medida_salud: c.medida_salud } : {}),
       };
       if (!categoria.nombre.trim()) return responder({ error: "Falta la categoría." }, 400);
       const ejemplos = (Array.isArray(entrada.ejemplos) ? entrada.ejemplos : []).slice(0, 12).map((e: unknown) => String(e).slice(0, 120));
