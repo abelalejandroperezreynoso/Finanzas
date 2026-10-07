@@ -77,16 +77,17 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "revisar_cuadre",
     description:
-      "Compara el saldo real que dice el usuario de UNA cuenta contra el de la app y busca de dónde puede venir la diferencia: pagos recurrentes que tocaban y no están, " +
+      "Compara el saldo real que dice el usuario contra el de la app y busca de dónde puede venir la diferencia: pagos recurrentes que tocaban y no están, " +
       "gastos de cada mes que este mes faltan, días sin registros con lo que suele gastar por día, posibles duplicados y lo último que se registró. " +
-      "Úsala para cualquier \"cuadrar\", \"no me cuadra\" o \"tengo X en tal cuenta\" de una cuenta que ya tiene movimientos. Una llamada por cuenta.",
+      "Úsala para cualquier \"cuadrar\", \"no me cuadra\", \"tengo X en tal cuenta\" o \"tengo X en total\". Con una cuenta, compara esa cuenta; " +
+      "sin cuenta_id, saldo_real es su total y se compara con el saldo total de la app (todas las cuentas que cuentan en el total).",
     input_schema: {
       type: "object",
       properties: {
-        cuenta_id: { type: "string" },
-        saldo_real: { type: "number", description: "Lo que el usuario dice que tiene hoy en esa cuenta, en pesos" },
+        cuenta_id: { type: "string", description: "La cuenta a cuadrar. Omítela si el usuario dio su total" },
+        saldo_real: { type: "number", description: "Lo que el usuario dice que tiene hoy en esa cuenta (o en total, sin cuenta_id), en pesos" },
       },
-      required: ["cuenta_id", "saldo_real"],
+      required: ["saldo_real"],
       additionalProperties: false,
     },
   },
@@ -545,8 +546,9 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
   });
   return { cuentas: cuentas ?? [], categorias: categorias ?? [], etiqueta, tipo };
 }
-const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial", "saldo_pendiente"],
-  k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, Number(c.saldo_inicial) || 0, c.saldo_inicial_pendiente === true]));
+// Sin saldos: el saldo inicial se confundía con lo que hay hoy. Los saldos salen de listar_cuentas.
+const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial_pendiente"],
+  k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, c.saldo_inicial_pendiente === true]));
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null]));
 
@@ -1442,18 +1444,27 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return { texto: "Nota corregida." };
     }
     case "revisar_cuadre": {
-      const cuenta = catalogo.cuentas.find((c: Json) => String(c.id) === String(entrada.cuenta_id));
-      if (!cuenta) return { texto: "No encontré esa cuenta.", error: true };
+      // Sin cuenta: el total que ve en la app contra el total que dice tener; las pistas salen de
+      // todas las cuentas que suman al total, menos las de inversión
+      const esTotal = !entrada.cuenta_id;
+      const cuenta = esTotal ? null : catalogo.cuentas.find((c: Json) => String(c.id) === String(entrada.cuenta_id));
+      if (!esTotal && !cuenta) return { texto: "No encontré esa cuenta.", error: true };
       const saldoReal = Number(entrada.saldo_real);
       if (!Number.isFinite(saldoReal)) return { texto: "Falta el saldo real (un número en pesos).", error: true };
-      const catsCuenta = catalogo.categorias.filter((c: Json) => String(c.cuenta_id) === String(cuenta.id));
-      if (catsCuenta.some((c: Json) => c.tipo === "inversion")) {
+      const deInversion = new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)));
+      const cuentasRevisadas = esTotal
+        ? catalogo.cuentas.filter((c: Json) => c.incluir_en_total !== false)
+        : [cuenta];
+      if (!esTotal && deInversion.has(String(cuenta.id))) {
         return { texto: "Es una cuenta de inversión: su saldo en pesos no es dinero disponible. Para revisarla compara la Caja GBM en dólares con resumen_inversiones o con el estado de cuenta de GBM.", error: true };
       }
+      const idsRevisadas = new Set(cuentasRevisadas.map((c: Json) => String(c.id)));
+      const catsCuenta = catalogo.categorias.filter((c: Json) => idsRevisadas.has(String(c.cuenta_id)) && c.tipo !== "inversion");
       const { data: saldos, error: eS } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
       if (eS) return { texto: `Error: ${eS.message}`, error: true };
-      const mov = (saldos ?? []).find((x: Json) => String(x.id_cuenta) === String(cuenta.id));
-      const saldoApp = (Number(cuenta.saldo_inicial) || 0) + (Number(mov?.balance) || 0);
+      const balanceDe = (c: Json) => (Number(c.saldo_inicial) || 0) + (Number((saldos ?? []).find((x: Json) => String(x.id_cuenta) === String(c.id))?.balance) || 0);
+      // Igual que la cifra grande de la app: saldo inicial + movimientos de cada cuenta revisada
+      const saldoApp = cuentasRevisadas.reduce((t: number, c: Json) => t + balanceDe(c), 0);
       const diferencia = saldoReal - saldoApp;
       const r2c = (n: number) => Math.round(n * 100) / 100;
       const pesos = (n: number, signo = false) => `${n < 0 ? "-" : signo && n > 0 ? "+" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -1472,6 +1483,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         regs = (data ?? []).map((r: Json) => ({ ...r, dia: fechaLocal(r.fecha, zona).slice(0, 10) }));
       }
       const nombreCat = (id: unknown) => catalogo.etiqueta[String(id)] ?? "?";
+      // Con el total, el "Sin identificar" va en la cuenta del día a día: la que más se movió en 30 días
+      let cuentaDelDia: Json = cuenta;
+      if (esTotal) {
+        const cuentaDeCat: Record<string, string> = {};
+        catsCuenta.forEach((c: Json) => { cuentaDeCat[String(c.id)] = String(c.cuenta_id); });
+        const usos: Record<string, number> = {};
+        regs.filter((r: Json) => r.dia >= hace(30)).forEach((r: Json) => { const k = cuentaDeCat[String(r.categoria_id)]; usos[k] = (usos[k] || 0) + 1; });
+        const masUsada = Object.entries(usos).sort((a, b) => b[1] - a[1])[0];
+        cuentaDelDia = masUsada ? catalogo.cuentas.find((c: Json) => String(c.id) === masUsada[0]) : null;
+      }
 
       // Lo último que se registró en la cuenta
       const ultimos = regs.slice(0, 5).map((r: Json) => `${fechaConDia(r.fecha, zona)} · ${nombreCat(r.categoria_id)} · ${pesos(Number(r.monto), true)}${r.descripcion ? ` · ${r.descripcion}` : ""}`);
@@ -1522,7 +1543,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         : "tiene MÁS de lo que dice la app: falta un ingreso por registrar, o hay un gasto de más o duplicado";
       return {
         texto: recortar({
-          cuenta: cuenta.nombre,
+          ...(esTotal ? { comparado: "saldo total de la app (todas las cuentas que cuentan en el total)" } : { cuenta: cuenta.nombre }),
           saldo_app: pesos(saldoApp), saldo_real: pesos(saldoReal), diferencia: pesos(diferencia, true), sentido,
           ultimos_movimientos: ultimos,
           dias_sin_registros_ultimos_30: sinRegistro.length,
@@ -1535,7 +1556,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ...(conoceHabitos ? {} : { antes_que_nada: "Tu memoria no dice dónde guarda su dinero ni cómo suele pagar. En este mismo turno, después de decir la diferencia en una frase, pregúntalo con preguntar_al_usuario (p. ej. \"¿Cómo pagas casi siempre?\" con opciones Débito, Efectivo, Tarjeta de crédito, De todo un poco; y \"¿Tienes una cuenta de ahorro aparte?\" Sí/No). Con la respuesta, guárdalo con recordar (tema contexto) y sigue con las pistas." }),
           guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos. Toda pregunta va con preguntar_al_usuario, nunca en el texto. " +
             "Lo que recuerde, propónlo con proponer_nuevo_movimiento; un duplicado se corrige proponiendo el cambio, nunca lo borras. Lo que no recuerde es normal: " +
-            "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra) en ESTA cuenta, pasando su cuenta_id; si la categoría no existe aquí, propónla en esta cuenta antes. No toques el saldo inicial.",
+            (esTotal
+              ? `propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra) en la cuenta del día a día${cuentaDelDia ? ` (${cuentaDelDia.nombre}, cuenta_id ${cuentaDelDia.id})` : ""}; si la categoría no existe ahí, propónla antes. No le pidas el saldo de cada cuenta. No toques el saldo inicial.`
+              : "propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra) en ESTA cuenta, pasando su cuenta_id; si la categoría no existe aquí, propónla en esta cuenta antes. No toques el saldo inicial."),
         }),
       };
     }
@@ -2030,7 +2053,7 @@ Calendario (úsalo para los días de la semana; no los calcules): ${calendarioCe
 - Fechas como se dicen, contando desde hoy: hoy, ayer, antier, mañana, "el sábado" (en los últimos o próximos 6 días), "el lunes pasado", "la semana pasada", "este mes", "el mes pasado", "el 28 del mes pasado". La fecha completa sólo si es de hace más de dos meses o si la pide.
 - No le repitas las descripciones de sus cuentas o categorías: son contexto para ti y ya sabe qué son.
 - Nunca preguntes en el texto. Para preguntar o para ofrecer alternativas (nombres, montos, categorías, qué hacer después) usa preguntar_al_usuario, con una o dos frases de contexto antes y sin repetir las opciones. Pregunta sólo lo que no puedas deducir.
-- Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones; para saldos usa listar_cuentas: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
+- Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones, sin saldos. Nunca digas un saldo sin llamar antes a listar_cuentas en ese turno: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
 - Todo cambio va con una herramienta proponer_*: deja una tarjeta que el usuario confirma. Después di qué propusiste y que lo confirme; nunca digas que ya quedó hecho.
 - Si responde sobre una propuesta aún sin confirmar (pide un cambio, aclara o dice que así está bien), vuelve a llamar a la misma herramienta con la versión completa y corrige_anterior: true. Nunca digas que una propuesta cambió sin haberla llamado en ese turno.
 - No puedes borrar nada (tampoco notas de tu memoria). Si algo no se puede con tus herramientas, dilo; nunca uses rodeos que dejen datos mal clasificados.
@@ -2102,8 +2125,8 @@ Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o r
 # Cuadrar cuentas
 Cuando diga cuánto tiene de verdad en una cuenta que ya tiene movimientos, o que algo no le cuadra:
 1. Si tu memoria no dice dónde guarda su dinero y cómo suele pagar (efectivo, débito, tarjeta, cuenta de ahorro), pregúntalo una vez con preguntar_al_usuario y guárdalo con recordar (tema contexto). Úsalo para buscar: si paga casi todo en efectivo, ahí es donde se olvidan los gastos; un retiro del cajero es dinero que sale del banco y entra al efectivo.
-2. Si no te dio el saldo real de cada cuenta que suma al total, pídeselo. Por cada una llama a revisar_cuadre.
-3. Explica la diferencia en una frase ("En BBVA tienes $5,707 menos de lo que dice la app") y repasa las pistas de la herramienta, de la más probable a la menos. Lo que confirme, propónlo.
+2. Si da el saldo de una cuenta, llama a revisar_cuadre con esa cuenta. Si da un total ("tengo X en total"), llama a revisar_cuadre sin cuenta_id: compara con el saldo total de la app. No le pidas el saldo de cada cuenta.
+3. Explica la diferencia en una frase ("Tienes $5,683 más de lo que dice la app") con las cifras que da la herramienta y repasa sus pistas, de la más probable a la menos. Lo que confirme, propónlo.
 4. Olvidar gastos es normal y no se regaña. Lo que no se identifique, propónlo como un solo movimiento "Sin identificar" en esa cuenta: gasto si falta dinero (categoría "Gastos sin identificar", prioridad prescindible) o ingreso si sobra ("Ingresos sin identificar"); si la categoría no existe, propónla antes. Así cuadra sin borrar el problema y se ve cuánto se fue sin registrar.
 5. Nunca cuadres cambiando el saldo actual o el saldo inicial de una cuenta que ya tiene movimientos, salvo que el usuario lo pida explícitamente después de saber la diferencia.
 
