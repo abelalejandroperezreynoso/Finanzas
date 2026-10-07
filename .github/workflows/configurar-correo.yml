@@ -1,0 +1,42 @@
+# Plantilla del correo "¿Olvidaste tu contraseña?": en lugar de un enlace manda un código de
+# 6 dígitos que se escribe en la app (index.html). Corre sola al cambiar este archivo en main
+# y también a mano (Run workflow). No imprime nada de la configuración del proyecto.
+name: Configurar correo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/configurar-correo.yml']
+
+jobs:
+  configurar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Plantilla de recuperación
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          plantilla='<h2>Cambiar tu contraseña</h2>
+          <p>Escribe este código en la app:</p>
+          <p style="font-size: 28px; font-weight: bold; letter-spacing: 6px;">{{ .Token }}</p>
+          <p>Sirve durante una hora. Si no lo pediste, ignora este correo.</p>'
+          codigo=$(jq -n --arg c "$plantilla" '{
+              mailer_subjects_recovery: "Tu código para cambiar la contraseña",
+              mailer_templates_recovery_content: $c,
+              mailer_otp_length: 6,
+              mailer_otp_exp: 3600
+            }' | curl -sS -o respuesta.json -w '%{http_code}' \
+            -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" --data @-)
+          if [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]; then
+            echo "Plantilla guardada."
+          else
+            echo "No se pudo guardar ($codigo): $(jq -r '.message // .error // "sin detalle"' respuesta.json 2>/dev/null | head -c 500)"
+            rm -f respuesta.json
+            exit 1
+          fi
+          rm -f respuesta.json
