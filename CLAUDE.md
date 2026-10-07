@@ -13,7 +13,10 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   no se toca.
 - `supabase/functions/asistente/`: Edge Function (Deno) que habla con la API de
   Claude: chat del asistente (meta: que al usuario le quede más dinero cada mes;
-  datos correctos como base), revisión diaria proactiva con seguimiento, topes con IA y lectura del saldo desde una captura.
+  datos correctos como base), revisión diaria proactiva con seguimiento, topes con IA, lectura del saldo desde una captura
+  y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
+  categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
+  varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.

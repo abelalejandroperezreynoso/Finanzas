@@ -15,6 +15,7 @@
 // o tocar datos de otro usuario. El modelo se cambia con el secreto MODELO_IA, sin redesplegar.
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { resumenOrden, revisarOrden } from "./orden.ts";
 
 const MODELO = Deno.env.get("MODELO_IA") ?? "claude-haiku-4-5";
 
@@ -120,6 +121,36 @@ const HERRAMIENTAS: Json[] = [
       type: "object",
       properties: { desde: { type: "string" }, hasta: { type: "string" } },
       required: ["desde", "hasta"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "revisar_orden",
+    description:
+      "Revisa qué tan ordenadas están sus cuentas y categorías: uso de cada categoría (movimientos y último uso), posibles duplicadas (nombre igual o parecido " +
+      "en la misma cuenta y tipo), movimientos que parecen ir en otra categoría (con sus ids), categorías sin uso, y categorías, cuentas y gastos sin descripción " +
+      "o sin prioridad. Úsala cuando pida ordenar, limpiar o revisar sus categorías o cuentas, al atender un hallazgo de orden, o si dudas de si una categoría se usa. " +
+      "Son pistas: confírmalas con las descripciones antes de proponer.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "proponer_mover_movimientos",
+    description:
+      "Propone pasar varios movimientos a otra categoría en UNA sola tarjeta: el usuario confirma una vez. Úsala para juntar una categoría duplicada en la que se queda " +
+      "(origen_categoria_id: todos sus movimientos) o para mover un grupo mal clasificado (registro_ids). Sólo entre categorías del mismo tipo y, salvo cambia_cuenta, " +
+      "de la misma cuenta; las inversiones no se mueven. NO lo aplica: el usuario lo confirmará. Para un solo movimiento con otros cambios usa proponer_cambio_movimiento.",
+    input_schema: {
+      type: "object",
+      properties: {
+        registro_ids: { type: "array", items: { type: "string" }, description: "ids de los movimientos (de revisar_orden o consultar_movimientos). Omítelo si usas origen_categoria_id" },
+        origen_categoria_id: { type: "string", description: "Mueve TODOS los movimientos de esta categoría (por ejemplo, la duplicada que sobra)" },
+        categoria_id: { type: "string", description: "Categoría destino" },
+        categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que esto) y que aún no existe" },
+        cambia_cuenta: { type: "boolean", description: "true sólo si el destino es de otra cuenta y el usuario dijo que ese dinero de verdad salió o entró por esa cuenta: cambia el saldo de las dos" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
+        resumen: { type: "string", description: "Qué se mueve, en una frase para el usuario" },
+      },
+      required: ["resumen"],
       additionalProperties: false,
     },
   },
@@ -529,8 +560,9 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
 // conAltas: la app sabe crear cuentas y categorías propuestas y cambiar el saldo inicial
 // conPorNombre: la app sabe registrar un movimiento en una categoría propuesta que aún no existe
 // conMoverANueva: la app sabe pasar un movimiento existente a una categoría propuesta que aún no existe
+// conMoverBloque: la app sabe aplicar proponer_mover_movimientos (varios movimientos en una tarjeta)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; recurrentes?: Json[] };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; recurrentes?: Json[] };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
   if (!Array.isArray(lista)) return undefined;
@@ -637,6 +669,20 @@ async function cajaUsdDeCuenta(sb: SupabaseClient, catalogo: Catalogo, cuentaId:
     if (!data || data.length < 1000) break;
   }
   return Math.round(caja * 100) / 100;
+}
+
+// Todos los movimientos, de mil en mil (lo más que entrega la base por consulta), para la revisión de
+// orden. null si no se pudieron leer.
+async function leerRegistrosOrden(sb: SupabaseClient): Promise<Json[] | null> {
+  const todos: Json[] = [];
+  for (let desde = 0; desde < 200_000; desde += 1000) {
+    const { data, error } = await sb.from("registros").select("id, categoria_id, fecha, monto, descripcion")
+      .order("id").range(desde, desde + 999);
+    if (error) return null;
+    todos.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return todos;
 }
 
 async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zona, catalogo: Catalogo, nombre: string, entrada: Json, propuestas: Json[], memoria: Json[], listas: Json[] = []): Promise<{ texto: string; error?: boolean }> {
@@ -1407,6 +1453,112 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         )),
       };
     }
+    case "revisar_orden": {
+      const registros = await leerRegistrosOrden(sb);
+      if (!registros) return { texto: "No pude leer tus movimientos.", error: true };
+      return {
+        texto: recortar(revisarOrden({
+          cuentas: catalogo.cuentas, categorias: catalogo.categorias, registros,
+          hoy: fechaLocal(new Date().toISOString(), zona).slice(0, 10), diaDe: (iso) => fechaLocal(iso, zona).slice(0, 10),
+        })),
+      };
+    }
+    case "proponer_mover_movimientos": {
+      if (!zona.conMoverBloque) return { texto: "Esta versión de la app no mueve varios movimientos en una sola tarjeta: propón cada uno con proponer_cambio_movimiento, o dile que cierre y abra la app para actualizarla.", error: true };
+      const porId = new Map<string, Json>(catalogo.categorias.map((c: Json) => [String(c.id), c]));
+      const ids = [...new Set((Array.isArray(entrada.registro_ids) ? entrada.registro_ids : []).map((x: unknown) => String(x).trim()).filter(Boolean))] as string[];
+      const origen = entrada.origen_categoria_id ? porId.get(String(entrada.origen_categoria_id)) : null;
+      if (entrada.origen_categoria_id && !origen) return { texto: "No encontré la categoría de origen.", error: true };
+      if (origen && ids.length) return { texto: "Usa registro_ids u origen_categoria_id, no los dos.", error: true };
+      if (!origen && !ids.length) return { texto: "Indica qué mover: registro_ids, u origen_categoria_id para todos los de una categoría.", error: true };
+      if (ids.length > 2000) return { texto: "Son demasiados movimientos para una tarjeta (máximo 2000): pártelos en grupos.", error: true };
+
+      // Destino: una categoría que ya existe o una que propusiste en este mismo turno
+      let destinoId: string | null = null, destinoNombre = "", destinoTipo = "", destinoCuentaId: string | null = null, destinoCuenta = "";
+      let porNombre: Json = null;
+      if (entrada.categoria_id) {
+        const c = porId.get(String(entrada.categoria_id));
+        if (!c) return { texto: "No encontré la categoría destino.", error: true };
+        destinoId = String(c.id); destinoNombre = catalogo.etiqueta[destinoId] ?? c.nombre; destinoTipo = c.tipo;
+        destinoCuentaId = String(c.cuenta_id); destinoCuenta = c.cuentas?.nombre ?? "";
+      } else if (entrada.categoria_nueva) {
+        const nombre = String(entrada.categoria_nueva).trim().toLowerCase();
+        const nueva = propuestas.find((x: Json) => x.tipo === "nueva_categoria" && String(x.datos?.nombre).trim().toLowerCase() === nombre);
+        if (!nueva) return { texto: "categoria_nueva debe ser el nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno, antes de moverlos.", error: true };
+        porNombre = { nombre: nueva.datos.nombre, cuenta: nueva.cuenta };
+        destinoNombre = nueva.datos.nombre; destinoTipo = nueva.datos.tipo;
+        destinoCuentaId = nueva.datos.cuenta_id ? String(nueva.datos.cuenta_id) : null; destinoCuenta = nueva.cuenta ?? "";
+      } else {
+        return { texto: "Falta la categoría destino: categoria_id o categoria_nueva.", error: true };
+      }
+      if (destinoTipo === "inversion") return { texto: "Los movimientos de inversión no se mueven desde aquí.", error: true };
+      if (origen && destinoId === String(origen.id)) return { texto: "El origen y el destino son la misma categoría.", error: true };
+
+      // Los movimientos: todos los de la categoría de origen, o los que se pidieron
+      const COLUMNAS = "id, categoria_id, fecha, monto, cantidad";
+      let regs: Json[] = [];
+      if (origen) {
+        for (let desde = 0; ; desde += 1000) {
+          const { data, error } = await sb.from("registros").select(COLUMNAS).eq("categoria_id", origen.id).order("id").range(desde, desde + 999);
+          if (error) return { texto: `Error: ${error.message}`, error: true };
+          regs.push(...(data ?? []));
+          if (!data || data.length < 1000) break;
+        }
+        if (regs.length > 2000) return { texto: "La categoría tiene más de 2000 movimientos: muévelos en grupos con registro_ids.", error: true };
+      } else {
+        for (let k = 0; k < ids.length; k += 100) {
+          const { data, error } = await sb.from("registros").select(COLUMNAS).in("id", ids.slice(k, k + 100));
+          if (error) return { texto: `Error: ${error.message}`, error: true };
+          regs.push(...(data ?? []));
+        }
+        const vistos = new Set(regs.map((r: Json) => String(r.id)));
+        const faltan = ids.filter((x) => !vistos.has(x));
+        if (faltan.length) return { texto: `No encontré ${faltan.length} de esos movimientos (${faltan.slice(0, 5).join(", ")}). Búscalos de nuevo con revisar_orden o consultar_movimientos.`, error: true };
+      }
+      if (destinoId) regs = regs.filter((r: Json) => String(r.categoria_id) !== destinoId);
+      if (!regs.length) return { texto: origen ? "La categoría de origen no tiene movimientos que mover." : "Esos movimientos ya están en esa categoría.", error: true };
+
+      // Mismo tipo siempre; misma cuenta salvo que el usuario diga que el dinero pasó por la otra
+      const origenes = new Map<string, { nombre: string; cuenta: string; cuentaId: string; movimientos: number }>();
+      for (const r of regs) {
+        const c = porId.get(String(r.categoria_id));
+        if (!c) return { texto: "Uno de los movimientos es de una categoría que no encontré.", error: true };
+        if (c.tipo === "inversion") return { texto: "Los movimientos de inversión no se mueven desde aquí.", error: true };
+        if (c.tipo !== destinoTipo) return { texto: `Sólo se mueve entre categorías del mismo tipo: ${catalogo.etiqueta[String(c.id)] ?? c.nombre} es ${c.tipo} y ${destinoNombre} es ${destinoTipo}.`, error: true };
+        const o = origenes.get(String(c.id)) ?? { nombre: catalogo.etiqueta[String(c.id)] ?? c.nombre, cuenta: c.cuentas?.nombre ?? "", cuentaId: String(c.cuenta_id), movimientos: 0 };
+        o.movimientos++;
+        origenes.set(String(c.id), o);
+      }
+      const deOtraCuenta = [...origenes.values()].filter((o) =>
+        destinoCuentaId ? o.cuentaId !== destinoCuentaId : o.cuenta.trim().toLowerCase() !== destinoCuenta.trim().toLowerCase());
+      if (deOtraCuenta.length && entrada.cambia_cuenta !== true) {
+        return {
+          texto: `${destinoNombre} es de la cuenta ${destinoCuenta} y ${deOtraCuenta.map((o) => `${o.nombre} es de ${o.cuenta}`).join(", ")}: moverlos cambia el saldo de las dos cuentas. ` +
+            `Para ordenar usa una categoría de la misma cuenta (o propón una ahí). Sólo si el usuario dijo que ese dinero de verdad salió o entró por ${destinoCuenta}, vuelve a llamar con cambia_cuenta: true.`,
+          error: true,
+        };
+      }
+
+      const salud = destinoTipo === "salud";
+      const total = regs.reduce((a: number, r: Json) => a + Math.abs(Number(salud ? r.cantidad : r.monto) || 0), 0);
+      const dias = regs.map((r: Json) => fechaLocal(r.fecha, zona).slice(0, 10)).sort();
+      propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
+        tipo: "mover_movimientos", resumen: String(entrada.resumen).slice(0, 200),
+        ids: regs.map((r: Json) => r.id),
+        ...(destinoId ? { categoria_id: destinoId } : { categoria_por_nombre: porNombre }),
+        destino: destinoNombre, destino_cuenta: destinoCuenta,
+        origenes: [...origenes.values()].map((o) => ({ nombre: o.nombre, cuenta: o.cuenta, movimientos: o.movimientos })),
+        movimientos: regs.length, total: Math.round(total * 100) / 100, ...(salud ? { salud: true } : {}),
+        desde: dias[0], hasta: dias[dias.length - 1],
+        ...(deOtraCuenta.length ? { cambia_cuenta: true } : {}),
+        ...(origen ? { origen_categoria_id: origen.id, vacia: catalogo.etiqueta[String(origen.id)] ?? origen.nombre } : {}),
+      });
+      return {
+        texto: `Propuesta registrada: ${regs.length} movimientos a ${destinoNombre}. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada.` +
+          (origen ? ` Al confirmarla, ${catalogo.etiqueta[String(origen.id)] ?? origen.nombre} queda vacía: dile que, si ya no la usa, la borre en Categorías (tú no puedes borrar).` : ""),
+      };
+    }
     case "resumen_por_categoria": {
       const { data, error } = await sb.from("registros").select("monto, cantidad, categoria_id")
         .gte("fecha", inicioDeDia(entrada.desde, zona)).lte("fecha", finDeDia(entrada.hasta, zona)).limit(20000);
@@ -1628,7 +1780,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (ticker) {
         return { texto: `Propuesta registrada: la categoría se llamará ${nombre} [${ticker}] (${empresa}); llámala así. Todavía NO está creada. Si es para una compra, propónla ya con proponer_movimiento_inversion y ticker="${ticker}": el usuario confirma primero la categoría y luego la compra.` };
       }
-      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Los movimientos que ya existen no se mueven solos a ella: para pasar uno, proponlo con proponer_cambio_movimiento y categoria_nueva." };
+      return { texto: "Propuesta registrada. El usuario la verá con botones para confirmar o cancelar; todavía NO está creada. Los movimientos que ya existen no se mueven solos a ella: para pasarlos, propón proponer_mover_movimientos (o proponer_cambio_movimiento si es uno) con categoria_nueva." };
     }
     case "proponer_nuevo_movimiento": {
       let c: Json = null;
@@ -1738,7 +1890,7 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 - Descripción: con sus palabras, corta y con la ortografía corregida.
 - Categoría: la que le queda por nombre, descripción o por dónde registró antes cosas parecidas (también por dónde está ahora, si la app lo dice). Si dos son igual de probables, pregunta.
 - Si ninguna le queda de verdad, no la metas en la más parecida ni en la única que haya (un limpiador facial no es Ropa; un Uber no es Comida): en el mismo turno, primero proponer_nueva_categoria (nombre general como "Cuidado personal", descripción, prioridad, en la cuenta de sus demás gastos; si no es obvia la cuenta, pregunta) y luego proponer_nuevo_movimiento con categoria_nueva. Dile que confirme primero la categoría.
-- Para pasar movimientos que ya existen a una categoría nueva: proponer_nueva_categoria y, en el mismo turno, proponer_cambio_movimiento con categoria_nueva por cada uno. Nunca se mueven solos.
+- Para pasar movimientos que ya existen a una categoría nueva: proponer_nueva_categoria y, en el mismo turno, proponer_mover_movimientos con categoria_nueva (todos en una tarjeta; proponer_cambio_movimiento si es uno). Nunca se mueven solos.
 - Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento de hoy, 360, categoría del Hyundai, descripción "Aceite"; luego: "Te dejé el registro para confirmar."
 - Si pide que lo guíes: pregunta categoría (las 3 o 4 que más usa) y cuándo (Hoy, Ayer); luego monto y descripción con opciones de sus movimientos anteriores; luego propón. No repitas lo que ya dijo.
 
@@ -1775,6 +1927,15 @@ Para cómo va el mes, si llega a fin de mes o dónde ajustar, llama a pronostico
 2. Pronóstico: saldo estimado a fin de mes y, si queda en negativo, el día aproximado. Menciona ingresos atrasados o pagos grandes por venir que lo expliquen. Aclara que es una estimación.
 3. Máximo 3 acciones concretas, ordenadas por cuánto ayudan, cada una con monto ("Si dejas Restaurante en $2,500 este mes, ahorras $1,800 frente a tu promedio"). Prioriza lo prescindible y lo útil que va arriba de lo normal; no propongas recortar lo vital.
 No enlistes todas las categorías ni cifras pequeñas que no cambian el resultado. Antes de interpretar una categoría, lee su descripción.
+
+# Orden de cuentas y categorías
+Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o revisar sus categorías o cuentas (o atienda un hallazgo de orden), llama a revisar_orden y ve en este orden, pocas cosas por turno (máximo 5 tarjetas; luego ofrece seguir):
+1. Duplicadas: dos categorías de la misma cuenta y tipo para lo mismo. Léelas antes: "Uber" y "Uber Eats" o "Comida" y "Comida rápida" pueden ser distintas a propósito. Se queda la de más movimientos o mejor descrita (si no es claro cuál, pregunta); pásale todos los de la otra con proponer_mover_movimientos (origen_categoria_id) y, si hace falta, mejora su descripción. Dile que, ya vacía, borre la otra en Categorías: tú no puedes borrar.
+2. Mal clasificados: movimientos cuya descripción dice que van en otra categoría. Muévelos juntos con proponer_mover_movimientos (registro_ids). Si la otra categoría también tiene sentido, pregunta.
+3. Descripciones: a cada categoría o cuenta sin descripción propónle una con lo que ves en sus movimientos (qué entra en ella); si no es obvio, pregunta con opciones. A los gastos sin prioridad, propónsela.
+4. Sin uso: dile cuáles no usa hace meses o nunca usó, para que las borre si ya no le sirven. No sugieras borrar las de pagos de una vez al año, ni deudas o préstamos con saldo pendiente, ni inversiones con acciones.
+- La misma categoría en dos cuentas no es duplicada: cada cuenta tiene las suyas. Para ordenar nunca muevas movimientos a otra cuenta (cambia los saldos), salvo que el usuario diga que ese dinero de verdad salió o entró por esa cuenta.
+- Si todo está en orden, dilo en una frase.
 
 # Cuadrar cuentas
 Cuando diga cuánto tiene de verdad en una cuenta que ya tiene movimientos, o que algo no le cuadra:
@@ -1891,7 +2052,7 @@ const ESQUEMA_SALDO = {
 };
 
 const SISTEMA_REVISION = `Eres el asistente proactivo de una app personal de finanzas (México, MXN). Tu objetivo es que al usuario le quede más dinero cada mes y que su patrimonio crezca; sus datos correctos son la base.
-Recibes: tu memoria sobre el usuario (metas, ingresos esperados, deudas, compromisos, preferencias), lo que le quedó cada mes (ingresos menos gastos, más deudas, préstamos e inversiones), sus categorías (con tipo, prioridad y descripción) con lo que se movió en cada una mes por mes, sus movimientos recientes y lo que le señalaste en revisiones anteriores con lo que hizo (pendiente, atendido o descartado).
+Recibes: tu memoria sobre el usuario (metas, ingresos esperados, deudas, compromisos, preferencias), lo que le quedó cada mes (ingresos menos gastos, más deudas, préstamos e inversiones), sus categorías (con tipo, prioridad y descripción) con lo que se movió en cada una mes por mes, sus movimientos recientes, pistas de orden de sus categorías y cuentas, y lo que le señalaste en revisiones anteriores con lo que hizo (pendiente, atendido o descartado).
 Monto negativo = salió dinero; positivo = entró. Tipos: gasto, ingreso, deuda, prestamo, inversion, salud (salud no es dinero: lleva cantidad y monto 0).
 Préstamos y deudas: el tipo de la categoría ya dice quién le debe a quién, nunca lo preguntes. prestamo = dinero que el usuario le prestó a alguien (se lo deben): monto negativo = le prestó, positivo = le pagaron (cobro); lo pendiente por cobrar es lo prestado menos lo cobrado. deuda = dinero que el usuario debe (le prestaron o compró a crédito): monto positivo = recibió el préstamo, negativo = abonó; lo pendiente por pagar es lo recibido menos lo abonado. El nombre de la categoría suele ser la persona o el bien (por ejemplo "Abel" o "Audi A7"); la descripción de cada movimiento dice el motivo.
 
@@ -1900,6 +2061,7 @@ Busca, en este orden de importancia:
 2. Seguimiento ("seguimiento"): de lo que atendió antes o de sus compromisos y metas en la memoria, di con cifras si va funcionando o no (por ejemplo, "Comida fuera: $2,100 este mes vs $3,400 de costumbre").
 3. Lo que más mueve lo que le queda cada mes: ahorros concretos en lo que creció o es prescindible ("ahorro"); ingresos que bajaron o se retrasaron, deudas que conviene pagar primero o dinero parado que podría rendir ("patrimonio"). Da cifras.
 4. Algo que convenga anticipar este mes ("anticipar").
+5. Orden ("clasificacion"), máximo 2 y sólo si son claros, con las pistas de orden: categorías duplicadas en la misma cuenta, movimientos en la categoría equivocada, categorías muy usadas sin descripción o que ya no se usan. Confírmalo con las descripciones ("Uber" y "Uber Eats" no son duplicadas). El mensaje pide ordenarlo en concreto, por ejemplo "Junta Comidas en Comida: pasa sus 12 movimientos".
 
 Reglas:
 - Máximo 6 hallazgos, del de más impacto al de menos. Si no hay nada relevante, devuelve la lista vacía: no inventes ni rellenes.
@@ -2026,15 +2188,21 @@ Deno.serve(async (req) => {
       }
       const desde = new Date(Date.now() - 125 * 86_400_000).toISOString();
       const hace45 = fechaLocal(new Date(Date.now() - 45 * 86_400_000).toISOString(), zonaR).slice(0, 10);
-      const [{ data: cats, error: e1 }, { data: regs, error: e2 }, notasR, { data: previos }] = await Promise.all([
-        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuentas(*)"),
+      const [{ data: cats, error: e1 }, { data: regs, error: e2 }, notasR, { data: previos }, { data: cuentasR }, todosR] = await Promise.all([
+        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuenta_id, ticker, cuentas(*)"),
         sb.from("registros").select("id, categoria_id, monto, cantidad, fecha, descripcion, lugar").gte("fecha", desde).order("fecha", { ascending: false }).limit(4000),
         leerMemoria(sb),
         conSeguimiento
           ? sb.from("hallazgos_ia").select("dia, tipo, titulo, detalle, estado").gte("dia", hace45).order("dia", { ascending: false }).limit(60)
           : Promise.resolve({ data: [] as Json[] }),
+        sb.from("cuentas").select("id, nombre, descripcion"),
+        // Todos los movimientos, para las pistas de orden (duplicadas, sin uso, mal clasificados)
+        leerRegistrosOrden(sb),
       ]);
       if (e1 || e2) return responder({ error: "No se pudieron leer tus datos." }, 500);
+      const orden = todosR
+        ? resumenOrden({ cuentas: cuentasR ?? [], categorias: cats ?? [], registros: todosR, hoy: hoyR, diaDe: (iso) => fechaLocal(iso, zonaR).slice(0, 10) })
+        : null;
       const porCat: Record<string, Json> = {};
       (cats ?? []).forEach((c: Json) => {
         porCat[String(c.id)] = {
@@ -2072,7 +2240,8 @@ Deno.serve(async (req) => {
         content: `Hoy es ${DIAS_SEMANA[new Date(`${hoyR}T12:00:00Z`).getUTCDay()]} ${hoyR}. Calendario: ${calendarioCercano(hoyR)}. El mes en curso va incompleto.\n\nTu memoria sobre el usuario:\n${textoMemoria(notasR)}\n\n` +
           `Lo que le quedó cada mes:\n${JSON.stringify(tabla(COLUMNAS_FLUJO, flujo))}\n\n` +
           `Lo que le señalaste en revisiones anteriores (últimos 45 días):\n${anteriores.length ? JSON.stringify(tabla(["dia", "tipo", "titulo", "detalle", "estado"], anteriores)) : "(nada)"}\n\n` +
-          `Categorías con movimientos en los últimos meses:\n${JSON.stringify(categorias)}\n\nMovimientos de los últimos 35 días:\n${JSON.stringify(recientes)}`,
+          `Categorías con movimientos en los últimos meses:\n${JSON.stringify(categorias)}\n\nMovimientos de los últimos 35 días:\n${JSON.stringify(recientes)}` +
+          `\n\nPistas de orden de sus categorías y cuentas (de todo su historial):\n${orden ? JSON.stringify(orden) : "(no disponibles)"}`,
       }];
       const r = await client.beta.messages.create(p);
       if (r.stop_reason === "refusal") return responder({ error: "La IA no pudo responder esta vez." }, 422);
@@ -2171,7 +2340,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, recurrentes: limpiarRecurrentes(entrada.recurrentes) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, recurrentes: limpiarRecurrentes(entrada.recurrentes) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

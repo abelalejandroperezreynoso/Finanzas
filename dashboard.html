@@ -16225,6 +16225,15 @@
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
                                     if ('categoria_id' in c || p.categoria_por_nombre) filas.push(`Categoría: ${flecha(a.categoria, p.categoria_nueva)}`);
                                     filas.unshift(`Movimiento: ${escaparHtml(a.categoria || '')} · ${escaparHtml((a.fecha || '').slice(0, 10))} · ${escaparHtml(fMoneda(Math.abs(a.monto || 0)))}`);
+                                } else if (p.tipo === 'mover_movimientos') {
+                                    const n = Number(p.movimientos) || (p.ids || []).length;
+                                    const total = p.salud ? fCantidadSalud(p.total) : fMoneda(p.total || 0);
+                                    filas.push(`Movimientos: <b>${n}</b>${p.total ? ` · ${escaparHtml(total)}` : ''}`);
+                                    filas.push(`De: ${(p.origenes || []).map(o => `${escaparHtml(o.nombre)}${(p.origenes || []).length > 1 ? ` (${o.movimientos})` : ''}`).join(', ')}`);
+                                    filas.push(`A: <b>${escaparHtml(p.destino || '')}</b>`);
+                                    if (p.desde) filas.push(`Fechas: ${escaparHtml(p.desde === p.hasta ? fechaAmigable(p.desde) : `${fechaAmigable(p.desde)} a ${fechaAmigable(p.hasta)}`)}`);
+                                    if (p.cambia_cuenta) filas.push(`Cuenta: ${flecha([...new Set((p.origenes || []).map(o => o.cuenta))].join(', '), p.destino_cuenta)} · cambia el saldo de ambas`);
+                                    if (p.vacia) filas.push(`${escaparHtml(p.vacia)} queda vacía`);
                                 } else if (p.tipo === 'cambio_categoria') {
                                     const c = p.cambios || {}, a = p.antes || {};
                                     filas.push(`Categoría: ${escaparHtml(a.nombre || '')}`);
@@ -16381,6 +16390,7 @@
                             // categoría o cuenta; en un registro nuevo, sólo si la IA dice que lo corrige.
                             function propuestaQueCorrige(p) {
                                 const clave = x => x.tipo === 'cambio_movimiento' ? x.registro_id
+                                    : x.tipo === 'mover_movimientos' ? x.origen_categoria_id
                                     : x.tipo === 'cambio_categoria' ? x.categoria_id
                                     : x.tipo === 'cambio_cuenta' ? x.cuenta_id : null;
                                 for (let k = chatUi.length - 1; k >= 0; k--) {
@@ -16440,7 +16450,7 @@
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, recurrentes: recurrentesParaAsistente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, recurrentes: recurrentesParaAsistente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17879,6 +17889,35 @@
                                         : await clienteSupabase.from('registros').update(cambios).eq('id', p.registro_id);
                                     // Un movimiento que cambia deja de estar auditado, como al editarlo a mano
                                     if (!res.error && !res.falta) clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).eq('id', p.registro_id).then(() => {}, () => {});
+                                } else if (p.tipo === 'mover_movimientos') {
+                                    let destinoId = p.categoria_id;
+                                    // A una categoría propuesta en el mismo chat: se busca por nombre ya confirmada
+                                    const destino = p.categoria_por_nombre;
+                                    if (!destinoId && destino) {
+                                        const { data: cats } = await clienteSupabase.from('categorias').select('id, nombre, cuentas(nombre)');
+                                        const igual = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+                                        const candidatas = (cats || []).filter(c => igual(c.nombre, destino.nombre));
+                                        const cat = candidatas.find(c => igual(c.cuentas && c.cuentas.nombre, destino.cuenta)) || candidatas[0];
+                                        if (cat) destinoId = cat.id;
+                                    }
+                                    if (!destinoId) res = { falta: `Primero confirma la categoría "${destino ? destino.nombre : p.destino}".` };
+                                    else {
+                                        // De cien en cien, para no armar una consulta enorme
+                                        const ids = p.ids || [];
+                                        let movidos = 0;
+                                        res = {};
+                                        for (let k = 0; k < ids.length && !res.error; k += 100) {
+                                            const lote = ids.slice(k, k + 100);
+                                            const r2 = await clienteSupabase.from('registros').update({ categoria_id: destinoId }).in('id', lote).select('id');
+                                            if (r2.error) { res = r2; break; }
+                                            movidos += (r2.data || []).length;
+                                            // Un movimiento que cambia deja de estar auditado, como al editarlo a mano
+                                            clienteSupabase.from('registros').update({ auditado_en: null, auditado_doc: null }).in('id', lote).then(() => {}, () => {});
+                                        }
+                                        // A medias (falló un lote, u otro teléfono ya los borró): se dice cuántos sí
+                                        if (!res.error && !movidos) res = { error: { message: 'Esos movimientos ya no estaban.' } };
+                                        else if (movidos && movidos < ids.length) chatUi.push({ rol: 'error', texto: `Se movieron ${movidos} de ${ids.length} movimientos; los demás no. Pídeme que lo revise.` });
+                                    }
                                 } else if (p.tipo === 'cambio_categoria') {
                                     res = await clienteSupabase.from('categorias').update(p.cambios).eq('id', p.categoria_id);
                                     // Pasar a Salud: cada movimiento guarda su monto como cantidad y queda en 0 pesos.
