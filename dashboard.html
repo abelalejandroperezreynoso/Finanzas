@@ -16827,7 +16827,7 @@
                             }
                             function guardarPlanIa(plan) {
                                 try {
-                                    if (plan) localStorage.setItem(clavePlanIa(), JSON.stringify({ creado: plan.creado, hasta: plan.hasta, mover: plan.mover, cierre: plan.cierre }));
+                                    if (plan) localStorage.setItem(clavePlanIa(), JSON.stringify({ creado: plan.creado, hasta: plan.hasta, mover: plan.mover, cierre: plan.cierre, saldo_minimo_con_plan: plan.saldo_minimo_con_plan }));
                                     else localStorage.removeItem(clavePlanIa());
                                 } catch (e) { /* sin almacenamiento */ }
                             }
