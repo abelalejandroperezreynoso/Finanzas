@@ -223,7 +223,8 @@
             display: flex; justify-content: space-between; pointer-events: none; }
         #sec-asistente .chat-boton-flotante, #sec-asistente .chat-boton-flotante:hover { pointer-events: auto; width: 44px; height: 44px; margin: 0; padding: 0;
             border-radius: 50%; background: #f3f2ee; border: 1.5px solid #ffffff; box-shadow: 0 8px 24px rgba(20, 20, 19, 0.10);
-            display: flex; align-items: center; justify-content: center; }
+            display: flex; align-items: center; justify-content: center; transition: opacity 0.2s, transform 0.2s; }
+        #sec-asistente .chat-boton-flotante.oculto { opacity: 0; transform: scale(0.8); pointer-events: none; }
         /* Los mensajes se desvanecen al pasar por debajo de la zona del botón */
         #sec-asistente::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: calc(56px + env(safe-area-inset-top)); z-index: 2;
             pointer-events: none; background: linear-gradient(#faf9f5 55%, rgba(250, 249, 245, 0)); }
@@ -2419,7 +2420,7 @@
             <button type="button" class="chat-boton-flotante" onclick="cerrarAsistente()" aria-label="Regresar" title="Regresar">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#141413" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
             </button>
-            <button type="button" class="chat-boton-flotante" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación">
+            <button type="button" class="chat-boton-flotante" id="chatNueva" onclick="nuevaConversacionAsistente()" aria-label="Nueva conversación" title="Nueva conversación">
                 <svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2.6a9.4 9.4 0 0 0-8.2 14l-1.2 4.1a.6.6 0 0 0 .75.75l4.1-1.2A9.4 9.4 0 1 0 12 2.6z" fill="#141413"></path><path d="M12 8v8M8 12h8" stroke="#ffffff" stroke-width="2" stroke-linecap="round"></path></svg>
             </button>
         </div>
@@ -16276,6 +16277,7 @@
 
                             function pintarChatAsistente(sinDesplazar) {
                                 guardarChatAsistente();
+                                actualizarBotonNuevaAsistente();
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
                                 pintarPreguntasAsistente();
@@ -17327,8 +17329,19 @@
                                 enviarMensajeAsistente();
                             }
 
+                            // "Nueva conversación" sólo cuando hay algo que borrar: mensajes, texto o adjuntos
+                            function actualizarBotonNuevaAsistente() {
+                                const boton = document.getElementById('chatNueva');
+                                const campo = document.getElementById('chatTexto');
+                                if (!boton) return;
+                                const hayAlgo = chatUi.some(m => !(m.registro && m.estado === 'pendiente'))
+                                    || !!(campo && campo.value.trim()) || (chatAdjuntos || []).length > 0;
+                                boton.classList.toggle('oculto', !hayAlgo);
+                            }
+
                             function actualizarBotonEnviarAsistente() {
                                 ajustarAltoChatTexto();
+                                actualizarBotonNuevaAsistente();
                                 const boton = document.getElementById('chatEnviar');
                                 const campo = document.getElementById('chatTexto');
                                 if (!boton) return;
