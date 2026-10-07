@@ -1173,13 +1173,29 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
 
       // Lo que falta del mes: lo normal del mes menos lo que ya pasó, sin pasarse al otro lado (si ya se gastó
       // o cobró más que lo normal, no falta nada). Se reparte en los días en que suele caer; lo que suele caer
-      // antes de hoy y no ha llegado, va mañana y se marca como atrasado.
+      // antes de hoy y no ha llegado (atrasado) se reparte en los días que quedan. Antes iba todo a mañana y
+      // el pronóstico decía "negativo mañana" cuando mañana sólo salían $994.
       const porDia: number[] = new Array(diasMes + 2).fill(0);
       const filas: Json[] = [];
       const porVenir: Json[] = [];
       let gastoMtd = 0, gastoNormalHoy = 0, gastoNormalMes = 0, ingresoMtd = 0, ingresoNormalHoy = 0, ingresoNormalMes = 0;
       const recPorCat: Record<string, Json> = {};
       (zona.recurrentes ?? []).forEach((r: Json) => { if (r.monto > 0) recPorCat[r.categoria_id] = r; });
+      // El próximo ingreso fijo del mes (la quincena): hasta ese día hay que llegar con lo que hay. Lo que sale
+      // antes y se puede mover (una aportación, algo prescindible) es la solución más directa si no alcanza.
+      let fechaIngreso: string | null = null;
+      for (const c of cats) {
+        const f = c.tipo === "ingreso" ? recPorCat[String(c.id)]?.fechas.find((x: string) => x > hoyL && x.slice(0, 7) === mesActual) : null;
+        if (f && (!fechaIngreso || f < fechaIngreso)) fechaIngreso = f;
+      }
+      const manana = `${mesActual}-${String(Math.min(dia + 1, diasMes)).padStart(2, "0")}`;
+      const pagosAntes: Json[] = [];
+      let entraIngreso = 0;
+      const porDiaVariable: number[] = new Array(diasMes + 2).fill(0);
+      const repartir = (v: number, enVariable: boolean) => {
+        const dias = diasMes - dia;
+        for (let d = dia + 1; d <= diasMes; d++) { porDia[d] += v / dias; if (enVariable) porDiaVariable[d] += v / dias; }
+      };
       for (const c of cats) {
         const x = h[String(c.id)] ?? { mtd: 0, total: {}, hasta: {}, despues: {} };
         const rec = recPorCat[String(c.id)];
@@ -1198,6 +1214,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             const v = signo * rec.monto;
             total += v;
             if (f <= hoyL) { vencido += v; porDia[Math.min(dia + 1, diasMes)] += v; } else porDia[Number(f.slice(8, 10))] += v;
+            const cuando = f < hoyL ? manana : f;
+            if (c.tipo === "ingreso" && f === fechaIngreso) entraIngreso += v;
+            if (v < 0 && (!fechaIngreso || cuando < fechaIngreso)) {
+              pagosAntes.push({
+                categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, prioridad: c.prioridad ?? null, monto: Math.round(v), fecha: cuando,
+                ...(f < hoyL ? { vencido: true } : {}),
+                // Lo que se puede dejar para después: aportaciones e inversiones, y lo útil o prescindible
+                se_puede_mover: c.tipo === "inversion" || (c.tipo === "gasto" && c.prioridad !== "vital" && c.prioridad !== "operativa"),
+              });
+            }
           });
           if (Math.abs(total) >= 1) {
             porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(total), origen: "recurrente",
@@ -1211,10 +1237,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           let atrasado = 0;
           if (sumaDespues !== 0 && Math.sign(sumaDespues) === Math.sign(falta)) {
             const escala = Math.min(1, falta / sumaDespues);
-            despues.forEach(([d, v]) => { porDia[d] += v * escala; });
+            despues.forEach(([d, v]) => { porDia[d] += v * escala; if (c.tipo === "gasto") porDiaVariable[d] += v * escala; });
             atrasado = falta - sumaDespues * escala;
           } else atrasado = falta;
-          if (Math.abs(atrasado) >= 1) porDia[Math.min(dia + 1, diasMes)] += atrasado;
+          if (Math.abs(atrasado) >= 1 && dia < diasMes) repartir(atrasado, c.tipo === "gasto");
           const dias = despues.filter(([, v]) => Math.sign(v) === Math.sign(falta)).map(([d]) => d).sort((a, b) => a - b);
           porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta), origen: "promedio",
             dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
@@ -1230,6 +1256,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (saldo < 0 && diaNegativo === null && saldoHoy >= 0) diaNegativo = d;
       }
       const r0 = (v: number) => Math.round(v);
+      let hastaIngreso: Json = null;
+      if (fechaIngreso) {
+        const diaIngreso = Number(fechaIngreso.slice(8, 10));
+        let s = saldoHoy, minAntes = saldoHoy, diaMinAntes = dia;
+        for (let d = dia + 1; d < diaIngreso; d++) { s += porDia[d]; if (s < minAntes) { minAntes = s; diaMinAntes = d; } }
+        hastaIngreso = {
+          fecha: fechaIngreso, entra: r0(entraIngreso), saldo_minimo_antes: r0(minAntes), dia_del_minimo: diaMinAntes, falta: r0(Math.max(0, -minAntes)),
+          pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15),
+          gasto_variable_estimado: r0(porDiaVariable.slice(dia + 1, diaIngreso).reduce((a, b) => a + b, 0)),
+        };
+      }
       filas.sort((a, b) => Math.abs(b[5]) - Math.abs(a[5]) || b[4] - a[4]);
       porVenir.sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto));
 
@@ -1245,9 +1282,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const esperado = gastoNormalHoy > 0 ? gastoNormalHoy : gastoNormalMes * dia / diasMes;
       let control = "bajo control";
       const motivos: string[] = [];
+      // Lo más útil primero: cuánto falta para llegar al próximo ingreso
+      if (hastaIngreso?.falta > 0) motivos.push(`Con ${pesos(saldoHoy)} no llegas al día ${Number(fechaIngreso!.slice(8, 10))}, cuando entran ${pesos(hastaIngreso.entra)}: te faltan ${pesos(hastaIngreso.falta)}`);
       if (saldoHoy <= 0) motivos.push(`Tu saldo está en ${pesos(saldoHoy)}`);
       else if (gastoNormalMes > 0 && saldoHoy < gastoNormalMes * 0.25) motivos.push(`Tu saldo (${pesos(saldoHoy)}) no alcanza ni para una cuarta parte de lo que gastas al mes (${pesos(gastoNormalMes)})`);
-      if (saldoHoy > 0 && diaNegativo !== null) motivos.push(`A este ritmo tu saldo quedaría negativo el día ${diaNegativo}`);
+      if (saldoHoy > 0 && diaNegativo !== null && !(hastaIngreso?.falta > 0)) motivos.push(`A este ritmo tu saldo quedaría negativo el día ${diaNegativo}`);
       if (n >= 2 && quedaProm < 0) motivos.push(`En los últimos meses gastaste más de lo que entró (${pesos(quedaProm)} al mes)`);
       if (motivos.length) control = "fuera de control";
       else {
@@ -1259,6 +1298,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return {
         texto: recortar({
           control: { estado: control, motivos },
+          ...(hastaIngreso ? { hasta_el_ingreso: hastaIngreso } : {}),
           hoy: hoyL, dia, dias_del_mes: diasMes, meses_comparados: n,
           saldo_hoy: r0(saldoHoy), saldo_fin_de_mes_estimado: r0(saldo), saldo_minimo_estimado: r0(minimo), dia_del_minimo: diaMinimo,
           dia_en_que_quedaria_negativo: diaNegativo,
@@ -1269,7 +1309,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           nota: "control es el veredicto (bajo control, atento o fuera de control) y sus motivos: úsalo tal cual, no lo cambies ni le agregues problemas. " +
             "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
             "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
-            "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo supone que llega mañana; si no llega, el saldo quedaría más bajo). Incluye deudas, préstamos e inversiones de esas cuentas.",
+            "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo la reparte en los días que quedan). " +
+            "hasta_el_ingreso: el próximo ingreso fijo del mes, el saldo más bajo antes de ese día, cuánto falta para llegar y los pagos programados antes (se_puede_mover = se puede dejar para después). " +
+            "Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
       };
     }
@@ -1962,16 +2004,17 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 
 # Bajo control
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
-Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes (y, si ayuda, a listar_recurrentes o resumen_prestamos_deudas). El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. No afirmes nada que la herramienta no diga; por ejemplo, no digas que quedará en negativo si saldo_fin_de_mes_estimado es positivo. Contesta en 5 renglones o menos, sin preguntas al final:
+Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
-2. Las soluciones: 2 o 3 acciones concretas, de la que más ayuda a la que menos, cada una con monto y plazo, que juntas alcancen ("No gastes en Restaurante hasta la quincena del 15: $1,200 menos"; "Cóbrale a Abel los $1,500 que te debe"; "Cancela Spotify: $129 al mes"). Empieza por lo prescindible y lo útil; nunca recortes lo vital. Si la causa es un gasto de una sola vez o un dato (un ingreso sin registrar, gastos sin identificar, un saldo que no cuadra), dilo así: la solución es aclararlo, no recortar. Lo que se pueda hacer en la app, propónlo con su herramienta.
-3. Cómo queda si lo hace ("Con eso llegas al 15 con +$300").
-Nada de repasar categorías, explicar cálculos, hablar de metas o inversiones ni dar contexto que no cambie lo que tiene que hacer. No digas la etiqueta del veredicto ("atento", "fuera de control"): di el problema. Si necesitas un dato, pídelo como una de las soluciones ("Dime qué fueron esos $4,800"), sin otra pregunta al final. Antes de interpretar una categoría, lee su descripción.
-Ejemplo de respuesta completa (atento por gastar rápido):
-"Llevas $9,450 de gastos y lo normal a esta fecha son $4,100; casi todo son $4,800 sin identificar en tu tarjeta.
-1. Dime qué fueron esos $4,800: si fue algo de una sola vez, no hay que recortar nada.
-2. Restaurantes va $600 arriba: no salgas a comer hasta la quincena.
-Con eso cierras el mes con unos +$2,300."
+2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha, que juntas alcancen. Si hasta_el_ingreso.falta es mayor que 0, mueve para después de esa fecha los pagos_programados que se_puede_mover (primero aportaciones e inversiones, luego lo prescindible y lo útil) y frena el gasto variable hasta ese día. Si no, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
+3. Cómo queda si lo hace: con hasta_el_ingreso, su saldo_minimo_antes más lo que movió.
+Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas la etiqueta del veredicto ("atento", "fuera de control"): di el problema. Antes de interpretar una categoría, lee su descripción.
+Ejemplo de respuesta completa (no llega a la quincena):
+"Con $3,100 no llegas a la quincena del 15: te faltan $650.
+1. Pasa la aportación de $1,500 a tu inversión del día 10 para después del 15.
+2. Deja la compra de Ropa ($900, día 12) para el 15.
+3. Sin restaurantes hasta el 15.
+Con eso llegas al 15 con unos +$1,750 y ese día entran $15,000."
 
 # Orden de cuentas y categorías
 Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o revisar sus categorías o cuentas (o atienda un hallazgo de orden), llama a revisar_orden y ve en este orden, pocas cosas por turno (máximo 5 tarjetas; luego ofrece seguir):
