@@ -2644,6 +2644,20 @@
     </div>
     <!-- FIN PRECIOS DE MERCADO -->
 
+    <!-- INICIO CONTRASEÑA -->
+    <!-- Se pide la actual para que nadie la cambie con el teléfono desbloqueado. -->
+    <form id="formContrasena" onsubmit="event.preventDefault(); cambiarContrasena();"
+          style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
+        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Contraseña</h3>
+        <input type="password" id="contrasenaActual" placeholder="Actual" autocomplete="current-password" required style="margin-bottom: 8px;">
+        <input type="password" id="contrasenaNueva" placeholder="Nueva (mínimo 6)" autocomplete="new-password" minlength="6" required style="margin-bottom: 8px;">
+        <input type="password" id="contrasenaRepetida" placeholder="Repite la nueva" autocomplete="new-password" minlength="6" required style="margin-bottom: 8px;">
+        <button type="submit" id="btnCambiarContrasena"
+                style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">Cambiar contraseña</button>
+        <div id="avisoContrasena" style="color: #888; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+    </form>
+    <!-- FIN CONTRASEÑA -->
+
     <button id="btnCerrarSesion" class="btn-logout">Cerrar Sesión</button>
     <!-- La versión que el teléfono tiene guardada (la de sw.js), para saber si ya llegó un cambio -->
     <div id="versionApp" style="text-align: center; color: #666; font-size: 0.75em; margin: 14px 0 4px;"></div>
@@ -18199,6 +18213,44 @@
                                     ubicacionReciente = null;
                                 }
                                 pintarUbicacion();
+                            }
+
+                            // ---- Cambiar contraseña (tarjeta de Configuración) ----
+                            async function cambiarContrasena() {
+                                const actual = document.getElementById('contrasenaActual');
+                                const nueva = document.getElementById('contrasenaNueva');
+                                const repetida = document.getElementById('contrasenaRepetida');
+                                const boton = document.getElementById('btnCambiarContrasena');
+                                const aviso = document.getElementById('avisoContrasena');
+                                const avisar = (texto, ok) => { aviso.textContent = texto; aviso.style.color = ok ? '#3ecf8e' : '#ff5c5c'; };
+                                if (nueva.value.length < 6) return avisar('La nueva necesita al menos 6 caracteres.');
+                                if (nueva.value !== repetida.value) return avisar('Las nuevas no coinciden.');
+                                if (nueva.value === actual.value) return avisar('La nueva es igual a la actual.');
+                                boton.disabled = true;
+                                aviso.textContent = 'Cambiando…';
+                                aviso.style.color = '#888';
+                                try {
+                                    const { data: { user } } = await clienteSupabase.auth.getUser();
+                                    if (!user?.email) return avisar('Sin conexión. Intenta de nuevo.');
+                                    // Comprobar la actual: entrar de nuevo con ella
+                                    const { error: errorActual } = await clienteSupabase.auth.signInWithPassword({ email: user.email, password: actual.value });
+                                    if (errorActual) {
+                                        return avisar(/invalid/i.test(errorActual.message) ? 'La contraseña actual no es correcta.' : 'No se pudo comprobar la actual. Intenta de nuevo.');
+                                    }
+                                    const { error } = await clienteSupabase.auth.updateUser({ password: nueva.value });
+                                    if (error) {
+                                        const msg = error.code === 'same_password' ? 'La nueva es igual a la actual.'
+                                            : error.code === 'weak_password' ? 'La nueva es muy débil. Usa otra más larga.'
+                                            : 'No se pudo cambiar. Intenta de nuevo.';
+                                        return avisar(msg);
+                                    }
+                                    actual.value = nueva.value = repetida.value = '';
+                                    avisar('Contraseña cambiada.', true);
+                                } catch (e) {
+                                    avisar('Sin conexión. Intenta de nuevo.');
+                                } finally {
+                                    boton.disabled = false;
+                                }
                             }
 
                             // ---- Avisos de pagos (tarjeta de Configuración) ----
