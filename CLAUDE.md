@@ -83,8 +83,9 @@ Reglas para el SQL:
   con nombre de OpenStreetMap. Se anota después de guardar, nunca lo retrasa.
 - Los registros de tipo `salud` no son dinero (`monto` 0, valor en `cantidad`) y
   se excluyen de todo cálculo monetario. Cada categoría de Salud tiene `grupo_salud`
-  (enfermedad o hábito) y `medida_salud`: intensidad 1–10 (se promedia), veces (se suman)
-  u horas (por día). Los detalles van en la descripción del registro.
+  (enfermedad o hábito) y `medida_salud`: intensidad 1–10 (se promedia), veces (se suman),
+  horas (por día) o valor, una medición con su unidad en `unidad_salud` (°C, mg/dL, kg; se
+  promedia con mínimo y máximo). Los detalles van en la descripción del registro.
 
 ## Antes de subir
 

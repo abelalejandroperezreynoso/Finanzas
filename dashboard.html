@@ -2905,12 +2905,18 @@
                         <label class="rango-ios-fila" id="filaMedidaSaludCat" style="display: none;">
                             <span>Mide</span>
                             <span class="rango-ios-pastilla" id="espejoCatMedidaSalud">—</span>
-                            <select id="catMedidaSalud" onchange="actualizarEspejosCategoria()">
+                            <select id="catMedidaSalud" onchange="mostrarOcultarTicker()">
                                 <option value="">Sin definir</option>
                                 <option value="intensidad">Intensidad (1–10)</option>
                                 <option value="veces">Veces</option>
                                 <option value="horas">Horas</option>
+                                <!-- Lo que se mide con aparato: fiebre, glucosa, peso… -->
+                                <option value="valor">Valor (con unidad)</option>
                             </select>
+                        </label>
+                        <label class="rango-ios-fila" id="filaUnidadSaludCat" style="display: none;">
+                            <span>Unidad</span>
+                            <input type="text" id="catUnidadSalud" class="campo-fila-ios" maxlength="12" placeholder="Ej: °C, mg/dL, kg" autocomplete="off">
                         </label>
                         <label class="rango-ios-fila" id="filaTickerCat" style="display: none;">
                             <span>Ticker</span>
@@ -6331,6 +6337,7 @@
                                                         document.getElementById('catPrioridad').value = '';
                                                         document.getElementById('catGrupoSalud').value = '';
                                                         document.getElementById('catMedidaSalud').value = '';
+                                                        document.getElementById('catUnidadSalud').value = '';
                                                         document.getElementById('catDescripcion').value = '';
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
@@ -7203,11 +7210,11 @@
                 return;
             }
             const m = MEDIDAS_SALUD[cat.medida_salud];
-            etiqueta.textContent = m ? m.nombre : 'Cantidad';
+            etiqueta.textContent = nombreMedidaSalud(cat);
             campo.step = m ? String(m.paso) : 'any';
             campo.placeholder = cat.medida_salud === 'horas' ? '8' : '1';
             if (m && m.max !== undefined) campo.max = String(m.max); else campo.removeAttribute('max');
-            if (m) campo.min = String(m.min); else campo.removeAttribute('min');
+            if (m && m.min !== undefined) campo.min = String(m.min); else campo.removeAttribute('min');
         }
 
         // --- GESTIÓN DE CUENTAS ---
@@ -9552,6 +9559,8 @@
                                                             const fila = document.getElementById(id);
                                                             if (fila) fila.style.display = tipo === 'salud' ? '' : 'none';
                                                         });
+                                                        const filaUnidad = document.getElementById('filaUnidadSaludCat');
+                                                        if (filaUnidad) filaUnidad.style.display = tipo === 'salud' && document.getElementById('catMedidaSalud').value === 'valor' ? '' : 'none';
                                                         const filaDescripcion = document.getElementById('filaDescripcionCat');
                                                         // La descripción sirve en cualquier tipo: dice qué se registra ahí y ayuda a la IA
                                                         if (filaDescripcion) filaDescripcion.style.display = '';
@@ -9621,6 +9630,8 @@
                                         // Salud: grupo y medida; en los demás tipos no significan nada y van nulos
                                         medida_salud: tipo === 'salud' ? (document.getElementById('catMedidaSalud').value || null) : null,
                                         grupo_salud: tipo === 'salud' ? (document.getElementById('catGrupoSalud').value || null) : null,
+                                        unidad_salud: tipo === 'salud' && document.getElementById('catMedidaSalud').value === 'valor'
+                                            ? (document.getElementById('catUnidadSalud').value.trim().slice(0, 12) || null) : null,
                                         desactivar_prediccion: desactivar_prediccion,
                                         // Sólo viaja si hay algo escrito: así una base sin la columna sigue guardando
                                         ...(document.getElementById('catDescripcion').value.trim()
@@ -9671,9 +9682,9 @@
                                             let cuerpoSinFaltantes = body;
                                             for (let intento = 0; intento < 3 && res.error; intento++) {
                                                 const mensaje = res.error.message || '';
-                                                if (/medida_salud|grupo_salud/i.test(mensaje) && 'medida_salud' in cuerpoSinFaltantes) {
+                                                if (/medida_salud|grupo_salud|unidad_salud/i.test(mensaje) && 'medida_salud' in cuerpoSinFaltantes) {
                                                     // La migración de Salud aún no corre: se guarda lo demás
-                                                    const { medida_salud, grupo_salud, ...resto } = cuerpoSinFaltantes;
+                                                    const { medida_salud, grupo_salud, unidad_salud, ...resto } = cuerpoSinFaltantes;
                                                     cuerpoSinFaltantes = resto;
                                                 } else if (/descripcion/i.test(mensaje) && 'descripcion' in cuerpoSinFaltantes) {
                                                     faltaMigracionDescripcion = true;
@@ -9762,6 +9773,7 @@
                                                                     document.getElementById('catPrioridad').value = cat.prioridad || '';
                                                                     document.getElementById('catGrupoSalud').value = cat.grupo_salud || '';
                                                                     document.getElementById('catMedidaSalud').value = cat.medida_salud || '';
+                                                                    document.getElementById('catUnidadSalud').value = cat.unidad_salud || '';
                                                                     document.getElementById('catDescripcion').value = cat.descripcion || '';
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
@@ -9865,8 +9877,15 @@
     var MEDIDAS_SALUD = {
         intensidad: { nombre: 'Intensidad (1–10)', corto: 'Intensidad', min: 1, max: 10, paso: 1 },
         veces: { nombre: 'Veces', corto: 'Veces', min: 0, paso: 1 },
-        horas: { nombre: 'Horas', corto: 'Horas', min: 0, max: 24, paso: 0.25 }
+        horas: { nombre: 'Horas', corto: 'Horas', min: 0, max: 24, paso: 0.25 },
+        valor: { nombre: 'Valor', corto: 'Valor', paso: 'any' }
     };
+    // "Valor (°C)": el nombre de la medida con la unidad de la categoría, si la tiene
+    function nombreMedidaSalud(cat) {
+        const m = MEDIDAS_SALUD[cat && cat.medida_salud];
+        if (!m) return 'Cantidad';
+        return cat.medida_salud === 'valor' && cat.unidad_salud ? `Valor (${cat.unidad_salud})` : m.nombre;
+    }
     var GRUPOS_SALUD = { enfermedad: 'Enfermedades', habito: 'Hábitos' };
     function medidaSalud(cat) {
         return cat && MEDIDAS_SALUD[cat.medida_salud] ? cat.medida_salud : null;
@@ -9876,13 +9895,14 @@
         if (!registros.length) return 0;
         const suma = registros.reduce((a, r) => a + r.n, 0);
         const medida = medidaSalud(cat);
-        if (medida === 'intensidad') return Math.round((suma / registros.length) * 10) / 10;
+        if (medida === 'intensidad' || medida === 'valor') return Math.round((suma / registros.length) * 10) / 10;
         if (medida === 'horas') return Math.round((suma / new Set(registros.map(r => r.dia)).size) * 10) / 10;
         return suma;
     }
     // Cómo se lee la cifra resumida: "2.5 prom.", "7.2 h/día"; las veces se leen solas
     function sufijoResumenSalud(cat) {
         const medida = medidaSalud(cat);
+        if (medida === 'valor') return cat.unidad_salud ? ` ${cat.unidad_salud}` : '';
         return medida === 'intensidad' ? ' prom.' : medida === 'horas' ? ' h/día' : '';
     }
 
@@ -12874,7 +12894,9 @@
                                     if (indice[k] !== undefined) cubetas[indice[k]].push({ dia, n });
                                 });
                                 // Cada barra según lo que mide: la intensidad de ese día (o mes), las veces, las horas
-                                cubetas.forEach(c => valores.push(sel ? resumirCantidadesSalud(sel.cat, c) : 0));
+                                // Una medición (valor) sin registro ese día no es cero: el hueco se deja vacío
+                                const esValor = !!sel && medidaSalud(sel.cat) === 'valor';
+                                cubetas.forEach(c => valores.push(sel ? (c.length || !esValor ? resumirCantidadesSalud(sel.cat, c) : null) : 0));
 
                                 // Promedio sobre los días (o meses) que ya pasaron del tramo
                                 const transcurridos = claves.filter(k => k <= (porDia ? hoy : hoy.slice(0, 7))).length || 1;
@@ -12882,8 +12904,11 @@
                                 const medidaSel = sel ? medidaSalud(sel.cat) : null;
                                 const diasSel = sel ? sel.dias.size : 0;
                                 // Una intensidad o unas horas ya vienen promediadas: lo que se agrega es en cuántos días
+                                const valoresSel = sel ? sel.registros.map(r => r.n) : [];
                                 document.getElementById('promedioSalud').textContent = !(total > 0) ? ''
-                                    : medidaSel === 'intensidad' || medidaSel === 'horas'
+                                    : medidaSel === 'valor' && valoresSel.length > 1
+                                        ? `mín. ${fCantidadSalud(Math.min(...valoresSel))} · máx. ${fCantidadSalud(Math.max(...valoresSel))}`
+                                    : medidaSel === 'intensidad' || medidaSel === 'horas' || medidaSel === 'valor'
                                         ? (diasSel === 1 ? 'en 1 día' : `en ${diasSel} días`)
                                         : `${fCantidadSalud(Math.round((total / transcurridos) * 10) / 10)} ${porDia ? 'al día' : 'al mes'}`;
 
@@ -12891,19 +12916,22 @@
                                 if (graficoSalud) { graficoSalud.destroy(); graficoSalud = null; }
                                 if (lienzo && typeof Chart !== 'undefined') {
                                     graficoSalud = new Chart(lienzo, {
-                                        type: 'bar',
-                                        data: { labels: etiquetas, datasets: [{ data: valores, backgroundColor: '#bf5af2', borderRadius: 4, maxBarThickness: 18 }] },
+                                        // Una medición se lee como línea (cómo sube y baja); lo demás, en barras
+                                        type: esValor ? 'line' : 'bar',
+                                        data: { labels: etiquetas, datasets: [esValor
+                                            ? { data: valores, borderColor: '#bf5af2', backgroundColor: '#bf5af2', pointRadius: 3, borderWidth: 2, spanGaps: true, tension: 0.25 }
+                                            : { data: valores, backgroundColor: '#bf5af2', borderRadius: 4, maxBarThickness: 18 }] },
                                         options: {
                                             responsive: true,
                                             maintainAspectRatio: false,
                                             animation: { duration: 300 },
                                             plugins: {
                                                 legend: { display: false },
-                                                tooltip: { callbacks: { label: c => fCantidadSalud(c.raw) } }
+                                                tooltip: { callbacks: { label: c => fCantidadSalud(c.raw) + (sel ? sufijoResumenSalud(sel.cat) : '') } }
                                             },
                                             scales: {
                                                 x: { grid: { display: false }, border: { display: false }, ticks: { color: '#8e8e93', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } } },
-                                                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.08)' }, border: { display: false }, ticks: { color: '#8e8e93', precision: 0, maxTicksLimit: 4, font: { size: 10 } } }
+                                                y: { beginAtZero: medidaSel !== 'valor', grid: { color: 'rgba(255,255,255,0.08)' }, border: { display: false }, ticks: { color: '#8e8e93', precision: 0, maxTicksLimit: 4, font: { size: 10 } } }
                                             }
                                         }
                                     });
@@ -16408,7 +16436,10 @@
                                     if ('sectores' in c) filas.push(`Sectores: ${flecha((a.sectores || []).join(' · ') || 'ninguno', (c.sectores || []).join(' · ') || 'ninguno')}`);
                                     const nombreGrupo = g => g === 'habito' ? 'Hábito' : g === 'enfermedad' ? 'Enfermedad' : 'sin definir';
                                     if ('grupo_salud' in c) filas.push(`Grupo: ${flecha(nombreGrupo(a.grupo_salud), nombreGrupo(c.grupo_salud))}`);
-                                    if ('medida_salud' in c) filas.push(`Mide: ${flecha((MEDIDAS_SALUD[a.medida_salud] || {}).nombre || 'sin definir', (MEDIDAS_SALUD[c.medida_salud] || {}).nombre || 'sin definir')}`);
+                                    if ('medida_salud' in c || 'unidad_salud' in c) {
+                                        const despues = { medida_salud: 'medida_salud' in c ? c.medida_salud : a.medida_salud, unidad_salud: 'unidad_salud' in c ? c.unidad_salud : a.unidad_salud };
+                                        filas.push(`Mide: ${flecha(a.medida_salud ? nombreMedidaSalud(a) : 'sin definir', despues.medida_salud ? nombreMedidaSalud(despues) : 'sin definir')}`);
+                                    }
                                     if (p.convertir_a_salud && p.convertir_a_salud.movimientos) {
                                         filas.push(`Movimientos: <b>${p.convertir_a_salud.movimientos}</b> pasan a cantidad; ${escaparHtml(fMoneda(p.convertir_a_salud.total))} dejan de contar como dinero`);
                                     }
@@ -16433,7 +16464,7 @@
                                     filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
                                     if ((d.sectores || []).length) filas.push(`Sectores: <b>${escaparHtml(d.sectores.join(' · '))}</b>`);
                                     if (d.grupo_salud) filas.push(`Grupo: <b>${escaparHtml(d.grupo_salud === 'habito' ? 'Hábito' : 'Enfermedad')}</b>`);
-                                    if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(MEDIDAS_SALUD[d.medida_salud].nombre)}</b>`);
+                                    if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(nombreMedidaSalud(d))}</b>`);
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'recordatorio') {
@@ -18132,7 +18163,7 @@
                                 try {
                                     const ejemplos = movs.slice(0, 10).map(m => `${m.desc || '(sin descripción)'} · ${fmt(m.valor)}`);
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
-                                        body: { modo: 'pregunta_registro', categoria: { nombre: c.nombre, tipo: c.tipo, descripcion: c.descripcion || null, medida_salud: c.medida_salud || null }, ejemplos }
+                                        body: { modo: 'pregunta_registro', categoria: { nombre: c.nombre, tipo: c.tipo, descripcion: c.descripcion || null, medida_salud: c.medida_salud || null, unidad_salud: c.unidad_salud || null }, ejemplos }
                                     });
                                     if (error || !data || !data.pregunta) return;
                                     const nueva = { modo: data.modo === 'monto' ? 'monto' : 'detalle', pregunta: String(data.pregunta), ejemplo: String(data.ejemplo || '') };
@@ -22064,7 +22095,7 @@
         <span style="color: #aaa;">Categoría:</span> <strong style="color: #fff;">${tipoMovR === 'comision' ? 'Comisión GBM (sale de la Caja GBM)' : nombreCat}</strong><br>
         <span style="color: #aaa;">Descripción:</span> <strong style="color: #fff;">${descripcionMov}</strong><br>
         ${tipoCat === 'salud'
-            ? `<span style="color: #aaa;">${(MEDIDAS_SALUD[((datosCategorias || []).find(c => String(c.id) === String(r.categoria_id)) || {}).medida_salud] || {}).corto || 'Cantidad'}:</span> <strong style="color: #fff;">${fCantidadSalud(cantidadDeRegistro(r))}</strong><br>`
+            ? `<span style="color: #aaa;">${nombreMedidaSalud((datosCategorias || []).find(c => String(c.id) === String(r.categoria_id)))}:</span> <strong style="color: #fff;">${fCantidadSalud(cantidadDeRegistro(r))}</strong><br>`
             : `<span style="color: #aaa;">Monto:</span> <strong style="color: #fff;">${fMoneda(montoAbsoluto)}</strong>${notaMonto}<br>`}
         <span style="color: #aaa;">Fecha:</span> <strong style="color: #fff;">${fechaLocal}</strong>
         ${infoTopInversion}
