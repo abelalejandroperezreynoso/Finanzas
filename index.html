@@ -127,10 +127,13 @@
     <span class="toggle-link" id="linkMostrarLogin">¿Ya tienes cuenta? Inicia sesión</span>
 </div>
 
-<!-- Se llega aquí desde el enlace del correo para recuperar la contraseña -->
+<!-- ¿Olvidaste tu contraseña?: el correo trae un código que se escribe aquí, sin salir de la app -->
 <div class="container" id="nuevaSection">
     <h2>Nueva contraseña</h2>
+    <p id="textoCodigo" style="text-align: center; color: #aaa; font-size: 0.9em; margin: 0 0 8px;"></p>
     <form id="nuevaForm">
+        <label>Código del correo</label>
+        <input type="text" id="codigoCorreo" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8">
         <label>Nueva contraseña (Mínimo 6 caracteres)</label>
         <input type="password" id="passwordNueva" required minlength="6" autocomplete="new-password">
         <label>Repite la contraseña</label>
@@ -138,15 +141,10 @@
         <button type="submit" id="btnNueva">Guardar</button>
     </form>
     <div id="mensajeNueva" class="mensaje"></div>
+    <span class="toggle-link" id="linkVolverLogin">Volver</span>
 </div>
 
 <script>
-    // El enlace del correo trae el aviso en el fragmento (#...type=recovery). Se lee antes de
-    // crear el cliente, que lo borra al convertirlo en sesión.
-    const fragmentoUrl = new URLSearchParams(location.hash.slice(1));
-    const vieneDeRecuperar = fragmentoUrl.get('type') === 'recovery';
-    const enlaceVencido = !!fragmentoUrl.get('error_code');
-
     const supabaseUrl = 'https://wmqxajsgqvhpuvqtrtsp.supabase.co';
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtcXhhanNncXZocHV2cXRydHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTk3NTAsImV4cCI6MjA5NDA5NTc1MH0.bOZUxGN4t2tcFg8_Lpi2GD7l4vRHaWRteWhKpvAeDX0';
         const clienteSupabase = window.supabase.createClient(supabaseUrl, supabaseKey);
@@ -175,21 +173,15 @@
         }
 
         clienteSupabase.auth.getSession().then(({ data: { session } }) => {
-            if (session && vieneDeRecuperar) {
-                mostrarSeccion('nuevaSection');
-            } else if (session) {
+            if (session) {
                 avanzarCarga(25);
                 window.location.replace('dashboard.html');
             } else {
                 mostrarSeccion('loginSection');
-                if (enlaceVencido) {
-                    const msj = document.getElementById('mensajeLogin');
-                    msj.textContent = 'El enlace ya no sirve. Pide otro.'; msj.className = 'mensaje error';
-                }
             }
         });
 
-        // ¿Olvidaste tu contraseña? Manda el enlace al correo escrito arriba
+        // ¿Olvidaste tu contraseña? Manda un código al correo escrito arriba
         document.getElementById('linkOlvide').addEventListener('click', async () => {
             const email = document.getElementById('emailLogin').value.trim();
             const msj = document.getElementById('mensajeLogin');
@@ -199,18 +191,22 @@
                 return;
             }
             msj.textContent = 'Enviando...'; msj.className = 'mensaje exito';
-            const { error } = await clienteSupabase.auth.resetPasswordForEmail(email, {
-                redirectTo: new URL('index.html', location.href).href
-            });
+            const { error } = await clienteSupabase.auth.resetPasswordForEmail(email);
             if (error) {
                 msj.textContent = /rate|seconds/i.test(error.message) ? 'Espera un momento antes de pedir otro.' : 'Error: ' + error.message;
                 msj.className = 'mensaje error';
             } else {
-                msj.textContent = 'Te mandamos un enlace a tu correo.'; msj.className = 'mensaje exito';
+                msj.textContent = '';
+                document.getElementById('textoCodigo').textContent = 'Te mandamos un código a ' + email;
+                mostrarSeccion('nuevaSection');
+                document.getElementById('codigoCorreo').focus();
             }
         });
 
-        // Guardar la nueva contraseña (ya hay sesión gracias al enlace)
+        document.getElementById('linkVolverLogin').addEventListener('click', () => mostrarSeccion('loginSection'));
+
+        // Con el código se entra y luego se guarda la nueva contraseña
+        let codigoUsado = false;
         document.getElementById('nuevaForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const password = document.getElementById('passwordNueva').value;
@@ -221,6 +217,16 @@
                 return;
             }
             btn.disabled = true; btn.textContent = 'Guardando...';
+            const email = document.getElementById('emailLogin').value.trim();
+            const token = document.getElementById('codigoCorreo').value.trim();
+            // El código sirve una sola vez: si la contraseña no se aceptó, el reintento ya no lo pide
+            const { error: errorCodigo } = codigoUsado ? {} : await clienteSupabase.auth.verifyOtp({ email, token, type: 'recovery' });
+            if (!errorCodigo) codigoUsado = true;
+            if (errorCodigo) {
+                btn.disabled = false; btn.textContent = 'Guardar';
+                msj.textContent = 'El código no es correcto o ya venció.'; msj.className = 'mensaje error';
+                return;
+            }
             const { error } = await clienteSupabase.auth.updateUser({ password });
             btn.disabled = false; btn.textContent = 'Guardar';
             if (error) {
