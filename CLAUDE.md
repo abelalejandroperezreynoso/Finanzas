@@ -18,6 +18,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
   categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
   varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.
+  En salud, `resumen_salud` compara cada categoría contra lo normal de la persona, sugiere
+  hábitos para registrar según la enfermedad y busca relaciones entre hábitos y enfermedades.
   Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
