@@ -2244,12 +2244,13 @@ Busca, en este orden de importancia:
 5. Orden ("clasificacion"), máximo 2 y sólo si son claros, con las pistas de orden: categorías duplicadas en la misma cuenta, movimientos en la categoría equivocada, categorías muy usadas sin descripción o que ya no se usan. Confírmalo con las descripciones ("Uber" y "Uber Eats" no son duplicadas). El mensaje pide ordenarlo en concreto, por ejemplo "Junta Comidas en Comida: pasa sus 12 movimientos".
 
 Reglas:
-- Máximo 6 hallazgos, del de más impacto al de menos. Si no hay nada relevante, devuelve la lista vacía: no inventes ni rellenes.
+- Máximo 3 hallazgos, del de más impacto al de menos. Mejor ninguno que uno que no sirva: si no hay nada que el usuario tenga que hacer, devuelve la lista vacía.
+- "accion": lo que el usuario tiene que hacer, en una frase concreta con monto, fecha o movimiento ("No gastes en Regalo hasta el 14", "Confirma si los $2,100 a Judith fueron un abono"). Si no puedes escribirla, no es hallazgo.
 - Si no está bajo control (este mes o los anteriores le queda negativo, o gasta muy por encima de lo normal), el primer hallazgo es cómo recuperarlo: la acción concreta con su monto, no un diagnóstico.
 - Si hay plan vigente, es el plan: no sugieras nada que lo contradiga (invertir, comprar o adelantar pagos antes de su fecha) ni otro plan distinto.
 - No repitas lo que el usuario descartó, salvo que haya empeorado claramente (dilo así). No repitas lo pendiente con otras palabras: si sigue igual, déjalo fuera.
 - Relaciona los hallazgos con sus metas de la memoria cuando aplique.
-- "titulo": una frase corta (máx. 70 caracteres). "detalle": una frase con la cifra o el dato clave (máx. 150).
+- "titulo": el problema en una frase corta con su cifra (máx. 70 caracteres). "detalle": el dato clave (máx. 150); en la tarjeta se muestra la acción en su lugar.
 - Cada hallazgo pide una acción concreta. Lo que va bien o sólo es un dato no es hallazgo: déjalo fuera.
 - Lo ya gastado no se recupera: un hallazgo de ahorro dice cuánto no gastar desde hoy y hasta cuándo, en pesos (no porcentajes como "113% en 6 días"). Si el plan vigente ya lo cubre (por ejemplo, nada prescindible hasta la quincena), no lo repitas.
 - Si un gasto grande parece de otra categoría (un "regalo" a alguien a quien le debe dinero, por ejemplo), el hallazgo es confirmar qué fue, no recortarlo.
@@ -2270,8 +2271,9 @@ const ESQUEMA_REVISION = {
           detalle: { type: "string" },
           mensaje: { type: "string" },
           impacto_mxn: { type: "number" },
+          accion: { type: "string" },
         },
-        required: ["tipo", "titulo", "detalle", "mensaje", "impacto_mxn"],
+        required: ["tipo", "titulo", "detalle", "mensaje", "impacto_mxn", "accion"],
         additionalProperties: false,
       },
     },
@@ -2436,10 +2438,13 @@ Deno.serve(async (req) => {
       if (r.stop_reason === "max_tokens") return responder({ error: "La respuesta de la IA quedó incompleta." }, 502);
       const bloque = r.content.find((b: Json) => b.type === "text") as Json;
       const datos = bloque ? JSON.parse(bloque.text) : { hallazgos: [] };
-      const hallazgos = (Array.isArray(datos.hallazgos) ? datos.hallazgos : []).slice(0, 6).map((h: Json) => ({
+      // Sólo lo que deja algo que hacer: sin acción concreta, el pendiente no sirve y no se guarda
+      const conAccion = (Array.isArray(datos.hallazgos) ? datos.hallazgos : []).filter((h: Json) => String(h.accion ?? "").trim().length >= 12);
+      const hallazgos = conAccion.slice(0, 3).map((h: Json) => ({
         tipo: ["error", "clasificacion", "seguimiento", "ahorro", "patrimonio", "anticipar"].includes(h.tipo) ? h.tipo : "ahorro",
         titulo: String(h.titulo ?? "").slice(0, 90),
-        detalle: String(h.detalle ?? "").slice(0, 200),
+        // En la tarjeta, debajo del título, va lo que tiene que hacer
+        detalle: String(h.accion ?? "").trim().slice(0, 200),
         // Se manda como si el usuario lo escribiera: si viene como consejo para él ("Vas bien, intenta…"), se cambia por una petición
         mensaje: /^(¿|revisa|ayúdame|ayudame|dime|propón|propon|explícame|explicame|muéstrame|muestrame|busca|compara|junta|pasa|registra|corrige|cambia|mueve|haz|calcula|ordena|quiero|necesito|cómo|como|qué|que)/i.test(String(h.mensaje ?? "").trim())
           ? String(h.mensaje).trim().slice(0, 500)
