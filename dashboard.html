@@ -17628,15 +17628,35 @@
                                 return soloMonto ? { pregunta: '¿Cuánto fue?', ejemplo: 'Ej. 500' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Tacos 250' };
                             }
 
+                            // La categoría de la primera pregunta: la opción tocada o, si se escribió, la que
+                            // se llame así (sin importar acentos ni mayúsculas, o que empiece igual)
+                            function categoriaDeRegistro(item) {
+                                const r = item.respuestas[0];
+                                if (!r) return null;
+                                const texto = (r.texto || '').trim();
+                                if (!texto) return r.opcion !== null && r.opcion !== undefined ? item.categorias[r.opcion] : null;
+                                const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+                                const t = norm(texto);
+                                const cats = (datosCategorias || []).filter(c => ['gasto', 'ingreso', 'salud'].includes(c.tipo));
+                                const c = cats.find(x => norm(x.nombre) === t) || (t.length >= 3 ? cats.find(x => norm(x.nombre).startsWith(t)) : null);
+                                if (c) return { id: c.id, nombre: c.nombre, tipo: c.tipo };
+                                // Sin categoría con ese nombre: igual se reconoce si es de las de sólo monto
+                                if (!SOLO_MONTO_REGISTRO.test(texto)) return null;
+                                return { id: null, nombre: texto, tipo: /sueldo|n[oó]mina|salario|quincena/i.test(texto) ? 'ingreso' : 'gasto' };
+                            }
+
                             // Elegida la categoría, la última pregunta ofrece lo que sueles registrar en ella
                             async function opcionesRegistroAsistente(item) {
-                                const r = item.respuestas[0];
-                                const cat = r && !(r.texto && r.texto.trim()) && r.opcion !== null ? item.categorias[r.opcion] : null;
+                                const cat = categoriaDeRegistro(item);
+                                const clave = cat ? `${cat.id}|${cat.nombre}` : '';
+                                // Al escribir se llama en cada tecla: sólo se rehace si cambió la categoría
+                                if (item.claveRegistro === clave) return;
+                                item.claveRegistro = clave;
                                 const q = item.preguntas[2];
                                 const porNombre = !!cat && SOLO_MONTO_REGISTRO.test(cat.nombre || '');
                                 Object.assign(q, preguntaFinalRegistro(cat, porNombre), { opciones: [] });
                                 item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
-                                if (!cat || !clienteSupabase) return;
+                                if (!cat || cat.id === null || !clienteSupabase) return;
                                 try {
                                     const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat;
                                     const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
@@ -17678,7 +17698,7 @@
                                         });
                                     }
                                     // Si mientras tanto cambió la categoría, esta lista ya no sirve
-                                    if (item.respuestas[0].opcion !== r.opcion || item.estado !== 'pendiente') return;
+                                    if (item.claveRegistro !== clave || item.estado !== 'pendiente') return;
                                     Object.assign(q, preguntaFinalRegistro(cat, soloMonto), { opciones });
                                     if (!soloMonto && movs[0] && movs[0].desc) q.ejemplo = `Ej. ${movs[0].desc} ${String(fmt(movs[0].valor)).replace('$', '')}`;
                                     if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) pintarPreguntasAsistente();
@@ -17687,14 +17707,13 @@
 
                             async function responderRegistroAsistente(item) {
                                 const resp = k => respuestaDePregunta(item, k) || '(sin respuesta)';
-                                const r0 = item.respuestas[0];
-                                const cat = r0 && !(r0.texto && r0.texto.trim()) && r0.opcion !== null ? item.categorias[r0.opcion] : null;
+                                const cat = categoriaDeRegistro(item);
                                 const dias = { Hoy: 0, Ayer: 1, Antier: 2 };
                                 const r1 = item.respuestas[1];
                                 const cuando = resp(1);
                                 const dia = r1 && !(r1.texto && r1.texto.trim()) && cuando in dias ? diaLocal(Date.now() - dias[cuando] * 864e5) : null;
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
-                                    + `- Categoría: ${resp(0)}${cat ? ` (id ${cat.id})` : ''}\n`
+                                    + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
                                     + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
                                     + `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
                                 item.estado = 'respondida';
