@@ -1165,11 +1165,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         let racha = 0;
         for (let k = diasDeCat[id].has(hoyL) ? 0 : 1; diasDeCat[id].has(hace(k)); k++) racha++;
         const ultimo = dias[dias.length - 1];
-        const notas: Record<string, number> = {};
+        // Cada nota con la cantidad promedio de las veces que se escribió: así "2 pastillas cuando duele
+        // más" sale de los datos y no de la imaginación del modelo
+        const notas: Record<string, number[]> = {};
         regs.filter((r: Json) => r.dia >= hace(89) && r.descripcion).forEach((r: Json) => {
           const n = String(r.descripcion).trim().toLowerCase().slice(0, 60);
-          notas[n] = (notas[n] ?? 0) + 1;
+          (notas[n] ??= []).push(Number(r.cantidad) || 0);
         });
+        // Días en que la nota menciona un medicamento (últimos 30): tomarlo muy seguido es algo que ver con el médico
+        const MEDICAMENTO = /pastilla|tableta|c[aá]psula|medicamento|medicina|ibuprofeno|paracetamol|naproxeno|aspirina|triptan|sumatript|ketorolaco|analg[eé]sico|gotas|inhalador|dosis/i;
+        const diasMedicamento30 = new Set(regs.filter((r: Json) => r.dia >= hace(29) && MEDICAMENTO.test(String(r.descripcion ?? "")) && !/sin\s+(pastilla|medicamento|medicina)/i.test(String(r.descripcion))).map((r: Json) => r.dia)).size;
         const semana: Record<string, number> = {};
         dias.filter((d) => d >= hace(89)).forEach((d) => { const s = SEMANA[new Date(`${d}T12:00:00Z`).getUTCDay()]; semana[s] = (semana[s] ?? 0) + 1; });
         // Otra categoría de Salud que aparece el mismo día más que en un día cualquiera
@@ -1183,6 +1188,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const senales: string[] = [];
         const esHabito = c.grupo_salud === "habito";
         if (!esHabito && entre(hace(29), hoyL) >= 10) senales.push(`${entre(hace(29), hoyL)} días con registro en los últimos 30`);
+        if (!esHabito && diasMedicamento30 >= 10) senales.push(`tomó medicamento ${diasMedicamento30} días de los últimos 30 (según sus notas)`);
         // El ritmo del mes sólo pesa a partir del día 10: antes una semana mala lo dispara
         const u30 = entre(hace(29), hoyL);
         // En un hábito subir no es malo por fuerza: el cambio se reporta, pero no como señal
@@ -1217,18 +1223,22 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           grupo: c.grupo_salud ?? "SIN DEFINIR", medida: medida ?? "SIN DEFINIR",
           descripcion: c.descripcion ? String(c.descripcion).slice(0, 200) : "SIN DESCRIPCIÓN",
           dias_ultimos_7: entre(hace(6), hoyL), dias_ultimos_30: entre(hace(29), hoyL),
-          este_mes: `${esteMes} días en ${dia} (a este ritmo, ${ritmo} en el mes)`,
+          // El ritmo del mes sólo a partir del día 10: con una semana, proyectar el mes exagera
+          este_mes: `${esteMes} días en ${dia}${dia >= 10 ? ` (a este ritmo, ${ritmo} en el mes)` : ""}`,
           meses_anteriores: validos.map((m, k) => `${m}: ${porMes[k]} días`).join(", ") || "sin meses completos registrados",
           normal_dias_por_mes: normal,
           ...cantidad,
           ...(medida === null ? { cantidades_que_usa: [...new Set(regs.map((r: Json) => Number(r.cantidad)))].sort((a, b) => a - b).slice(0, 10) } : {}),
           ...(!c.grupo_salud || !medida ? { sugerencia: sugerenciaSalud(c, regs.map((r: Json) => Number(r.cantidad))) } : {}),
           racha_dias_seguidos: racha, ultimo: fechaConDia(`${ultimo}T18:00:00Z`, { ...zona, desfase: 0 }).replace(/ \d{2}:\d{2}/, ""),
-          ultimos_registros: regs.slice(-8).reverse().map((r: Json) => [fechaConDia(r.fecha, zona), r.cantidad, r.descripcion || null]),
-          notas_que_se_repiten: Object.entries(notas).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => `${t} (${n})`),
+          // Sin la hora: casi nunca es la del momento (se registra después) y el modelo sacaba "madrugada"
+          ultimos_registros: regs.slice(-8).reverse().map((r: Json) => [fechaConDia(r.fecha, zona).replace(/ \d{2}:\d{2}/, ""), r.cantidad, r.descripcion || null]),
+          notas_que_se_repiten: Object.entries(notas).filter(([, xs]) => xs.length >= 2).sort((a, b) => b[1].length - a[1].length).slice(0, 5)
+            .map(([t, xs]) => `${t} (${xs.length} veces${medida && medida !== "veces" ? `; ${medida === "valor" ? "valor" : medida} promedio ${prom(xs)}` : ""})`),
+          ...(diasMedicamento30 ? { dias_con_medicamento_ultimos_30: diasMedicamento30 } : {}),
           dias_de_la_semana_90: semana,
-          coincidencias,
-          ...(senales.length ? { senales } : {}),
+          coincidencias: coincidencias.length ? coincidencias : "ninguna: no digas que pasa junto con otra",
+          ...(senales.length ? { senales, decir: "Dilo claro y sugiere en una frase verlo con su médico llevando este registro." } : {}),
           ...(cambio && esHabito ? { cambio } : {}),
         };
       });
@@ -1238,6 +1248,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           hoy: hoyL,
           nota: "Un día cuenta una vez aunque tenga varios registros. La cantidad es lo que diga medida (o, sin medida, la descripción); las notas son aparte: no las confundas con la cantidad. " +
             "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra. " +
+            "Los _ultimos_30 son los últimos 30 días, no el mes. No hay horas: no hables de a qué hora pasa. En un hábito no juzgues si va bien o mal salvo que la descripción lo diga. " +
             "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman), horas (por día) o valor (una medición con su unidad: importa el último, el promedio y si sale del rango sano). " +
             "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga.",
           categorias,
