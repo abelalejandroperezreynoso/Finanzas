@@ -16467,6 +16467,17 @@
                                     if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(nombreMedidaSalud(d))}</b>`);
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
+                                } else if (p.tipo === 'borrar_movimientos') {
+                                    // Cada movimiento que se va a borrar, para que se vea exactamente qué se pierde
+                                    const movs = p.movimientos || [];
+                                    if (p.motivo) filas.push(`Motivo: <b>${escaparHtml(p.motivo)}</b>`);
+                                    movs.forEach(m => {
+                                        const cifra = m.tipo === 'salud' ? `×${fCantidadSalud(m.cantidad)}`
+                                            : m.inversion ? `${escaparHtml(m.inversion)} · $${Number(m.usd || 0).toFixed(2)} USD`
+                                            : `${m.monto < 0 ? '−' : '+'}${fMoneda(Math.abs(m.monto || 0))}`;
+                                        filas.push(`${escaparHtml(fechaAmigable(m.fecha))} · ${escaparHtml(m.categoria || '')} · <b>${cifra}</b>${m.descripcion ? ` · ${escaparHtml(m.descripcion)}` : ''}`);
+                                    });
+                                    filas.push(`Se ${movs.length === 1 ? 'borra 1 movimiento' : `borran ${movs.length} movimientos`}`);
                                 } else if (p.tipo === 'recordatorio') {
                                     const d = p.datos || {};
                                     const cuando = new Date(d.enviar_en);
@@ -16582,9 +16593,9 @@
                                         const pie = m.estado === 'pendiente'
                                             ? `<div class="acciones">
                                                    <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
-                                                   <button type="button" style="background:#3d3d3a; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">Confirmar</button>
+                                                   <button type="button" style="background:${p.tipo === 'borrar_movimientos' ? '#d93025' : '#3d3d3a'}; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">${p.tipo === 'borrar_movimientos' ? 'Borrar' : 'Confirmar'}</button>
                                                </div>`
-                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? '✓ Aplicado' : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : m.estado === 'interrumpida' ? 'Se cerró la app: revisa si se guardó' : 'Cancelado'}</div>`;
+                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? (p.tipo === 'borrar_movimientos' ? '✓ Borrado' : '✓ Aplicado') : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : m.estado === 'interrumpida' ? 'Se cerró la app: revisa si se guardó' : 'Cancelado'}</div>`;
                                         if (m.estado === 'reemplazada') return `<div class="chat-propuesta reemplazada"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="estado">Reemplazada por la nueva propuesta</div></div>`;
                                         return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
                                     }
@@ -16658,7 +16669,7 @@
                                 try {
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -18317,6 +18328,11 @@
                                     res = cuentaId
                                         ? await clienteSupabase.from('categorias').insert([{ ...p.datos, cuenta_id: cuentaId, user_id: currentUser.id }]).select('id')
                                         : { falta: `Primero confirma la cuenta "${p.cuenta}".` };
+                                } else if (p.tipo === 'borrar_movimientos') {
+                                    // Lo mismo que borrar a mano en la app, pero de varios a la vez
+                                    const ids = (p.ids || []).map(String);
+                                    res = ids.length ? await clienteSupabase.from('registros').delete().in('id', ids) : { falta: 'No hay movimientos que borrar.' };
+                                    if (!res.error && !res.falta) ids.forEach(id => olvidarRegistrosRecienGuardados('registros', id));
                                 } else if (p.tipo === 'recordatorio') {
                                     // Le llega como aviso al teléfono; lo manda la base a su hora (recordatorios_ia)
                                     res = await clienteSupabase.from('recordatorios_ia').insert([{ enviar_en: p.datos.enviar_en, texto: p.datos.texto, user_id: currentUser.id }]);

@@ -74,7 +74,8 @@ Reglas para el SQL:
 - Las tablas usan RLS; la función `asistente` usa el JWT del usuario, no la
   service role.
 - El asistente de IA solo propone cambios: la app los aplica cuando el usuario
-  toca Confirmar. La IA no puede borrar nada.
+  toca Confirmar. Lo único que puede proponer borrar son movimientos (`registros`), con una
+  tarjeta que enseña cada uno; nunca categorías, cuentas ni su memoria.
 - Excepción: su memoria (`memoria_ia`, notas sobre el usuario) la guarda y corrige
   sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración.
 - La revisión diaria corre una vez por usuario y día (`revisiones_ia`); sus
