@@ -1241,7 +1241,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         c.tipo === "ingreso" || c.tipo === "gasto" ? t + (h[String(c.id)]?.total[m] ?? 0) : t, 0));
       const quedaProm = quedaPrevios.length ? quedaPrevios.reduce((a, b) => a + b, 0) / quedaPrevios.length : 0;
       const flujoMes = ingresoMtd - gastoMtd;
-      const esperado = gastoNormalMes * dia / diasMes;
+      // Lo normal a esta fecha: lo de otros meses hasta este día (la misma cifra que ve en gastos), o el promedio repartido
+      const esperado = gastoNormalHoy > 0 ? gastoNormalHoy : gastoNormalMes * dia / diasMes;
       let control = "bajo control";
       const motivos: string[] = [];
       if (saldoHoy <= 0) motivos.push(`Tu saldo está en ${pesos(saldoHoy)}`);
@@ -1965,7 +1966,12 @@ Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recupera
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
 2. Las soluciones: 2 o 3 acciones concretas, de la que más ayuda a la que menos, cada una con monto y plazo, que juntas alcancen ("No gastes en Restaurante hasta la quincena del 15: $1,200 menos"; "Cóbrale a Abel los $1,500 que te debe"; "Cancela Spotify: $129 al mes"). Empieza por lo prescindible y lo útil; nunca recortes lo vital. Si la causa es un gasto de una sola vez o un dato (un ingreso sin registrar, gastos sin identificar, un saldo que no cuadra), dilo así: la solución es aclararlo, no recortar. Lo que se pueda hacer en la app, propónlo con su herramienta.
 3. Cómo queda si lo hace ("Con eso llegas al 15 con +$300").
-Nada de repasar categorías, explicar cálculos ni dar contexto que no cambie lo que tiene que hacer. Antes de interpretar una categoría, lee su descripción.
+Nada de repasar categorías, explicar cálculos, hablar de metas o inversiones ni dar contexto que no cambie lo que tiene que hacer. Antes de interpretar una categoría, lee su descripción.
+Ejemplo de respuesta completa (atento por gastar rápido):
+"Llevas $7,992 de gastos y lo normal a esta fecha son $729; casi todo son $5,707 sin identificar en BBVA.
+1. Dime qué fueron esos $5,707: si fue algo de una sola vez, no hay que recortar nada.
+2. Súper va $700 arriba: compra sólo lo necesario hasta el 15.
+Con eso cierras el mes con unos +$151,000."
 
 # Orden de cuentas y categorías
 Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o revisar sus categorías o cuentas (o atienda un hallazgo de orden), llama a revisar_orden y ve en este orden, pocas cosas por turno (máximo 5 tarjetas; luego ofrece seguir):
