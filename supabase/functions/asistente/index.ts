@@ -371,6 +371,20 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "resumen_salud",
+    description:
+      "Cómo va cada categoría de Salud contra lo normal de la persona: días con registro en los últimos 7 y 30 días, este mes y a qué ritmo va contra el promedio " +
+      "de los meses anteriores, la cantidad promedio (lo que mida según su descripción), racha, últimos registros con sus notas, notas que se repiten, " +
+      "días de la semana y qué otras categorías de Salud coinciden más de lo normal. Úsala para cualquier pregunta de salud o de un síntoma.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categoria_id: { type: "string", description: "Una sola categoría (opcional; sin ella, todas las que tuvieron registros en los últimos 4 meses)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "programar_recordatorio",
     description:
       "Propone un recordatorio que le llega como aviso a su teléfono a la hora indicada (\"recuérdame en media hora…\", \"avísame mañana a las 9…\"). " +
@@ -1076,6 +1090,96 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           referencia: tabla(["indice", "hoy", "5_dias", "mes", "año"], indices),
           titulares_mercado: titulares,
           ...(Object.keys(deEmpresas).length ? { titulares_empresas: deEmpresas } : {}),
+        }),
+      };
+    }
+    case "resumen_salud": {
+      // Lo de salud contra lo normal de la misma persona. Sin esto el modelo listaba los últimos días, leía la
+      // cantidad como pastillas cuando la descripción dice intensidad y no veía que el mes iba al doble.
+      const todas = catalogo.categorias.filter((c: Json) => c.tipo === "salud" && (!entrada.categoria_id || String(c.id) === String(entrada.categoria_id)));
+      if (!todas.length) return { texto: entrada.categoria_id ? "Esa categoría no es de Salud." : "No tiene categorías de Salud." };
+      const hoyL = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const [anio, mes, dia] = hoyL.split("-").map(Number);
+      const ym = (a: number, m: number) => new Date(Date.UTC(a, m - 1, 1)).toISOString().slice(0, 7);
+      const diasDe = (clave: string) => new Date(Date.UTC(Number(clave.slice(0, 4)), Number(clave.slice(5, 7)), 0)).getUTCDate();
+      const mesActual = ym(anio, mes);
+      const previos = [3, 2, 1].map((k) => ym(anio, mes - k));
+      const hace = (n: number) => new Date(Date.parse(`${hoyL}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+      const movs: Json[] = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("registros").select("fecha, cantidad, descripcion, categoria_id")
+          .in("categoria_id", todas.map((c: Json) => c.id)).gte("fecha", inicioDeDia(`${previos[0]}-01`, zona)).order("fecha").range(desde, desde + 999);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        movs.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+      const r1 = (n: number) => Math.round(n * 10) / 10;
+      const prom = (xs: number[]) => xs.length ? r1(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+      const SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+      // Días con registro de cada categoría (un día cuenta una vez aunque tenga varios registros)
+      const diasDeCat: Record<string, Set<string>> = {};
+      movs.forEach((r: Json) => { (diasDeCat[String(r.categoria_id)] ??= new Set()).add(fechaLocal(r.fecha, zona).slice(0, 10)); });
+      const ultimos90 = Array.from({ length: 90 }, (_, k) => hace(k));
+      const categorias = todas.filter((c: Json) => diasDeCat[String(c.id)]?.size).map((c: Json) => {
+        const id = String(c.id);
+        const regs = movs.filter((r: Json) => String(r.categoria_id) === id).map((r: Json) => ({ ...r, dia: fechaLocal(r.fecha, zona).slice(0, 10) }));
+        const dias = [...diasDeCat[id]].sort();
+        const entre = (a: string, b: string) => dias.filter((d) => d >= a && d <= b).length;
+        const esteMes = dias.filter((d) => d.startsWith(mesActual)).length;
+        // Lo normal: los meses completos anteriores desde que lo registra
+        const validos = previos.filter((m) => m >= dias[0].slice(0, 7));
+        const porMes = validos.map((m) => dias.filter((d) => d.startsWith(m)).length);
+        const normal = porMes.length ? prom(porMes) : null;
+        const ritmo = Math.round((esteMes / dia) * diasDe(mesActual));
+        const cant = (desde: string, hasta: string) => regs.filter((r: Json) => r.dia >= desde && r.dia <= hasta && Number.isFinite(Number(r.cantidad))).map((r: Json) => Number(r.cantidad));
+        let racha = 0;
+        for (let k = diasDeCat[id].has(hoyL) ? 0 : 1; diasDeCat[id].has(hace(k)); k++) racha++;
+        const ultimo = dias[dias.length - 1];
+        const notas: Record<string, number> = {};
+        regs.filter((r: Json) => r.dia >= hace(89) && r.descripcion).forEach((r: Json) => {
+          const n = String(r.descripcion).trim().toLowerCase().slice(0, 60);
+          notas[n] = (notas[n] ?? 0) + 1;
+        });
+        const semana: Record<string, number> = {};
+        dias.filter((d) => d >= hace(89)).forEach((d) => { const s = SEMANA[new Date(`${d}T12:00:00Z`).getUTCDay()]; semana[s] = (semana[s] ?? 0) + 1; });
+        // Otra categoría de Salud que aparece el mismo día más que en un día cualquiera
+        const propios90 = dias.filter((d) => d >= hace(89));
+        const coincidencias = propios90.length >= 5 ? todas.filter((o: Json) => String(o.id) !== id && (diasDeCat[String(o.id)]?.size ?? 0) >= 5).map((o: Json) => {
+          const otros = diasDeCat[String(o.id)];
+          const mismoDia = Math.round(100 * propios90.filter((d) => otros.has(d)).length / propios90.length);
+          const cualquierDia = Math.round(100 * ultimos90.filter((d) => otros.has(d)).length / 90);
+          return mismoDia - cualquierDia >= 15 ? `${catalogo.etiqueta[String(o.id)] ?? o.nombre} el mismo día: ${mismoDia} % de sus días (en un día cualquiera, ${cualquierDia} %)` : null;
+        }).filter(Boolean) : [];
+        const senales: string[] = [];
+        if (entre(hace(29), hoyL) >= 10) senales.push(`${entre(hace(29), hoyL)} días con registro en los últimos 30`);
+        // El ritmo del mes sólo pesa a partir del día 10: antes una semana mala lo dispara
+        const u30 = entre(hace(29), hoyL);
+        if (normal !== null && u30 >= 4 && u30 >= normal * 1.5) senales.push(`${u30} días en los últimos 30; lo normal son ${normal} al mes`);
+        else if (normal !== null && dia >= 10 && esteMes >= 4 && ritmo >= normal * 1.5) senales.push(`este mes va a ritmo de ${ritmo} días; lo normal son ${normal}`);
+        return {
+          categoria: catalogo.etiqueta[id] ?? c.nombre,
+          que_mide: c.descripcion ? String(c.descripcion).slice(0, 200) : "SIN DESCRIPCIÓN: no sabes qué es ni qué mide la cantidad; no lo adivines",
+          dias_ultimos_7: entre(hace(6), hoyL), dias_ultimos_30: entre(hace(29), hoyL),
+          este_mes: `${esteMes} días en ${dia} (a este ritmo, ${ritmo} en el mes)`,
+          meses_anteriores: validos.map((m, k) => `${m}: ${porMes[k]} días`).join(", ") || "sin meses completos registrados",
+          normal_dias_por_mes: normal,
+          cantidad_promedio_ultimos_30: prom(cant(hace(29), hoyL)), cantidad_promedio_antes: prom(cant(`${previos[0]}-01`, hace(30))),
+          cantidad_maxima_ultimos_30: cant(hace(29), hoyL).length ? Math.max(...cant(hace(29), hoyL)) : null,
+          racha_dias_seguidos: racha, ultimo: fechaConDia(`${ultimo}T18:00:00Z`, { ...zona, desfase: 0 }).replace(/ \d{2}:\d{2}/, ""),
+          ultimos_registros: regs.slice(-8).reverse().map((r: Json) => [fechaConDia(r.fecha, zona), r.cantidad, r.descripcion || null]),
+          notas_que_se_repiten: Object.entries(notas).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => `${t} (${n})`),
+          dias_de_la_semana_90: semana,
+          coincidencias,
+          ...(senales.length ? { senales } : {}),
+        };
+      });
+      if (!categorias.length) return { texto: "No hay registros de Salud en los últimos 4 meses." };
+      return {
+        texto: recortar({
+          hoy: hoyL,
+          nota: "Un día cuenta una vez aunque tenga varios registros. La cantidad es lo que diga que_mide (intensidad, vasos, horas…); las notas son aparte: no las confundas con la cantidad. " +
+            "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra.",
+          categorias,
         }),
       };
     }
@@ -2390,6 +2494,14 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500, si está cara (pe) o muy arriba frente a su historial, qué dicen los analistas y alguna noticia que pese. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
+
+# Salud
+Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y contesta corto, sólo de lo que tuvo registros en los últimos 30 días:
+1. Por categoría, en una o dos líneas: cómo va contra lo normal (días este mes y su ritmo contra normal_dias_por_mes, y la cantidad contra antes), con cifras. Lo que mide la cantidad lo dice que_mide; nunca lo cambies por otra cosa (si la descripción dice intensidad, no son pastillas).
+2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
+3. Lo que puede hacer: anotar en la nota lo que crea que lo detona, o algo concreto que salga de los datos.
+- Si una categoría dice SIN DESCRIPCIÓN, no adivines qué es: di que no sabes qué mide y pregúntale con preguntar_al_usuario qué es y qué cuenta la cantidad, para proponerle la descripción con proponer_cambio_categoria.
+- No eres médico: no diagnostiques ni recomiendes medicamentos. Si viene senales (10 o más días en 30, o el mes muy arriba de lo normal), dilo claro y sugiere en una frase verlo con su médico llevando este registro. Sin señales, no lo menciones.
 
 # Bajo control
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
