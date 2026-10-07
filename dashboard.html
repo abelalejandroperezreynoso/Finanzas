@@ -16244,7 +16244,7 @@
                                     if (p.desde) filas.push(`Fechas: ${escaparHtml(p.desde === p.hasta ? fechaAmigable(p.desde) : `${fechaAmigable(p.desde)} a ${fechaAmigable(p.hasta)}`)}`);
                                     if (p.cambia_cuenta) {
                                         filas.push(`Cuenta: ${flecha([...new Set((p.origenes || []).map(o => o.cuenta))].join(', '), p.destino_cuenta)}`);
-                                        const efecto = (p.efecto_saldos || []).map(e => `${escaparHtml(e.cuenta)} <b>${e.cambio > 0 ? '+' : '−'}${escaparHtml(fMoneda(Math.abs(e.cambio)))}</b>`);
+                                        const efecto = (p.efecto_saldos || []).map(e => `<span style="white-space:nowrap">${escaparHtml(e.cuenta)} <b>${e.cambio > 0 ? '+' : '−'}${escaparHtml(fMoneda(Math.abs(e.cambio)))}</b></span>`);
                                         filas.push(efecto.length ? `Saldos: ${efecto.join(' · ')}` : 'Cambia el saldo de ambas cuentas');
                                     }
                                     if (p.vacia) filas.push(`${escaparHtml(p.vacia)} queda vacía`);
