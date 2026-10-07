@@ -9935,8 +9935,18 @@
                                         copia.style.fontSize = tamano + 'px';
                                     }
 
-                                    // El cambio de tamaño se anima con la transición del CSS
-                                    el.style.fontSize = tamano + 'px';
+                                    // Crecer se anima con la transición del CSS; encogerse es inmediato: si la letra
+                                    // bajara poco a poco, una cifra más larga se saldría de la caja mientras tanto
+                                    // (al pasar de "$7,106 MXN" a "$100,979.19" se salía 44 px a la derecha)
+                                    const actual = parseFloat(getComputedStyle(el).fontSize);
+                                    if (tamano < actual) {
+                                        el.style.transition = 'none';
+                                        el.style.fontSize = tamano + 'px';
+                                        void el.offsetWidth;
+                                        el.style.transition = '';
+                                    } else {
+                                        el.style.fontSize = tamano + 'px';
+                                    }
                                 } finally {
                                     copia.remove();
                                 }
