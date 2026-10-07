@@ -18,6 +18,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
   categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
   varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.
+  Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
+  analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.
@@ -25,7 +27,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   base: la tarea `avisos-pagos` de pg_cron (8:00 hora de México) arma los avisos con
   `recordatorios` y `suscripciones_push` y se los pasa con el secreto del Vault
   (`avisos_secreto`). La app sincroniza `recordatorios` con los pagos recurrentes de
-  fecha exacta. Las claves las pone una vez el flujo `configurar-avisos.yml`.
+  fecha exacta. Las claves las pone una vez el flujo `configurar-avisos.yml`. Los recordatorios
+  del asistente (`recordatorios_ia`) los manda cada minuto la tarea `recordatorios-ia` por el
+  mismo camino.
 - `herramientas/robotito.py`: dibuja al robotito del asistente (pixeles, por capas) y
   reescribe `ROBOT_PNG` en `dashboard.html`. Para cambiar el dibujo se edita este
   archivo y se corre; las animaciones están en el CSS `.robotito`. No edites los
