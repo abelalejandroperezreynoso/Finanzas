@@ -611,6 +611,22 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
     c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null,
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}` : null]));
 
+// Grupo y medida probables de una categoría de Salud que no los tiene, por su nombre, su descripción
+// y las cantidades que usa. El modelo preguntaba qué era "Migraña" aunque la descripción decía
+// "intensidad, escala 1-10"; con esto propone lo obvio y sólo pregunta lo que no se sabe.
+function sugerenciaSalud(c: Json, cantidades: number[]): Json {
+  const texto = `${c.nombre ?? ""} ${c.descripcion ?? ""}`;
+  const medida = /intensidad|escala|1\s*(-|–|a|al)\s*10/i.test(texto) ? "intensidad"
+    : /°|mg\/dl|mmhg|\bkg\b|temperatura|glucosa|peso|presi[oó]n|oxigen|pulso|lpm/i.test(texto) ? "valor"
+    : /\bhoras?\b|dorm|sue[nñ]o/i.test(texto) ? "horas"
+    : cantidades.length >= 5 && cantidades.filter((n) => n === 1).length / cantidades.length >= 0.8 ? "veces"
+    : null;
+  const grupo = /dolor|migra|cefal|gripe|tos\b|fiebre|n[aá]usea|ansiedad|asma|alerg|diarrea|v[oó]mit|infecci|s[ií]ntoma|crisis|ataque|glucosa|presi[oó]n|colitis|gastritis|enferm/i.test(texto) ? "enfermedad"
+    : /sue[nñ]o|dorm|agua|ejercicio|camin|correr|gym|gimnasio|medit|leer|lectura|caf[eé]|alcohol|cigarr|fum|pasos|vitamina|h[aá]bito/i.test(texto) ? "habito"
+    : null;
+  return { ...(grupo ? { grupo_salud: grupo } : {}), ...(medida ? { medida_salud: medida } : {}) };
+}
+
 // La cantidad de Salud según lo que mide la categoría: una intensidad va de 1 a 10 y unas horas no pasan de 24
 function cantidadSaludInvalida(c: Json, n: number): string | null {
   if (c?.medida_salud === "intensidad" && (n < 1 || n > 10)) return `En ${c.nombre} la cantidad es la intensidad, de 1 a 10.`;
@@ -1206,6 +1222,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           normal_dias_por_mes: normal,
           ...cantidad,
           ...(medida === null ? { cantidades_que_usa: [...new Set(regs.map((r: Json) => Number(r.cantidad)))].sort((a, b) => a - b).slice(0, 10) } : {}),
+          ...(!c.grupo_salud || !medida ? { sugerencia: sugerenciaSalud(c, regs.map((r: Json) => Number(r.cantidad))) } : {}),
           racha_dias_seguidos: racha, ultimo: fechaConDia(`${ultimo}T18:00:00Z`, { ...zona, desfase: 0 }).replace(/ \d{2}:\d{2}/, ""),
           ultimos_registros: regs.slice(-8).reverse().map((r: Json) => [fechaConDia(r.fecha, zona), r.cantidad, r.descripcion || null]),
           notas_que_se_repiten: Object.entries(notas).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => `${t} (${n})`),
@@ -1222,7 +1239,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           nota: "Un día cuenta una vez aunque tenga varios registros. La cantidad es lo que diga medida (o, sin medida, la descripción); las notas son aparte: no las confundas con la cantidad. " +
             "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra. " +
             "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman), horas (por día) o valor (una medición con su unidad: importa el último, el promedio y si sale del rango sano). " +
-            "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria (deduce de nombre, descripción y cantidades_que_usa: si siempre es 1, son veces); si no es claro, pregúntale.",
+            "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga.",
           categorias,
         }),
       };
@@ -2518,6 +2535,7 @@ Calendario (úsalo para los días de la semana; no los calcules): ${calendarioCe
 - Sólo puedes hacer lo que hacen tus herramientas. Nunca digas que hiciste, anotaste o programaste algo sin haber llamado a la herramienta en ese turno, ni inventes estados o funciones que la app no tiene; si algo no se puede, dilo.
 - Si cancela una propuesta y corrige un dato ("el tipo de cambio es 17.99"), vuelve a proponerla de inmediato con el dato corregido; no le preguntes qué quiere hacer.
 - No anuncies lo que vas a mostrar ("déjame mostrarte…"): muéstralo en el mismo turno.
+- Nunca dejes la respuesta para después de que confirme una tarjeta ("cuando confirmes te muestro…"): el chat no te avisa cuando confirma. Contesta ya con lo que tienes y deja las tarjetas al lado.
 - "Recuérdame…" o "avísame a las…": programar_recordatorio. Le llega como aviso al teléfono si lo confirma.
 - Si responde sobre una propuesta aún sin confirmar (pide un cambio, aclara o dice que así está bien), vuelve a llamar a la misma herramienta con la versión completa y corrige_anterior: true. Nunca digas que una propuesta cambió sin haberla llamado en ese turno.
 - No puedes borrar nada (tampoco notas de tu memoria). Si algo no se puede con tus herramientas, dilo; nunca uses rodeos que dejen datos mal clasificados.
@@ -2569,7 +2587,7 @@ Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y con
 1. Primero Enfermedades y luego Hábitos. Por categoría, en una o dos líneas: cómo va contra lo normal (días este mes y su ritmo contra normal_dias_por_mes, y la cantidad según su medida contra antes), con cifras. La cantidad es lo que diga medida (intensidad, veces, horas); nunca la cambies por otra cosa (una intensidad no son pastillas).
 2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
 3. Lo que puede hacer: anotar en la nota lo que crea que lo detona, o algo concreto que salga de los datos.
-- Si una categoría no tiene grupo o medida, propónselos en una tarjeta (proponer_cambio_categoria). Si tampoco tiene descripción y su nombre no dice qué es, no adivines: pregúntale qué es con preguntar_al_usuario y propón grupo, medida y descripción juntos.
+- Contesta cómo va en ese mismo turno aunque a alguna categoría le falten grupo o medida: resumen_salud ya trae sus cifras. En el mismo turno propón con proponer_cambio_categoria el grupo y la medida que falten, tomados de sugerencia. Sólo lo que sugerencia no traiga (y no diga la descripción) se pregunta, todo en una sola llamada a preguntar_al_usuario; con la respuesta propón la tarjeta y, si no tenía descripción, también la descripción.
 - Una medición (medida valor) se dice con su unidad: el último valor, el promedio y el mínimo y máximo de los 30 días.
 - No eres médico: no diagnostiques ni recomiendes medicamentos. Si viene senales (10 o más días en 30, o el mes muy arriba de lo normal) o una medición claramente fuera de lo sano (fiebre alta, glucosa o presión muy altas), dilo claro y sugiere en una frase verlo con su médico llevando este registro. Si no, no lo menciones.
 
