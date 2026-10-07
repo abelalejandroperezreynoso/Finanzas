@@ -12,8 +12,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`gastos-app-vNNN`), o el iPhone sigue mostrando la versión vieja. `CACHE_LOGOS`
   no se toca.
 - `supabase/functions/asistente/`: Edge Function (Deno) que habla con la API de
-  Claude: chat del asistente (meta: que al usuario le quede más dinero cada mes;
-  datos correctos como base), revisión diaria proactiva con seguimiento, topes con IA, lectura del saldo desde una captura
+  Claude: chat del asistente (meta: todo bajo control y que al usuario le quede más dinero cada
+  mes; si algo se sale de control, soluciones claras y directas, sin análisis de más; datos
+  correctos como base), revisión diaria proactiva con seguimiento, topes con IA, lectura del saldo desde una captura
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
   categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
   varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.

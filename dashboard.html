@@ -16355,10 +16355,13 @@
                                         </div>`;
                                     // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
                                     if (chips && !sinConexion) {
-                                        chips.innerHTML = (avisos.length
-                                            ? `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`
-                                            : '')
-                                            + (estado && !avisos.length ? `<button type="button" class="chip-pendientes" onclick="revisarMesAsistente()"><span class="punto"></span>Revisar mi mes</button>` : '')
+                                        // Si algo se salió de control, lo primero son las soluciones para recuperarlo;
+                                        // los pendientes quedan a un lado
+                                        chips.innerHTML = (estado ? `<button type="button" class="chip-pendientes" onclick="pedirSolucionesAsistente()"><span class="punto"></span>Ver soluciones</button>` : '')
+                                            + (avisos.length
+                                                ? (estado ? `<button type="button" onclick="abrirPendientesAsistente()">Pendientes</button>`
+                                                    : `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`)
+                                                : '')
                                             + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
                                     }
                                     pintarPreguntasAsistente();
@@ -16606,7 +16609,12 @@
                                 } catch (e) { return []; }
                             }
 
-                            window.revisarMesAsistente = () => enviarMensajeAsistente('¿Cómo voy este mes y dónde puedo ajustar?');
+                            // Fuera de control (saldo negativo o bajo, gastas de más): el asistente da las soluciones
+                            // para recuperarlo. La alerta que se ve va como nota, para que sepa de qué se trata.
+                            window.pedirSolucionesAsistente = () => {
+                                const e = estadoFinanzasAsistente();
+                                enviarMensajeAsistente('¿Cómo recupero el control?', e ? `[Nota de la app: la pantalla del chat avisa "${e.texto.replace(/\u2060/g, '')}".]` : '');
+                            };
                             window.empezarComoNuevo = () => enviarMensajeAsistente('Quiero empezar',
                                 '[Nota de la app: el usuario es nuevo y no tiene cuentas. Empieza por su cuenta principal.]');
 
@@ -16648,6 +16656,9 @@
                                 } else if (cargando) {
                                     // Los datos siguen llegando, pero ya se puede escribir: la IA consulta la base por su cuenta
                                     opciones = [`${hola}, estoy cargando tus datos`, 'Mientras cargo tus números, cuéntame qué gastaste', `${hola}. Ya puedes escribirme; tus datos vienen en camino`];
+                                } else if (estado) {
+                                    // Fuera de control: eso es lo primero, antes que cualquier pendiente
+                                    return estado.texto;
                                 } else if (pendientes > 0) {
                                     // Sin número: el saludo sólo avisa que hay algo; cuántos se ve al abrirlos
                                     const uno = pendientes === 1;
@@ -16660,8 +16671,6 @@
                                     ];
                                 } else if (revisando) {
                                     opciones = ['Dame un momento, estoy revisando tus finanzas', `${hola}, déjame revisar cómo vas`, 'Estoy repasando tus números'];
-                                } else if (estado) {
-                                    return estado.texto;
                                 } else {
                                     opciones = [`${hola}, todo en orden por ahora`, 'Sin pendientes. ¿Qué revisamos hoy?', `${hola}, ¿en qué te ayudo?`, 'Tus números se ven tranquilos hoy', 'Nada urgente. ¿Buscamos dónde ahorrar?'];
                                 }
