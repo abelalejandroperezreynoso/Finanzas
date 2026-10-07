@@ -1219,6 +1219,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             if (v < 0 && (!fechaIngreso || cuando < fechaIngreso)) {
               pagosAntes.push({
                 categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, prioridad: c.prioridad ?? null, monto: Math.round(v), fecha: cuando,
+                _d: f <= hoyL ? Math.min(dia + 1, diasMes) : Number(f.slice(8, 10)),
                 ...(f < hoyL ? { vencido: true } : {}),
                 // Lo que se puede dejar para después: aportaciones e inversiones, y lo útil o prescindible
                 se_puede_mover: c.tipo === "inversion" || (c.tipo === "gasto" && c.prioridad !== "vital" && c.prioridad !== "operativa"),
@@ -1259,11 +1260,42 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       let hastaIngreso: Json = null;
       if (fechaIngreso) {
         const diaIngreso = Number(fechaIngreso.slice(8, 10));
-        let s = saldoHoy, minAntes = saldoHoy, diaMinAntes = dia;
-        for (let d = dia + 1; d < diaIngreso; d++) { s += porDia[d]; if (s < minAntes) { minAntes = s; diaMinAntes = d; } }
+        // El saldo más bajo antes del ingreso si se dejan para después los pagos indicados
+        const minimoSin = (movidos: Json[]) => {
+          const extra: number[] = new Array(diasMes + 2).fill(0);
+          movidos.forEach((p) => { extra[p._d] -= p.monto; });
+          let s = saldoHoy, min = saldoHoy, diaMin = dia;
+          for (let d = dia + 1; d < diaIngreso; d++) { s += porDia[d] + extra[d]; if (s < min) { min = s; diaMin = d; } }
+          return { min, diaMin };
+        };
+        const { min: minAntes, diaMin: diaMinAntes } = minimoSin([]);
+        // El plan lo arma el cálculo, no el modelo (que sumaba mal): se mueven primero las aportaciones, luego lo
+        // prescindible y lo útil, de mayor a menor, hasta que alcance
+        let plan: Json = null;
+        if (minAntes < 0) {
+          const orden = (p: Json) => p.tipo === "inversion" ? 0 : p.prioridad === "prescindible" ? 1 : p.prioridad === "util" ? 2 : 3;
+          const candidatos = pagosAntes.filter((p) => p.se_puede_mover).sort((a, b) => orden(a) - orden(b) || a.monto - b.monto);
+          // Sólo lo que sube el punto más bajo: un pago posterior a ese día no ayuda y no se mueve de más.
+          // Se repasa otra vez por si, al subir ese punto, el más bajo pasa a otro día.
+          const mover: Json[] = [];
+          for (let cambio = true; cambio && minimoSin(mover).min < 0;) {
+            cambio = false;
+            for (const p of candidatos) {
+              const actual = minimoSin(mover).min;
+              if (actual >= 0) break;
+              if (!mover.includes(p) && minimoSin([...mover, p]).min > actual) { mover.push(p); cambio = true; }
+            }
+          }
+          const conPlan = minimoSin(mover).min;
+          plan = {
+            mover: mover.map((p) => ({ categoria: p.categoria, monto: -p.monto, fecha: p.fecha })),
+            saldo_minimo_con_plan: r0(conPlan), alcanza: conPlan >= 0,
+          };
+        }
         hastaIngreso = {
           fecha: fechaIngreso, entra: r0(entraIngreso), saldo_minimo_antes: r0(minAntes), dia_del_minimo: diaMinAntes, falta: r0(Math.max(0, -minAntes)),
-          pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15),
+          ...(plan ? { plan } : {}),
+          pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15).map(({ _d, ...p }) => p),
           gasto_variable_estimado: r0(porDiaVariable.slice(dia + 1, diaIngreso).reduce((a, b) => a + b, 0)),
         };
       }
@@ -1311,6 +1343,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
             "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo la reparte en los días que quedan). " +
             "hasta_el_ingreso: el próximo ingreso fijo del mes, el saldo más bajo antes de ese día, cuánto falta para llegar y los pagos programados antes (se_puede_mover = se puede dejar para después). " +
+            "plan: qué pagos dejar para después del ingreso para que alcance y con cuánto llegaría (saldo_minimo_con_plan); alcanza = false si ni así. " +
             "Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
       };
@@ -2006,8 +2039,8 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
 Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
-2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha, que juntas alcancen. Si hasta_el_ingreso.falta es mayor que 0, mueve para después de esa fecha los pagos_programados que se_puede_mover (primero aportaciones e inversiones, luego lo prescindible y lo útil) y frena el gasto variable hasta ese día. Si no, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
-3. Cómo queda si lo hace: con hasta_el_ingreso, su saldo_minimo_antes más lo que movió.
+2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, esas son tus soluciones: cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y frenar el gasto variable hasta ese día. Si plan.alcanza es false, di cuánto sigue faltando y sugiere cobrar lo que le deben o pasar dinero de otra cuenta. Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
+3. Cómo queda si lo hace: plan.saldo_minimo_con_plan es con cuánto llega al ingreso; dilo tal cual, con lo que entra ese día (hasta_el_ingreso.entra). No hagas otras cuentas.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas la etiqueta del veredicto ("atento", "fuera de control"): di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
 "Con $3,100 no llegas a la quincena del 15: te faltan $650.
