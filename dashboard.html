@@ -16232,7 +16232,11 @@
                                     filas.push(`De: ${(p.origenes || []).map(o => `${escaparHtml(o.nombre)}${(p.origenes || []).length > 1 ? ` (${o.movimientos})` : ''}`).join(', ')}`);
                                     filas.push(`A: <b>${escaparHtml(p.destino || '')}</b>`);
                                     if (p.desde) filas.push(`Fechas: ${escaparHtml(p.desde === p.hasta ? fechaAmigable(p.desde) : `${fechaAmigable(p.desde)} a ${fechaAmigable(p.hasta)}`)}`);
-                                    if (p.cambia_cuenta) filas.push(`Cuenta: ${flecha([...new Set((p.origenes || []).map(o => o.cuenta))].join(', '), p.destino_cuenta)} · cambia el saldo de ambas`);
+                                    if (p.cambia_cuenta) {
+                                        filas.push(`Cuenta: ${flecha([...new Set((p.origenes || []).map(o => o.cuenta))].join(', '), p.destino_cuenta)}`);
+                                        const efecto = (p.efecto_saldos || []).map(e => `${escaparHtml(e.cuenta)} <b>${e.cambio > 0 ? '+' : '−'}${escaparHtml(fMoneda(Math.abs(e.cambio)))}</b>`);
+                                        filas.push(efecto.length ? `Saldos: ${efecto.join(' · ')}` : 'Cambia el saldo de ambas cuentas');
+                                    }
                                     if (p.vacia) filas.push(`${escaparHtml(p.vacia)} queda vacía`);
                                 } else if (p.tipo === 'cambio_categoria') {
                                     const c = p.cambios || {}, a = p.antes || {};

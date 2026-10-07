@@ -146,7 +146,7 @@ const HERRAMIENTAS: Json[] = [
         origen_categoria_id: { type: "string", description: "Mueve TODOS los movimientos de esta categoría (por ejemplo, la duplicada que sobra)" },
         categoria_id: { type: "string", description: "Categoría destino" },
         categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que esto) y que aún no existe" },
-        cambia_cuenta: { type: "boolean", description: "true sólo si el destino es de otra cuenta y el usuario dijo que ese dinero de verdad salió o entró por esa cuenta: cambia el saldo de las dos" },
+        cambia_cuenta: { type: "boolean", description: "true sólo si el destino es de otra cuenta y el usuario ya te dijo que ese dinero de verdad salió o entró por esa cuenta: cambia el saldo de las dos. Que sólo nombre la categoría no basta: pregúntale antes, o propón la categoría en la misma cuenta" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string", description: "Qué se mueve, en una frase para el usuario" },
       },
@@ -1539,6 +1539,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         };
       }
 
+      // Cuánto cambia el saldo de cada cuenta si los movimientos pasan a la del destino
+      const efecto = new Map<string, number>();
+      for (const r of regs) {
+        const o = origenes.get(String(r.categoria_id))!;
+        if (!deOtraCuenta.includes(o)) continue;
+        const monto = Number(r.monto) || 0;
+        efecto.set(o.cuenta, (efecto.get(o.cuenta) ?? 0) - monto);
+        efecto.set(destinoCuenta, (efecto.get(destinoCuenta) ?? 0) + monto);
+      }
+      const efectoSaldos = [...efecto.entries()].map(([cuenta, cambio]) => ({ cuenta, cambio: Math.round(cambio * 100) / 100 })).filter((e) => e.cambio !== 0);
+      const textoEfecto = efectoSaldos.map((e) => `${e.cuenta} ${e.cambio > 0 ? "+" : "−"}$${Math.abs(e.cambio).toLocaleString("en-US", { maximumFractionDigits: 2 })}`).join(", ");
+
       const salud = destinoTipo === "salud";
       const total = regs.reduce((a: number, r: Json) => a + Math.abs(Number(salud ? r.cantidad : r.monto) || 0), 0);
       const dias = regs.map((r: Json) => fechaLocal(r.fecha, zona).slice(0, 10)).sort();
@@ -1551,11 +1563,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         origenes: [...origenes.values()].map((o) => ({ nombre: o.nombre, cuenta: o.cuenta, movimientos: o.movimientos })),
         movimientos: regs.length, total: Math.round(total * 100) / 100, ...(salud ? { salud: true } : {}),
         desde: dias[0], hasta: dias[dias.length - 1],
-        ...(deOtraCuenta.length ? { cambia_cuenta: true } : {}),
+        ...(deOtraCuenta.length ? { cambia_cuenta: true, efecto_saldos: efectoSaldos } : {}),
         ...(origen ? { origen_categoria_id: origen.id, vacia: catalogo.etiqueta[String(origen.id)] ?? origen.nombre } : {}),
       });
       return {
         texto: `Propuesta registrada: ${regs.length} movimientos a ${destinoNombre}. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada.` +
+          (textoEfecto ? ` Cambia de cuenta y con eso los saldos (${textoEfecto}): díselo claro en tu respuesta.` : "") +
           (origen ? ` Al confirmarla, ${catalogo.etiqueta[String(origen.id)] ?? origen.nombre} queda vacía: dile que, si ya no la usa, la borre en Categorías (tú no puedes borrar).` : ""),
       };
     }
@@ -1934,7 +1947,7 @@ Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o r
 2. Mal clasificados: movimientos cuya descripción dice que van en otra categoría. Muévelos juntos con proponer_mover_movimientos (registro_ids). Si la otra categoría también tiene sentido, pregunta.
 3. Descripciones: a cada categoría o cuenta sin descripción propónle una con lo que ves en sus movimientos (qué entra en ella); si no es obvio, pregunta con opciones. A los gastos sin prioridad, propónsela.
 4. Sin uso: dile cuáles no usa hace meses o nunca usó, para que las borre si ya no le sirven. No sugieras borrar las de pagos de una vez al año, ni deudas o préstamos con saldo pendiente, ni inversiones con acciones.
-- La misma categoría en dos cuentas no es duplicada: cada cuenta tiene las suyas. Para ordenar nunca muevas movimientos a otra cuenta (cambia los saldos), salvo que el usuario diga que ese dinero de verdad salió o entró por esa cuenta.
+- La misma categoría en dos cuentas no es duplicada: cada cuenta tiene las suyas. Para ordenar nunca muevas movimientos a otra cuenta (cambia los saldos), salvo que el usuario diga que ese dinero de verdad salió o entró por esa cuenta. Si te pide pasarlos a una categoría de otra cuenta sin decirlo, pregúntale antes con preguntar_al_usuario (con lo que cambiaría cada saldo) si ese dinero salió de esa cuenta o si prefiere una categoría en la misma cuenta.
 - Si todo está en orden, dilo en una frase.
 
 # Cuadrar cuentas
