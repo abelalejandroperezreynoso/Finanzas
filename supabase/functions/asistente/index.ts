@@ -280,7 +280,8 @@ const HERRAMIENTAS: Json[] = [
         categoria_id: { type: "string" },
         categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este movimiento) y que aún no existe" },
         cuenta_id: { type: "string", description: "La cuenta donde pasó el movimiento. Pásala siempre que el usuario tenga categorías con el mismo nombre en varias cuentas (p. ej. al cuadrar)" },
-        importe: { type: "number" },
+        importe: { type: "number", description: "Pesos (positivo). En Salud, la cantidad según la medida de la categoría: con intensidad, qué tan fuerte de 1 a 10 dicho por el usuario (nunca el número de pastillas: eso va en la descripción)" },
+        otro_episodio: { type: "boolean", description: "Sólo Salud: true si ya hay un registro de esa categoría ese día y éste es otro episodio" },
         operacion: {
           type: "string", enum: ["presto", "me_pagan", "me_prestan", "pago"],
           description: "Sólo en préstamos y deudas. Préstamo: presto (le presta dinero, sale) o me_pagan (le devuelven, entra). Deuda: me_prestan (recibe el préstamo o la compra a crédito, entra) o pago (abona, sale)",
@@ -629,11 +630,22 @@ const HABITOS_POR_ENFERMEDAD: { patron: RegExp; habitos: Json[] }[] = [
   { patron: /ansiedad|p[aá]nico|estr[eé]s|depresi/i, habitos: [SUENO, CAFEINA, EJERCICIO, ALCOHOL] },
   { patron: /insomnio|dormir mal|desvelo/i, habitos: [CAFEINA, PANTALLAS, EJERCICIO, ALCOHOL] },
 ];
-function habitosParaInvestigar(enf: Json, todasSalud: Json[]): Json[] {
+function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo): Json[] {
   const texto = `${enf.nombre ?? ""} ${enf.descripcion ?? ""}`;
   const lista = HABITOS_POR_ENFERMEDAD.find((x) => x.patron.test(texto))?.habitos ?? [SUENO, AGUA, ESTRES];
   const yaTiene = (h: Json) => todasSalud.some((c: Json) => h.busca.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`));
-  return lista.filter((h) => !yaTiene(h)).slice(0, 3).map(({ busca: _b, ...h }) => ({ ...h, grupo: "habito", cuenta_id: enf.cuenta_id }));
+  const viejas = categoriasViejasDeSalud(k);
+  return lista.filter((h) => !yaTiene(h)).slice(0, 3).map(({ busca, ...h }) => {
+    // Si ya lo registraba antes como dinero (Agua como ingreso), se convierte ésa: crear otra choca con su nombre
+    const vieja = viejas.find((c: Json) => busca.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`));
+    return { ...h, grupo: "habito", cuenta_id: enf.cuenta_id, ...(vieja ? { convertir: { categoria_id: vieja.id, nombre: vieja.nombre, tipo_actual: vieja.tipo } } : {}) };
+  });
+}
+// Categorías de salud de antes de que existiera el tipo Salud: guardadas como gasto o ingreso en una
+// cuenta que no suma al total ("Dolor de cuello" como gasto en Seguimiento). Se proponen convertir.
+function categoriasViejasDeSalud(k: Catalogo): Json[] {
+  const fuera = new Set(k.cuentas.filter((c: Json) => c.incluir_en_total === false).map((c: Json) => String(c.id)));
+  return k.categorias.filter((c: Json) => ["gasto", "ingreso"].includes(c.tipo) && fuera.has(String(c.cuenta_id)) && sugerenciaSalud(c, []).grupo_salud);
 }
 
 // Grupo y medida probables de una categoría de Salud que no los tiene, por su nombre, su descripción
@@ -642,12 +654,13 @@ function habitosParaInvestigar(enf: Json, todasSalud: Json[]): Json[] {
 function sugerenciaSalud(c: Json, cantidades: number[]): Json {
   const texto = `${c.nombre ?? ""} ${c.descripcion ?? ""}`;
   const medida = /intensidad|escala|1\s*(-|–|a|al)\s*10/i.test(texto) ? "intensidad"
-    : /°|mg\/dl|mmhg|\bkg\b|temperatura|glucosa|peso|presi[oó]n|oxigen|pulso|lpm/i.test(texto) ? "valor"
+    : /°|mg\/dl|mmhg|\bkg\b|temperatura|glucosa|\bpeso\b|\bpresi[oó]n|oxigen|\bpulso\b|\blpm\b/i.test(texto) ? "valor"
     : /\bhoras?\b|dorm|sue[nñ]o/i.test(texto) ? "horas"
     : cantidades.length >= 5 && cantidades.filter((n) => n === 1).length / cantidades.length >= 0.8 ? "veces"
     : null;
-  const grupo = /dolor|migra|cefal|gripe|tos\b|fiebre|n[aá]usea|ansiedad|asma|alerg|diarrea|v[oó]mit|infecci|s[ií]ntoma|crisis|ataque|glucosa|presi[oó]n|colitis|gastritis|enferm/i.test(texto) ? "enfermedad"
-    : /sue[nñ]o|dorm|agua|ejercicio|camin|correr|gym|gimnasio|medit|leer|lectura|caf[eé]|alcohol|cigarr|fum|pasos|vitamina|h[aá]bito/i.test(texto) ? "habito"
+  // Palabras completas: "Impresion" no es presión ni "Aguacate" es agua
+  const grupo = /dolor|migra[nñ]|cefal|gripe|\btos\b|fiebre|n[aá]usea|ansiedad|asma|alerg|diarrea|v[oó]mit|infecci|s[ií]ntoma|\bcrisis|\bataque|glucosa|\bpresi[oó]n|colitis|gastritis|enferm/i.test(texto) ? "enfermedad"
+    : /sue[nñ]o|\bdorm|\bagua\b|ejercicio|\bcamin|\bcorrer|\bgym\b|gimnasio|medit|\bleer\b|lectura|\bcaf[eé](?![a-z])|cafe[ií]na|alcohol|cigarr|\bfum|\bpasos\b|vitamina|h[aá]bito/i.test(texto) ? "habito"
     : null;
   return { ...(grupo ? { grupo_salud: grupo } : {}), ...(medida ? { medida_salud: medida } : {}) };
 }
@@ -1316,7 +1329,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             // Qué hábitos registrar para saber qué la detona, y lo que ya dicen los que registra
             const relaciones = relacionesDe(c);
             const habitosRegistrados = todas.filter((h: Json) => h.grupo_salud === "habito" && porDiaCat[String(h.id)]?.size).length;
-            const investigar = entre(hace(29), hoyL) >= 4 ? habitosParaInvestigar(c, todas) : [];
+            const investigar = entre(hace(29), hoyL) >= 4 ? habitosParaInvestigar(c, todas, catalogo) : [];
             return {
               relaciones: relaciones.length ? relaciones : habitosRegistrados ? "ninguna clara todavía con los hábitos que registra" : "no registra hábitos todavía",
               ...(investigar.length ? { habitos_para_investigar: investigar } : {}),
@@ -1326,6 +1339,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         };
       });
       if (!categorias.length) return { texto: "No hay registros de Salud en los últimos 4 meses." };
+      // Las que se registraban como dinero antes del tipo Salud y ningún hábito sugerido cubre
+      const enHabitos = new Set(categorias.flatMap((x: Json) => (x.habitos_para_investigar ?? []).filter((h: Json) => h.convertir).map((h: Json) => String(h.convertir.categoria_id))));
+      const viejas = categoriasViejasDeSalud(catalogo).filter((c: Json) => !enHabitos.has(String(c.id))).slice(0, 4)
+        .map((c: Json) => ({ categoria_id: c.id, nombre: c.nombre, tipo_actual: c.tipo, sugerencia: sugerenciaSalud(c, []) }));
       return {
         texto: recortar({
           hoy: hoyL,
@@ -1333,8 +1350,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "normal_dias_por_mes = promedio de los meses completos anteriores. Las coincidencias sólo dicen que pasan juntas más que en un día cualquiera, no que una cause la otra. " +
             "Los _ultimos_30 son los últimos 30 días, no el mes. No hay horas: no hables de a qué hora pasa. En un hábito no juzgues si va bien o mal salvo que la descripción lo diga. " +
             "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman), horas (por día) o valor (una medición con su unidad: importa el último, el promedio y si sale del rango sano). " +
-            "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga.",
+            "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga. " +
+            "categorias_viejas_de_salud: se registraban como gasto o ingreso antes de que existiera Salud; ofrece pasarlas a Salud (proponer_cambio_categoria con tipo salud, grupo_salud y medida_salud): sus registros se conservan como cantidad.",
           categorias,
+          ...(viejas.length ? { categorias_viejas_de_salud: viejas } : {}),
         }),
       };
     }
@@ -2349,7 +2368,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       for (const campo of ["grupo_salud", "medida_salud", "unidad_salud"]) {
         const valor = campo === "unidad_salud" && entrada[campo] !== undefined ? String(entrada[campo]).trim().slice(0, 12) || null : entrada[campo];
         if (valor === undefined || valor === (c as Json)[campo]) continue;
-        if ((c as Json).tipo !== "salud") return { texto: "El grupo, la medida y la unidad sólo son de categorías de Salud.", error: true };
+        if ((entrada.tipo ?? (c as Json).tipo) !== "salud") return { texto: "El grupo, la medida y la unidad sólo son de categorías de Salud.", error: true };
         cambios[campo] = valor;
       }
       if ((cambios.medida_salud ?? (c as Json).medida_salud) === "valor" && !(cambios.unidad_salud ?? (c as Json).unidad_salud)) {
@@ -2532,11 +2551,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cuentaPedida = entrada.cuenta_id ? catalogo.cuentas.find((x: Json) => String(x.id) === String(entrada.cuenta_id)) : null;
       if (entrada.cuenta_id && !cuentaPedida) return { texto: "No encontré esa cuenta.", error: true };
       if (entrada.categoria_id) {
-        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo, cuenta_id").eq("id", entrada.categoria_id).maybeSingle());
+        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo, cuenta_id, medida_salud").eq("id", entrada.categoria_id).maybeSingle());
         if (c && cuentaPedida && String((c as Json).cuenta_id) !== String(cuentaPedida.id)) {
           const otra = catalogo.categorias.find((x: Json) => String(x.cuenta_id) === String(cuentaPedida.id) && String(x.nombre).trim().toLowerCase() === String((c as Json).nombre).trim().toLowerCase());
           if (!otra) return { texto: `Esa categoría es de otra cuenta. Si no hay "${(c as Json).nombre}" en ${cuentaPedida.nombre}, propónla ahí primero y usa categoria_nueva.`, error: true };
-          c = { id: otra.id, nombre: otra.nombre, tipo: otra.tipo, cuenta_id: otra.cuenta_id };
+          c = { id: otra.id, nombre: otra.nombre, tipo: otra.tipo, cuenta_id: otra.cuenta_id, medida_salud: otra.medida_salud };
         }
       } else if (entrada.categoria_nueva) {
         // Una categoría propuesta en este turno: el movimiento la busca por nombre al confirmarse
@@ -2567,6 +2586,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (tipo === "salud") {
         const mal = cantidadSaludInvalida(c, importe);
         if (mal) return { texto: mal, error: true };
+        // Una intensidad o unas horas son una por día: antes de otra, ver si ya está la de ese día
+        if ((c as Json).id && ["intensidad", "horas"].includes((c as Json).medida_salud) && entrada.otro_episodio !== true && /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) {
+          const { data: delDia } = await sb.from("registros").select("id, fecha, cantidad, descripcion").eq("categoria_id", (c as Json).id)
+            .gte("fecha", inicioDeDia(String(entrada.fecha), zona)).lte("fecha", finDeDia(String(entrada.fecha), zona)).limit(5);
+          if (delDia?.length) {
+            const ya = delDia.map((r: Json) => `id ${r.id}: ${(c as Json).medida_salud === "horas" ? `${r.cantidad} h` : `intensidad ${r.cantidad}`}${r.descripcion ? `, nota "${r.descripcion}"` : ""}`).join("; ");
+            return {
+              texto: `Ya hay ${delDia.length === 1 ? "un registro" : `${delDia.length} registros`} de ${(c as Json).nombre} ese día (${ya}). ` +
+                "Si es lo mismo, propón el cambio a ese registro con proponer_cambio_movimiento (por ejemplo, agregar a su descripción lo que te dijo, o subir la intensidad). " +
+                "Sólo si de verdad es otro episodio, vuelve a llamar con otro_episodio: true. Si no es claro, pregúntale.",
+              error: true,
+            };
+          }
+        }
       }
       // "ahora" se resuelve aquí con la hora local del usuario; sin hora, la app guarda mediodía
       let hora: string | undefined;
@@ -2681,8 +2714,10 @@ Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y con
 1. Primero Enfermedades y luego Hábitos. Por categoría, en una o dos líneas: cómo va contra lo normal (dias_ultimos_30 contra normal_dias_por_mes, que son comparables; los 7 días sólo como racha), y la cantidad según su medida contra antes, con cifras. La cantidad es lo que diga medida (intensidad, veces, horas); nunca la cambies por otra cosa (una intensidad no son pastillas).
 2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
 3. Si viene relaciones con cifras, dilas como pista ("los días antes de una migraña dormiste 5.8 h; los demás, 7.1 h"), nunca como causa.
-4. Si una enfermedad trae habitos_para_investigar, propón en el mismo turno esos hábitos como categorías nuevas (proponer_nueva_categoria: tipo salud, grupo_salud habito, su medida, su descripción y su cuenta_id) y di en una línea por qué cada uno; con unas semanas de registros le dirás qué la detona. Si cancela alguno, guárdalo con recordar (tema preferencia) y no lo vuelvas a proponer.
+4. Si una enfermedad trae habitos_para_investigar, propón en el mismo turno esos hábitos (sin preguntarle si quiere) y di en una línea por qué cada uno; con unas semanas de registros le dirás qué la detona. Si el hábito trae convertir, ya existe como categoría vieja: propón pasarla a Salud con proponer_cambio_categoria (tipo salud, grupo_salud habito, su medida y descripción); si no, créala con proponer_nueva_categoria (tipo salud, grupo_salud habito, su medida, su descripción y su cuenta_id). Si cancela alguno, guárdalo con recordar (tema preferencia) y no lo vuelvas a proponer.
 - Contesta cómo va en ese mismo turno aunque a alguna categoría le falten grupo o medida: resumen_salud ya trae sus cifras. En el mismo turno propón con proponer_cambio_categoria el grupo y la medida que falten, tomados de sugerencia. Sólo lo que sugerencia no traiga (y no diga la descripción) se pregunta, todo en una sola llamada a preguntar_al_usuario; con la respuesta propón la tarjeta y, si no tenía descripción, también la descripción.
+- Al registrar un síntoma con medida intensidad: si no dijo qué tan fuerte, pregúntalo con preguntar_al_usuario antes de proponer; las pastillas y lo demás van en la descripción, nunca como cantidad.
+- Si te cuenta qué medicamento toma o algo duradero de su salud ("mi analgésico tiene cafeína"), guárdalo con recordar (tema contexto) y úsalo al investigar: la cafeína de una pastilla también cuenta.
 - Una medición (medida valor) se dice con su unidad: el último valor, el promedio y el mínimo y máximo de los 30 días.
 - No eres médico: no diagnostiques ni recomiendes medicamentos. Si viene senales (10 o más días en 30, o el mes muy arriba de lo normal) o una medición claramente fuera de lo sano (fiebre alta, glucosa o presión muy altas), dilo claro y sugiere en una frase verlo con su médico llevando este registro. Si no, no lo menciones.
 
