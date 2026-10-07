@@ -17616,32 +17616,71 @@
                                 pintarChatAsistente(true);
                             }
 
+                            // Categorías donde sólo importa el monto (no tiene caso preguntar "qué fue")
+                            const SOLO_MONTO_REGISTRO = /gasolin|combustible|\bgas\b|uber|didi|taxi|transporte|estacionamiento|caseta|peaje|renta|\bluz\b|\bagua\b|internet|tel[eé]fono|celular|gimnasio|\bgym\b|sueldo|n[oó]mina|salario|quincena/i;
+
+                            // La última pregunta depende de la categoría: si siempre es lo mismo (gasolina, renta…)
+                            // sólo pregunta cuánto y ofrece los montos que más usas; si varía, qué fue y cuánto.
+                            function preguntaFinalRegistro(cat, soloMonto) {
+                                if (!cat) return { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Tacos 250' };
+                                if (cat.tipo === 'salud') return soloMonto ? { pregunta: '¿Cuánto?', ejemplo: 'Ej. 1' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Leve 1' };
+                                if (cat.tipo === 'ingreso') return soloMonto ? { pregunta: '¿Cuánto recibiste?', ejemplo: 'Ej. 5000' } : { pregunta: '¿De qué y cuánto?', ejemplo: 'Ej. Venta 500' };
+                                return soloMonto ? { pregunta: '¿Cuánto fue?', ejemplo: 'Ej. 500' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Tacos 250' };
+                            }
+
                             // Elegida la categoría, la última pregunta ofrece lo que sueles registrar en ella
                             async function opcionesRegistroAsistente(item) {
                                 const r = item.respuestas[0];
                                 const cat = r && !(r.texto && r.texto.trim()) && r.opcion !== null ? item.categorias[r.opcion] : null;
                                 const q = item.preguntas[2];
-                                q.opciones = [];
+                                const porNombre = !!cat && SOLO_MONTO_REGISTRO.test(cat.nombre || '');
+                                Object.assign(q, preguntaFinalRegistro(cat, porNombre), { opciones: [] });
                                 item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
                                 if (!cat || !clienteSupabase) return;
                                 try {
                                     const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat;
                                     const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
                                         .eq('categoria_id', cat.id).order('fecha', { ascending: false }).limit(40);
-                                    const vistas = new Set();
-                                    const opciones = [];
-                                    (data || []).forEach(m => {
-                                        const desc = String(m.descripcion || '').replace(/\s+/g, ' ').trim();
-                                        const valor = c.tipo === 'salud' ? Number(m.cantidad || 0) : Math.abs(Number(m.monto || 0));
-                                        if (!desc || !(valor > 0)) return;
-                                        const texto = c.tipo === 'salud' ? `${desc} · ${valor}` : `${desc} · $${valor.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
-                                        if (vistas.has(texto.toLowerCase()) || opciones.length >= 3) return;
-                                        vistas.add(texto.toLowerCase());
-                                        opciones.push(texto);
+                                    const fmt = v => c.tipo === 'salud' ? fCantidadSalud(v) : `$${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+                                    const movs = (data || []).map(m => ({
+                                        desc: String(m.descripcion || '').replace(/\s+/g, ' ').trim(),
+                                        valor: Math.round((c.tipo === 'salud' ? Number(m.cantidad || 0) : Math.abs(Number(m.monto || 0))) * 100) / 100
+                                    })).filter(m => m.valor > 0);
+                                    // ¿La descripción aporta algo? Si casi siempre está vacía, repite el nombre o es la misma, no
+                                    const nombre = String(c.nombre || '').toLowerCase();
+                                    const cuentaDesc = {};
+                                    movs.forEach(m => {
+                                        const d = m.desc.toLowerCase();
+                                        if (d && d !== nombre) cuentaDesc[d] = (cuentaDesc[d] || 0) + 1;
                                     });
+                                    const conDesc = Object.values(cuentaDesc).reduce((a, b) => a + b, 0);
+                                    const masUsada = Math.max(0, ...Object.values(cuentaDesc));
+                                    const soloMonto = porNombre || (movs.length >= 3 && (conDesc < movs.length / 2 || masUsada >= conDesc * 0.6));
+                                    let opciones;
+                                    if (soloMonto) {
+                                        // Los montos que más se repiten; a igualdad, los más recientes
+                                        const veces = new Map();
+                                        movs.forEach((m, i) => {
+                                            const v = veces.get(m.valor) || { n: 0, i };
+                                            v.n++;
+                                            veces.set(m.valor, v);
+                                        });
+                                        opciones = [...veces.entries()].sort((a, b) => b[1].n - a[1].n || a[1].i - b[1].i).slice(0, 3).map(([v]) => fmt(v));
+                                    } else {
+                                        const vistas = new Set();
+                                        opciones = [];
+                                        movs.forEach(m => {
+                                            if (!m.desc || opciones.length >= 3) return;
+                                            const texto = `${m.desc} · ${fmt(m.valor)}`;
+                                            if (vistas.has(texto.toLowerCase())) return;
+                                            vistas.add(texto.toLowerCase());
+                                            opciones.push(texto);
+                                        });
+                                    }
                                     // Si mientras tanto cambió la categoría, esta lista ya no sirve
                                     if (item.respuestas[0].opcion !== r.opcion || item.estado !== 'pendiente') return;
-                                    q.opciones = opciones;
+                                    Object.assign(q, preguntaFinalRegistro(cat, soloMonto), { opciones });
+                                    if (!soloMonto && movs[0] && movs[0].desc) q.ejemplo = `Ej. ${movs[0].desc} ${String(fmt(movs[0].valor)).replace('$', '')}`;
                                     if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) pintarPreguntasAsistente();
                                 } catch (e) { /* sin historial: se escribe */ }
                             }
@@ -17657,7 +17696,7 @@
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat ? ` (id ${cat.id})` : ''}\n`
                                     + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
-                                    + `- Qué fue y cuánto: ${resp(2)}`;
+                                    + `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
                                 item.estado = 'respondida';
                                 const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resp(2)}` };
                                 chatUi.push(burbuja);
