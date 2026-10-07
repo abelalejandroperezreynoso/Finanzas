@@ -17067,12 +17067,12 @@
                                     const clave = `ia:${h.titulo}`;
                                     if (!vigente(clave) || (h.estado && h.estado !== 'pendiente')) return;
                                     // La categoría de la que habla, si su nombre aparece en el hallazgo (la más larga gana)
-                                    const textoH = `${h.titulo} ${h.detalle} ${h.mensaje}`.toLowerCase();
+                                    const textoH = `${h.titulo} ${h.detalle}`.toLowerCase();
                                     const catH = cats.filter(c => c.nombre && c.nombre.length > 1 && new RegExp(`(^|[^\\p{L}])${c.nombre.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}]|$)`, 'u').test(textoH))
                                         .sort((a, b) => b.nombre.length - a.nombre.length || (b.vecesUsada || 0) - (a.vecesUsada || 0))[0];
                                     propios.push({
                                         clave, hallazgo_id: h.id || null, categoria_id: catH ? catH.id : null, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
-                                        primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: h.mensaje },
+                                        primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: /^(¿|revisa|ayúdame|ayudame|dime|propón|propon|explícame|explicame|muéstrame|muestrame|busca|compara|junta|pasa|registra|corrige|cambia|mueve|haz|calcula|ordena|quiero|necesito|cómo|como|qué|que)/i.test((h.mensaje || '').trim()) ? h.mensaje : `Revisa esto conmigo y dime qué hago: ${h.titulo}. ${h.detalle}` },
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
                                 });

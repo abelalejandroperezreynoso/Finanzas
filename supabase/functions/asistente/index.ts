@@ -569,7 +569,8 @@ function limpiarRecurrentes(lista: unknown): Json[] | undefined {
   return lista.slice(0, 80).map((r: Json) => ({
     categoria_id: String(r?.categoria_id ?? ""), cada_dias: Number(r?.cada_dias) || null,
     siguiente: FECHA.test(String(r?.siguiente)) ? String(r.siguiente) : null,
-    fechas: (Array.isArray(r?.fechas) ? r.fechas : []).map(String).filter((f: string) => FECHA.test(f)).slice(0, 8),
+    // Sin repetidas: una fecha dos veces sumaba dos veces el mismo ingreso o pago
+    fechas: [...new Set((Array.isArray(r?.fechas) ? r.fechas : []).map(String).filter((f: string) => FECHA.test(f)))].slice(0, 8),
     monto: Math.abs(Number(r?.monto) || 0), monto_promedio: r?.monto_promedio === true, exacto: r?.exacto === true,
     seguidos: Number(r?.seguidos) || 0, vencido: r?.vencido === true,
   })).filter((r: Json) => r.categoria_id && r.siguiente);
@@ -1367,7 +1368,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
 
       return {
         texto: recortar({
-          control: { estado: control, motivos },
+          // Un número y no la etiqueta: el modelo la repetía tal cual ("Estás fuera de control")
+          control: { nivel: control === "fuera de control" ? 2 : control === "atento" ? 1 : 0, motivos },
           ...(hastaIngreso ? { hasta_el_ingreso: hastaIngreso } : {}),
           hoy: hoyL, dia, dias_del_mes: diasMes, meses_comparados: n,
           saldo_hoy: r0(saldoHoy), saldo_fin_de_mes_estimado: r0(saldo), saldo_minimo_estimado: r0(minimo), dia_del_minimo: diaMinimo,
@@ -1376,7 +1378,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ingresos: { llevas: r0(ingresoMtd), normal_a_esta_fecha: r0(ingresoNormalHoy), normal_del_mes: r0(ingresoNormalMes), diferencia: r0(ingresoMtd - ingresoNormalHoy) },
           gastos_por_categoria: tabla(["categoria", "prioridad", "llevas", "normal_a_esta_fecha", "normal_del_mes", "diferencia"], filas.slice(0, 15)),
           por_venir: porVenir.slice(0, 15),
-          nota: "control es el veredicto (bajo control, atento o fuera de control) y sus motivos: úsalo tal cual, no lo cambies ni le agregues problemas. " +
+          nota: "control es el veredicto (nivel 0 = todo bien, 1 = cuidado, 2 = hay que actuar ya) y sus motivos: úsalo tal cual, no lo cambies ni le agregues problemas. " +
             "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
             "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
             "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo la reparte en los días que quedan). " +
@@ -2076,10 +2078,10 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 # Bajo control
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
 Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
-1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
+1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si el nivel es 0, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
 2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como el plan que ya tienen, di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y sugiere cobrar lo que le deben o pasar dinero de otra cuenta. Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
-Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas la etiqueta del veredicto ("atento", "fuera de control"): di el problema. Antes de interpretar una categoría, lee su descripción.
+Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas el nivel ni frases como "estás fuera de control": di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
 "Con $3,100 no llegas a la quincena del 15: te faltan $650.
 1. Pasa la aportación de $1,500 a tu inversión del día 10 para después del 15.
