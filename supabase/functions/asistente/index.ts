@@ -1232,8 +1232,32 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const r0 = (v: number) => Math.round(v);
       filas.sort((a, b) => Math.abs(b[5]) - Math.abs(a[5]) || b[4] - a[4]);
       porVenir.sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto));
+
+      // Si está bajo control lo dice el cálculo, no el modelo: con las mismas reglas que la alerta del chat en
+      // la app, más el saldo estimado del resto del mes. Antes el modelo lo juzgaba a ojo y llegó a decir
+      // "cierras en negativo" con $101,000 de saldo.
+      const pesos = (v: number) => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
+      const quedaPrevios = [...conDatos].map((m) => cats.reduce((t: number, c: Json) =>
+        c.tipo === "ingreso" || c.tipo === "gasto" ? t + (h[String(c.id)]?.total[m] ?? 0) : t, 0));
+      const quedaProm = quedaPrevios.length ? quedaPrevios.reduce((a, b) => a + b, 0) / quedaPrevios.length : 0;
+      const flujoMes = ingresoMtd - gastoMtd;
+      const esperado = gastoNormalMes * dia / diasMes;
+      let control = "bajo control";
+      const motivos: string[] = [];
+      if (saldoHoy <= 0) motivos.push(`Tu saldo está en ${pesos(saldoHoy)}`);
+      else if (gastoNormalMes > 0 && saldoHoy < gastoNormalMes * 0.25) motivos.push(`Tu saldo (${pesos(saldoHoy)}) no alcanza ni para una cuarta parte de lo que gastas al mes (${pesos(gastoNormalMes)})`);
+      if (saldoHoy > 0 && diaNegativo !== null) motivos.push(`A este ritmo tu saldo quedaría negativo el día ${diaNegativo}`);
+      if (n >= 2 && quedaProm < 0) motivos.push(`En los últimos meses gastaste más de lo que entró (${pesos(quedaProm)} al mes)`);
+      if (motivos.length) control = "fuera de control";
+      else {
+        if (flujoMes < 0 && -flujoMes > gastoNormalMes * 0.1) motivos.push(`Este mes vas ${pesos(-flujoMes)} abajo: gastaste más de lo que entró`);
+        if (esperado > 0 && gastoMtd > esperado * 1.2) motivos.push(`Este mes vas gastando más rápido que otros: llevas ${pesos(gastoMtd)} y lo normal a esta fecha son unos ${pesos(esperado)}`);
+        if (motivos.length) control = "atento";
+      }
+
       return {
         texto: recortar({
+          control: { estado: control, motivos },
           hoy: hoyL, dia, dias_del_mes: diasMes, meses_comparados: n,
           saldo_hoy: r0(saldoHoy), saldo_fin_de_mes_estimado: r0(saldo), saldo_minimo_estimado: r0(minimo), dia_del_minimo: diaMinimo,
           dia_en_que_quedaria_negativo: diaNegativo,
@@ -1241,7 +1265,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ingresos: { llevas: r0(ingresoMtd), normal_a_esta_fecha: r0(ingresoNormalHoy), normal_del_mes: r0(ingresoNormalMes), diferencia: r0(ingresoMtd - ingresoNormalHoy) },
           gastos_por_categoria: tabla(["categoria", "prioridad", "llevas", "normal_a_esta_fecha", "normal_del_mes", "diferencia"], filas.slice(0, 15)),
           por_venir: porVenir.slice(0, 15),
-          nota: "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
+          nota: "control es el veredicto (bajo control, atento o fuera de control) y sus motivos: úsalo tal cual, no lo cambies ni le agregues problemas. " +
+            "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
             "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
             "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo supone que llega mañana; si no llega, el saldo quedaría más bajo). Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
@@ -1936,9 +1961,9 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 
 # Bajo control
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
-Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes (y, si ayuda, a listar_recurrentes o resumen_prestamos_deudas) y contesta en pocas líneas:
-1. El problema en una frase, con la cifra que importa ("A este ritmo cierras el mes en −$4,200"). Si todo está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
-2. Las soluciones: 2 o 3 acciones concretas, de la que más ayuda a la que menos, cada una con monto y plazo, que juntas alcancen ("No gastes en Restaurante hasta la quincena del 15: $1,200 menos"; "Cóbrale a Abel los $1,500 que te debe"; "Cancela Spotify: $129 al mes"). Empieza por lo prescindible y lo útil; nunca recortes lo vital. Si el problema puede ser un dato (un ingreso sin registrar, un saldo que no cuadra), la primera solución es corregirlo. Lo que se pueda hacer en la app, propónlo con su herramienta.
+Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes (y, si ayuda, a listar_recurrentes o resumen_prestamos_deudas). El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. No afirmes nada que la herramienta no diga; por ejemplo, no digas que quedará en negativo si saldo_fin_de_mes_estimado es positivo. Contesta en 5 renglones o menos, sin preguntas al final:
+1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si está bajo control, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
+2. Las soluciones: 2 o 3 acciones concretas, de la que más ayuda a la que menos, cada una con monto y plazo, que juntas alcancen ("No gastes en Restaurante hasta la quincena del 15: $1,200 menos"; "Cóbrale a Abel los $1,500 que te debe"; "Cancela Spotify: $129 al mes"). Empieza por lo prescindible y lo útil; nunca recortes lo vital. Si la causa es un gasto de una sola vez o un dato (un ingreso sin registrar, gastos sin identificar, un saldo que no cuadra), dilo así: la solución es aclararlo, no recortar. Lo que se pueda hacer en la app, propónlo con su herramienta.
 3. Cómo queda si lo hace ("Con eso llegas al 15 con +$300").
 Nada de repasar categorías, explicar cálculos ni dar contexto que no cambie lo que tiene que hacer. Antes de interpretar una categoría, lee su descripción.
 
