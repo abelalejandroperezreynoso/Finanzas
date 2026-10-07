@@ -17629,54 +17629,83 @@
                             }
 
                             // La categoría de la primera pregunta: la opción tocada o, si se escribió, la que
-                            // se llame así (sin importar acentos ni mayúsculas, o que empiece igual)
+                            // se llame así (sin importar acentos ni mayúsculas, o que empiece igual). Si no hay
+                            // ninguna, lo escrito sirve igual para redactar la pregunta ("Regalo").
+                            const normRegistro = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
                             function categoriaDeRegistro(item) {
                                 const r = item.respuestas[0];
                                 if (!r) return null;
                                 const texto = (r.texto || '').trim();
                                 if (!texto) return r.opcion !== null && r.opcion !== undefined ? item.categorias[r.opcion] : null;
-                                const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-                                const t = norm(texto);
+                                const t = normRegistro(texto);
                                 const cats = (datosCategorias || []).filter(c => ['gasto', 'ingreso', 'salud'].includes(c.tipo));
-                                const c = cats.find(x => norm(x.nombre) === t) || (t.length >= 3 ? cats.find(x => norm(x.nombre).startsWith(t)) : null);
+                                const c = cats.find(x => normRegistro(x.nombre) === t) || (t.length >= 3 ? cats.find(x => normRegistro(x.nombre).startsWith(t)) : null);
                                 if (c) return { id: c.id, nombre: c.nombre, tipo: c.tipo };
-                                // Sin categoría con ese nombre: igual se reconoce si es de las de sólo monto
-                                if (!SOLO_MONTO_REGISTRO.test(texto)) return null;
+                                if (t.length < 3) return null;
                                 return { id: null, nombre: texto, tipo: /sueldo|n[oó]mina|salario|quincena/i.test(texto) ? 'ingreso' : 'gasto' };
                             }
 
-                            // Elegida la categoría, la última pregunta ofrece lo que sueles registrar en ella
+                            // La pregunta que redactó la IA para cada categoría se guarda en el teléfono: se pide
+                            // una sola vez y se vuelve a pedir sólo si cambian el nombre, el tipo o la descripción
+                            const clavePreguntasRegistro = () => `preguntaRegistro:${currentUser ? currentUser.id : 'anonimo'}`;
+                            function leerPreguntasRegistro() {
+                                try { return JSON.parse(localStorage.getItem(clavePreguntasRegistro()) || '{}') || {}; } catch (e) { return {}; }
+                            }
+                            function guardarPreguntaRegistro(clave, valor) {
+                                const todas = leerPreguntasRegistro();
+                                delete todas[clave];
+                                todas[clave] = valor;
+                                const claves = Object.keys(todas);
+                                claves.slice(0, Math.max(0, claves.length - 80)).forEach(k => delete todas[k]);
+                                try { localStorage.setItem(clavePreguntasRegistro(), JSON.stringify(todas)); } catch (e) { /* sin almacenamiento */ }
+                            }
+
+                            // Cambia la última pregunta sin quitarle el teclado a quien ya la está contestando
+                            function refrescarPreguntaRegistro(item) {
+                                if (preguntasPendientesAsistente() !== item || (item.actual || 0) !== 2) return;
+                                const campo = document.getElementById('cpOtra');
+                                if (campo && document.activeElement === campo) {
+                                    const titulo = document.querySelector('#chatPreguntas .cp-titulo');
+                                    if (titulo) titulo.textContent = item.preguntas[2].pregunta;
+                                    campo.placeholder = item.preguntas[2].ejemplo || '';
+                                    return;
+                                }
+                                pintarPreguntasAsistente();
+                            }
+
+                            // Elegida la categoría, la última pregunta se adapta a ella: la redacta la IA con el
+                            // nombre, el tipo y la descripción de la categoría (p. ej. "¿Qué regalaste y cuánto?"),
+                            // y ofrece lo que sueles registrar ahí: sólo montos si nada más importa cuánto, o
+                            // descripción y monto si importa qué fue
                             async function opcionesRegistroAsistente(item) {
                                 const cat = categoriaDeRegistro(item);
-                                const clave = cat ? `${cat.id}|${cat.nombre}` : '';
+                                const clave = cat ? `${cat.id}|${normRegistro(cat.nombre)}` : '';
                                 // Al escribir se llama en cada tecla: sólo se rehace si cambió la categoría
                                 if (item.claveRegistro === clave) return;
                                 item.claveRegistro = clave;
+                                const vigente = () => item.claveRegistro === clave && item.estado === 'pendiente';
                                 const q = item.preguntas[2];
-                                const porNombre = !!cat && SOLO_MONTO_REGISTRO.test(cat.nombre || '');
-                                Object.assign(q, preguntaFinalRegistro(cat, porNombre), { opciones: [] });
                                 item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
-                                if (!cat || cat.id === null || !clienteSupabase) return;
-                                try {
-                                    const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat;
-                                    const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
-                                        .eq('categoria_id', cat.id).order('fecha', { ascending: false }).limit(40);
-                                    const fmt = v => c.tipo === 'salud' ? fCantidadSalud(v) : `$${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
-                                    const movs = (data || []).map(m => ({
-                                        desc: String(m.descripcion || '').replace(/\s+/g, ' ').trim(),
-                                        valor: Math.round((c.tipo === 'salud' ? Number(m.cantidad || 0) : Math.abs(Number(m.monto || 0))) * 100) / 100
-                                    })).filter(m => m.valor > 0);
+                                const c = cat && cat.id !== null ? ((datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat) : cat;
+                                const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion)].join('|') : '';
+                                const porNombre = !!c && SOLO_MONTO_REGISTRO.test(c.nombre || '');
+                                let ia = c ? leerPreguntasRegistro()[claveIa] || null : null;
+                                let movs = [];
+                                const fmt = v => c && c.tipo === 'salud' ? fCantidadSalud(v) : `$${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+
+                                const aplicar = () => {
                                     // ¿La descripción aporta algo? Si casi siempre está vacía, repite el nombre o es la misma, no
-                                    const nombre = String(c.nombre || '').toLowerCase();
+                                    const nombre = normRegistro(c && c.nombre);
                                     const cuentaDesc = {};
                                     movs.forEach(m => {
-                                        const d = m.desc.toLowerCase();
+                                        const d = normRegistro(m.desc);
                                         if (d && d !== nombre) cuentaDesc[d] = (cuentaDesc[d] || 0) + 1;
                                     });
-                                    const conDesc = Object.values(cuentaDesc).reduce((a, b) => a + b, 0);
+                                    const conDesc = Object.values(cuentaDesc).reduce((x, y) => x + y, 0);
                                     const masUsada = Math.max(0, ...Object.values(cuentaDesc));
-                                    const soloMonto = porNombre || (movs.length >= 3 && (conDesc < movs.length / 2 || masUsada >= conDesc * 0.6));
-                                    let opciones;
+                                    const soloMonto = ia ? ia.modo === 'monto'
+                                        : porNombre || (movs.length >= 3 && (conDesc < movs.length / 2 || masUsada >= conDesc * 0.6));
+                                    let opciones = [];
                                     if (soloMonto) {
                                         // Los montos que más se repiten; a igualdad, los más recientes
                                         const veces = new Map();
@@ -17685,10 +17714,9 @@
                                             v.n++;
                                             veces.set(m.valor, v);
                                         });
-                                        opciones = [...veces.entries()].sort((a, b) => b[1].n - a[1].n || a[1].i - b[1].i).slice(0, 3).map(([v]) => fmt(v));
+                                        opciones = [...veces.entries()].sort((x, y) => y[1].n - x[1].n || x[1].i - y[1].i).slice(0, 3).map(([v]) => fmt(v));
                                     } else {
                                         const vistas = new Set();
-                                        opciones = [];
                                         movs.forEach(m => {
                                             if (!m.desc || opciones.length >= 3) return;
                                             const texto = `${m.desc} · ${fmt(m.valor)}`;
@@ -17697,12 +17725,56 @@
                                             opciones.push(texto);
                                         });
                                     }
-                                    // Si mientras tanto cambió la categoría, esta lista ya no sirve
-                                    if (item.claveRegistro !== clave || item.estado !== 'pendiente') return;
-                                    Object.assign(q, preguntaFinalRegistro(cat, soloMonto), { opciones });
+                                    Object.assign(q, preguntaFinalRegistro(c, soloMonto), { opciones });
                                     if (!soloMonto && movs[0] && movs[0].desc) q.ejemplo = `Ej. ${movs[0].desc} ${String(fmt(movs[0].valor)).replace('$', '')}`;
-                                    if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) pintarPreguntasAsistente();
-                                } catch (e) { /* sin historial: se escribe */ }
+                                    if (ia) {
+                                        q.pregunta = ia.pregunta;
+                                        if (ia.ejemplo) q.ejemplo = ia.ejemplo;
+                                    }
+                                };
+                                aplicar();
+                                if (!c || !clienteSupabase) return;
+
+                                // Lo que se registró antes en esa categoría
+                                const historial = (async () => {
+                                    if (c.id === null) return;
+                                    try {
+                                        const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
+                                            .eq('categoria_id', c.id).order('fecha', { ascending: false }).limit(40);
+                                        if (!vigente()) return;
+                                        movs = (data || []).map(m => ({
+                                            desc: String(m.descripcion || '').replace(/\s+/g, ' ').trim(),
+                                            valor: Math.round((c.tipo === 'salud' ? Number(m.cantidad || 0) : Math.abs(Number(m.monto || 0))) * 100) / 100
+                                        })).filter(m => m.valor > 0);
+                                        // Si ya eligió una opción de la última pregunta, no se le cambia la lista debajo
+                                        if (item.respuestas[2].opcion !== null) return;
+                                        aplicar();
+                                        refrescarPreguntaRegistro(item);
+                                    } catch (e) { /* sin historial: se escribe */ }
+                                })();
+                                if (ia) return;
+
+                                // La pregunta a la medida, de la IA. Si se está escribiendo, espera a que termine.
+                                if (c.id === null) {
+                                    await new Promise(res => setTimeout(res, 800));
+                                    if (!vigente()) return;
+                                }
+                                await historial;
+                                if (!vigente()) return;
+                                try {
+                                    const ejemplos = movs.slice(0, 10).map(m => `${m.desc || '(sin descripción)'} · ${fmt(m.valor)}`);
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        body: { modo: 'pregunta_registro', categoria: { nombre: c.nombre, tipo: c.tipo, descripcion: c.descripcion || null }, ejemplos }
+                                    });
+                                    if (error || !data || !data.pregunta) return;
+                                    const nueva = { modo: data.modo === 'monto' ? 'monto' : 'detalle', pregunta: String(data.pregunta), ejemplo: String(data.ejemplo || '') };
+                                    guardarPreguntaRegistro(claveIa, nueva);
+                                    if (!vigente()) return;
+                                    if (item.respuestas[2].opcion !== null) return;
+                                    ia = nueva;
+                                    aplicar();
+                                    refrescarPreguntaRegistro(item);
+                                } catch (e) { /* sin IA: queda la pregunta de siempre */ }
                             }
 
                             async function responderRegistroAsistente(item) {

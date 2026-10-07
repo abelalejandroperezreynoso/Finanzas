@@ -1859,6 +1859,26 @@ const ESQUEMA_TOPES = {
   additionalProperties: false,
 };
 
+// Registro rápido: la última pregunta de la tarjeta, redactada según la categoría
+const SISTEMA_PREGUNTA_REGISTRO = `Redactas la última pregunta de la tarjeta "Registrar" de una app de finanzas personales en México. Antes ya se preguntó la categoría y el día; falta lo que el usuario escribe a mano. Recibes la categoría (nombre, tipo y la descripción que el usuario le dio) y algunos registros recientes de ella.
+
+- "modo": "monto" si en esa categoría sólo importa cuánto (gasolina, renta, luz, sueldo…): preguntar "qué fue" sería absurdo. "detalle" si además importa qué fue, qué compró, para quién o dónde (regalo, restaurante, súper, ropa…).
+- "pregunta": en español de México, de tú, máximo 6 palabras, con signos ¿?, hecha a la medida de la categoría. Con "monto", sólo el cuánto ("¿Cuánto cargaste?", "¿Cuánto te pagaron?"). Con "detalle", lo que importa y el cuánto ("¿Qué regalaste y cuánto?", "¿Qué compraste y cuánto?").
+- Tipo salud: no es dinero, es una cantidad (horas, veces, vasos…); pregunta esa cantidad en su unidad ("¿Cuántas horas dormiste?"). Si importa cómo fue, modo "detalle" ("¿Qué tan fuerte y cuántas?").
+- "ejemplo": lo que se ve de fondo en el campo, empieza con "Ej." y es una respuesta realista y breve, sin signo de pesos ("Ej. Perfume para mamá 800", "Ej. 650"). Si hay registros, básate en ellos.
+- La descripción de la categoría manda sobre lo que sugiera el nombre.`;
+
+const ESQUEMA_PREGUNTA_REGISTRO = {
+  type: "object",
+  properties: {
+    modo: { type: "string", enum: ["monto", "detalle"] },
+    pregunta: { type: "string" },
+    ejemplo: { type: "string" },
+  },
+  required: ["modo", "pregunta", "ejemplo"],
+  additionalProperties: false,
+};
+
 const ESQUEMA_SALDO = {
   type: "object",
   properties: {
@@ -2078,6 +2098,38 @@ Deno.serve(async (req) => {
       const { data: guardados } = await sb.from("hallazgos_ia")
         .insert(hallazgos.map((h: Json) => ({ ...h, user_id: userId, dia: hoyR }))).select(COLUMNAS_HALLAZGO);
       return responder({ hallazgos: guardados ?? hallazgos });
+    }
+
+    if (entrada.modo === "pregunta_registro") {
+      const c = entrada.categoria ?? {};
+      const categoria = {
+        nombre: String(c.nombre ?? "").slice(0, 80),
+        tipo: ["gasto", "ingreso", "salud"].includes(c.tipo) ? c.tipo : "gasto",
+        descripcion: c.descripcion ? String(c.descripcion).slice(0, 400) : null,
+      };
+      if (!categoria.nombre.trim()) return responder({ error: "Falta la categoría." }, 400);
+      const ejemplos = (Array.isArray(entrada.ejemplos) ? entrada.ejemplos : []).slice(0, 12).map((e: unknown) => String(e).slice(0, 120));
+      // Siempre Haiku: es una frase corta y la tarjeta la necesita rápido
+      const p = parametrosBase("low", "claude-haiku-4-5");
+      p.max_tokens = 400;
+      p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_PREGUNTA_REGISTRO } };
+      p.system = SISTEMA_PREGUNTA_REGISTRO;
+      p.messages = [{
+        role: "user",
+        content: `Categoría: ${JSON.stringify(categoria)}\n\nRegistros recientes (descripción · monto o cantidad):\n${ejemplos.length ? ejemplos.join("\n") : "(ninguno)"}`,
+      }];
+      const r = await client.beta.messages.create(p);
+      await anotar("pregunta_registro", r.model, [r.usage]);
+      if (r.stop_reason === "refusal" || r.stop_reason === "max_tokens") return responder({ error: "La IA no pudo responder esta vez." }, 422);
+      const bloque = r.content.find((b: Json) => b.type === "text") as Json;
+      const datos = bloque ? JSON.parse(bloque.text) : {};
+      const pregunta = String(datos.pregunta ?? "").trim().slice(0, 60);
+      if (!pregunta) return responder({ error: "La IA no pudo responder esta vez." }, 422);
+      return responder({
+        modo: datos.modo === "monto" ? "monto" : "detalle",
+        pregunta,
+        ejemplo: String(datos.ejemplo ?? "").trim().slice(0, 60),
+      });
     }
 
     if (entrada.modo === "topes") {
