@@ -377,7 +377,8 @@ const HERRAMIENTAS: Json[] = [
     description:
       "Cómo van las inversiones (GBM), calculado de todos sus movimientos: por cuenta, pesos y dólares aportados y retirados, saldo de la Caja GBM en dólares, " +
       "valor del portafolio y ganancia neta en pesos (incluye el tipo de cambio); por empresa, acciones, costo promedio, lo invertido, precio, valor, plusvalía " +
-      "y ganancia ya realizada por ventas, en dólares, y las comisiones pagadas a GBM. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja, en qué empresas se compró o vendió y cuánto se pagó de comisiones. " +
+      "y ganancia ya realizada por ventas, en dólares, y las comisiones pagadas a GBM; el rendimiento mensual (TIR, con y sin tipo de cambio) y cómo va contra el S&P 500 " +
+      "si cada dólar se hubiera metido al SPY el mismo día. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja, en qué empresas se compró o vendió y cuánto se pagó de comisiones. " +
       "Úsala para cualquier pregunta de inversiones; las compras y ventas tienen monto 0 en pesos porque se pagan con la caja en dólares.",
     input_schema: {
       type: "object",
@@ -394,6 +395,7 @@ const HERRAMIENTAS: Json[] = [
       "Cómo está el mercado hoy (de Finnhub, con datos del día): por empresa, precio, cambio de hoy, rendimiento de 5 días, del mes, del año y de 52 semanas, " +
       "qué tan lejos está de su máximo de 52 semanas, P/E, beta, crecimiento de ventas y utilidades, y el consenso de analistas del último mes; " +
       "el S&P 500 y el Nasdaq 100 como referencia, y los titulares de mercado del día. Sin tickers revisa sus empresas de GBM. " +
+      "Para saber si su portafolio va mejor o peor que el S&P 500 usa resumen_inversiones (contra_sp500), no los rendimientos de aquí. " +
       "Úsala siempre que pregunte en qué invertir, si le conviene comprar o vender algo, o cómo está el mercado.",
     input_schema: {
       type: "object",
@@ -991,6 +993,42 @@ const fechaConDia = (iso: string, z: Zona) => {
 
 // Las mismas reglas que la app: aportación y retiro mueven la caja en dólares; compra y venta
 // la usan (las "directas", de registros viejos, van de pesos a acciones sin pasar por ella)
+// Rendimiento mensual compuesto (TIR): la tasa que, aplicada a cada entrada y salida desde su fecha,
+// da el valor de hoy. Toma en cuenta cuándo entró cada peso; el modelo dividía la ganancia entre unos
+// meses que estimaba a ojo. monto > 0 = dinero que puso, < 0 = el que sacó.
+function tirMensual(flujos: { dia: string; monto: number }[], valor: number, hoy: string): number | null {
+  if (!flujos.length || !(valor > 0)) return null;
+  const meses = (d: string) => Math.max(0, (Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${d}T12:00:00Z`)) / (30.4375 * 86_400_000));
+  const f = (r: number) => flujos.reduce((t, x) => t + x.monto * Math.pow(1 + r, meses(x.dia)), 0) - valor;
+  let lo = -0.9, hi = 2, fhi = f(hi);
+  if (f(lo) * fhi > 0) return null;
+  for (let i = 0; i < 100; i++) {
+    const medio = (lo + hi) / 2, fm = f(medio);
+    if ((fm > 0) === (fhi > 0)) { hi = medio; fhi = fm; } else lo = medio;
+  }
+  return (lo + hi) / 2;
+}
+// Cierres diarios del SPY (el fondo que sigue al S&P 500) desde un día: primero los que guarda la app y, si
+// no llegan hasta ahí, los de Yahoo Finanzas. Lista ordenada de { dia, cierre }.
+async function cierresSp500(sb: SupabaseClient, desde: string): Promise<{ serie: { dia: string; cierre: number }[]; fuente: string } | null> {
+  const antes = new Date(Date.parse(`${desde}T12:00:00Z`) - 10 * 86_400_000).toISOString().slice(0, 10);
+  const { data } = await sb.from("precios_historicos").select("dia, cierre").eq("ticker", "SPY").gte("dia", antes).order("dia").limit(2000);
+  const guardada = (data ?? []).map((x: Json) => ({ dia: String(x.dia), cierre: Number(x.cierre) })).filter((x) => x.cierre > 0);
+  if (guardada.length && guardada[0].dia <= desde) return { serie: guardada, fuente: "precios guardados en la app" };
+  try {
+    const de = Math.floor(Date.parse(`${antes}T00:00:00Z`) / 1000), a = Math.floor(Date.now() / 1000);
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/SPY?period1=${de}&period2=${a}&interval=1d`,
+      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) });
+    const j = await r.json();
+    const res = j?.chart?.result?.[0];
+    const t: number[] = res?.timestamp ?? [], c: number[] = res?.indicators?.quote?.[0]?.close ?? [];
+    const serie = t.map((x, i) => ({ dia: new Date(x * 1000).toISOString().slice(0, 10), cierre: Number(c[i]) })).filter((x) => x.cierre > 0);
+    return serie.length ? { serie, fuente: "Yahoo Finanzas" } : null;
+  } catch {
+    return null;
+  }
+}
+
 const tipoDe = (r: Json) => r.tipo_movimiento || ((Number(r.cantidad_acciones) || 0) > 0 ? ((Number(r.monto) || 0) < 0 ? "compra_directa" : "venta_directa") : null);
 const usdDe = (r: Json) => {
   const usd = Number(r.monto_usd) || 0;
@@ -1669,6 +1707,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cuentas: Record<string, Json> = {};
       const empresas: Record<string, Json> = {};
       const actividad: Record<string, Json> = {};
+      const flujos: { dia: string; mxn: number; usd: number }[] = [];
       const cuentaDe = (id: string) => cuentas[id] ??= { caja_usd: 0, pesos_aportados: 0, dolares_aportados: 0, pesos_retirados: 0, dolares_retirados: 0, pesos_compras_directas: 0, pesos_ventas_directas: 0, dolares_compras_directas: 0, dolares_ventas_directas: 0, comisiones_usd: 0, comisiones_mxn: 0, ultima_aportacion: null };
       for (const r of movs) {
         const cat = catPorId[String(r.categoria_id)];
@@ -1683,6 +1722,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const act = enPeriodo ? (actividad[String(cat.cuenta_id)] ??= { pesos_aportados: 0, dolares_aportados: 0, aportaciones: 0, pesos_retirados: 0, dolares_retirados: 0, compras: {}, ventas: {} }) : null;
         const bolsa = bolsaDe(String(cat.cuenta_id));
         if (tipo === "aportacion") {
+          flujos.push({ dia, mxn: pesos, usd });
           bolsa.usd += usd; bolsa.usdA += usd; bolsa.mxnA += pesos;
           cta.caja_usd += usd; cta.pesos_aportados += pesos; cta.dolares_aportados += usd; cta.ultima_aportacion = dia;
           if (act) { act.pesos_aportados += pesos; act.dolares_aportados += usd; act.aportaciones++; }
@@ -1695,6 +1735,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           cta.caja_usd = Math.max(0, cta.caja_usd - usd); cta.comisiones_usd += usd;
           if (act) act.comisiones_usd = (act.comisiones_usd ?? 0) + usd;
         } else if (tipo === "retiro") {
+          flujos.push({ dia, mxn: -pesos, usd: -usd });
           const parte = bolsa.usd > 0.00001 ? Math.min(1, usd / bolsa.usd) : 1;
           bolsa.usdA *= 1 - parte; bolsa.mxnA *= 1 - parte; bolsa.usdV *= 1 - parte; bolsa.mxnV *= 1 - parte;
           bolsa.usd = Math.max(0, bolsa.usd - usd); vaciarSiNoQueda(bolsa);
@@ -1719,10 +1760,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
               bolsa.usdA = Math.max(0, bolsa.usdA - deA); bolsa.usdV = Math.max(0, bolsa.usdV - deV);
               bolsa.usd = Math.max(0, bolsa.usd - usd); vaciarSiNoQueda(bolsa);
             }
+            if (tipo === "compra_directa") flujos.push({ dia, mxn: pesos, usd });
             e.acciones += acciones; e.costo_usd += usd; e.costo_mxn += mxn;
             if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else { cta.pesos_compras_directas += pesos; cta.dolares_compras_directas += usd; }
             if (act) act.compras[nombre] = (act.compras[nombre] ?? 0) + usd;
           } else if (tipo === "venta" || tipo === "venta_directa") {
+            if (tipo === "venta_directa") flujos.push({ dia, mxn: -pesos, usd: -usd });
             const promedio = e.acciones > 0 ? e.costo_usd / e.acciones : 0;
             const promedioMxn = e.acciones > 0 ? e.costo_mxn / e.acciones : 0;
             const vendidas = Math.min(acciones, e.acciones);
@@ -1819,9 +1862,59 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ];
       });
 
+      // Todo junto (todas las cuentas de inversión): rendimiento mensual y contra el S&P 500
+      const hoyI = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const valorUsdTotal = Object.values(cuentas).reduce((t: number, c: Json) => t + c.caja_usd + (c.valor_acciones_usd ?? 0) + (c.sin_precio ?? 0), 0);
+      const valorMxnTotal = tc ? valorUsdTotal * tc : null;
+      const mesesDesde = (d: string) => (Date.parse(`${hoyI}T12:00:00Z`) - Date.parse(`${d}T12:00:00Z`)) / (30.4375 * 86_400_000);
+      const r1 = (n: number) => Math.round(n * 10) / 10;
+      const comoPct = (r: number | null) => r === null ? null : pct(r2(r * 100));
+      let rendimiento: Json = null, contraSp: Json = null;
+      if (flujos.length && valorUsdTotal > 0) {
+        const primero = flujos[0].dia;
+        const puestos = flujos.filter((x) => x.mxn > 0);
+        const tiempoProm = puestos.reduce((t, x) => t + x.mxn * mesesDesde(x.dia), 0) / Math.max(1, puestos.reduce((t, x) => t + x.mxn, 0));
+        const tirMxn = valorMxnTotal ? tirMensual(flujos.map((x) => ({ dia: x.dia, monto: x.mxn })), valorMxnTotal, hoyI) : null;
+        const tirUsd = tirMensual(flujos.map((x) => ({ dia: x.dia, monto: x.usd })), valorUsdTotal, hoyI);
+        rendimiento = {
+          desde: primero, meses_desde_la_primera: r1(mesesDesde(primero)), tiempo_promedio_invertido_meses: r1(tiempoProm),
+          mensual_en_pesos: comoPct(tirMxn), mensual_en_dolares: comoPct(tirUsd),
+          mensual_por_tipo_de_cambio: tirMxn !== null && tirUsd !== null ? comoPct((1 + tirMxn) / (1 + tirUsd) - 1) : null,
+          nota: "Tasa mensual compuesta que toma en cuenta cuándo entró y salió cada peso (TIR). en_pesos incluye el tipo de cambio; en_dolares es sólo lo que hicieron las acciones y la caja; " +
+            "por_tipo_de_cambio es la diferencia entre las dos. Úsalas tal cual y no las anualices: unos meses de historia no dicen lo que dará en un año. " + (tiempoProm < 3 ? "Con menos de 3 meses en promedio es muy variable: dilo y no la presentes como lo que dará cada mes." : ""),
+        };
+        const sp = await cierresSp500(sb, primero);
+        if (sp) {
+          const precioEn = (d: string) => {
+            let p: { dia: string; cierre: number } | null = null;
+            for (const x of sp.serie) { if (x.dia <= d) p = x; else break; }
+            return p && mesesDesde(p.dia) - mesesDesde(d) < 0.3 ? p.cierre : null;
+          };
+          let unidades = 0, completo = true;
+          for (const x of flujos) { const p = precioEn(x.dia); if (!p) { completo = false; break; } unidades += x.usd / p; }
+          const ultimo = sp.serie[sp.serie.length - 1];
+          if (completo && unidades > 0) {
+            const valorSp = unidades * ultimo.cierre;
+            const tirSp = tirMensual(flujos.map((x) => ({ dia: x.dia, monto: x.usd })), valorSp, hoyI);
+            const diferencia = valorUsdTotal - valorSp;
+            contraSp = {
+              en_pocas_palabras: `Si cada dólar que pusiste lo hubieras metido al S&P 500 (SPY) el mismo día, hoy tendrías ${dinero(valorSp, "USD")}; tienes ${dinero(valorUsdTotal, "USD")}: ` +
+                (Math.abs(diferencia) < valorSp * 0.005 ? "vas prácticamente igual." : `vas ${diferencia > 0 ? "mejor" : "peor"} por ${dinero(Math.abs(diferencia), "USD")} (${pct(r2((valorUsdTotal / valorSp - 1) * 100))}).`),
+              tu_mensual_en_dolares: comoPct(tirUsd), sp500_mensual_en_dolares_mismas_fechas: comoPct(tirSp),
+              sp500_desde_tu_primera_aportacion: pct(r2((ultimo.cierre / (precioEn(primero) ?? ultimo.cierre) - 1) * 100)),
+              precio_spy: `${dinero(ultimo.cierre, "USD")} (${ultimo.dia})`, fuente: sp.fuente,
+              nota: "Misma prueba para los dos: cada aportación (y cada retiro) en SPY el mismo día, en dólares; el tipo de cambio les afecta igual. Tu valor incluye la Caja GBM sin invertir. " +
+                "Es la única comparación válida con el S&P 500: no compares su rendimiento mensual con lo que el S&P lleva del mes o del año.",
+            };
+          } else contraSp = { nota: "No hay precios del S&P 500 para todas las fechas de sus aportaciones: no se puede comparar. Dilo así; no lo estimes." };
+        } else contraSp = { nota: "No se pudieron traer los precios del S&P 500: no se puede comparar ahora. Dilo así; no lo estimes." };
+      }
+
       return {
         texto: recortar({
           tipo_de_cambio_hoy: tc ? `1 USD = ${tc} MXN` : null,
+          ...(rendimiento ? { rendimiento } : {}),
+          ...(contraSp ? { contra_sp500: contraSp } : {}),
           nota: "Cada cifra trae su moneda escrita (MXN o USD): úsala tal cual, no conviertas ni cambies la moneda, y nunca digas pesos de una cifra en USD ni al revés. " +
             "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
             "Lo que costó cada empresa en pesos viene en costo_pesos (al cambio de las aportaciones con que se pagó, no al de hoy) y plusvalia_pesos = valor_pesos_hoy menos costo_pesos, con el tipo de cambio incluido; cada porcentaje va con su moneda (plusvalia_pesos_pct, plusvalia_usd_pct): no los cruces. Nunca conviertas costo_usd a pesos tú. " +
