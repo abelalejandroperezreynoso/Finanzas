@@ -145,7 +145,8 @@ const HERRAMIENTAS: Json[] = [
     description:
       "Propone pasar varios movimientos a otra categoría en UNA sola tarjeta: el usuario confirma una vez. Úsala para juntar una categoría duplicada en la que se queda " +
       "(origen_categoria_id: todos sus movimientos) o para mover un grupo mal clasificado (registro_ids). Sólo entre categorías del mismo tipo y, salvo cambia_cuenta, " +
-      "de la misma cuenta; las inversiones no se mueven. NO lo aplica: el usuario lo confirmará. Para un solo movimiento con otros cambios usa proponer_cambio_movimiento.",
+      "de la misma cuenta; las inversiones no se mueven. NO lo aplica: el usuario lo confirmará. Para un solo movimiento con otros cambios usa proponer_cambio_movimiento. " +
+      "Si te dice que quedan movimientos dudosos, pregúntale por ellos antes de terminar.",
     input_schema: {
       type: "object",
       properties: {
@@ -2514,6 +2515,28 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const salud = destinoTipo === "salud";
       const total = regs.reduce((a: number, r: Json) => a + Math.abs(Number(salud ? r.cantidad : r.monto) || 0), 0);
       const dias = regs.map((r: Json) => fechaLocal(r.fecha, zona).slice(0, 10)).sort();
+
+      // Los que se quedan y podrían ser del mismo grupo: sin descripción (no se sabe qué fueron) y del
+      // mismo día que uno que se mueve, o del mismo monto con uno o dos días de diferencia. El modelo
+      // movía sólo los que decían "Internet" y dejaba el de al lado sin preguntar.
+      const dudosos: Json[] = [];
+      if (!origen) {
+        const movidos = new Set(regs.map((r: Json) => String(r.id)));
+        const referencia = regs.map((r: Json) => ({ dia: fechaLocal(r.fecha, zona).slice(0, 10), monto: Math.abs(Number(salud ? r.cantidad : r.monto) || 0) }));
+        const entreDias = (a: string, b: string) => Math.abs(Date.parse(`${a}T12:00:00Z`) - Date.parse(`${b}T12:00:00Z`)) / 86_400_000;
+        for (const catId of origenes.keys()) {
+          const { data } = await sb.from("registros").select("id, fecha, monto, cantidad, descripcion").eq("categoria_id", catId).order("fecha", { ascending: false }).limit(3000);
+          for (const r of data ?? []) {
+            if (movidos.has(String(r.id)) || String(r.descripcion ?? "").trim()) continue;
+            const dia = fechaLocal(r.fecha, zona).slice(0, 10), monto = Math.abs(Number(salud ? r.cantidad : r.monto) || 0);
+            const pareja = referencia.find((x) => x.dia === dia || (entreDias(x.dia, dia) <= 2 && Math.abs(x.monto - monto) < 0.01));
+            if (pareja && dudosos.length < 10) {
+              dudosos.push({ id: r.id, fecha: fechaConDia(r.fecha, zona), monto: salud ? r.cantidad : Number(r.monto), categoria: origenes.get(catId)!.nombre,
+                por_que: pareja.dia === dia ? "mismo día que uno que se mueve" : "mismo monto, con días de diferencia" });
+            }
+          }
+        }
+      }
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "mover_movimientos", resumen: String(entrada.resumen).slice(0, 200),
@@ -2529,7 +2552,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return {
         texto: `Propuesta registrada: ${regs.length} movimientos a ${destinoNombre}. El usuario la verá con botones para confirmar o cancelar; todavía NO está aplicada.` +
           (textoEfecto ? ` Cambia de cuenta y con eso los saldos (${textoEfecto}): díselo claro en tu respuesta.` : "") +
-          (origen ? ` Al confirmarla, ${catalogo.etiqueta[String(origen.id)] ?? origen.nombre} queda vacía: dile que, si ya no la usa, la borre en Categorías (tú no puedes borrar).` : ""),
+          (origen ? ` Al confirmarla, ${catalogo.etiqueta[String(origen.id)] ?? origen.nombre} queda vacía: dile que, si ya no la usa, la borre en Categorías (tú no puedes borrar).` : "") +
+          (dudosos.length ? ` Dudosos: se quedan movimientos sin descripción que podrían ser del mismo grupo: ${JSON.stringify(dudosos)}. ` +
+            `Pregúntale por ellos ahora con preguntar_al_usuario (fecha y monto de cada uno, sin ids); si dice que sí, vuelve a llamar con sus ids agregados y corrige_anterior: true.` : ""),
       };
     }
     case "resumen_por_categoria": {
