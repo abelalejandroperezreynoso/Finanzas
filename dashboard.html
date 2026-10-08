@@ -17337,6 +17337,8 @@
                                     [/presi[oó]n|hipertens/i, ['Sal', 'Ejercicio', 'Estrés', 'Sueño']],
                                     [/diabet|glucosa|az[uú]car/i, ['Alimentación', 'Ejercicio', 'Sueño']],
                                 ];
+                                const hallazgosSaludIa = (revisionIaDeHoy() || []).filter(x => x.tipo === 'salud' && (!x.estado || x.estado === 'pendiente'))
+                                    .map(x => `${x.titulo} ${x.detalle || ''} ${x.mensaje || ''}`.toLowerCase());
                                 const rechazoHabito = /no quiere|no registrar|no le interesa|cancel[oó]|no lo propongas/i;
                                 const hace30Salud = diaLocal(new Date(hoyDate.getTime() - 29 * diaMs));
                                 const lista = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}` : xs[0];
@@ -17351,6 +17353,8 @@
                                         !otras.some(x => BUSCA_HABITO[nombre].test(`${x.nombre || ''} ${x.descripcion || ''}`))
                                         && !notasPreferenciaIa.some(n => rechazoHabito.test(n) && (BUSCA_HABITO[nombre].test(n) || n.toLowerCase().includes(nombre.toLowerCase()))));
                                     if (!faltan.length) continue;
+                                    // Si la revisión diaria ya habla de este padecimiento, no se repite aquí
+                                    if (hallazgosSaludIa.some(t => t.includes(String(c.nombre || '').toLowerCase()))) continue;
                                     const clave = `habitos:${c.id}`;
                                     if (!vigente(clave)) continue;
                                     pendSalud.push({
@@ -17471,7 +17475,7 @@
                                     });
                                 }
                                 // 7. Lo que encontró la revisión diaria con IA
-                                const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', seguimiento: 'Seguimiento', ahorro: 'Ahorro', patrimonio: 'Más dinero', anticipar: 'Anticípate' };
+                                const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', seguimiento: 'Seguimiento', ahorro: 'Ahorro', patrimonio: 'Más dinero', anticipar: 'Anticípate', salud: 'Salud' };
                                 const propios = avisos.slice();
                                 (revisionIaDeHoy() || []).forEach(h => {
                                     const clave = `ia:${h.titulo}`;
@@ -17481,7 +17485,7 @@
                                     const catH = cats.filter(c => c.nombre && c.nombre.length > 1 && new RegExp(`(^|[^\\p{L}])${c.nombre.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}]|$)`, 'u').test(textoH))
                                         .sort((a, b) => b.nombre.length - a.nombre.length || (b.vecesUsada || 0) - (a.vecesUsada || 0))[0];
                                     propios.push({
-                                        clave, hallazgo_id: h.id || null, categoria_id: catH ? catH.id : null, etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
+                                        clave, hallazgo_id: h.id || null, categoria_id: catH ? catH.id : null, salud: h.tipo === 'salud', etiqueta: etiquetasIa[h.tipo] || 'Revisión', texto: h.titulo, detalle: h.detalle,
                                         primario: { texto: h.tipo === 'ahorro' ? 'Ver cómo' : 'Revisar', mensaje: /^(¿|revisa|ayúdame|ayudame|dime|propón|propon|explícame|explicame|muéstrame|muestrame|busca|compara|junta|pasa|registra|corrige|cambia|mueve|haz|calcula|ordena|quiero|necesito|cómo|como|qué|que)/i.test((h.mensaje || '').trim()) ? h.mensaje : `Revisa esto conmigo y dime qué hago: ${h.titulo}. ${h.detalle}` },
                                         secundario: { texto: 'Descartar', dias: null }
                                     });
