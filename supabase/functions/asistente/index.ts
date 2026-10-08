@@ -17,7 +17,10 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { resumenOrden, revisarOrden } from "./orden.ts";
 
-const MODELO = Deno.env.get("MODELO_IA") ?? "claude-haiku-4-5";
+// Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
+const MODELO_SECRETO = Deno.env.get("MODELO_IA");
+const MODELO = MODELO_SECRETO && !MODELO_SECRETO.includes("haiku-4-5") ? MODELO_SECRETO : "claude-haiku-5-5";
+const HAIKU = "claude-haiku-5-5";
 
 // Precio por millón de tokens (USD) para estimar el costo de cada consulta
 const PRECIOS: Record<string, { entrada: number; salida: number }> = {
@@ -26,14 +29,16 @@ const PRECIOS: Record<string, { entrada: number; salida: number }> = {
   "claude-opus-5-5": { entrada: 4, salida: 20 },
   "claude-opus-5": { entrada: 5, salida: 25 },
   "claude-opus-4-8": { entrada: 5, salida: 25 },
-  "claude-haiku-4-5": { entrada: 1, salida: 5 },
-  "claude-haiku-4-5-20251001": { entrada: 1, salida: 5 },
+  "claude-haiku-5-5": { entrada: 0.1, salida: 0.5 },
+};
+// Haiku 5.5 cobra otra tarifa cuando la consulta pasa de 100,000 tokens
+const PRECIOS_LARGOS: Record<string, { entrada: number; salida: number }> = {
+  "claude-haiku-5-5": { entrada: 0.5, salida: 2.5 },
 };
 // Modelos que se pueden elegir desde el chat de la app; cualquier otro valor usa MODELO
-const MODELOS_CHAT = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5"]);
-// Modelos que aceptan el reintento automático del servidor y el nivel de esfuerzo
+const MODELOS_CHAT = new Set(["claude-sonnet-5-5", "claude-opus-5-5", HAIKU]);
+// Modelos que aceptan el reintento automático del servidor (Haiku 5.5 no: con él no hay respaldo)
 const CON_FALLBACK = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
-const SIN_EFFORT = new Set(["claude-haiku-4-5"]);
 
 const MAX_VUELTAS = 8; // herramientas por mensaje, para que una pregunta no se alargue sin fin
 const MAX_FILAS = 300;
@@ -59,12 +64,13 @@ function parametrosBase(esfuerzo: string, modelo: string = MODELO): Json {
     p.betas = ["server-side-fallback-2026-07-01"];
     p.fallbacks = "default";
   }
-  if (!SIN_EFFORT.has(modelo)) p.output_config = { effort: esfuerzo };
+  p.output_config = { effort: esfuerzo };
   return p;
 }
 
 function costoDe(modelo: string, u: Json): number {
-  const precio = PRECIOS[modelo] ?? PRECIOS["claude-sonnet-5-5"];
+  const consulta = (u?.input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0);
+  const precio = (consulta > 100_000 ? PRECIOS_LARGOS[modelo] : undefined) ?? PRECIOS[modelo] ?? PRECIOS["claude-sonnet-5-5"];
   const entrada = (u?.input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0) * 1.25 + (u?.cache_read_input_tokens ?? 0) * 0.1;
   return (entrada * precio.entrada + (u?.output_tokens ?? 0) * precio.salida) / 1_000_000;
 }
@@ -3294,11 +3300,11 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // "Solo Haiku 4.5" es un ajuste compartido (tabla ajustes_ia): si está activo manda sobre
+    // "Solo Haiku" es un ajuste compartido (tabla ajustes_ia): si está activo manda sobre
     // lo que pida la app, para todos los usuarios
     const { data: ajustes } = await sb.from("ajustes_ia").select("solo_haiku").eq("id", 1).maybeSingle();
     const modeloPedido = ajustes?.solo_haiku
-      ? "claude-haiku-4-5"
+      ? HAIKU
       : MODELOS_CHAT.has(String(entrada.modelo)) ? String(entrada.modelo) : MODELO;
 
     if (entrada.modo === "saldo") {
@@ -3452,8 +3458,9 @@ Deno.serve(async (req) => {
       if (!categoria.nombre.trim()) return responder({ error: "Falta la categoría." }, 400);
       const ejemplos = (Array.isArray(entrada.ejemplos) ? entrada.ejemplos : []).slice(0, 12).map((e: unknown) => String(e).slice(0, 120));
       // Siempre Haiku: es una frase corta y la tarjeta la necesita rápido
-      const p = parametrosBase("low", "claude-haiku-4-5");
-      p.max_tokens = 400;
+      const p = parametrosBase("low", HAIKU);
+      // Haiku 5.5 piensa antes de contestar: el tope deja lugar para eso y para la frase
+      p.max_tokens = 1500;
       p.output_config = { ...(p.output_config ?? {}), format: { type: "json_schema", schema: ESQUEMA_PREGUNTA_REGISTRO } };
       p.system = SISTEMA_PREGUNTA_REGISTRO;
       p.messages = [{
@@ -3539,12 +3546,25 @@ Deno.serve(async (req) => {
       ...(plan ? [{ type: "text", text: plan }] : []),
     ];
 
+    // Respaldo si la API rechaza algo del razonamiento: sin el control de razonamiento viejo, o sin
+    // los bloques de razonamiento del historial (quitar los primeros no invalida los nuevos)
+    let sinControl = false, sinRazonamientoViejo = false;
+    const sinRazonamiento = (m: Json) => m.role !== "assistant" || !Array.isArray(m.content) ? m
+      : { ...m, content: m.content.filter((b: Json) => b.type !== "thinking" && b.type !== "redacted_thinking") };
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
-      // Esfuerzo bajo: en un chat casi no cambia la respuesta y el razonamiento se cobra como salida
-      const p = parametrosBase("low", modeloChat);
+      // Haiku 5.5 con esfuerzo medio: con instrucciones largas y muchas herramientas, en bajo se salta
+      // pasos, y aun así cuesta poco. Sonnet y Opus en bajo: su razonamiento se cobra caro.
+      const p = parametrosBase(modeloChat === HAIKU ? "medium" : "low", modeloChat);
+      // El razonamiento de cada turno queda atado a todo lo que había antes. Si algo de antes cambió
+      // (la memoria, las categorías, el plan, un adjunto que ya no está guardado, otro modelo), la API
+      // descarta ese razonamiento viejo en vez de rechazar el mensaje.
+      if (!sinControl) {
+        p.thinking = { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } };
+        p.betas = [...(p.betas ?? []), "thinking-binding-controls-2026-08-01"];
+      }
       p.system = sistema;
       p.tools = HERRAMIENTAS;
-      p.messages = [...historial, ...nuevos];
+      p.messages = [...(sinRazonamientoViejo ? historial.map(sinRazonamiento).filter((m: Json) => !Array.isArray(m.content) || m.content.length) : historial), ...nuevos];
       p.cache_control = { type: "ephemeral" };
       // Si el usuario tocó Detener, la app cerró la conexión: no se pide otra vuelta y la que
       // está en curso se corta, para no seguir gastando.
@@ -3559,6 +3579,16 @@ Deno.serve(async (req) => {
         if (req.signal?.aborted) {
           await anotar("asistente", modeloUsado, usos);
           return responder({ cancelado: true }, 499);
+        }
+        // Una sola vez cada respaldo; un 400 no cobra tokens
+        const msg = e instanceof Anthropic.BadRequestError ? String(e.message ?? "") : "";
+        if (msg && !sinControl && /block_binding|thinking-binding|anthropic-beta/i.test(msg)) {
+          console.error("Sin control de razonamiento:", msg);
+          sinControl = true; vuelta--; continue;
+        }
+        if (msg && !sinRazonamientoViejo && /signature|thinking/i.test(msg)) {
+          console.error("Sin el razonamiento del historial:", msg);
+          sinRazonamientoViejo = true; vuelta--; continue;
         }
         throw e;
       }

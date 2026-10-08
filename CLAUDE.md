@@ -28,9 +28,14 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   `pronostico_mes` trae el desglose exacto de cómo pasa el saldo de hoy a su punto más bajo (el
   modelo no suma) y marca lo vencido (esperado y sin registrar); `proponer_omitir_pago` deja de
   esperar un pago recurrente que esta vez no toca (`ignorar_hasta`).
-  El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
+  El modelo por defecto es Haiku 5.5 (`claude-haiku-5-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
-  sólo cambia el respaldo de la función.
+  sólo cambia el respaldo de la función (Haiku 4.5 ya no se usa). El chat piensa antes de
+  contestar (esfuerzo medio en Haiku) y manda `thinking.block_binding` con `drop_block` (beta
+  `thinking-binding-controls-2026-08-01`): si algo de antes cambió (memoria, categorías, un
+  adjunto que ya no está guardado), la API descarta el razonamiento viejo en vez de rechazar el
+  mensaje. Las respuestas a `preguntar_al_usuario` van como texto del usuario, no dentro del
+  `tool_result`.
 - `supabase/functions/avisos/`: entrega las notificaciones push (Web Push). No toca la
   base: la tarea `avisos-pagos` de pg_cron (8:00 hora de México) arma los avisos con
   `recordatorios` y `suscripciones_push` y se los pasa con el secreto del Vault

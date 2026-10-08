@@ -2521,7 +2521,7 @@
     <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
         <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
         <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Solo Haiku 4.5<br><small style="color: #888; font-size: 0.8em;">Para todos; bloquea el modelo del chat</small></span>
+            <span>Solo Haiku<br><small style="color: #888; font-size: 0.8em;">Para todos; bloquea el modelo del chat</small></span>
             <span class="ios-switch">
                 <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
                 <span class="ios-switch-pista"></span>
@@ -17795,12 +17795,12 @@
                             const MODELOS_ASISTENTE = [
                                 { id: 'claude-opus-5-5', nombre: 'Opus 5.5', nota: 'El más capaz · cuesta el doble' },
                                 { id: 'claude-sonnet-5-5', nombre: 'Sonnet 5.5', nota: 'Rápido y capaz' },
-                                { id: 'claude-haiku-4-5', nombre: 'Haiku 4.5', nota: 'El más rápido y barato' },
+                                { id: 'claude-haiku-5-5', nombre: 'Haiku 5.5', nota: 'El más rápido y barato' },
                             ];
-                            // Ahorro: con "Solo Haiku 4.5" en Configuración toda la IA usa ese modelo. El ajuste es
+                            // Ahorro: con "Solo Haiku" en Configuración toda la IA usa ese modelo. El ajuste es
                             // de todos (tabla ajustes_ia, la función también lo respeta); aquí se guarda una copia
                             // para pintar sin esperar a la base.
-                            const MODELO_ECONOMICO = 'claude-haiku-4-5';
+                            const MODELO_ECONOMICO = 'claude-haiku-5-5';
                             function soloHaiku() {
                                 try { return localStorage.getItem('iaSoloHaiku') === '1'; } catch (e) { return false; }
                             }
@@ -18008,7 +18008,9 @@
                                 if (item.registro) return responderRegistroAsistente(item);
                                 const pares = item.preguntas.map((q, k) => ({ pregunta: q.pregunta, respuesta: respuestaDePregunta(item, k) || '(sin respuesta)' }));
                                 const textoApi = 'Respuestas del usuario:\n' + pares.map(p => `- ${p.pregunta} → ${p.respuesta}`).join('\n');
-                                const mensaje = { role: 'user', content: contenidoConPendientes([], textoApi) };
+                                // Sus palabras van como mensaje suyo, después del resultado de la herramienta: lo que
+                                // llega dentro de un resultado, el modelo lo toma como datos y no como lo que pide
+                                const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: textoApi }], 'Respondió: sus respuestas van en su mensaje.') };
                                 item.estado = 'respondida';
                                 const burbuja = { rol: 'usuario', texto: pares.map(p => `P: ${p.pregunta}\nR: ${p.respuesta}`).join('\n\n') };
                                 chatUi.push(burbuja);
