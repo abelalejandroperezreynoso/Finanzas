@@ -456,6 +456,21 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "proponer_omitir_pago",
+    description:
+      "Propone que la app deje de esperar el pago (o cobro) recurrente que tocaba en esta vuelta, cuando el usuario dice que esta vez no toca o no se va a hacer. " +
+      "El pronóstico deja de contarlo y vuelve a esperarlo en la siguiente fecha. No es para lo que ya pagó: eso se registra. NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categoria_id: { type: "string" },
+        motivo: { type: "string", description: "Por qué no toca, en pocas palabras (\"este mes no hubo\", \"se pasó al otro mes\")" },
+      },
+      required: ["categoria_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "proponer_avisos",
     description:
       "Propone activar o apagar los avisos de este teléfono (pagos, recordatorios y el aviso de hábitos de las 9 p.m.). Deja una tarjeta: al confirmarla, " +
@@ -787,11 +802,12 @@ const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
 // conBorrar: la app sabe borrar movimientos propuestos (proponer_borrar_movimientos)
 // conAvisos: la app sabe activar o apagar los avisos de su teléfono (proponer_avisos)
 // conPrioridades: la app sabe aplicar proponer_prioridades (varios gastos en una tarjeta)
+// conOmitir: la app sabe aplicar proponer_omitir_pago
 // avisos: cómo están en el teléfono que escribe: activos, apagados, negados (el permiso se negó en
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -1498,6 +1514,21 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           (tambienAvisos ? " Sus avisos están apagados: también le dejaste la tarjeta para activarlos. Dile que confirme las dos (en la de avisos el iPhone le pide permiso) o el recordatorio no le llega." : ""),
       };
     }
+    case "proponer_omitir_pago": {
+      if (!zona.conOmitir) return { texto: "Esta versión de la app no omite pagos desde el chat: dile que cierre y abra la app para actualizarla.", error: true };
+      const c = catalogo.categorias.find((k: Json) => String(k.id) === String(entrada.categoria_id));
+      if (!c) return { texto: "No encontré esa categoría.", error: true };
+      const rec = (zona.recurrentes ?? []).find((r: Json) => r.categoria_id === String(c.id));
+      if (!rec?.siguiente) return { texto: `La app no espera ningún pago de ${c.nombre}: no hay nada que omitir.`, error: true };
+      const nombre = catalogo.etiqueta[String(c.id)] ?? c.nombre;
+      const dia = Number(String(rec.siguiente).slice(8, 10));
+      propuestas.push({
+        tipo: "omitir_pago", categoria_id: c.id, hasta: rec.siguiente,
+        resumen: `Esta vez no toca ${nombre}`,
+        datos: { categoria: nombre, esperado: rec.siguiente, ...(entrada.motivo ? { motivo: String(entrada.motivo).slice(0, 120) } : {}) },
+      });
+      return { texto: `Propuesta registrada: si la confirma, la app deja de esperar ${nombre} del ${dia} y lo vuelve a esperar en la siguiente fecha. Todavía NO está aplicada. Después de confirmar, el pronóstico ya no lo cuenta.` };
+    }
     case "proponer_prioridades": {
       if (!zona.conPrioridades) return { texto: "Esta versión de la app no aplica varias prioridades en una tarjeta: dile que cierre y abra la app para actualizarla, o propónlas una por una con proponer_cambio_categoria.", error: true };
       const lista = Array.isArray(entrada.cambios) ? entrada.cambios : [];
@@ -1890,9 +1921,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const pagosAntes: Json[] = [];
       let entraIngreso = 0;
       const porDiaVariable: number[] = new Array(diasMes + 2).fill(0);
-      const repartir = (v: number, enVariable: boolean) => {
+      // Cada cantidad que entra al pronóstico queda anotada con su categoría: así se puede explicar, sumado
+      // exacto, cómo pasa el saldo de hoy a su punto más bajo (el modelo lo armaba a mano y sumaba mal)
+      type Aporte = { d: number; monto: number; categoria: string; tipo: string; origen: "pago" | "promedio"; esperado?: string; clave?: string; es?: string };
+      const aportes: Aporte[] = [];
+      const sumar = (d: number, v: number, info: Omit<Aporte, "d" | "monto">) => { porDia[d] += v; aportes.push({ d, monto: v, ...info }); };
+      const repartir = (v: number, enVariable: boolean, info: Omit<Aporte, "d" | "monto">) => {
         const dias = diasMes - dia;
-        for (let d = dia + 1; d <= diasMes; d++) { porDia[d] += v / dias; if (enVariable) porDiaVariable[d] += v / dias; }
+        for (let d = dia + 1; d <= diasMes; d++) { sumar(d, v / dias, info); if (enVariable) porDiaVariable[d] += v / dias; }
       };
       for (const c of cats) {
         const x = h[String(c.id)] ?? { mtd: 0, total: {}, hasta: {}, despues: {} };
@@ -1911,7 +1947,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           fechasMes.forEach((f: string) => {
             const v = signo * rec.monto;
             total += v;
-            if (f <= hoyL) { vencido += v; porDia[Math.min(dia + 1, diasMes)] += v; } else porDia[Number(f.slice(8, 10))] += v;
+            // Un pago obligatorio no es lo mismo que un gasto común que se repite cada pocos días (Oxxo, gasolina)
+            const es = v > 0 ? "entrada con fecha" : c.tipo === "inversion" ? "aportación" : c.prioridad === "operativa" ? "pago obligatorio"
+              : rec.cada_dias < 14 ? `gasto común (cada ${rec.cada_dias} días)` : "pago con fecha";
+            const info = { categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, origen: "pago" as const, esperado: f, clave: `${c.id}|${f}`, es };
+            if (f <= hoyL) { vencido += v; sumar(Math.min(dia + 1, diasMes), v, info); } else sumar(Number(f.slice(8, 10)), v, info);
             const cuando = f < hoyL ? manana : f;
             if (c.tipo === "ingreso" && f === fechaIngreso) entraIngreso += v;
             if (v < 0 && (!fechaIngreso || cuando < fechaIngreso)) {
@@ -1919,7 +1959,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
                 categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, prioridad: c.prioridad ?? null, monto: Math.round(v), fecha: cuando,
                 categoria_id: String(c.id),
                 _d: f <= hoyL ? Math.min(dia + 1, diasMes) : Number(f.slice(8, 10)), _f: f,
-                ...(f < hoyL ? { vencido: true } : {}),
+                // Se esperaba antes de hoy y no está registrado: el cálculo lo cuenta como pendiente para mañana
+                ...(f < hoyL ? { vencido: true, se_esperaba: f } : {}),
                 // Lo que se puede dejar para después: aportaciones e inversiones, y lo útil o prescindible. Un gasto
                 // sin prioridad no se mueve: podría ser la renta.
                 se_puede_mover: c.tipo === "inversion" || (c.tipo === "gasto" && (c.prioridad === "util" || c.prioridad === "prescindible")),
@@ -1936,12 +1977,13 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const despues = Object.entries(x.despues).map(([d, v]) => [Number(d), v / n] as [number, number]);
           const sumaDespues = despues.reduce((t, [, v]) => t + v, 0);
           let atrasado = 0;
+          const info = { categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, origen: "promedio" as const };
           if (sumaDespues !== 0 && Math.sign(sumaDespues) === Math.sign(falta)) {
             const escala = Math.min(1, falta / sumaDespues);
-            despues.forEach(([d, v]) => { porDia[d] += v * escala; if (c.tipo === "gasto") porDiaVariable[d] += v * escala; });
+            despues.forEach(([d, v]) => { sumar(d, v * escala, info); if (c.tipo === "gasto") porDiaVariable[d] += v * escala; });
             atrasado = falta - sumaDespues * escala;
           } else atrasado = falta;
-          if (Math.abs(atrasado) >= 1 && dia < diasMes) repartir(atrasado, c.tipo === "gasto");
+          if (Math.abs(atrasado) >= 1 && dia < diasMes) repartir(atrasado, c.tipo === "gasto", info);
           const dias = despues.filter(([, v]) => Math.sign(v) === Math.sign(falta)).map(([d]) => d).sort((a, b) => a - b);
           porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta), origen: "promedio",
             dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
@@ -1970,6 +2012,39 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           return { min, diaMin };
         };
         const { min: minAntes, diaMin: diaMinAntes } = minimoSin([]);
+        // Cómo pasa el saldo de hoy al punto más bajo antes del ingreso, sin lo que el plan deja para después.
+        // Suma exacto: el modelo sólo lo lee.
+        const desglose = (movidos: Json[]) => {
+          const { min, diaMin } = minimoSin(movidos);
+          const fuera = new Set(movidos.map((p) => `${p.categoria_id}|${p._f}`));
+          const grupos = new Map<string, Json>();
+          for (const a of aportes) {
+            if (a.d <= dia || a.d > diaMin || (a.clave && fuera.has(a.clave))) continue;
+            const k = `${a.categoria}|${a.origen}`;
+            const g = grupos.get(k) ?? { categoria: a.categoria, tipo: a.tipo, origen: a.origen, es: a.es, monto: 0, fechas: [] as string[] };
+            g.monto += a.monto;
+            if (a.esperado) g.fechas.push(a.esperado);
+            grupos.set(k, g);
+          }
+          const dicho = (f: string) => f < hoyL ? `se esperaba el ${Number(f.slice(8, 10))} y no está registrado` : f === hoyL ? "hoy" : f === manana ? "mañana" : `el ${Number(f.slice(8, 10))}`;
+          let filasD = [...grupos.values()].filter((g) => Math.abs(g.monto) >= 0.5).sort((x, y) => Math.abs(y.monto) - Math.abs(x.monto)).map((g) => ({
+            concepto: g.categoria,
+            monto: r0(g.monto),
+            es: g.origen === "pago" ? g.es : g.monto < 0 ? "gasto común estimado (lo que normalmente gastas ahí esos días)" : "entrada estimada",
+            ...(g.fechas.length ? { cuando: g.fechas.length > 1 ? `${g.fechas.length} veces: ${g.fechas.map(dicho).join(", ")}` : dicho(g.fechas[0]) } : {}),
+          }));
+          if (filasD.length > 12) {
+            const resto = filasD.slice(11);
+            filasD = [...filasD.slice(0, 11), { concepto: `Otros (${resto.length} categorías)`, monto: resto.reduce((t, x) => t + x.monto, 0), es: "varios" }];
+          }
+          // El redondeo se ajusta en el renglón más grande para que la suma dé exacto
+          const diferencia = r0(min) - (r0(saldoHoy) + filasD.reduce((t, x) => t + x.monto, 0));
+          if (diferencia && filasD.length) filasD[0].monto += diferencia;
+          return {
+            explica: `Cómo pasa tu saldo de ${pesos(saldoHoy)} hoy a ${pesos(min)} el día ${diaMin}${movidos.length ? " siguiendo el plan" : ""}: saldo de hoy más cada renglón.`,
+            saldo_hoy: r0(saldoHoy), movimientos: filasD, saldo_ese_dia: r0(min), dia: diaMin,
+          };
+        };
         const sinPrioridad = [...new Set(pagosAntes.filter((p) => p.tipo === "gasto" && !p.prioridad).map((p) => p.categoria))].slice(0, 15);
         // El plan lo arma el cálculo, no el modelo (que sumaba mal): se mueven primero las aportaciones, luego lo
         // prescindible y lo útil, de mayor a menor, hasta que alcance
@@ -2025,6 +2100,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         hastaIngreso = {
           fecha: fechaIngreso, entra: r0(entraIngreso), saldo_minimo_antes: r0(minAntes), dia_del_minimo: diaMinAntes, falta: r0(Math.max(0, -minAntes)),
           ...(plan ? { plan } : {}),
+          desglose: desglose(plan ? pagosAntes.filter((p) => plan.mover.some((m: Json) => m.categoria_id === p.categoria_id && m.fecha === p._f)) : []),
           ...(planTerminado ? { plan_terminado: `Ya no hace falta posponer nada: sin el plan llegas ${`el ${diaIngreso}`} con ${pesos(minAntes)}.` } : {}),
           pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15)
             .map(({ _d, _f, ...p }) => ({ ...p, prioridad: p.tipo === "gasto" ? nombrePrioridad(p.prioridad) ?? "sin asignar" : null })),
@@ -2077,6 +2153,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
             "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo la reparte en los días que quedan). " +
             "hasta_el_ingreso: el próximo ingreso fijo del mes, el saldo más bajo antes de ese día, cuánto falta para llegar y los pagos programados antes (se_puede_mover = se puede dejar para después). " +
+            "vencido = la app esperaba ese pago el día se_esperaba y NO está registrado, así que lo cuenta como pendiente para mañana: es un dato, no una suposición. " +
+            "desglose: cómo pasa el saldo de hoy a su punto más bajo, renglón por renglón y ya sumado; lo ya gastado está restado en saldo_hoy. " +
             "plan: qué pagos dejar para después del ingreso para que alcance y con cuánto llegaría (saldo_minimo_con_plan); alcanza = false si ni así. " +
             "Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
@@ -2916,6 +2994,8 @@ Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recupera
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si el nivel es 0, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
 2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes ni pospongas un pago obligatorio ni lo necesario. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
+Si pregunta qué gastos lo llevan a esa cifra o por qué llega así, contesta con hasta_el_ingreso.desglose tal cual: un renglón por movimiento (concepto, monto y cuándo), del más grande al más chico, y termina con su saldo_ese_dia. No sumes nada ni agregues lo que ya gastó: eso ya está restado en el saldo de hoy.
+Un pago vencido es uno que la app esperaba (se_esperaba) y no está registrado: dilo así ("Intereses Jalos: se esperaba el 2 y no lo tienes registrado"). No supongas si ya lo pagó; dile que si ya lo pagó lo registre, y si esta vez no toca, que te lo diga: entonces propón proponer_omitir_pago.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas el nivel ni frases como "estás fuera de control": di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
 "Con $3,100 no llegas a la quincena del 15: te faltan $650.
@@ -3410,7 +3490,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

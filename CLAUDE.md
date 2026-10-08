@@ -25,6 +25,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
+  `pronostico_mes` trae el desglose exacto de cómo pasa el saldo de hoy a su punto más bajo (el
+  modelo no suma) y marca lo vencido (esperado y sin registrar); `proponer_omitir_pago` deja de
+  esperar un pago recurrente que esta vez no toca (`ignorar_hasta`).
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.

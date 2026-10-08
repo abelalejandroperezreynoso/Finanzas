@@ -16495,6 +16495,11 @@
                                         filas.push(`${escaparHtml(fechaAmigable(m.fecha))} · ${escaparHtml(m.categoria || '')} · <b>${cifra}</b>${m.descripcion ? ` · ${escaparHtml(m.descripcion)}` : ''}`);
                                     });
                                     filas.push(`Se ${movs.length === 1 ? 'borra 1 movimiento' : `borran ${movs.length} movimientos`}`);
+                                } else if (p.tipo === 'omitir_pago') {
+                                    const d = p.datos || {};
+                                    filas.push(`Ya no se espera: <b>${escaparHtml(d.categoria || '')}</b> ${d.esperado ? `del ${escaparHtml(fechaAmigable(d.esperado))}` : ''}`);
+                                    if (d.motivo) filas.push(`Motivo: <b>${escaparHtml(d.motivo)}</b>`);
+                                    filas.push('Vuelve a esperarse en la siguiente fecha');
                                 } else if (p.tipo === 'prioridades') {
                                     // Una fila por gasto: cómo queda (y cómo estaba, si tenía)
                                     (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.nombre || '')}: ${x.antes
@@ -16698,7 +16703,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -18369,6 +18374,9 @@
                                     const ids = (p.ids || []).map(String);
                                     res = ids.length ? await clienteSupabase.from('registros').delete().in('id', ids) : { falta: 'No hay movimientos que borrar.' };
                                     if (!res.error && !res.falta) ids.forEach(id => olvidarRegistrosRecienGuardados('registros', id));
+                                } else if (p.tipo === 'omitir_pago') {
+                                    // Igual que omitir una sugerencia en Registrar: la próxima fecha pasa a la siguiente vuelta
+                                    res = await clienteSupabase.from('categorias').update({ ignorar_hasta: p.hasta }).eq('id', p.categoria_id);
                                 } else if (p.tipo === 'prioridades') {
                                     // Una escritura por prioridad, con todos sus gastos
                                     const porPrioridad = {};
