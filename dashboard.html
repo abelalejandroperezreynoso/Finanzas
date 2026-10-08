@@ -18278,6 +18278,60 @@
                                 pintarPreguntasAsistente();
                             }
 
+                            // ---- Sueño: a qué hora te acostaste y a qué hora despertaste ----
+                            // En Dormir no se pregunta "cuántas horas": se piden las dos horas, la app saca la
+                            // duración y la descripción guarda el horario ("23:30 a 7:00")
+                            const esCategoriaSueno = c => !!c && c.tipo === 'salud' && /dorm|sue[ñn]o|descans/i.test(c.nombre || '')
+                                && !['intensidad', 'veces'].includes(c.medida_salud);
+                            // "23:30", "11 pm", "7", "7:15am", "12" → minutos desde medianoche. Sin am/pm se adivina:
+                            // al acostarse, de 7 a 11 es de noche y 12 es medianoche; al despertar, es de mañana
+                            function horaSueno(texto, acostarse) {
+                                const t = String(texto || '').toLowerCase().replace(/\s+/g, '');
+                                const m = t.match(/^(\d{1,2})(?::|\.|h)?(\d{2})?(a\.?m\.?|p\.?m\.?|hrs?)?$/);
+                                if (!m) return null;
+                                let hh = Number(m[1]);
+                                const mm = Number(m[2] || 0);
+                                if (hh > 23 || mm > 59) return null;
+                                const sufijo = (m[3] || '').replace(/\./g, '');
+                                if (sufijo === 'pm' && hh < 12) hh += 12;
+                                else if (sufijo === 'am' && hh === 12) hh = 0;
+                                else if (sufijo !== 'am' && sufijo !== 'pm' && hh <= 12 && !m[1].startsWith('0')) {
+                                    if (acostarse) { if (hh === 12) hh = 0; else if (hh >= 7) hh += 12; }
+                                }
+                                return hh * 60 + mm;
+                            }
+                            const textoHoraSueno = min => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+                            function duracionSueno(acostarse, despertar) {
+                                const a = horaSueno(acostarse, true), d = horaSueno(despertar, false);
+                                if (a === null || d === null) return null;
+                                const minutos = (d - a + 1440) % 1440;
+                                if (!minutos) return null;
+                                return { a, d, horas: Math.round(minutos / 60 * 100) / 100, texto: `${textoHoraSueno(a)} a ${textoHoraSueno(d)}` };
+                            }
+                            // Las dos preguntas del sueño, con las horas de siempre de esa persona si ya hay registros
+                            function prepararRegistroSueno(item, c) {
+                                item.sueno = true;
+                                item.preguntas[2] = { pregunta: '¿A qué hora te acostaste?', opciones: ['22:00', '23:00', '0:00'], ejemplo: 'Ej. 23:30' };
+                                item.preguntas[3] = { pregunta: '¿A qué hora despertaste?', opciones: ['6:00', '7:00', '8:00'], ejemplo: 'Ej. 7:15' };
+                                item.respuestas[2] = item.respuestas[2] || { opcion: null, texto: '' };
+                                item.respuestas[3] = item.respuestas[3] || { opcion: null, texto: '' };
+                                const clave = item.claveRegistro;
+                                const deSuyos = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id)).slice(0, 30);
+                                const masUsadas = k => {
+                                    const veces = new Map();
+                                    deSuyos.forEach(r => {
+                                        const m = String(r.descripcion || '').match(/(\d{1,2}:\d{2})\s*a\s*(\d{1,2}:\d{2})/);
+                                        if (m) veces.set(m[k], (veces.get(m[k]) || 0) + 1);
+                                    });
+                                    return [...veces.entries()].sort((x, y) => y[1] - x[1]).map(([v]) => v);
+                                };
+                                [[2, 1], [3, 2]].forEach(([k, g]) => {
+                                    const propias = masUsadas(g);
+                                    if (!propias.length || item.claveRegistro !== clave) return;
+                                    item.preguntas[k].opciones = [...new Set([...propias, ...item.preguntas[k].opciones])].slice(0, 3);
+                                });
+                            }
+
                             // Elegida la categoría, la última pregunta se adapta a ella: la redacta la IA con el
                             // nombre, el tipo y la descripción de la categoría (p. ej. "¿Qué regalaste y cuánto?"),
                             // y ofrece lo que sueles registrar ahí: sólo montos si nada más importa cuánto, o
@@ -18292,6 +18346,18 @@
                                 const q = item.preguntas[2];
                                 item.respuestas[2] = { opcion: null, texto: item.respuestas[2].texto || '' };
                                 const c = cat && cat.id !== null ? ((datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat) : cat;
+                                if (esCategoriaSueno(c)) {
+                                    prepararRegistroSueno(item, c);
+                                    if (preguntasPendientesAsistente() === item && (item.actual || 0) >= 2) pintarPreguntasAsistente();
+                                    return;
+                                }
+                                // Dejó de ser sueño: vuelve a ser una sola pregunta final
+                                if (item.sueno) {
+                                    item.sueno = false;
+                                    item.preguntas.splice(3);
+                                    item.respuestas.splice(3);
+                                    item.respuestas[2] = { opcion: null, texto: '' };
+                                }
                                 const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion)].join('|') : '';
                                 const porNombre = !!c && SOLO_MONTO_REGISTRO.test(c.nombre || '');
                                 let ia = c ? leerPreguntasRegistro()[claveIa] || null : null;
@@ -18389,12 +18455,20 @@
                                 const r1 = item.respuestas[1];
                                 const cuando = resp(1);
                                 const dia = r1 && !(r1.texto && r1.texto.trim()) && cuando in dias ? diaLocal(Date.now() - dias[cuando] * 864e5) : null;
+                                // Sueño: las dos horas dan la cantidad (horas) y la descripción (el horario)
+                                const sueno = item.sueno ? duracionSueno(resp(2), resp(3)) : null;
+                                const detalle = item.sueno
+                                    ? (sueno
+                                        ? `- Se acostó y despertó: ${sueno.texto}. Cantidad: ${fCantidadSalud(sueno.horas)} (horas dormidas, ya calculadas por la app). Descripción: "${sueno.texto}"`
+                                        : `- Se acostó: ${resp(2)}\n- Despertó: ${resp(3)}\n(No pude calcular las horas: confírmalas con una tarjeta. En la descripción va el horario, como "23:30 a 7:00".)`)
+                                    : `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
                                     + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
-                                    + `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
+                                    + detalle;
                                 item.estado = 'respondida';
-                                const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resp(2)}` };
+                                const resumen = item.sueno ? (sueno ? `${sueno.texto} (${Math.floor(sueno.horas)} h${Math.round((sueno.horas % 1) * 60) ? ` ${Math.round((sueno.horas % 1) * 60)} min` : ''})` : `${resp(2)} a ${resp(3)}`) : resp(2);
+                                const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resumen}` };
                                 chatUi.push(burbuja);
                                 const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: textoApi }]) };
                                 await conversarConAsistente(mensaje, () => {
