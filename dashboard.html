@@ -18280,7 +18280,7 @@
 
                             // ---- Sueño: a qué hora te acostaste y a qué hora despertaste ----
                             // En Dormir no se pregunta "cuántas horas": se piden las dos horas, la app saca la
-                            // duración y la descripción guarda el horario ("23:30 a 7:00")
+                            // duración y la descripción guarda el horario en 12 horas ("11:30 p.m. a 7:00 a.m.")
                             const esCategoriaSueno = c => !!c && c.tipo === 'salud' && /dorm|sue[ñn]o|descans/i.test(c.nombre || '')
                                 && !['intensidad', 'veces'].includes(c.medida_salud);
                             // "23:30", "11 pm", "7", "7:15am", "12" → minutos desde medianoche. Sin am/pm se adivina:
@@ -18300,7 +18300,7 @@
                                 }
                                 return hh * 60 + mm;
                             }
-                            const textoHoraSueno = min => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+                            const textoHoraSueno = min => { const hh = Math.floor(min / 60); return `${hh % 12 || 12}:${String(min % 60).padStart(2, '0')} ${hh < 12 ? 'a.m.' : 'p.m.'}`; };
                             function duracionSueno(acostarse, despertar) {
                                 const a = horaSueno(acostarse, true), d = horaSueno(despertar, false);
                                 if (a === null || d === null) return null;
@@ -18311,8 +18311,8 @@
                             // Las dos preguntas del sueño, con las horas de siempre de esa persona si ya hay registros
                             function prepararRegistroSueno(item, c) {
                                 item.sueno = true;
-                                item.preguntas[2] = { pregunta: '¿A qué hora te acostaste?', opciones: ['22:00', '23:00', '0:00'], ejemplo: 'Ej. 23:30' };
-                                item.preguntas[3] = { pregunta: '¿A qué hora despertaste?', opciones: ['6:00', '7:00', '8:00'], ejemplo: 'Ej. 7:15' };
+                                item.preguntas[2] = { pregunta: '¿A qué hora te acostaste?', opciones: ['10:00 p.m.', '11:00 p.m.', '12:00 a.m.'], ejemplo: 'Ej. 11:30 p.m.' };
+                                item.preguntas[3] = { pregunta: '¿A qué hora despertaste?', opciones: ['6:00 a.m.', '7:00 a.m.', '8:00 a.m.'], ejemplo: 'Ej. 7:15 a.m.' };
                                 item.respuestas[2] = item.respuestas[2] || { opcion: null, texto: '' };
                                 item.respuestas[3] = item.respuestas[3] || { opcion: null, texto: '' };
                                 const clave = item.claveRegistro;
@@ -18320,8 +18320,10 @@
                                 const masUsadas = k => {
                                     const veces = new Map();
                                     deSuyos.forEach(r => {
-                                        const m = String(r.descripcion || '').match(/(\d{1,2}:\d{2})\s*a\s*(\d{1,2}:\d{2})/);
-                                        if (m) veces.set(m[k], (veces.get(m[k]) || 0) + 1);
+                                        // Sirven los de 12 horas ("11:30 p.m. a 7:00 a.m.") y los de antes en 24 ("23:30 a 7:00")
+                                        const m = String(r.descripcion || '').match(/(\d{1,2}:\d{2}(?:\s*[ap]\.?\s*m\.?)?)\s+a\s+(\d{1,2}:\d{2}(?:\s*[ap]\.?\s*m\.?)?)/i);
+                                        const min = m ? horaSueno(m[k], k === 1) : null;
+                                        if (min !== null) { const t = textoHoraSueno(min); veces.set(t, (veces.get(t) || 0) + 1); }
                                     });
                                     return [...veces.entries()].sort((x, y) => y[1] - x[1]).map(([v]) => v);
                                 };
@@ -18459,8 +18461,8 @@
                                 const sueno = item.sueno ? duracionSueno(resp(2), resp(3)) : null;
                                 const detalle = item.sueno
                                     ? (sueno
-                                        ? `- Se acostó y despertó: ${sueno.texto}. Cantidad: ${fCantidadSalud(sueno.horas)} (horas dormidas, ya calculadas por la app). Descripción: "${sueno.texto}"`
-                                        : `- Se acostó: ${resp(2)}\n- Despertó: ${resp(3)}\n(No pude calcular las horas: confírmalas con una tarjeta. En la descripción va el horario, como "23:30 a 7:00".)`)
+                                        ? `- Se acostó y despertó: ${sueno.texto}; cantidad: ${fCantidadSalud(sueno.horas)} (horas dormidas, ya calculadas por la app). Descripción: "${sueno.texto}"`
+                                        : `- Se acostó: ${resp(2)}\n- Despertó: ${resp(3)}\n(No pude calcular las horas: confírmalas con una tarjeta. En la descripción va el horario en 12 horas, como "11:30 p.m. a 7:00 a.m.".)`)
                                     : `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
