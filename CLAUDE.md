@@ -18,7 +18,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
   categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
   varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.
-  En salud, `resumen_salud` compara cada categoría contra lo normal de la persona, sugiere
+  En salud, `resumen_salud` trae un panorama (qué enfermedades están activas, qué hábitos se
+  registran y cómo van) con el que empieza la respuesta general, que termina preguntando en qué
+  indagar; además compara cada categoría contra lo normal de la persona, sugiere
   hábitos para registrar según la enfermedad y busca relaciones entre hábitos y enfermedades.
   Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
@@ -89,7 +91,9 @@ Reglas para el SQL:
   toca Confirmar. Lo único que puede proponer borrar son movimientos (`registros`), con una
   tarjeta que enseña cada uno; nunca categorías, cuentas ni su memoria.
 - Excepción: su memoria (`memoria_ia`, notas sobre el usuario) la guarda y corrige
-  sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración.
+  sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración. La app
+  también anota ahí cuando el usuario cancela la propuesta de un hábito de Salud, para que no se
+  vuelva a proponer.
 - La revisión diaria corre una vez por usuario y día (`revisiones_ia`); sus
   hallazgos quedan en `hallazgos_ia` con lo que hizo el usuario (atendido o
   descartado) para darles seguimiento.

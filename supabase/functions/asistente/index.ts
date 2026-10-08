@@ -408,7 +408,7 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "resumen_salud",
     description:
-      "Cómo va cada categoría de Salud contra lo normal de la persona: días con registro en los últimos 7 y 30 días, este mes y a qué ritmo va contra el promedio " +
+      "El panorama de su salud (qué enfermedades están activas y qué hábitos registra y cómo van) y cómo va cada categoría de Salud contra lo normal de la persona: días con registro en los últimos 7 y 30 días, este mes y a qué ritmo va contra el promedio " +
       "de los meses anteriores, la cantidad promedio (lo que mida según su descripción), racha, últimos registros con sus notas, notas que se repiten, " +
       "días de la semana y qué otras categorías de Salud coinciden más de lo normal. Úsala para cualquier pregunta de salud o de un síntoma.",
     input_schema: {
@@ -720,12 +720,15 @@ const HABITOS_POR_ENFERMEDAD: { patron: RegExp; habitos: Json[] }[] = [
   { patron: /ansiedad|p[aá]nico|estr[eé]s|depresi/i, habitos: [SUENO, CAFEINA, EJERCICIO, ALCOHOL] },
   { patron: /insomnio|dormir mal|desvelo/i, habitos: [CAFEINA, PANTALLAS, EJERCICIO, ALCOHOL] },
 ];
-function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo): Json[] {
+function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo, notas: Json[] = []): Json[] {
   const texto = `${enf.nombre ?? ""} ${enf.descripcion ?? ""}`;
   const lista = HABITOS_POR_ENFERMEDAD.find((x) => x.patron.test(texto))?.habitos ?? [SUENO, AGUA, ESTRES];
   const yaTiene = (h: Json) => todasSalud.some((c: Json) => h.busca.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`));
+  // Los que ya rechazó (la app guarda una nota al cancelar la tarjeta, o lo dijo en el chat) no se vuelven a proponer
+  const NO = /no quiere|no registrar|no le interesa|cancel[oó]|no toma|no bebe|no fuma|no proponer|no lo propongas/i;
+  const rechazado = (h: Json) => notas.some((n: Json) => NO.test(String(n.nota ?? "")) && (h.busca.test(String(n.nota)) || String(n.nota).toLowerCase().includes(String(h.nombre).toLowerCase())));
   const viejas = categoriasViejasDeSalud(k);
-  return lista.filter((h) => !yaTiene(h)).slice(0, 3).map(({ busca, ...h }) => {
+  return lista.filter((h) => !yaTiene(h) && !rechazado(h)).slice(0, 3).map(({ busca, ...h }) => {
     // Si ya lo registraba antes como dinero (Agua como ingreso), se convierte ésa: crear otra choca con su nombre
     const vieja = viejas.find((c: Json) => busca.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`));
     return { ...h, grupo: "habito", cuenta_id: enf.cuenta_id, recordar_diario: true, ...(vieja ? { convertir: { categoria_id: vieja.id, nombre: vieja.nombre, tipo_actual: vieja.tipo } } : {}) };
@@ -1420,6 +1423,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       // cantidad como pastillas cuando la descripción dice intensidad y no veía que el mes iba al doble.
       // Se leen todas (los hábitos hacen falta para las relaciones aunque se pida una sola enfermedad)
       const todas = catalogo.categorias.filter((c: Json) => c.tipo === "salud");
+      // Para no volver a proponer hábitos que ya rechazó
+      const notasMemoria = await leerMemoria(sb);
       const pedidas = todas.filter((c: Json) => !entrada.categoria_id || String(c.id) === String(entrada.categoria_id));
       if (!pedidas.length) return { texto: entrada.categoria_id ? "Esa categoría no es de Salud." : "No tiene categorías de Salud." };
       const hoyL = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
@@ -1591,7 +1596,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             // Qué hábitos registrar para saber qué la detona, y lo que ya dicen los que registra
             const relaciones = relacionesDe(c);
             const habitosRegistrados = todas.filter((h: Json) => h.grupo_salud === "habito" && porDiaCat[String(h.id)]?.size).length;
-            const investigar = entre(hace(29), hoyL) >= 4 ? habitosParaInvestigar(c, todas, catalogo) : [];
+            const investigar = entre(hace(29), hoyL) >= 4 ? habitosParaInvestigar(c, todas, catalogo, notasMemoria) : [];
             return {
               relaciones: relaciones.length ? relaciones : habitosRegistrados ? "ninguna clara todavía con los hábitos que registra" : "no registra hábitos todavía",
               ...(investigar.length ? { habitos_para_investigar: investigar } : {}),
@@ -1601,6 +1606,38 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         };
       });
       if (!categorias.length) return { texto: "No hay registros de Salud en los últimos 4 meses." };
+      // El panorama para "¿cómo vamos de salud?": qué padece y si está activo, qué hábitos registra y cómo
+      // van. El modelo entraba al detalle de una sola enfermedad y proponía hábitos antes de dar el panorama.
+      const enLista = new Map(categorias.map((x: Json) => [String(x.categoria_id), x]));
+      const comparado = (u30: number, normal: number | null) => normal === null || normal === 0 ? "sin meses anteriores para comparar"
+        : u30 >= normal * 1.5 && u30 - normal >= 2 ? "más que lo normal" : u30 <= normal * 0.5 ? "menos que lo normal" : "como siempre";
+      const sinRegistro = (c: Json) => `${catalogo.etiqueta[String(c.id)] ?? c.nombre}: sin registros en los últimos 4 meses`;
+      const panoramaEnf = todas.filter((c: Json) => c.grupo_salud !== "habito").map((c: Json) => {
+        const x = enLista.get(String(c.id));
+        if (!x) return sinRegistro(c);
+        const nombre = x.categoria;
+        if (!x.dias_ultimos_30) return `${nombre}: tranquila, sin registros en 30 días (el último, ${x.ultimo})`;
+        const inten = x.intensidad_promedio_ultimos_30 != null ? `; intensidad promedio ${x.intensidad_promedio_ultimos_30} de 10 (antes ${x.intensidad_promedio_antes ?? "—"})` : "";
+        return `${nombre}: activa, ${x.dias_ultimos_30} días en los últimos 30 (lo normal: ${x.normal_dias_por_mes ?? "—"} al mes): ${comparado(x.dias_ultimos_30, x.normal_dias_por_mes)}${inten}${x.senales ? "; trae señales" : ""}`;
+      });
+      const panoramaHab = todas.filter((c: Json) => c.grupo_salud === "habito").map((c: Json) => {
+        const x = enLista.get(String(c.id));
+        if (!x) return sinRegistro(c);
+        const nombre = x.categoria;
+        if (!x.dias_ultimos_7 && !x.dias_ultimos_30) return `${nombre}: dejó de registrarlo (el último, ${x.ultimo})`;
+        const u = c.unidad_salud ? ` ${c.unidad_salud}` : "";
+        const como = x.horas_por_dia_ultimos_30 != null ? `${x.horas_por_dia_ultimos_30} h por día (antes ${x.horas_por_dia_antes ?? "—"})`
+          : x.veces_ultimos_30 != null ? `${x.veces_ultimos_30} en los últimos 30 días (antes ${x.veces_por_mes_antes ?? "—"} al mes)`
+          : x.intensidad_promedio_ultimos_30 != null ? `${x.intensidad_promedio_ultimos_30} de 10 en promedio (antes ${x.intensidad_promedio_antes ?? "—"})`
+          : x.valor_promedio_ultimos_30 != null ? `${x.valor_promedio_ultimos_30}${u} en promedio (antes ${x.valor_promedio_antes ?? "—"}${u})`
+          : `${x.dias_ultimos_30} días con registro en 30`;
+        return `${nombre}: ${como}; registrado ${x.dias_ultimos_7} de los últimos 7 días${x.aviso_diario ? " (con aviso diario)" : ""}`;
+      });
+      const panorama = {
+        enfermedades: panoramaEnf.length ? panoramaEnf : "no registra enfermedades",
+        habitos: panoramaHab.length ? panoramaHab : "no registra hábitos todavía",
+        ...(todas.some((c: Json) => !c.grupo_salud) ? { sin_grupo: todas.filter((c: Json) => !c.grupo_salud).map((c: Json) => catalogo.etiqueta[String(c.id)] ?? c.nombre) } : {}),
+      };
       // Las que se registraban como dinero antes del tipo Salud y ningún hábito sugerido cubre
       const enHabitos = new Set(categorias.flatMap((x: Json) => (x.habitos_para_investigar ?? []).filter((h: Json) => h.convertir).map((h: Json) => String(h.convertir.categoria_id))));
       const viejas = categoriasViejasDeSalud(catalogo).filter((c: Json) => !enHabitos.has(String(c.id))).slice(0, 4)
@@ -1615,6 +1652,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman), horas (por día) o valor (una medición con su unidad: importa el último, el promedio y si sale del rango sano). " +
             "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga. " +
             "categorias_viejas_de_salud: por su nombre parecen de salud registradas como gasto o ingreso (de antes de que existiera Salud); es una pista, no un hecho. Ofrece pasarlas a Salud (proponer_cambio_categoria con tipo salud, grupo_salud y medida_salud): sus registros se conservan como cantidad.",
+          ...(entrada.categoria_id ? {} : { panorama }),
           categorias,
           ...(viejas.length ? { categorias_viejas_de_salud: viejas } : {}),
         }),
@@ -3206,7 +3244,12 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
 
 # Salud
-Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y contesta corto, sólo de lo que tuvo registros en los últimos 30 días:
+Cuando pregunte en general cómo va de salud, llama a resumen_salud y da primero el panorama, corto, con lo que trae panorama:
+- Enfermedades: cuáles están activas, con su cifra contra lo normal, y cuáles están tranquilas.
+- Hábitos que registra y cómo van, con cifras; si dejó de registrar alguno, dilo.
+- Si alguna trae senales, una línea para verlo con su médico (con el porqué, si lo trae).
+En esa respuesta no entres al detalle de cada una ni propongas hábitos nuevos. Termina con preguntar_al_usuario: en qué quiere indagar, con opciones (sus enfermedades activas por nombre, "Mis hábitos" y "Nada por ahora").
+Cuando pregunte por una enfermedad, un síntoma o un hábito en concreto (o elija indagar en algo), da el detalle, sólo de lo que tuvo registros en los últimos 30 días:
 1. Primero Enfermedades y luego Hábitos. Por categoría, en una o dos líneas: cómo va contra lo normal (dias_ultimos_30 contra normal_dias_por_mes, que son comparables; los 7 días sólo como racha), y la cantidad según su medida contra antes, con cifras. La cantidad es lo que diga medida (intensidad, veces, horas); nunca la cambies por otra cosa (una intensidad no son pastillas).
 2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
 3. Si viene relaciones con cifras, dilas como pista ("los días antes de una migraña dormiste 5.8 h; los demás, 7.1 h"), nunca como causa.

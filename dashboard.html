@@ -18283,6 +18283,13 @@
                                 if (!confirmar) {
                                     m.estado = 'cancelada';
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Cancelé la propuesta: ${p.resumen})` }]) });
+                                    // Un hábito de Salud que no quiso: se anota en la memoria de la IA para que no lo vuelva
+                                    // a proponer aunque la plática se cierre aquí (se ve y se borra en Configuración)
+                                    const d = p.datos || {};
+                                    if (p.tipo === 'nueva_categoria' && d.tipo === 'salud' && d.grupo_salud === 'habito' && d.nombre) {
+                                        clienteSupabase.from('memoria_ia').insert([{ user_id: currentUser.id, tema: 'preferencia', nota: `No quiere registrar el hábito ${String(d.nombre).slice(0, 60)}: canceló la propuesta.` }])
+                                            .then(() => {}, () => {});
+                                    }
                                     pintarChatAsistente();
                                     return;
                                 }
