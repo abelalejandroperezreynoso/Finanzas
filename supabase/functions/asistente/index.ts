@@ -392,15 +392,15 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "mercado_acciones",
     description:
-      "Cómo está el mercado hoy (de Finnhub, con datos del día): por empresa, precio, cambio de hoy, rendimiento de 5 días, del mes, del año y de 52 semanas, " +
-      "qué tan lejos está de su máximo de 52 semanas, P/E, beta, crecimiento de ventas y utilidades, y el consenso de analistas del último mes; " +
-      "el S&P 500 y el Nasdaq 100 como referencia, y los titulares de mercado del día. Sin tickers revisa sus empresas de GBM. " +
+      "Cómo está el mercado (de Finnhub): por empresa, su peso en lo que tiene, precio, cambio de hoy, rendimiento de 5 días, 30 días, 3 meses y del año, " +
+      "qué tan lejos está de su máximo de 52 semanas, cómo le fue contra el S&P 500, P/E, beta, crecimiento de ventas y utilidades, consenso de analistas y fecha de su próximo reporte; " +
+      "noticias de las que más se movieron, el S&P 500 y el Nasdaq 100 como referencia y los titulares del día. Sin tickers revisa todas las acciones que tiene en GBM, de la que más pesa a la que menos. " +
       "Para saber si su portafolio va mejor o peor que el S&P 500 usa resumen_inversiones (contra_sp500), no los rendimientos de aquí. " +
       "Úsala siempre que pregunte en qué invertir, si le conviene comprar o vender algo, o cómo está el mercado.",
     input_schema: {
       type: "object",
       properties: {
-        tickers: { type: "array", items: { type: "string" }, description: "Tickers a revisar (máximo 10). Omítelo para revisar sus empresas; agrega aquí las que mencione que no tiene." },
+        tickers: { type: "array", items: { type: "string" }, description: "Tickers a revisar (máximo 10). Omítelo para revisar todas las que tiene; úsalo para las que mencione que no tiene." },
       },
       additionalProperties: false,
     },
@@ -882,6 +882,9 @@ function sinVoseo(texto: string): string {
 
 // La misma clave pública de Finnhub que usa la app para precios y perfiles (está en dashboard.html)
 const TOKEN_FINNHUB = "d9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0";
+// Respuestas de Finnhub mientras la función siga despierta: dos preguntas seguidas no gastan dos veces el
+// límite de 60 consultas por minuto del plan gratuito
+const cacheFinnhub = new Map<string, { t: number; d: Json }>();
 const industrias = new Map<string, string>();
 async function nombreDeTicker(ticker: string): Promise<string> {
   try {
@@ -1263,78 +1266,152 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return { texto: `Se mostraron ${movimientos.length} movimientos en una tarjeta. No los repitas en el texto: si acaso, una frase con lo más importante.` };
     }
     case "mercado_acciones": {
-      // Datos del día de Finnhub (el plan gratuito: cotización, métricas, analistas y noticias). Sin esto
+      // Datos de Finnhub (el plan gratuito: cotización, métricas, analistas, reportes y noticias). Sin esto
       // el modelo "recomendaba" con lo que ya ganó cada acción en su portafolio, que es pasado.
       const limpio = (t: unknown) => String(t ?? "").trim().toUpperCase().replace(/\s+/g, "");
-      const propias = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && c.ticker).map((c: Json) => limpio(c.ticker));
-      const pedidos = (Array.isArray(entrada.tickers) ? entrada.tickers : []).map(limpio).filter((t: string) => /^[A-Z0-9.\-]{1,10}$/.test(t));
-      const tickers = [...new Set(pedidos.length ? pedidos : propias)].slice(0, 10) as string[];
-      if (!tickers.length) return { texto: "No tiene empresas con ticker en GBM y no pediste ninguna: pásale los tickers que quiera revisar." };
-      const fh = async (ruta: string) => {
+      const hoyM = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const diaMas = (n: number) => new Date(Date.parse(`${hoyM}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+      const invCats = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && c.ticker);
+      const original: Record<string, string> = {};
+      invCats.forEach((c: Json) => { original[limpio(c.ticker)] = String(c.ticker); });
+      const pedidos = [...new Set((Array.isArray(entrada.tickers) ? entrada.tickers : []).map(limpio).filter((t: string) => /^[A-Z0-9.\-]{1,10}$/.test(t)))] as string[];
+
+      // Las que tiene hoy (las ya vendidas no se revisan), con cuántas acciones
+      const acciones: Record<string, number> = {};
+      if (invCats.length) {
+        const catTicker: Record<string, string> = {};
+        invCats.forEach((c: Json) => { catTicker[String(c.id)] = limpio(c.ticker); });
+        for (let desde = 0; ; desde += 1000) {
+          const { data, error } = await sb.from("registros").select("cantidad_acciones, monto, tipo_movimiento, categoria_id")
+            .in("categoria_id", invCats.map((c: Json) => c.id)).range(desde, desde + 999);
+          if (error) break;
+          for (const r of data ?? []) {
+            const t = catTicker[String(r.categoria_id)], tipo = tipoDe(r), n = Number(r.cantidad_acciones) || 0;
+            if (tipo === "compra" || tipo === "compra_directa") acciones[t] = (acciones[t] ?? 0) + n;
+            else if (tipo === "venta" || tipo === "venta_directa") acciones[t] = (acciones[t] ?? 0) - n;
+          }
+          if (!data || data.length < 1000) break;
+        }
+      }
+      const tenidas = Object.keys(acciones).filter((t) => acciones[t] > 0.0001);
+
+      // Cierres que guardó la app en los últimos 40 días: para ordenar por cuánto tiene en cada una y
+      // para el rendimiento de 30 días (Finnhub gratis sólo da el mes en curso, que el día 7 es una semana)
+      const consultar = [...new Set([...tenidas, ...pedidos])];
+      const series: Record<string, { dia: string; cierre: number }[]> = {};
+      if (consultar.length) {
+        const { data } = await sb.from("precios_historicos").select("ticker, dia, cierre")
+          .in("ticker", [...new Set(consultar.map((t) => original[t] ?? t))]).gte("dia", diaMas(-40)).order("dia").limit(5000);
+        (data ?? []).forEach((x: Json) => { (series[limpio(x.ticker)] ??= []).push({ dia: String(x.dia), cierre: Number(x.cierre) }); });
+      }
+      const ultimoGuardado = (t: string) => series[t]?.at(-1)?.cierre ?? 0;
+      const ordenadas = tenidas.sort((a, b) => acciones[b] * ultimoGuardado(b) - acciones[a] * ultimoGuardado(a));
+      const tickers = (pedidos.length ? pedidos.slice(0, 10) : ordenadas.slice(0, 20));
+      const faltaron = pedidos.length ? pedidos.slice(10) : ordenadas.slice(20);
+      if (!tickers.length) return { texto: "No tiene acciones con ticker en GBM y no pediste ninguna: pásale los tickers que quiera revisar." };
+
+      // Finnhub gratis permite 60 consultas por minuto: lo que cambia poco se guarda mientras la función
+      // siga despierta, y lo que no alcanzó se dice en vez de inventarlo
+      let limitado = false;
+      const fh = async (ruta: string, vigencia: number) => {
+        const guardado = cacheFinnhub.get(ruta);
+        if (guardado && Date.now() - guardado.t < vigencia) return guardado.d;
         try {
-          const r = await fetch(`https://finnhub.io/api/v1/${ruta}&token=${TOKEN_FINNHUB}`);
-          return r.ok ? await r.json() : null;
+          const r = await fetch(`https://finnhub.io/api/v1/${ruta}&token=${TOKEN_FINNHUB}`, { signal: AbortSignal.timeout(8000) });
+          if (r.status === 429) { limitado = true; return null; }
+          if (!r.ok) return null;
+          const d = await r.json();
+          cacheFinnhub.set(ruta, { t: Date.now(), d });
+          return d;
         } catch (_) { return null; }
       };
+      const MINUTO = 60_000, HORAS = 6 * 3_600_000;
       const simbolo = (t: string) => encodeURIComponent(t.replace("-", "."));
       const r1 = (n: unknown) => (n === null || n === undefined || !Number.isFinite(Number(n))) ? null : Math.round(Number(n) * 10) / 10;
       const pct = (n: unknown) => { const v = r1(n); return v === null ? null : `${v > 0 ? "+" : ""}${v} %`; };
       const nombrePropio = (t: string) => {
-        const c = catalogo.categorias.find((x: Json) => x.tipo === "inversion" && limpio(x.ticker) === t);
+        const c = invCats.find((x: Json) => limpio(x.ticker) === t);
         return c ? (catalogo.etiqueta[String(c.id)] ?? c.nombre) : null;
       };
-      const datosDe = async (t: string, conAnalistas: boolean) => {
-        const [q, m, rec] = await Promise.all([
-          fh(`quote?symbol=${simbolo(t)}`),
-          fh(`stock/metric?symbol=${simbolo(t)}&metric=all`),
-          conAnalistas ? fh(`stock/recommendation?symbol=${simbolo(t)}`) : Promise.resolve(null),
+      // Analistas y próximo reporte: de las 8 en que tiene más (o de todas las que pidió); cuestan una consulta cada uno
+      const conDetalle = new Set(pedidos.length ? tickers : tickers.slice(0, 8));
+      const datosDe = async (t: string) => {
+        const [q, m, rec, rep] = await Promise.all([
+          fh(`quote?symbol=${simbolo(t)}`, MINUTO),
+          fh(`stock/metric?symbol=${simbolo(t)}&metric=all`, HORAS),
+          conDetalle.has(t) ? fh(`stock/recommendation?symbol=${simbolo(t)}`, HORAS) : Promise.resolve(null),
+          conDetalle.has(t) ? fh(`calendar/earnings?from=${hoyM}&to=${diaMas(60)}&symbol=${simbolo(t)}`, HORAS) : Promise.resolve(null),
         ]);
-        return { q, m: m?.metric ?? {}, rec: Array.isArray(rec) ? rec[0] : null };
+        return { q, m: m?.metric ?? {}, rec: Array.isArray(rec) ? rec[0] : null, rep: Array.isArray(rep?.earningsCalendar) ? rep.earningsCalendar[0] : null };
       };
+      const fechaCorta = (d: string) => `${Number(d.slice(8, 10))} ${["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(d.slice(5, 7)) - 1]}`;
+      const avisos: string[] = [];
+      const datos: { t: string; d: Json; nombre: string | null }[] = [];
       // De cuatro en cuatro para no pasar el límite por segundo del plan gratuito
-      const filas: Json[][] = [];
       for (let i = 0; i < tickers.length; i += 4) {
-        const grupo = tickers.slice(i, i + 4);
-        const datos = await Promise.all(grupo.map(async (t) => ({ t, d: await datosDe(t, true), nombre: nombrePropio(t) ?? (pedidos.includes(t) ? nombreCortoEmpresa(await nombreDeTicker(t)) || null : null) })));
-        for (const { t, d, nombre } of datos) {
-          const precio = Number(d.q?.c) > 0 ? Number(d.q.c) : null;
-          if (!precio) { filas.push([t, nombre, null, "sin datos en Finnhub (puede ser un ETF o un ticker que no es de EE. UU.)"]); continue; }
-          const maximo = Number(d.m["52WeekHigh"]);
-          const a = d.rec;
-          const analistas = a ? `${(a.strongBuy ?? 0) + (a.buy ?? 0)} compra (${a.strongBuy ?? 0} fuerte) · ${a.hold ?? 0} mantener · ${(a.sell ?? 0) + (a.strongSell ?? 0)} venta (${String(a.period ?? "").slice(0, 7)})` : null;
-          filas.push([
-            t, nombre, `$${precio.toFixed(2)} USD`, pct(d.q.dp), pct(d.m["5DayPriceReturnDaily"]), pct(d.m.monthToDatePriceReturnDaily),
-            pct(d.m.yearToDatePriceReturnDaily), pct(d.m["52WeekPriceReturnDaily"]), maximo > 0 ? pct((precio / maximo - 1) * 100) : null,
-            r1(d.m.peTTM ?? d.m.peBasicExclExtraTTM), r1(d.m.beta), pct(d.m.revenueGrowthTTMYoy), pct(d.m.epsGrowthTTMYoy), analistas,
-          ]);
-        }
+        if (i) await new Promise((listo) => setTimeout(listo, 250));
+        datos.push(...await Promise.all(tickers.slice(i, i + 4).map(async (t) => ({
+          t, d: await datosDe(t), nombre: nombrePropio(t) ?? (pedidos.includes(t) ? nombreCortoEmpresa(await nombreDeTicker(t)) || null : null),
+        }))));
+      }
+      const valorDe = (x: { t: string; d: Json }) => (acciones[x.t] ?? 0) * (Number(x.d.q?.c) || ultimoGuardado(x.t));
+      const totalPropio = datos.reduce((t, x) => t + valorDe(x), 0);
+      const filas: Json[][] = [];
+      for (const { t, d, nombre } of datos) {
+        const precio = Number(d.q?.c) > 0 ? Number(d.q.c) : null;
+        if (!precio) { filas.push([t, nombre, null, null, "sin datos en Finnhub (puede ser un ETF o un ticker que no es de EE. UU.)"]); continue; }
+        // Finnhub a veces mezcla clases de acción (BRK.B trae el máximo de BRK.A): si no cuadra con el precio, no se usa
+        const maximo = Number(d.m["52WeekHigh"]), minimo = Number(d.m["52WeekLow"]);
+        const rangoValido = maximo > 0 && minimo > 0 && precio <= maximo * 1.05 && precio >= minimo * 0.95;
+        if (!rangoValido && maximo > 0) avisos.push(`${t}: Finnhub trae un rango de 52 semanas que no cuadra con su precio; se omitió.`);
+        // 30 días con los cierres que guardó la app: el más reciente de hace 30 a 37 días
+        const viejo = (series[t] ?? []).filter((x) => x.dia <= diaMas(-30) && x.dia >= diaMas(-37)).at(-1);
+        const a = d.rec;
+        const analistas = a ? `${(a.strongBuy ?? 0) + (a.buy ?? 0)} compra · ${a.hold ?? 0} mantener · ${(a.sell ?? 0) + (a.strongSell ?? 0)} venta (${String(a.period ?? "").slice(0, 7)})` : null;
+        const rep = d.rep;
+        const reporte = rep?.date ? `${fechaCorta(String(rep.date))}${rep.hour === "bmo" ? " antes de abrir" : rep.hour === "amc" ? " al cierre" : ""}` : (conDetalle.has(t) ? "ninguno en 60 días" : null);
+        filas.push([
+          t, nombre, totalPropio > 0 && acciones[t] ? pct((valorDe({ t, d }) / totalPropio) * 100) : null, `$${precio.toFixed(2)} USD`, pct(d.q.dp),
+          pct(d.m["5DayPriceReturnDaily"]), viejo ? pct((precio / viejo.cierre - 1) * 100) : null, pct(d.m.monthToDatePriceReturnDaily),
+          pct(d.m["13WeekPriceReturnDaily"]), pct(d.m.yearToDatePriceReturnDaily), rangoValido ? pct((precio / maximo - 1) * 100) : null,
+          pct(d.m["priceRelativeToS&P50013Week"]), r1(d.m.peTTM ?? d.m.peBasicExclExtraTTM), r1(d.m.beta), pct(d.m.revenueGrowthTTMYoy), pct(d.m.epsGrowthTTMYoy),
+          analistas, reporte,
+        ]);
       }
       const indices = await Promise.all([["SPY", "S&P 500 (SPY)"], ["QQQ", "Nasdaq 100 (QQQ)"]].map(async ([t, nombre]) => {
-        const d = await datosDe(t, false);
-        return [nombre, pct(d.q?.dp), pct(d.m["5DayPriceReturnDaily"]), pct(d.m.monthToDatePriceReturnDaily), pct(d.m.yearToDatePriceReturnDaily)];
+        const [q, m] = await Promise.all([fh(`quote?symbol=${t}`, MINUTO), fh(`stock/metric?symbol=${t}&metric=all`, HORAS)]);
+        const met = m?.metric ?? {};
+        return [nombre, pct(q?.dp), pct(met["5DayPriceReturnDaily"]), pct(met.monthToDatePriceReturnDaily), pct(met["13WeekPriceReturnDaily"]), pct(met.yearToDatePriceReturnDaily)];
       }));
       const ahora = Date.now();
-      const titulares = ((await fh("news?category=general")) ?? []).slice(0, 6)
+      const titulares = ((await fh("news?category=general", 30 * MINUTO)) ?? []).slice(0, 6)
         .map((n: Json) => `${String(n.headline ?? "").slice(0, 160)} (${n.source ?? "?"}, hace ${Math.max(1, Math.round((ahora / 1000 - Number(n.datetime)) / 3600))} h)`);
-      // Noticias de la empresa sólo si pidió pocas: cada una es una consulta más
+      // Noticias de la empresa: las que pidió (si son pocas) o las tres que más se movieron, para explicar el porqué
+      const movimiento = (x: { d: Json }) => Math.max(Math.abs(Number(x.d.q?.dp) || 0), Math.abs(Number(x.d.m["5DayPriceReturnDaily"]) || 0) / 2);
+      const conNoticias = pedidos.length && pedidos.length <= 3 ? tickers
+        : datos.filter((x) => movimiento(x) >= 3).sort((a, b) => movimiento(b) - movimiento(a)).slice(0, 3).map((x) => x.t);
       const deEmpresas: Record<string, string[]> = {};
-      if (pedidos.length && pedidos.length <= 3) {
-        const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
-        const hace4 = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
-        await Promise.all(tickers.map(async (t) => {
-          const n = await fh(`company-news?symbol=${simbolo(t)}&from=${hace4}&to=${hoy}`);
-          deEmpresas[t] = (Array.isArray(n) ? n : []).slice(0, 4).map((x: Json) => String(x.headline ?? "").slice(0, 160)).filter(Boolean);
-        }));
-      }
+      await Promise.all(conNoticias.map(async (t) => {
+        const n = await fh(`company-news?symbol=${simbolo(t)}&from=${diaMas(-4)}&to=${hoyM}`, 60 * MINUTO);
+        const lista = (Array.isArray(n) ? n : []).slice(0, 4).map((x: Json) => String(x.headline ?? "").slice(0, 160)).filter(Boolean);
+        if (lista.length) deEmpresas[t] = lista;
+      }));
+      if (limitado) avisos.push("Finnhub limitó las consultas (60 por minuto): a algunas empresas les faltan datos. No los inventes; dile que lo vuelva a pedir en un minuto.");
+      if (faltaron.length) avisos.push(`No se revisaron por el límite de consultas: ${faltaron.join(", ")}.`);
       return {
         texto: recortar({
-          nota: "Datos de mercado de hoy de Finnhub (la cotización puede traer unos minutos de retraso; con la bolsa cerrada es el último cierre). Los rendimientos son del precio de la acción, no de su portafolio. " +
-            "del_maximo_52s = qué tan abajo está de su máximo de 52 semanas. pe = precio/utilidad (más alto = más cara frente a lo que gana). beta > 1 = se mueve más que el mercado. " +
-            "Los titulares vienen en inglés: resúmelos en español y usa sólo los que pesen. Nada de esto dice qué va a pasar: no prometas rendimientos.",
-          empresas: tabla(["ticker", "nombre", "precio", "hoy", "5_dias", "mes", "año", "52_semanas", "del_maximo_52s", "pe", "beta", "crec_ventas", "crec_utilidad", "analistas"], filas),
-          referencia: tabla(["indice", "hoy", "5_dias", "mes", "año"], indices),
+          nota: "Datos de mercado de Finnhub (la cotización puede traer unos minutos de retraso; con la bolsa cerrada es el último cierre). Los rendimientos son del precio de la acción, no de su portafolio. " +
+            "Sus empresas van de la que más pesa a la que menos (peso = parte de lo que tiene en acciones). " +
+            "30_dias = contra el cierre de hace un mes que guardó la app (vacío si no hay); mes_en_curso = desde el día 1 de este mes, no es \"el último mes\"; 3_meses = 13 semanas. " +
+            "vs_sp500_3m = cuánto le fue mejor (+) o peor (−) que al S&P 500 en 3 meses. del_maximo_52s = qué tan abajo está de su máximo de 52 semanas. " +
+            "Un bajón reciente se ve en 5_dias, 30_dias y 3_meses; una caída sólo de hoy no es tendencia. pe = precio/utilidad (más alto = más cara frente a lo que gana). beta > 1 = se mueve más que el mercado. " +
+            "proximo_reporte = cuándo da resultados: alrededor de esa fecha el precio suele moverse fuerte. titulares_empresas explican los movimientos grandes: resúmelos en español. " +
+            "Nada de esto dice qué va a pasar: no prometas rendimientos.",
+          empresas: tabla(["ticker", "nombre", "peso", "precio", "hoy", "5_dias", "30_dias", "mes_en_curso", "3_meses", "año", "del_maximo_52s", "vs_sp500_3m", "pe", "beta", "crec_ventas", "crec_utilidad", "analistas", "proximo_reporte"], filas),
+          referencia: tabla(["indice", "hoy", "5_dias", "mes_en_curso", "3_meses", "año"], indices),
           titulares_mercado: titulares,
           ...(Object.keys(deEmpresas).length ? { titulares_empresas: deEmpresas } : {}),
+          ...(avisos.length ? { avisos } : {}),
         }),
       };
     }
@@ -3117,7 +3194,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría y, si no existe, propone también la categoría en la misma llamada. Una empresa nueva lleva sus sectores propios (los que ya usa en sus otras empresas, columna sectores); si una empresa que ya tiene no lleva ninguno, propónselos con proponer_cambio_categoria. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
-- "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500, si está cara (pe) o muy arriba frente a su historial, qué dicen los analistas y alguna noticia que pese. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
+- "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
 
