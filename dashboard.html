@@ -2914,6 +2914,14 @@
                                 <option value="valor">Valor (con unidad)</option>
                             </select>
                         </label>
+                        <!-- Un hábito de todos los días: si a las 9 p.m. no tiene registro, llega un aviso -->
+                        <label class="rango-ios-fila" id="filaRecordarDiarioCat" style="display: none;">
+                            <span>Avisarme a las 9 p.m.<br><small style="color:#8e8e93; font-size:0.8em;">Si ese día no lo registré</small></span>
+                            <span class="ios-switch">
+                                <input type="checkbox" id="catRecordarDiario">
+                                <span class="ios-switch-pista"></span>
+                            </span>
+                        </label>
                         <label class="rango-ios-fila" id="filaUnidadSaludCat" style="display: none;">
                             <span>Unidad</span>
                             <input type="text" id="catUnidadSalud" class="campo-fila-ios" maxlength="12" placeholder="Ej: °C, mg/dL, kg" autocomplete="off">
@@ -6338,6 +6346,7 @@
                                                         document.getElementById('catGrupoSalud').value = '';
                                                         document.getElementById('catMedidaSalud').value = '';
                                                         document.getElementById('catUnidadSalud').value = '';
+                                                        document.getElementById('catRecordarDiario').checked = false;
                                                         document.getElementById('catDescripcion').value = '';
                                                         document.getElementById('tituloCat').textContent = 'Nueva Categoría';
                                                         document.getElementById('btnGuardarCat').textContent = 'Añadir Categoría';
@@ -9555,7 +9564,7 @@
 
                                                         const filaPrioridad = document.getElementById('filaPrioridadCat');
                                                         if (filaPrioridad) filaPrioridad.style.display = tipo === 'gasto' ? '' : 'none';
-                                                        ['filaGrupoSaludCat', 'filaMedidaSaludCat'].forEach(id => {
+                                                        ['filaGrupoSaludCat', 'filaMedidaSaludCat', 'filaRecordarDiarioCat'].forEach(id => {
                                                             const fila = document.getElementById(id);
                                                             if (fila) fila.style.display = tipo === 'salud' ? '' : 'none';
                                                         });
@@ -9632,6 +9641,7 @@
                                         grupo_salud: tipo === 'salud' ? (document.getElementById('catGrupoSalud').value || null) : null,
                                         unidad_salud: tipo === 'salud' && document.getElementById('catMedidaSalud').value === 'valor'
                                             ? (document.getElementById('catUnidadSalud').value.trim().slice(0, 12) || null) : null,
+                                        recordar_diario: tipo === 'salud' && document.getElementById('catRecordarDiario').checked,
                                         desactivar_prediccion: desactivar_prediccion,
                                         // Sólo viaja si hay algo escrito: así una base sin la columna sigue guardando
                                         ...(document.getElementById('catDescripcion').value.trim()
@@ -9682,9 +9692,9 @@
                                             let cuerpoSinFaltantes = body;
                                             for (let intento = 0; intento < 3 && res.error; intento++) {
                                                 const mensaje = res.error.message || '';
-                                                if (/medida_salud|grupo_salud|unidad_salud/i.test(mensaje) && 'medida_salud' in cuerpoSinFaltantes) {
+                                                if (/medida_salud|grupo_salud|unidad_salud|recordar_diario/i.test(mensaje) && 'medida_salud' in cuerpoSinFaltantes) {
                                                     // La migración de Salud aún no corre: se guarda lo demás
-                                                    const { medida_salud, grupo_salud, unidad_salud, ...resto } = cuerpoSinFaltantes;
+                                                    const { medida_salud, grupo_salud, unidad_salud, recordar_diario, ...resto } = cuerpoSinFaltantes;
                                                     cuerpoSinFaltantes = resto;
                                                 } else if (/descripcion/i.test(mensaje) && 'descripcion' in cuerpoSinFaltantes) {
                                                     faltaMigracionDescripcion = true;
@@ -9774,6 +9784,7 @@
                                                                     document.getElementById('catGrupoSalud').value = cat.grupo_salud || '';
                                                                     document.getElementById('catMedidaSalud').value = cat.medida_salud || '';
                                                                     document.getElementById('catUnidadSalud').value = cat.unidad_salud || '';
+                                                                    document.getElementById('catRecordarDiario').checked = cat.recordar_diario === true;
                                                                     document.getElementById('catDescripcion').value = cat.descripcion || '';
                                                                     mostrarOcultarTicker();
                                                                     // Si la categoría ya trae ajustes finos configurados, los dejamos a la vista
@@ -16436,6 +16447,7 @@
                                     if ('sectores' in c) filas.push(`Sectores: ${flecha((a.sectores || []).join(' · ') || 'ninguno', (c.sectores || []).join(' · ') || 'ninguno')}`);
                                     const nombreGrupo = g => g === 'habito' ? 'Hábito' : g === 'enfermedad' ? 'Enfermedad' : 'sin definir';
                                     if ('grupo_salud' in c) filas.push(`Grupo: ${flecha(nombreGrupo(a.grupo_salud), nombreGrupo(c.grupo_salud))}`);
+                                    if ('recordar_diario' in c) filas.push(`Aviso 9 p.m.: ${flecha(a.recordar_diario ? 'Sí' : 'No', c.recordar_diario ? 'Sí' : 'No')}`);
                                     if ('medida_salud' in c || 'unidad_salud' in c) {
                                         const despues = { medida_salud: 'medida_salud' in c ? c.medida_salud : a.medida_salud, unidad_salud: 'unidad_salud' in c ? c.unidad_salud : a.unidad_salud };
                                         filas.push(`Mide: ${flecha(a.medida_salud ? nombreMedidaSalud(a) : 'sin definir', despues.medida_salud ? nombreMedidaSalud(despues) : 'sin definir')}`);
@@ -16465,6 +16477,7 @@
                                     if ((d.sectores || []).length) filas.push(`Sectores: <b>${escaparHtml(d.sectores.join(' · '))}</b>`);
                                     if (d.grupo_salud) filas.push(`Grupo: <b>${escaparHtml(d.grupo_salud === 'habito' ? 'Hábito' : 'Enfermedad')}</b>`);
                                     if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(nombreMedidaSalud(d))}</b>`);
+                                    if (d.recordar_diario) filas.push('Aviso: <b>a las 9 p.m. si no lo registré</b>');
                                     if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'borrar_movimientos') {
@@ -22308,8 +22321,14 @@
                         // que un movimiento de dinero se guarde igual aunque falte la migración de Salud.
                         if (catSeleccionada && catSeleccionada.tipo === 'salud') {
                             const cantidadSalud = parseFloat(document.getElementById('regMonto').value);
-                            if (!(cantidadSalud > 0)) {
-                                alert("⚠️ Escribe la cantidad (mayor que cero).");
+                            // En veces y horas el 0 vale ("hoy no me salté ninguna comida"); una intensidad va de 1 a 10
+                            const aceptaCero = ['veces', 'horas'].includes(catSeleccionada.medida_salud);
+                            if (!isFinite(cantidadSalud) || cantidadSalud < 0 || (!aceptaCero && cantidadSalud === 0)) {
+                                alert(aceptaCero ? "⚠️ Escribe la cantidad (0 si hoy no hubo)." : "⚠️ Escribe la cantidad (mayor que cero).");
+                                return;
+                            }
+                            if (catSeleccionada.medida_salud === 'intensidad' && cantidadSalud > 10) {
+                                alert("⚠️ La intensidad va de 1 a 10.");
                                 return;
                             }
                             body.monto = 0;

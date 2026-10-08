@@ -31,7 +31,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`avisos_secreto`). La app sincroniza `recordatorios` con los pagos recurrentes de
   fecha exacta. Las claves las pone una vez el flujo `configurar-avisos.yml`. Los recordatorios
   del asistente (`recordatorios_ia`) los manda cada minuto la tarea `recordatorios-ia` por el
-  mismo camino.
+  mismo camino, y la tarea `recordatorio-habitos` (9 p.m.) avisa de las categorías de Salud con
+  `recordar_diario` que ese día no tienen registro.
 - `herramientas/robotito.py`: dibuja al robotito del asistente (pixeles, por capas) y
   reescribe `ROBOT_PNG` en `dashboard.html`. Para cambiar el dibujo se edita este
   archivo y se corre; las animaciones están en el CSS `.robotito`. No edites los
