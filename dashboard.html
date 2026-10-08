@@ -17145,9 +17145,14 @@
                                 }
 
                                 // 2. Pagos recurrentes que tocan hoy o ya se pasaron (hasta 3 días)
+                                const plan = planIaVigente();
+                                const enPlan = (c, dia) => plan && dia < plan.hasta && plan.mover.some(m => String(m.categoria_id) === String(c.id));
                                 cats.filter(c => c.diasRecurrencia > 0 && c.siguienteFechaRecurrencia && c.tipo !== 'salud')
                                     .map(c => ({ c, dia: diaLocal(c.siguienteFechaRecurrencia) }))
                                     .filter(({ dia }) => dia <= hoy && dia >= diaLocal(new Date(hoyDate.getTime() - 3 * 86400000)))
+                                    // Lo que el plan deja para después sólo se recuerda el día que toca, antes de gastar.
+                                    // Si ese día ya pasó y no se registró, va cumpliendo: no hay nada que hacer.
+                                    .filter(({ c, dia }) => !(dia < hoy && enPlan(c, dia)))
                                     .sort((a, b) => a.dia.localeCompare(b.dia))
                                     .slice(0, 2)
                                     .forEach(({ c, dia }) => {
@@ -17155,11 +17160,10 @@
                                         if (!vigente(clave)) return;
                                         const cuando = conMayuscula(fechaRelativa(dia));
                                         const monto = c.montoSugerido ? ` (aprox. ${fMoneda(c.montoSugerido)})` : '';
-                                        const plan = planIaVigente();
-                                        if (plan && dia < plan.hasta && plan.mover.some(m => String(m.categoria_id) === String(c.id))) {
+                                        if (enPlan(c, dia)) {
                                             const hasta = Number(plan.hasta.slice(8, 10));
                                             const dias = Math.max(1, Math.round((new Date(plan.hasta + 'T12:00:00') - new Date(hoy + 'T12:00:00')) / 86400000));
-                                            const toca = `${cuando} ${dia < hoy ? 'tocaba' : 'toca'} ${c.nombre}`;
+                                            const toca = `${cuando} toca ${c.nombre}`;
                                             avisos.push({
                                                 clave, categoria_id: c.id, plan: true, etiqueta: 'Tu plan',
                                                 texto: `${toca}${monto}, pero tu plan es dejarlo para el ${hasta}.`,

@@ -2921,7 +2921,8 @@ const PLAN_CHAT = (plan: Json | undefined, hoy: string) => {
   const conPlan = Number.isFinite(plan.saldo_minimo_con_plan) ? ` en lugar de ${conSigno(plan.saldo_minimo_con_plan)}` : "";
   const lineas = plan.mover.map((m: Json) => `- ${m.categoria} ${pesos(m.monto)} (${cuando(m.fecha)})` +
     (Number.isFinite(m.si_lo_hace) ? `. Si lo quiere hacer: "Si lo haces, llegas al ${dia(plan.hasta)} con ${conSigno(m.si_lo_hace)}${conPlan}."` : "")).join("\n");
-  const hoyToca = plan.mover.filter((m: Json) => m.fecha <= hoy).map((m: Json) => m.categoria);
+  // Sólo lo de hoy: si el día ya pasó y no lo hizo, va cumpliendo y no hay que recordárselo
+  const hoyToca = plan.mover.filter((m: Json) => m.fecha === hoy).map((m: Json) => m.categoria);
   return `Plan vigente que le diste el ${plan.creado} para llegar al ${dia(plan.hasta)} (lo guarda la app; es tu plan, no uno nuevo).` +
     (Number.isFinite(plan.saldo_minimo_con_plan) ? ` Con el plan llega al ${dia(plan.hasta)} con ${conSigno(plan.saldo_minimo_con_plan)}.` : "") +
     ` Pagos que deja para después del ${dia(plan.hasta)} (y no gastar en lo prescindible hasta ese día):\n${lineas}\n` +
