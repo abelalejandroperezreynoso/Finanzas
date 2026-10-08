@@ -17229,15 +17229,20 @@
                                 // 2b. Salud: lo que registras con constancia y hoy toca. Diario si casi todos los días de
                                 // las últimas dos semanas tienen registro (hoy avisa ya pasada la hora de costumbre); si
                                 // no, cada cuántos días suele ir, cuando los espacios entre registros son parejos. Lo que
-                                // no es hábito (un síntoma, una enfermedad) y se registró ayer: hoy pregunta cómo sigues
+                                // no es hábito (un síntoma, una enfermedad) y se registró ayer: hoy pregunta cómo sigues.
+                                // Lo que por su nombre se lleva todos los días (dormir, agua, medicina…) avisa diario aunque
+                                // todavía no haya costumbre. Sin categorías de Salud no sale nada
+                                const DIARIO_SALUD = /dorm|sue[ñn]o|descans|agua|hidrat|pasos|camin|medicin|medicament|pastilla|vitamina|suplement|[áa]nimo|humor/i;
                                 const diaMs = 86400000;
                                 const deDia = dia => new Date(dia + 'T12:00:00').getTime();
                                 const pendSalud = [];
-                                let saludoSalud = null;
+                                let saludoSalud = null, saludoSueno = null;
                                 categoriasSalud().forEach(c => {
                                     const suyos = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id));
                                     const diasCat = [...new Set(suyos.map(r => diaLocal(r.fecha)))].sort();
-                                    if (!diasCat.length) return;
+                                    const diarioPorNombre = DIARIO_SALUD.test(c.nombre || '');
+                                    const esSueno = /dorm|sue[ñn]o|descans/i.test(c.nombre);
+                                    if (!diasCat.length && !diarioPorNombre) return;
                                     const tiene = new Set(diasCat);
                                     const ultimo = diasCat[diasCat.length - 1];
                                     let enDosSemanas = 0;
@@ -17248,15 +17253,23 @@
                                     const conCalendario = cada >= 2 && cada <= 60
                                         && espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length >= espacios.length * 0.6;
                                     let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false;
-                                    if (enDosSemanas >= 10) {
+                                    const deCostumbre = enDosSemanas >= 10;
+                                    if (deCostumbre || diarioPorNombre) {
                                         if (tiene.has(hoy)) return;
+                                        // La hora de costumbre; sin historial, el sueño se pregunta en la mañana y lo demás en la noche
                                         const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
-                                        const hora = horas[Math.floor(horas.length / 2)];
+                                        const hora = horas.length >= 3 ? horas[Math.floor(horas.length / 2)] : esSueno ? 6 : 19;
                                         if (hoyDate.getHours() > hora) dia = hoy;
-                                        else if (!tiene.has(ayer)) dia = ayer;
+                                        else if (!tiene.has(ayer) && diasCat.some(d => d < ayer)) dia = ayer;
                                         else return;
-                                        texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `Ayer no registraste ${c.nombre}.`;
-                                        detalle = dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
+                                        if (esSueno && dia === hoy) {
+                                            texto = '¿Cuánto dormiste anoche?';
+                                            detalle = `Anótalo en ${c.nombre}.`;
+                                        } else {
+                                            texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `Ayer no registraste ${c.nombre}.`;
+                                            detalle = !deCostumbre ? 'Es algo de todos los días.'
+                                                : dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
+                                        }
                                         secundario = { texto: 'No hubo', dias: null };
                                     } else if (conCalendario) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
@@ -17298,11 +17311,12 @@
                                         primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
                                         secundario
                                     };
+                                    if (esSueno && dia === hoy && hoyDate.getHours() < 12) saludoSueno = 'Buenos días. ¿Cuánto dormiste anoche?';
                                     // Cómo sigues va antes que los hábitos
                                     if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
                                 });
-                                const saludPrimero = pendSalud.slice(0, 3);
-                                if (saludoSalud && saludPrimero.length) saludPrimero[0].saludo_salud = saludoSalud;
+                                const saludPrimero = pendSalud.slice(0, 4);
+                                if ((saludoSalud || saludoSueno) && saludPrimero.length) saludPrimero[0].saludo_salud = saludoSalud || saludoSueno;
                                 avisos.push(...saludPrimero);
 
                                 // 3. Algo raro: movimientos repetidos el mismo día o un monto fuera de lo normal (último mes)
