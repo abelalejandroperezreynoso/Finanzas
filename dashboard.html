@@ -16606,7 +16606,7 @@
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 ${personajeAsistenteHtml(ocupado, !ocupado && robotConAlerta(!!(estado && estado.alerta)))}
-                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy: (avisos.find(a => a.plan) || {}).saludo }))}</div>
+                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy: (avisos.find(a => a.plan) || {}).saludo || (avisos.find(a => a.saludo_salud) || {}).saludo_salud }))}</div>
                                             </div>
                                         </div>`;
                                     // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
@@ -17224,19 +17224,26 @@
 
                                 // 2b. Salud: lo que registras con constancia y hoy toca. Diario si casi todos los días de
                                 // las últimas dos semanas tienen registro (hoy avisa ya pasada la hora de costumbre); si
-                                // no, cada cuántos días suele ir, cuando los espacios entre registros son parejos
+                                // no, cada cuántos días suele ir, cuando los espacios entre registros son parejos. Lo que
+                                // no es hábito (un síntoma, una enfermedad) y se registró ayer: hoy pregunta cómo sigues
                                 const diaMs = 86400000;
                                 const deDia = dia => new Date(dia + 'T12:00:00').getTime();
                                 const pendSalud = [];
+                                let saludoSalud = null;
                                 categoriasSalud().forEach(c => {
                                     const suyos = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id));
                                     const diasCat = [...new Set(suyos.map(r => diaLocal(r.fecha)))].sort();
-                                    if (diasCat.length < 4) return;
+                                    if (!diasCat.length) return;
                                     const tiene = new Set(diasCat);
                                     const ultimo = diasCat[diasCat.length - 1];
                                     let enDosSemanas = 0;
                                     for (let k = 1; k <= 14; k++) if (tiene.has(diaLocal(new Date(hoyDate.getTime() - k * diaMs)))) enDosSemanas++;
-                                    let dia = null, texto = '', detalle = '', secundario = null;
+                                    // Cada cuántos días va, si los espacios entre registros son parejos
+                                    const espacios = diasCat.slice(1).map((d, i) => Math.round((deDia(d) - deDia(diasCat[i])) / diaMs)).slice(-8);
+                                    const cada = espacios.length >= 3 ? [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)] : 0;
+                                    const conCalendario = cada >= 2 && cada <= 60
+                                        && espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length >= espacios.length * 0.6;
+                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false;
                                     if (enDosSemanas >= 10) {
                                         if (tiene.has(hoy)) return;
                                         const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
@@ -17247,13 +17254,7 @@
                                         texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `Ayer no registraste ${c.nombre}.`;
                                         detalle = dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
                                         secundario = { texto: 'No hubo', dias: null };
-                                    } else {
-                                        const espacios = diasCat.slice(1).map((d, i) => Math.round((deDia(d) - deDia(diasCat[i])) / diaMs)).slice(-8);
-                                        if (espacios.length < 3) return;
-                                        const cada = [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)];
-                                        if (cada < 2 || cada > 60) return;
-                                        const parejos = espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length;
-                                        if (parejos < espacios.length * 0.6) return;
+                                    } else if (conCalendario) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
                                         if (toca > hoy) return;
                                         // Muy pasado: quizá ya lo dejó; no se insiste
@@ -17263,17 +17264,42 @@
                                         texto = atraso === 0 ? `Hoy toca ${c.nombre}.` : `${c.nombre} tocaba el ${fechaCorta(toca)}.`;
                                         detalle = `Lo registras cada ${cada} días; el último fue el ${fechaCorta(ultimo)}.`;
                                         secundario = { texto: 'Todavía no', dias: 1 };
-                                    }
+                                    } else if (tiene.has(ayer) && !tiene.has(hoy)) {
+                                        // Seguimiento: lo de ayer, con su descripción y cantidad, y cuántos días seguidos lleva.
+                                        // Sólo si es un episodio (antes de la racha pasaron 5 días o más sin registrarlo); lo
+                                        // que va salteado, como el ejercicio, no se pregunta
+                                        let seguidos = 1;
+                                        while (tiene.has(diaLocal(new Date(hoyDate.getTime() - (seguidos + 1) * diaMs)))) seguidos++;
+                                        const inicio = diaLocal(new Date(hoyDate.getTime() - seguidos * diaMs));
+                                        const previo = diasCat.filter(d => d < inicio).pop();
+                                        if (previo && Math.round((deDia(inicio) - deDia(previo)) / diaMs) < 5) return;
+                                        dia = hoy;
+                                        seguimiento = true;
+                                        const deAyer = suyos.filter(r => diaLocal(r.fecha) === ayer)
+                                            .map(r => [String(r.descripcion || '').trim(), fCantidadSalud(cantidadDeRegistro(r))].filter(Boolean).join(' · '));
+                                        texto = `¿Cómo sigues de ${c.nombre}?`;
+                                        detalle = `Ayer: ${deAyer.slice(0, 2).join(', ')}${seguidos > 1 ? `. Llevas ${seguidos} días` : ''}.`;
+                                        primario = { texto: 'Anotar cómo sigo', mensaje: `Quiero anotar cómo sigo hoy de ${c.nombre}. Pregúntame con una tarjeta y propónmelo.` };
+                                        secundario = { texto: 'Ya estoy bien', dias: null };
+                                        if (!saludoSalud && vigente(`salud:${c.id}:${dia}`)) {
+                                            const h = hoyDate.getHours();
+                                            saludoSalud = `${h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'}. ¿Cómo sigues de ${c.nombre}?`;
+                                        }
+                                    } else return;
                                     const clave = `salud:${c.id}:${dia}`;
                                     if (!vigente(clave)) return;
-                                    pendSalud.push({
+                                    const aviso = {
                                         clave, categoria_id: c.id, etiqueta: 'Salud', texto, detalle,
                                         registrar: { categoria_id: c.id, dia },
-                                        primario: { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
+                                        primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
                                         secundario
-                                    });
+                                    };
+                                    // Cómo sigues va antes que los hábitos
+                                    if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
                                 });
-                                avisos.push(...pendSalud.slice(0, 3));
+                                const saludPrimero = pendSalud.slice(0, 3);
+                                if (saludoSalud && saludPrimero.length) saludPrimero[0].saludo_salud = saludoSalud;
+                                avisos.push(...saludPrimero);
 
                                 // 3. Algo raro: movimientos repetidos el mismo día o un monto fuera de lo normal (último mes)
                                 const hace30 = diaLocal(new Date(hoyDate.getTime() - 30 * 86400000));
