@@ -17256,6 +17256,8 @@
                                     const deCostumbre = enDosSemanas >= 10;
                                     if (deCostumbre || diarioPorNombre) {
                                         if (tiene.has(hoy)) return;
+                                        // El sueño de anoche también puede quedar anotado ayer en la noche
+                                        if (esSueno && suyos.some(r => diaLocal(r.fecha) === ayer && new Date(r.fecha).getHours() >= 18)) return;
                                         // La hora de costumbre; sin historial, el sueño se pregunta en la mañana y lo demás en la noche
                                         const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
                                         const hora = horas.length >= 3 ? horas[Math.floor(horas.length / 2)] : esSueno ? 6 : 19;
@@ -17298,12 +17300,12 @@
                                         detalle = `Ayer: ${deAyer.slice(0, 2).join(', ')}${seguidos > 1 ? `. Llevas ${seguidos} días` : ''}.`;
                                         primario = { texto: 'Anotar cómo sigo', mensaje: `Quiero anotar cómo sigo hoy de ${c.nombre}. Pregúntame con una tarjeta y propónmelo.` };
                                         secundario = { texto: 'Ya estoy bien', dias: null };
-                                        if (!saludoSalud && vigente(`salud:${c.id}:${dia}`)) {
+                                        if (!saludoSalud && vigente(`salud2:${c.id}:${dia}`)) {
                                             const h = hoyDate.getHours();
                                             saludoSalud = `${h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'}. ¿Cómo sigues de ${c.nombre}?`;
                                         }
                                     } else return;
-                                    const clave = `salud:${c.id}:${dia}`;
+                                    const clave = `salud2:${c.id}:${dia}`;
                                     if (!vigente(clave)) return;
                                     const aviso = {
                                         clave, categoria_id: c.id, salud: true, etiqueta: 'Salud', texto, detalle,
@@ -17651,17 +17653,19 @@
                                 pendientesAbiertos = false;
                                 ofrecerContinuar = false;
                                 pendienteEnCurso = true;
-                                // Atendido: ya no vuelve a la lista de pendientes
-                                const descartados = avisosDescartados();
-                                descartados[a.clave] = 0;
-                                try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
-                                marcarHallazgoIa(a, 'atendido');
-                                // Los de Salud abren el registro rápido ya con la categoría y el día
+                                // Los de Salud abren el registro rápido ya con la categoría y el día. No se dan por
+                                // atendidos: se van solos cuando el registro de ese día queda guardado, así que si
+                                // se cierra la tarjeta a medias el pendiente sigue ahí
                                 if (a.registrar && !mensajePropio) {
                                     pendienteEnCurso = false;
                                     abrirRegistroAsistente(a.registrar);
                                     return;
                                 }
+                                // Atendido: ya no vuelve a la lista de pendientes
+                                const descartados = avisosDescartados();
+                                descartados[a.clave] = 0;
+                                try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                marcarHallazgoIa(a, 'atendido');
                                 enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
                             }
 
