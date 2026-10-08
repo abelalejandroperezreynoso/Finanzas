@@ -18383,6 +18383,26 @@
                                 });
                             }
 
+                            // ---- Padecimientos: ¿tomaste algo? ----
+                            // Al registrar una enfermedad se pregunta si tomó algo; las opciones son lo que suele tomar
+                            // para ella (según sus notas) y "Nada". Va en la descripción del registro, nunca en la cantidad
+                            const MEDICAMENTO_NOTA = /pastilla|tableta|c[aá]psula|medicamento|medicina|ibuprofeno|paracetamol|naproxeno|aspirina|triptan|sumatript|ketorolaco|analg[eé]sico|gotas|inhalador|dosis|actron|tempra|tylenol|advil|omeprazol|anti[aá]cido|jarabe/i;
+                            const esEnfermedadSalud = c => !!c && c.tipo === 'salud' && (c.grupo_salud === 'enfermedad'
+                                || (!c.grupo_salud && /dolor|migra|cefal|gripe|\btos\b|fiebre|n[aá]usea|ansiedad|asma|alerg|diarrea|v[oó]mit|infecci|s[ií]ntoma|colitis|gastritis|enferm/i.test(`${c.nombre || ''} ${c.descripcion || ''}`)));
+                            function prepararPreguntaMedicamento(item, c) {
+                                item.medicamento = true;
+                                const veces = new Map();
+                                (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id)).slice(0, 60).forEach(r => {
+                                    const d = String(r.descripcion || '').replace(/\s+/g, ' ').trim();
+                                    if (!MEDICAMENTO_NOTA.test(d) || /sin\s+(pastilla|medicamento|medicina|tomar)|no\s+tom[eé]/i.test(d)) return;
+                                    const t = d.slice(0, 40);
+                                    veces.set(t, (veces.get(t) || 0) + 1);
+                                });
+                                const suyas = [...veces.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
+                                item.preguntas[3] = { pregunta: '¿Tomaste algo?', opciones: [...suyas, 'Nada'], ejemplo: 'Ej. 1 paracetamol' };
+                                item.respuestas[3] = item.respuestas[3] || { opcion: null, texto: '' };
+                            }
+
                             // Elegida la categoría, la última pregunta se adapta a ella: la redacta la IA con el
                             // nombre, el tipo y la descripción de la categoría (p. ej. "¿Qué regalaste y cuánto?"),
                             // y ofrece lo que sueles registrar ahí: sólo montos si nada más importa cuánto, o
@@ -18408,6 +18428,13 @@
                                     item.preguntas.splice(3);
                                     item.respuestas.splice(3);
                                     item.respuestas[2] = { opcion: null, texto: '' };
+                                }
+                                // En un padecimiento, al final, si tomó algo
+                                if (esEnfermedadSalud(c)) prepararPreguntaMedicamento(item, c);
+                                else if (item.medicamento) {
+                                    item.medicamento = false;
+                                    item.preguntas.splice(3);
+                                    item.respuestas.splice(3);
                                 }
                                 const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion)].join('|') : '';
                                 const porNombre = !!c && SOLO_MONTO_REGISTRO.test(c.nombre || '');
@@ -18512,13 +18539,16 @@
                                     ? (sueno
                                         ? `- Se acostó y despertó: ${sueno.texto}; cantidad: ${fCantidadSalud(sueno.horas)} (horas dormidas, ya calculadas por la app). Descripción: "${sueno.texto}"`
                                         : `- Se acostó: ${resp(2)}\n- Despertó: ${resp(3)}\n(No pude calcular las horas: confírmalas con una tarjeta. En la descripción va el horario en 12 horas, como "11:30 p.m. a 7:00 a.m.".)`)
-                                    : `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`;
+                                    : `- ${item.preguntas[2].pregunta.replace(/[¿?]/g, '')}: ${resp(2)}`
+                                        + (item.medicamento ? (resp(3) === 'Nada'
+                                            ? '\n- No tomó nada: anótalo en la descripción ("sin medicamento").'
+                                            : `\n- Tomó: ${resp(3)} (va en la descripción del registro, junto con lo demás; nunca en la cantidad).`) : '');
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
                                     + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
                                     + detalle;
                                 item.estado = 'respondida';
-                                const resumen = item.sueno ? (sueno ? `${sueno.texto} (${Math.floor(sueno.horas)} h${Math.round((sueno.horas % 1) * 60) ? ` ${Math.round((sueno.horas % 1) * 60)} min` : ''})` : `${resp(2)} a ${resp(3)}`) : resp(2);
+                                const resumen = item.medicamento ? `${resp(2)}\nTomó: ${resp(3)}` : item.sueno ? (sueno ? `${sueno.texto} (${Math.floor(sueno.horas)} h${Math.round((sueno.horas % 1) * 60) ? ` ${Math.round((sueno.horas % 1) * 60)} min` : ''})` : `${resp(2)} a ${resp(3)}`) : resp(2);
                                 const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resumen}` };
                                 chatUi.push(burbuja);
                                 const mensaje = { role: 'user', content: contenidoConPendientes([{ type: 'text', text: textoApi }]) };
