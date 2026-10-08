@@ -1528,7 +1528,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const senales: string[] = [];
         const esHabito = c.grupo_salud === "habito";
         if (!esHabito && entre(hace(29), hoyL) >= 10) senales.push(`${entre(hace(29), hoyL)} días con registro en los últimos 30`);
-        if (!esHabito && diasMedicamento30 >= 10) senales.push(`tomó medicamento ${diasMedicamento30} días de los últimos 30 (según sus notas)`);
+        // En dolor de cabeza, tomar analgésicos muchos días al mes puede mantener el dolor: es lo que más
+        // importa decirle, y el modelo sólo daba la cifra
+        const deCabeza = /migra|cefal|cabeza|jaqueca/i.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`);
+        if (!esHabito && diasMedicamento30 >= 10) {
+          senales.push(`tomó medicamento ${diasMedicamento30} días de los últimos 30 (según sus notas)` + (deCabeza
+            ? ": tomar analgésicos 10 o más días al mes puede hacer que el dolor de cabeza regrese más seguido (cefalea por uso excesivo de medicamentos). Díselo así, sin asustar, y que lo vea con su médico; no le digas que deje de tomarlos"
+            : ""));
+        }
         // El ritmo del mes sólo pesa a partir del día 10: antes una semana mala lo dispara
         const u30 = entre(hace(29), hoyL);
         // En un hábito subir no es malo por fuerza: el cambio se reporta, pero no como señal
