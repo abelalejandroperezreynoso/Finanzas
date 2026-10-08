@@ -16580,7 +16580,7 @@
                                     // Pantalla de inicio: el personaje, un saludo que cambia y, debajo, lo que el
                                     // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
-                                    avisosMostrados = avisos;
+                                    avisosMostrados = avisosDelGrupo(avisos);
                                     // Abierto desde la pantalla de carga: los pendientes y Registrar dependen de los
                                     // datos, que siguen llegando; mientras tanto se saluda como al revisar
                                     const cargandoDatos = !!document.getElementById('splashCarga');
@@ -16613,11 +16613,15 @@
                                     if (chips && !sinConexion) {
                                         // Si algo se salió de control, lo primero son las soluciones para recuperarlo;
                                         // los pendientes quedan a un lado
+                                        // Los de finanzas y los de salud, cada uno en su botón; si sólo hay de uno, uno solo
+                                        const deSalud = avisos.filter(a => a.salud).length;
+                                        const deFinanzas = avisos.length - deSalud;
+                                        const chipPendientes = (grupo, texto) => estado
+                                            ? `<button type="button" onclick="abrirPendientesAsistente('${grupo}')">${texto}</button>`
+                                            : `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente('${grupo}')"><span class="punto"></span>${texto}</button>`;
                                         chips.innerHTML = (estado ? `<button type="button" class="chip-pendientes" onclick="pedirSolucionesAsistente()"><span class="punto"></span>Ver soluciones</button>` : '')
-                                            + (avisos.length
-                                                ? (estado ? `<button type="button" onclick="abrirPendientesAsistente()">Pendientes</button>`
-                                                    : `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente()"><span class="punto"></span>Revisar pendientes</button>`)
-                                                : '')
+                                            + (deFinanzas ? chipPendientes('finanzas', deSalud ? 'Finanzas' : estado ? 'Pendientes' : 'Revisar pendientes') : '')
+                                            + (deSalud ? chipPendientes('salud', 'Salud') : '')
                                             + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
                                     }
                                     pintarPreguntasAsistente();
@@ -17289,7 +17293,7 @@
                                     const clave = `salud:${c.id}:${dia}`;
                                     if (!vigente(clave)) return;
                                     const aviso = {
-                                        clave, categoria_id: c.id, etiqueta: 'Salud', texto, detalle,
+                                        clave, categoria_id: c.id, salud: true, etiqueta: 'Salud', texto, detalle,
                                         registrar: { categoria_id: c.id, dia },
                                         primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
                                         secundario
@@ -17466,15 +17470,23 @@
                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                                         </button>
                                     </div>
-                                    <div class="cp-titulo">¿Seguimos con los pendientes?</div>
+                                    <div class="cp-titulo">${grupoPendientes === 'salud' ? '¿Seguimos con los de salud?' : '¿Seguimos con los pendientes?'}</div>
                                     <div class="cp-detalle">${n === 1 ? 'Queda algo más por revisar.' : 'Quedan otras cosas por revisar.'}</div>
                                     <button type="button" class="cp-opcion" onclick="abrirPendientesAsistente()"><span>Sí, el siguiente</span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg></button>
                                     <button type="button" class="cp-opcion" style="border-bottom: none; color: #5e5d59;" onclick="ofrecerContinuar = false; pintarChatAsistente(true);"><span>Ahora no</span></button>`;
                             }
-                            function abrirPendientesAsistente() {
+                            // Qué pendientes se ven: 'finanzas', 'salud' o todos (null). Sin grupo, sigue el que estaba
+                            var grupoPendientes = null;
+                            function avisosDelGrupo(avisos) {
+                                if (!grupoPendientes) return avisos;
+                                return avisos.filter(a => !!a.salud === (grupoPendientes === 'salud'));
+                            }
+                            function abrirPendientesAsistente(grupo) {
+                                if (grupo !== undefined) grupoPendientes = grupo;
                                 ofrecerContinuar = false;
                                 pendientesAbiertos = true;
                                 indicePendiente = 0;
+                                avisosMostrados = avisosDelGrupo(avisosAsistente());
                                 pintarPreguntasAsistente();
                             }
                             function cerrarPendientesAsistente() {
@@ -18014,7 +18026,7 @@
                                 if (!seccion || !caja) return;
                                 const item = chatEnviando ? null : preguntasPendientesAsistente();
                                 // A media conversación (tras atender un pendiente) se vuelven a calcular los que quedan
-                                if (!item && !chatEnviando && chatUi.length && pendienteEnCurso && (pendientesAbiertos || ofrecerContinuar)) avisosMostrados = avisosAsistente();
+                                if (!item && !chatEnviando && chatUi.length && pendienteEnCurso && (pendientesAbiertos || ofrecerContinuar)) avisosMostrados = avisosDelGrupo(avisosAsistente());
                                 const libre = !item && !chatEnviando && avisosMostrados.length > 0 && (chatUi.length === 0 || pendienteEnCurso);
                                 const verPendientes = libre && pendientesAbiertos;
                                 const verOferta = libre && !pendientesAbiertos && ofrecerContinuar && chatUi.length > 0;
