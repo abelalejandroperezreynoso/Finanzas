@@ -17507,7 +17507,7 @@
                                     ${(() => {
                                         // El resumen de la categoría sustituye el texto genérico de "Para conocerte mejor"
                                         // y en los demás pendientes va debajo de su detalle
-                                        const resumen = a.categoria_id && !a.plan ? resumenCategoriaPendiente(a.categoria_id) : '';
+                                        const resumen = a.categoria_id && !a.plan && !a.registrar ? resumenCategoriaPendiente(a.categoria_id) : '';
                                         const detalle = a.clave.startsWith('desc:') && resumen ? resumen : a.detalle;
                                         const extra = resumen && detalle !== resumen ? `<div class="cp-detalle cp-resumen">${escaparHtml(resumen)}</div>` : '';
                                         return (detalle ? `<div class="cp-detalle">${escaparHtml(detalle)}</div>` : '') + extra;
