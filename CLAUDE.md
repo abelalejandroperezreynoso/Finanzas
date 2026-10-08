@@ -93,6 +93,13 @@ Reglas para el SQL:
   (enfermedad o hábito) y `medida_salud`: intensidad 1–10 (se promedia), veces (se suman),
   horas (por día) o valor, una medición con su unidad en `unidad_salud` (°C, mg/dL, kg; se
   promedia con mínimo y máximo). Los detalles van en la descripción del registro.
+- Prioridad de los gastos (`categorias.prioridad`): en la base siguen los nombres de la técnica
+  de las 4 N, pero `operativa` es el **pago obligatorio** (renta, mantenimiento, luz, agua,
+  créditos: no se evita ni se pospone), `vital` lo **necesario** del día a día (súper, gasolina),
+  luego `util` y `prescindible`. El plan del asistente sólo pospone lo útil, lo prescindible y
+  las inversiones; un gasto sin prioridad no se mueve. `proponer_prioridades` clasifica varios en
+  una tarjeta. Los pendientes de "Pago recurrente" son sólo para pagos (obligatorios o que se
+  repiten cada 14 días o más), no para gastos comunes frecuentes como Oxxo.
 
 ## Antes de subir
 

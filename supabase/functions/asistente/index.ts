@@ -197,7 +197,7 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_cambio_categoria",
     description:
-      "Propone modificar una categoría: nombre, descripción, prioridad (vital, operativa, util, prescindible; sólo en gastos), tipo, en una empresa sus sectores propios y en Salud su grupo y su medida. " +
+      "Propone modificar una categoría: nombre, descripción, prioridad (sólo en gastos), tipo, en una empresa sus sectores propios y en Salud su grupo y su medida. " +
       "Tipos: entre gasto, ingreso, prestamo y deuda los movimientos conservan su monto y signo. Un gasto o ingreso también puede pasar a salud " +
       "(cuando en realidad registra algo que no es dinero, como síntomas): sus movimientos se convierten, el monto pasa a ser la cantidad y deja de contar como dinero. " +
       "Inversiones y Salud no cambian de tipo. NO lo aplica: el usuario lo confirmará.",
@@ -207,7 +207,7 @@ const HERRAMIENTAS: Json[] = [
         categoria_id: { type: "string" },
         nombre: { type: "string" },
         descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
-        prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"] },
+        prioridad: { type: "string", enum: ["operativa", "vital", "util", "prescindible"], description: "Sólo en gastos. operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: con fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio)" },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: la lista completa de sus sectores propios para la empresa (reemplaza los que tenga)" },
         grupo_salud: { type: "string", enum: ["enfermedad", "habito"], description: "Sólo salud: enfermedad o hábito" },
@@ -279,7 +279,7 @@ const HERRAMIENTAS: Json[] = [
         medida_salud: { type: "string", enum: ["intensidad", "veces", "horas", "valor"], description: "Sólo salud (obligatorio): qué cuenta la cantidad. intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó; horas = cuántas horas; valor = una medición con su unidad (fiebre °C, glucosa mg/dL, peso kg, oxigenación %, pulso lpm)" },
         unidad_salud: { type: "string", description: "Sólo con medida valor (obligatoria): la unidad, corta (\"°C\", \"mg/dL\", \"kg\", \"%\", \"lpm\")" },
         recordar_diario: { type: "boolean", description: "Sólo salud: true en un hábito de todos los días (agua, sueño, estrés…): a las 9 p.m. le llega un aviso si ese día no lo registró" },
-        prioridad: { type: "string", enum: ["vital", "operativa", "util", "prescindible"], description: "Sólo en gastos" },
+        prioridad: { type: "string", enum: ["operativa", "vital", "util", "prescindible"], description: "Sólo en gastos. operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: con fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio)" },
         descripcion: { type: "string", description: "Qué entra en la categoría; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
@@ -426,6 +426,32 @@ const HERRAMIENTAS: Json[] = [
         corrige_anterior: { type: "boolean" },
       },
       required: ["texto", "resumen"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "proponer_prioridades",
+    description:
+      "Propone la prioridad de varios gastos en una sola tarjeta (hasta 40). Úsala para clasificar los gastos que no tienen prioridad, o cuando pida revisar sus prioridades. " +
+      "Así distingues sus pagos obligatorios (renta, mantenimiento) de sus gastos comunes. NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cambios: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              categoria_id: { type: "string" },
+              prioridad: { type: "string", enum: ["operativa", "vital", "util", "prescindible"], description: "operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: con fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio)" },
+            },
+            required: ["categoria_id", "prioridad"],
+            additionalProperties: false,
+          },
+        },
+        corrige_anterior: { type: "boolean" },
+      },
+      required: ["cambios"],
       additionalProperties: false,
     },
   },
@@ -637,11 +663,18 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
   });
   return { cuentas: cuentas ?? [], categorias: categorias ?? [], etiqueta, tipo };
 }
+// Prioridad de un gasto, como la ve el usuario. En la base siguen los nombres de la técnica de las 4 N:
+// operativa es el pago obligatorio (renta, mantenimiento) y vital lo necesario del día a día.
+const NOMBRES_PRIORIDAD: Record<string, string> = { operativa: "pago obligatorio", vital: "necesario", util: "útil", prescindible: "prescindible" };
+const nombrePrioridad = (p: unknown) => {
+  const nombre = p ? NOMBRES_PRIORIDAD[String(p)] : undefined;
+  return !nombre ? null : nombre === p ? nombre : `${nombre} (${p})`;
+};
 // Sin saldos: el saldo inicial se confundía con lo que hay hoy. Los saldos salen de listar_cuentas.
 const tablaCuentas = (k: Catalogo) => tabla(["id", "nombre", "descripcion", "cuenta_en_total", "saldo_inicial_pendiente"],
   k.cuentas.map((c: Json) => [c.id, c.nombre, c.descripcion ?? null, c.incluir_en_total !== false, c.saldo_inicial_pendiente === true]));
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "salud"],
-  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, c.prioridad ?? null, c.descripcion ?? null, c.ticker ?? null,
+  k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, nombrePrioridad(c.prioridad), c.descripcion ?? null, c.ticker ?? null,
     c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null,
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}${c.recordar_diario ? "; aviso diario 9 p.m." : ""}` : null]));
 
@@ -753,11 +786,12 @@ const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
 // conRecordatorios: la app sabe guardar un recordatorio propuesto (programar_recordatorio)
 // conBorrar: la app sabe borrar movimientos propuestos (proponer_borrar_movimientos)
 // conAvisos: la app sabe activar o apagar los avisos de su teléfono (proponer_avisos)
+// conPrioridades: la app sabe aplicar proponer_prioridades (varios gastos en una tarjeta)
 // avisos: cómo están en el teléfono que escribe: activos, apagados, negados (el permiso se negó en
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -1464,6 +1498,30 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           (tambienAvisos ? " Sus avisos están apagados: también le dejaste la tarjeta para activarlos. Dile que confirme las dos (en la de avisos el iPhone le pide permiso) o el recordatorio no le llega." : ""),
       };
     }
+    case "proponer_prioridades": {
+      if (!zona.conPrioridades) return { texto: "Esta versión de la app no aplica varias prioridades en una tarjeta: dile que cierre y abra la app para actualizarla, o propónlas una por una con proponer_cambio_categoria.", error: true };
+      const lista = Array.isArray(entrada.cambios) ? entrada.cambios : [];
+      const cambios: Json[] = [];
+      const avisos: string[] = [];
+      const vistos = new Set<string>();
+      for (const x of lista.slice(0, 40)) {
+        const c = catalogo.categorias.find((k: Json) => String(k.id) === String(x?.categoria_id));
+        const prioridad = String(x?.prioridad ?? "");
+        if (!c) { avisos.push(`No encontré la categoría ${x?.categoria_id}.`); continue; }
+        if (c.tipo !== "gasto") { avisos.push(`${c.nombre} no es un gasto: la prioridad sólo aplica a gastos.`); continue; }
+        if (!NOMBRES_PRIORIDAD[prioridad]) { avisos.push(`Prioridad no válida para ${c.nombre}.`); continue; }
+        if (vistos.has(String(c.id)) || c.prioridad === prioridad) continue;
+        vistos.add(String(c.id));
+        cambios.push({ categoria_id: c.id, nombre: catalogo.etiqueta[String(c.id)] ?? c.nombre, antes: c.prioridad ?? null, prioridad });
+      }
+      if (!cambios.length) return { texto: avisos.length ? avisos.join(" ") : "Esos gastos ya tienen esas prioridades: no hay nada que cambiar.", error: !!avisos.length };
+      const n = cambios.length;
+      propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
+        tipo: "prioridades", resumen: n === 1 ? `Prioridad de ${cambios[0].nombre}` : `Prioridad de ${n} gastos`, cambios,
+      });
+      return { texto: `Propuesta registrada con ${n} ${n === 1 ? "gasto" : "gastos"}; todavía NO está aplicada.${avisos.length ? ` No entraron: ${avisos.join(" ")}` : ""} Dile en una línea qué quedó como pago obligatorio y que confirme.` };
+    }
     case "proponer_avisos": {
       if (!zona.conAvisos) return { texto: "Esta versión de la app no cambia los avisos desde el chat: dile que cierre y abra la app para actualizarla.", error: true };
       return proponerAvisos(zona, entrada.activar !== false, propuestas);
@@ -1747,13 +1805,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const catDe = (id: string) => catalogo.categorias.find((c: Json) => String(c.id) === id);
       const filas = zona.recurrentes.map((r: Json) => {
         const c = catDe(r.categoria_id);
-        return c ? [catalogo.etiqueta[String(c.id)] ?? c.nombre, c.tipo, cuentaDe(c.cuenta_id), r.cada_dias, r.siguiente, r.vencido,
+        return c ? [catalogo.etiqueta[String(c.id)] ?? c.nombre, c.tipo, c.tipo === "gasto" ? nombrePrioridad(c.prioridad) ?? "sin asignar" : null, cuentaDe(c.cuenta_id), r.cada_dias, r.siguiente, r.vencido,
           signoRecurrente(c.tipo) * r.monto, r.monto_promedio ? "promedio" : "fijo", r.exacto ? "exacto" : "aproximado", r.seguidos, r.fechas.join(" ")] : null;
       }).filter(Boolean).sort((a: Json, b: Json) => String(a[4]).localeCompare(String(b[4])));
       return {
         texto: recortar({
-          nota: "monto negativo = sale, positivo = entra. vencido = la fecha esperada ya pasó y no se ha registrado.",
-          recurrentes: tabla(["categoria", "tipo", "cuenta", "cada_dias", "siguiente", "vencido", "monto", "monto_es", "fecha", "periodos_seguidos", "fechas_proximas"], filas as Json[][]),
+          nota: "monto negativo = sale, positivo = entra. vencido = la fecha esperada ya pasó y no se ha registrado. " +
+            "Un pago obligatorio (renta, mantenimiento) no se evita; lo que se repite cada pocos días (cada_dias menor a 14) es un gasto común, no un pago.",
+          recurrentes: tabla(["categoria", "tipo", "prioridad", "cuenta", "cada_dias", "siguiente", "vencido", "monto", "monto_es", "fecha", "periodos_seguidos", "fechas_proximas"], filas as Json[][]),
         }),
       };
     }
@@ -1861,8 +1920,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
                 categoria_id: String(c.id),
                 _d: f <= hoyL ? Math.min(dia + 1, diasMes) : Number(f.slice(8, 10)), _f: f,
                 ...(f < hoyL ? { vencido: true } : {}),
-                // Lo que se puede dejar para después: aportaciones e inversiones, y lo útil o prescindible
-                se_puede_mover: c.tipo === "inversion" || (c.tipo === "gasto" && c.prioridad !== "vital" && c.prioridad !== "operativa"),
+                // Lo que se puede dejar para después: aportaciones e inversiones, y lo útil o prescindible. Un gasto
+                // sin prioridad no se mueve: podría ser la renta.
+                se_puede_mover: c.tipo === "inversion" || (c.tipo === "gasto" && (c.prioridad === "util" || c.prioridad === "prescindible")),
               });
             }
           });
@@ -1887,7 +1947,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
         }
         if (c.tipo === "gasto" && (x.mtd !== 0 || normalMes !== 0)) {
-          filas.push([catalogo.etiqueta[String(c.id)] ?? c.nombre, c.prioridad ?? null, Math.round(-x.mtd), Math.round(-normalHoy), Math.round(-normalMes), Math.round(-x.mtd + normalHoy)]);
+          filas.push([catalogo.etiqueta[String(c.id)] ?? c.nombre, nombrePrioridad(c.prioridad), Math.round(-x.mtd), Math.round(-normalHoy), Math.round(-normalMes), Math.round(-x.mtd + normalHoy)]);
         }
       }
       let saldo = saldoHoy, minimo = saldoHoy, diaMinimo = dia, diaNegativo: number | null = null;
@@ -1910,6 +1970,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           return { min, diaMin };
         };
         const { min: minAntes, diaMin: diaMinAntes } = minimoSin([]);
+        const sinPrioridad = [...new Set(pagosAntes.filter((p) => p.tipo === "gasto" && !p.prioridad).map((p) => p.categoria))].slice(0, 15);
         // El plan lo arma el cálculo, no el modelo (que sumaba mal): se mueven primero las aportaciones, luego lo
         // prescindible y lo útil, de mayor a menor, hasta que alcance
         let plan: Json = null, planTerminado = false;
@@ -1965,7 +2026,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           fecha: fechaIngreso, entra: r0(entraIngreso), saldo_minimo_antes: r0(minAntes), dia_del_minimo: diaMinAntes, falta: r0(Math.max(0, -minAntes)),
           ...(plan ? { plan } : {}),
           ...(planTerminado ? { plan_terminado: `Ya no hace falta posponer nada: sin el plan llegas ${`el ${diaIngreso}`} con ${pesos(minAntes)}.` } : {}),
-          pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15).map(({ _d, _f, ...p }) => p),
+          pagos_programados: pagosAntes.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 15)
+            .map(({ _d, _f, ...p }) => ({ ...p, prioridad: p.tipo === "gasto" ? nombrePrioridad(p.prioridad) ?? "sin asignar" : null })),
+          // Sin prioridad no se pueden posponer (podría ser la renta): que el usuario diga qué es cada uno
+          ...(sinPrioridad.length ? { gastos_sin_prioridad: { categorias: sinPrioridad, nota: "No se pueden posponer hasta que tengan prioridad. Propón la de todos en una sola tarjeta con proponer_prioridades." } } : {}),
           gasto_variable_estimado: r0(porDiaVariable.slice(dia + 1, diaIngreso).reduce((a, b) => a + b, 0)),
         };
       }
@@ -2816,7 +2880,10 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 4. Cuando confirme, pregunta si tiene otras cuentas (tarjeta de crédito, efectivo, ahorro) y créalas igual. Luego pregunta su meta principal y guárdala.
 
 # Tipos de categoría
-- gasto, ingreso, deuda, prestamo, inversion y salud. Salud no es dinero: lleva una cantidad y monto 0. Prioridad de los gastos (4 N): vital, operativa, util, prescindible.
+- gasto, ingreso, deuda, prestamo, inversion y salud. Salud no es dinero: lleva una cantidad y monto 0.
+- Prioridad de los gastos: operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: tiene fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas: no se deja, pero se cuida); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio). Dile al usuario los nombres (pago obligatorio, necesario, útil, prescindible), nunca operativa o vital.
+- Pagos obligatorios y gastos comunes son distintos: un pago obligatorio se anticipa (que le alcance para la fecha) y nunca le propongas posponerlo ni recortarlo; un gasto común se cuida con topes y no "toca" un día. Lo que se repite cada pocos días (Oxxo, súper) es gasto común aunque la app lo vea recurrente.
+- Si un gasto no tiene prioridad y la necesitas (un pronóstico, un plan, ordenar), propón la de todos los que falten en una sola tarjeta con proponer_prioridades, deducida de su nombre, descripción y movimientos; pregunta sólo si no es obvio.
 - En Salud cada categoría es una enfermedad (síntoma o padecimiento) o un hábito, y su cantidad es lo que diga su medida (columna salud): intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó (1 por cada vez); horas = cuántas horas; valor = una medición en su unidad (38.5 °C, 140 mg/dL). La presión arterial son dos categorías de valor: Sistólica y Diastólica, en mmHg. Sin medida, lo que diga su descripción o 1 por cada vez. Los detalles (si tomó pastilla, qué lo detonó) van en la descripción del registro, no en la cantidad. No inventes escalas que la categoría no tiene.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
 - Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
@@ -2847,7 +2914,7 @@ Cuando pregunte cómo va de salud o por un síntoma, llama a resumen_salud y con
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
 Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si el nivel es 0, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
-2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes lo vital. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
+2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes ni pospongas un pago obligatorio ni lo necesario. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas el nivel ni frases como "estás fuera de control": di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
@@ -2861,7 +2928,7 @@ Con eso llegas al 15 con unos +$1,750 y ese día entran $15,000."
 Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o revisar sus categorías o cuentas (o atienda un hallazgo de orden), llama a revisar_orden y ve en este orden, pocas cosas por turno (máximo 5 tarjetas; luego ofrece seguir):
 1. Duplicadas: dos categorías de la misma cuenta y tipo para lo mismo. Léelas antes: "Uber" y "Uber Eats" o "Comida" y "Comida rápida" pueden ser distintas a propósito. Se queda la de más movimientos o mejor descrita (si no es claro cuál, pregunta); pásale todos los de la otra con proponer_mover_movimientos (origen_categoria_id) y, si hace falta, mejora su descripción. Dile que, ya vacía, borre la otra en Categorías: tú no puedes borrar.
 2. Mal clasificados: movimientos cuya descripción dice que van en otra categoría. Muévelos juntos con proponer_mover_movimientos (registro_ids). Si la otra categoría también tiene sentido, pregunta.
-3. Descripciones: a cada categoría o cuenta sin descripción propónle una con lo que ves en sus movimientos (qué entra en ella); si no es obvio, pregunta con opciones. A los gastos sin prioridad, propónsela.
+3. Descripciones: a cada categoría o cuenta sin descripción propónle una con lo que ves en sus movimientos (qué entra en ella); si no es obvio, pregunta con opciones. A los gastos sin prioridad, propónsela (todos juntos con proponer_prioridades).
 4. Sin uso: dile cuáles no usa hace meses o nunca usó, para que las borre si ya no le sirven. No sugieras borrar las de pagos de una vez al año, ni deudas o préstamos con saldo pendiente, ni inversiones con acciones.
 - La misma categoría en dos cuentas no es duplicada: cada cuenta tiene las suyas. Para ordenar nunca muevas movimientos a otra cuenta (cambia los saldos), salvo que el usuario diga que ese dinero de verdad salió o entró por esa cuenta. Si te pide pasarlos a una categoría de otra cuenta sin decirlo, pregúntale antes con preguntar_al_usuario (con lo que cambiaría cada saldo) si ese dinero salió de esa cuenta o si prefiere una categoría en la misma cuenta.
 - Si todo está en orden, dilo en una frase.
@@ -2976,11 +3043,11 @@ ${k.categorias.length ? JSON.stringify(tablaCategorias(k)) : "(ninguna todavía)
 
 const SISTEMA_TOPES = `Eres un asesor de finanzas personales para una persona en México (montos en MXN).
 Recibes sus categorías de gasto de un mes: nombre, descripción que ella escribió (si la hay),
-prioridad según la técnica de las 4 N (vital, operativa, util, prescindible o sin asignar),
+prioridad (operativa = pago obligatorio como renta o mantenimiento; vital = necesario del día a día; util; prescindible; o sin asignar),
 lo que gastó en los últimos meses y cuántas veces gastó en el último.
 
 Para cada categoría propón un tope mensual para el mes siguiente:
-- Lo vital y lo operativo casi nunca se recorta; deja el tope en lo habitual salvo que el gasto se haya disparado.
+- Un pago obligatorio (operativa) no se recorta: su tope es lo habitual. Lo necesario (vital) casi nunca; deja el tope en lo habitual salvo que el gasto se haya disparado.
 - Lo útil se puede reducir con moderación; lo prescindible, con firmeza.
 - Si la descripción indica un gasto dañino o innecesario (por ejemplo comida chatarra, apuestas, cigarros), puedes proponer 0.
 - Usa la descripción y el historial para ser concreto: un gasto que subió mucho de golpe merece volver a su nivel normal.
@@ -3200,7 +3267,7 @@ Deno.serve(async (req) => {
       const porCat: Record<string, Json> = {};
       (cats ?? []).forEach((c: Json) => {
         porCat[String(c.id)] = {
-          id: c.id, nombre: c.nombre, tipo: c.tipo, prioridad: c.prioridad ?? null, descripcion: c.descripcion ?? null,
+          id: c.id, nombre: c.nombre, tipo: c.tipo, prioridad: nombrePrioridad(c.prioridad), descripcion: c.descripcion ?? null,
           cuenta: c.cuentas?.nombre ?? null, cuenta_descripcion: c.cuentas?.descripcion ?? null,
           cuenta_en_total: c.cuentas ? c.cuentas.incluir_en_total !== false : true, meses: {} as Record<string, { total: number; n: number }>,
         };
@@ -3343,7 +3410,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

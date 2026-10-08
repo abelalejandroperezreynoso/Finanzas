@@ -2873,7 +2873,7 @@
                                 <option value="salud">Salud (cantidad)</option>
                             </select>
                         </label>
-                        <!-- Prioridad del gasto, técnica de las 4 "N". Sólo en las categorías de gasto. -->
+                        <!-- Prioridad del gasto: pago obligatorio o gasto común, de necesario a prescindible. Sólo en gastos. -->
                         <label class="rango-ios-fila" id="filaPrioridadCat" style="display: none;">
                             <span>Prioridad</span>
                             <span class="rango-ios-pastilla" id="espejoCatPrioridad">—</span>
@@ -2881,10 +2881,12 @@
                                 <option value="">Sin asignar</option>
                                 <!-- En la rueda cada nivel lleva una pista corta para elegir bien; en la
                                      pastilla se enseña sólo el nombre (data-corto). -->
-                                <option value="vital" data-corto="Necesidad vital">Necesidad vital — para vivir: comida, vivienda, salud, agua, luz, gas</option>
-                                <option value="operativa" data-corto="Necesidad operativa">Necesidad operativa — obligaciones: deudas, seguros, impuestos, internet o teléfono para trabajar</option>
-                                <option value="util" data-corto="No necesario pero útil">No necesario pero útil — comodidad: ahorra tiempo o da confort, internet o teléfono para ocio</option>
-                                <option value="prescindible" data-corto="Prescindible / Deseo">Prescindible / Deseo — gustos: ocio, antojos, caprichos</option>
+                                <!-- "operativa" y "vital" son los nombres viejos (técnica de las 4 N) que se quedan en la
+                                     base: operativa es el pago obligatorio y vital el gasto común necesario -->
+                                <option value="operativa" data-corto="Pago obligatorio">Pago obligatorio — renta, mantenimiento, luz, agua, créditos, seguros</option>
+                                <option value="vital" data-corto="Necesario">Necesario — súper, gasolina, transporte, medicinas</option>
+                                <option value="util" data-corto="Útil">Útil — ropa, apps, comodidades</option>
+                                <option value="prescindible" data-corto="Prescindible">Prescindible — antojos, Oxxo, restaurantes, ocio</option>
                             </select>
                         </label>
                         <!-- Lo que es la categoría en tus palabras: la IA la lee al proponer topes -->
@@ -6299,12 +6301,15 @@
                                 }
                             }
 
-                            // Técnica de las 4 "N": qué entra en cada nivel de prioridad de un gasto
+                            // Qué es cada gasto: un pago obligatorio (con fecha, no se evita ni se pospone) o un
+                            // gasto común, de lo necesario a lo prescindible. En la base siguen los nombres de la
+                            // técnica de las 4 N: operativa = pago obligatorio y vital = necesario.
+                            var NOMBRES_PRIORIDAD = { operativa: 'Pago obligatorio', vital: 'Necesario', util: 'Útil', prescindible: 'Prescindible' };
                             var DESCRIPCION_PRIORIDADES_GASTO = {
-                                vital: 'Sobrevivencia: gastos indispensables para vivir, mantener tu vivienda o tu capacidad de generar ingresos. Incluye los servicios básicos (agua, luz, gas): sin ellos la vivienda deja de funcionar.',
-                                operativa: 'Obligaciones: compromisos financieros que debes cumplir para mantener la estabilidad a largo plazo. Internet o teléfono van aquí si los necesitas para trabajar.',
-                                util: 'Comodidad: gastos que optimizan tu tiempo, confort o productividad, pero de los que podrías prescindir si es necesario. Internet o teléfono van aquí si son sólo para entretenimiento o comodidad.',
-                                prescindible: 'Estilo de vida: gastos puramente opcionales, destinados al entretenimiento, ocio o caprichos.'
+                                operativa: 'Pagos con fecha que no se pueden evitar ni posponer: renta, mantenimiento, luz, agua, créditos, seguros.',
+                                vital: 'Gastos del día a día que no puedes dejar, pero sí cuidar: súper, gasolina, transporte, medicinas.',
+                                util: 'Te facilitan la vida, pero podrías reducirlos si hace falta.',
+                                prescindible: 'Antojos y gustos: lo primero que se recorta si no alcanza.'
                             };
 
                             function abrirModalCategoria() {
@@ -15578,7 +15583,6 @@
                             </div>` : '';
 
                             const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
-                            const nombresPrioridad = { vital: 'Necesidad vital', operativa: 'Necesidad operativa', util: 'No necesario pero útil', prescindible: 'Prescindible / Deseo' };
                             const cuentaCat = (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
                             const htmlContenido = `
                             ${htmlPerfil}
@@ -15589,7 +15593,7 @@
                                     <span style="font-size: 0.85em; color: #98989d;">Descripción</span>
                                     <span style="color: #fff; line-height: 1.4; text-align: left;">${escaparHtml(cat.descripcion)}</span>
                                 </div>` : ''}
-                                ${cat.tipo === 'gasto' ? filaDetalleIos('Prioridad', nombresPrioridad[cat.prioridad] || 'Sin asignar') : ''}
+                                ${cat.tipo === 'gasto' ? filaDetalleIos('Prioridad', NOMBRES_PRIORIDAD[cat.prioridad] || 'Sin asignar') : ''}
                                 ${filaDetalleIos('Uso histórico', `${cat.vecesUsada || 0} veces`)}
                                 ${pendienteDeCategoria(cat.tipo, cat.balanceReal)
                                     ? filaDetalleIos(pendienteDeCategoria(cat.tipo, cat.balanceReal).etiqueta, fMoneda(pendienteDeCategoria(cat.tipo, cat.balanceReal).monto), true)
@@ -16145,10 +16149,10 @@
                                     // 5. Prioridades
                                     if (r.gastos > 0.005) {
                                         const niveles = [
-                                            ['vital', 'Necesidad vital', '#3ecf8e'],
-                                            ['operativa', 'Necesidad operativa', '#4da6ff'],
-                                            ['util', 'No necesario pero útil', '#f5a623'],
-                                            ['prescindible', 'Prescindible / Deseo', '#ff5c5c'],
+                                            ['operativa', NOMBRES_PRIORIDAD.operativa, '#4da6ff'],
+                                            ['vital', NOMBRES_PRIORIDAD.vital, '#3ecf8e'],
+                                            ['util', NOMBRES_PRIORIDAD.util, '#f5a623'],
+                                            ['prescindible', NOMBRES_PRIORIDAD.prescindible, '#ff5c5c'],
                                             ['sin', 'Sin asignar', '#636366']
                                         ].filter(([k]) => (r.porPrioridad[k] || 0) > 0.005);
                                         const prescindible = (r.porPrioridad.util || 0) + (r.porPrioridad.prescindible || 0);
@@ -16160,7 +16164,7 @@
                                             ${niveles.map(([k, nombre, col]) => `<div style="display:flex; justify-content:space-between; align-items:center; font-size:1.05em;">
                                                 <span style="display:flex; align-items:center; gap:10px;"><span style="width:12px; height:12px; border-radius:50%; background:${col};"></span>${nombre}</span>
                                                 <strong>${((r.porPrioridad[k] / r.gastos) * 100).toFixed(0)}%</strong></div>`).join('')}
-                                            ${prescindible > 0.005 ? `<div class="nota">${fMoneda(prescindible)} fueron comodidad o deseo: lo primero que se puede recortar.</div>` : ''}
+                                            ${prescindible > 0.005 ? `<div class="nota">${fMoneda(prescindible)} fueron útiles o prescindibles: lo primero que se puede recortar.</div>` : ''}
                                         </section>`);
                                     }
 
@@ -16443,7 +16447,7 @@
                                         const nombresTipoCat = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
                                         filas.push(`Tipo: ${flecha(nombresTipoCat[a.tipo] || a.tipo, nombresTipoCat[c.tipo] || c.tipo)}`);
                                     }
-                                    if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(a.prioridad || 'sin asignar', c.prioridad)}`);
+                                    if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(NOMBRES_PRIORIDAD[a.prioridad] || 'sin asignar', NOMBRES_PRIORIDAD[c.prioridad] || c.prioridad)}`);
                                     if ('sectores' in c) filas.push(`Sectores: ${flecha((a.sectores || []).join(' · ') || 'ninguno', (c.sectores || []).join(' · ') || 'ninguno')}`);
                                     const nombreGrupo = g => g === 'habito' ? 'Hábito' : g === 'enfermedad' ? 'Enfermedad' : 'sin definir';
                                     if ('grupo_salud' in c) filas.push(`Grupo: ${flecha(nombreGrupo(a.grupo_salud), nombreGrupo(c.grupo_salud))}`);
@@ -16478,7 +16482,7 @@
                                     if (d.grupo_salud) filas.push(`Grupo: <b>${escaparHtml(d.grupo_salud === 'habito' ? 'Hábito' : 'Enfermedad')}</b>`);
                                     if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(nombreMedidaSalud(d))}</b>`);
                                     if (d.recordar_diario) filas.push('Aviso: <b>a las 9 p.m. si no lo registré</b>');
-                                    if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(d.prioridad)}</b>`);
+                                    if (d.prioridad) filas.push(`Prioridad: <b>${escaparHtml(NOMBRES_PRIORIDAD[d.prioridad] || d.prioridad)}</b>`);
                                     if (d.descripcion) filas.push(`Descripción: <b>${escaparHtml(d.descripcion)}</b>`);
                                 } else if (p.tipo === 'borrar_movimientos') {
                                     // Cada movimiento que se va a borrar, para que se vea exactamente qué se pierde
@@ -16491,6 +16495,11 @@
                                         filas.push(`${escaparHtml(fechaAmigable(m.fecha))} · ${escaparHtml(m.categoria || '')} · <b>${cifra}</b>${m.descripcion ? ` · ${escaparHtml(m.descripcion)}` : ''}`);
                                     });
                                     filas.push(`Se ${movs.length === 1 ? 'borra 1 movimiento' : `borran ${movs.length} movimientos`}`);
+                                } else if (p.tipo === 'prioridades') {
+                                    // Una fila por gasto: cómo queda (y cómo estaba, si tenía)
+                                    (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.nombre || '')}: ${x.antes
+                                        ? flecha(NOMBRES_PRIORIDAD[x.antes] || x.antes, NOMBRES_PRIORIDAD[x.prioridad] || x.prioridad)
+                                        : `<b>${escaparHtml(NOMBRES_PRIORIDAD[x.prioridad] || x.prioridad)}</b>`}`));
                                 } else if (p.tipo === 'avisos') {
                                     filas.push(p.datos && p.datos.activar
                                         ? 'Te llegan pagos, recordatorios y hábitos aunque la app esté cerrada. Toca <b>Permitir</b> cuando el iPhone lo pida.'
@@ -16689,7 +16698,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -17153,6 +17162,9 @@
                                     // Lo que el plan deja para después sólo se recuerda el día que toca, antes de gastar.
                                     // Si ese día ya pasó y no se registró, va cumpliendo: no hay nada que hacer.
                                     .filter(({ c, dia }) => !(dia < hoy && enPlan(c, dia)))
+                                    // Sólo pagos: los obligatorios y lo que se repite cada dos semanas o más. Un gasto
+                                    // común frecuente (Oxxo, súper, gasolina) se registra al hacerlo, no "toca".
+                                    .filter(({ c, dia }) => c.prioridad === 'operativa' || c.diasRecurrencia >= 14 || enPlan(c, dia))
                                     .sort((a, b) => a.dia.localeCompare(b.dia))
                                     .slice(0, 2)
                                     .forEach(({ c, dia }) => {
@@ -18357,6 +18369,15 @@
                                     const ids = (p.ids || []).map(String);
                                     res = ids.length ? await clienteSupabase.from('registros').delete().in('id', ids) : { falta: 'No hay movimientos que borrar.' };
                                     if (!res.error && !res.falta) ids.forEach(id => olvidarRegistrosRecienGuardados('registros', id));
+                                } else if (p.tipo === 'prioridades') {
+                                    // Una escritura por prioridad, con todos sus gastos
+                                    const porPrioridad = {};
+                                    (p.cambios || []).forEach(x => (porPrioridad[x.prioridad] = porPrioridad[x.prioridad] || []).push(x.categoria_id));
+                                    res = {};
+                                    for (const [prioridad, ids] of Object.entries(porPrioridad)) {
+                                        const r2 = await clienteSupabase.from('categorias').update({ prioridad }).in('id', ids);
+                                        if (r2.error) { res = r2; break; }
+                                    }
                                 } else if (p.tipo === 'avisos') {
                                     // Directo desde el toque: así el iPhone pide el permiso
                                     const fallo = await aplicarAvisosPagos(!!(p.datos && p.datos.activar));
