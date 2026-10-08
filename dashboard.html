@@ -16417,6 +16417,13 @@
                             function detallePropuestaHtml(p) {
                                 const flecha = (antes, despues) => `${escaparHtml(String(antes ?? '—'))} → <b>${escaparHtml(String(despues ?? '—'))}</b>`;
                                 const filas = [];
+                                // A qué cuenta pertenece una categoría: con el mismo nombre en dos cuentas, sin esto no se sabe cuál es
+                                const cuentaDe = (idCategoria) => {
+                                    const cat = (datosCategorias || []).find(c => String(c.id) === String(idCategoria));
+                                    const cta = cat && (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
+                                    return cta ? cta.nombre : '';
+                                };
+                                const filaCuenta = (nombre) => { if (nombre) filas.push(`Cuenta: <b>${escaparHtml(nombre)}</b>`); };
                                 if (p.tipo === 'cambio_movimiento') {
                                     const c = p.cambios || {}, a = p.antes || {};
                                     if ('monto' in c) filas.push(`Monto: ${flecha(fMoneda(Math.abs(a.monto)), fMoneda(Math.abs(c.monto)))}`);
@@ -16432,6 +16439,7 @@
                                     filas.push(`De: ${(p.origenes || []).map(o => `${escaparHtml(o.nombre)}${(p.origenes || []).length > 1 ? ` (${o.movimientos})` : ''}`).join(', ')}`);
                                     filas.push(`A: <b>${escaparHtml(p.destino || '')}</b>`);
                                     if (p.desde) filas.push(`Fechas: ${escaparHtml(p.desde === p.hasta ? fechaAmigable(p.desde) : `${fechaAmigable(p.desde)} a ${fechaAmigable(p.hasta)}`)}`);
+                                    if (!p.cambia_cuenta) filaCuenta(p.destino_cuenta);
                                     if (p.cambia_cuenta) {
                                         filas.push(`Cuenta: ${flecha([...new Set((p.origenes || []).map(o => o.cuenta))].join(', '), p.destino_cuenta)}`);
                                         const efecto = (p.efecto_saldos || []).map(e => `<span style="white-space:nowrap">${escaparHtml(e.cuenta)} <b>${e.cambio > 0 ? '+' : '−'}${escaparHtml(fMoneda(Math.abs(e.cambio)))}</b></span>`);
@@ -16441,6 +16449,7 @@
                                 } else if (p.tipo === 'cambio_categoria') {
                                     const c = p.cambios || {}, a = p.antes || {};
                                     filas.push(`Categoría: ${escaparHtml(a.nombre || '')}`);
+                                    filaCuenta(cuentaDe(p.categoria_id));
                                     if ('nombre' in c) filas.push(`Nombre: ${flecha(a.nombre, c.nombre)}`);
                                     if ('descripcion' in c) filas.push(`Descripción: ${flecha(a.descripcion || '(vacía)', c.descripcion || '(vacía)')}`);
                                     if ('tipo' in c) {
@@ -16502,13 +16511,15 @@
                                         const cats = p.categorias || [];
                                         filas.push(`${plural(cats.length, 'categoría', 'categorías')}${cats.length ? `: ${escaparHtml(cats.slice(0, 8).join(', '))}${cats.length > 8 ? '…' : ''}` : ''}`);
                                     } else {
-                                        filas.push(`Categoría: <b>${escaparHtml(p.nombre || '')}</b>${p.cuenta ? ` (${escaparHtml(p.cuenta)})` : ''}`);
+                                        filas.push(`Categoría: <b>${escaparHtml(p.nombre || '')}</b>`);
+                                        filaCuenta(p.cuenta || cuentaDe(p.categoria_id));
                                     }
                                     filas.push(`Se borran <b>${plural(Number(p.movimientos) || 0, 'movimiento', 'movimientos')}</b>`);
                                     if (p.motivo) filas.push(`Motivo: <b>${escaparHtml(p.motivo)}</b>`);
                                 } else if (p.tipo === 'omitir_pago') {
                                     const d = p.datos || {};
                                     filas.push(`Ya no se espera: <b>${escaparHtml(d.categoria || '')}</b> ${d.esperado ? `del ${escaparHtml(fechaAmigable(d.esperado))}` : ''}`);
+                                    filaCuenta(cuentaDe(p.categoria_id));
                                     if (d.motivo) filas.push(`Motivo: <b>${escaparHtml(d.motivo)}</b>`);
                                     filas.push('Vuelve a esperarse en la siguiente fecha');
                                 } else if (p.tipo === 'prioridades') {
@@ -16529,6 +16540,7 @@
                                 } else if (p.tipo === 'nuevo_movimiento') {
                                     const d = p.datos || {};
                                     filas.push(`Categoría: <b>${escaparHtml(p.categoria || '')}</b>`);
+                                    filaCuenta(d.categoria_id ? cuentaDe(d.categoria_id) : d.cuenta_nueva);
                                     filas.push(d.cantidad !== undefined ? `Cantidad: <b>${escaparHtml(String(d.cantidad))}</b>` : `Monto: <b>${escaparHtml(fMoneda(Math.abs(d.monto)))}</b> (${d.monto < 0 ? 'salida' : 'entrada'})`);
                                     filas.push(`Fecha: <b>${escaparHtml(fechaAmigable(d.fecha, d.hora))}</b>`);
                                     filas.push(`Descripción: <b>${escaparHtml(d.descripcion || '(vacía)')}</b>`);
