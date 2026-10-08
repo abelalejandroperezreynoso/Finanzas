@@ -731,11 +731,17 @@ const COMIDAS = H("Comidas saltadas", "veces", /ayuno|saltad|saltar/i, "Comidas 
 const EJERCICIO = H("Ejercicio", "horas", /ejercicio|gym|gimnasio|correr|camin|deporte/i, "Horas de ejercicio", "el ejercicio regular la hace menos frecuente");
 const PANTALLAS = H("Pantallas de noche", "horas", /pantalla|celular|tele/i, "Horas de pantalla antes de dormir", "la luz de la pantalla de noche quita sueño");
 const PICANTE = H("Picante o irritantes", "veces", /picante|irritant|grasa/i, "Comidas picantes, muy grasosas o irritantes", "la irritan directamente");
+const ALIMENTACION = H("Alimentación", "veces", /aliment|dieta|qu[eé] com[ií]/i, "Comidas del día; en la descripción, qué comí", "hay alimentos que la detonan y sólo se ven anotando qué comes");
+const SAL = H("Sal", "veces", /\bsal\b|sodio|salad/i, "Comidas muy saladas o procesadas", "la sal sube la presión");
+// Una base por padecimiento; el modelo agrega lo que haga falta según el caso (ver el punto 4 del sistema)
 const HABITOS_POR_ENFERMEDAD: { patron: RegExp; habitos: Json[] }[] = [
-  { patron: /migra|cefal|dolor de cabeza|jaqueca/i, habitos: [SUENO, AGUA, CAFEINA, ESTRES, ALCOHOL, COMIDAS] },
-  { patron: /gastritis|colitis|acidez|reflujo|agruras|est[oó]mago|intestin|diarrea/i, habitos: [PICANTE, CAFEINA, COMIDAS, ALCOHOL, ESTRES] },
+  { patron: /migra|cefal|dolor de cabeza|jaqueca/i, habitos: [SUENO, ESTRES, ALIMENTACION, AGUA, CAFEINA, ALCOHOL, COMIDAS] },
+  { patron: /gastritis|colitis|acidez|reflujo|agruras|est[oó]mago|intestin|diarrea/i, habitos: [ALIMENTACION, PICANTE, CAFEINA, COMIDAS, ALCOHOL, ESTRES] },
   { patron: /ansiedad|p[aá]nico|estr[eé]s|depresi/i, habitos: [SUENO, CAFEINA, EJERCICIO, ALCOHOL] },
-  { patron: /insomnio|dormir mal|desvelo/i, habitos: [CAFEINA, PANTALLAS, EJERCICIO, ALCOHOL] },
+  { patron: /insomnio|dormir mal|desvelo/i, habitos: [CAFEINA, PANTALLAS, EJERCICIO, ALCOHOL, ESTRES] },
+  { patron: /espalda|cuello|lumbar|contractura|ci[aá]tica/i, habitos: [EJERCICIO, SUENO, ESTRES] },
+  { patron: /presi[oó]n|hipertens/i, habitos: [SAL, EJERCICIO, ALCOHOL, ESTRES, SUENO] },
+  { patron: /diabet|glucosa|az[uú]car/i, habitos: [ALIMENTACION, EJERCICIO, AGUA, SUENO] },
 ];
 function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo, notas: Json[] = []): Json[] {
   const texto = `${enf.nombre ?? ""} ${enf.descripcion ?? ""}`;
@@ -745,7 +751,7 @@ function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo, notas
   const NO = /no quiere|no registrar|no le interesa|cancel[oó]|no toma|no bebe|no fuma|no proponer|no lo propongas/i;
   const rechazado = (h: Json) => notas.some((n: Json) => NO.test(String(n.nota ?? "")) && (h.busca.test(String(n.nota)) || String(n.nota).toLowerCase().includes(String(h.nombre).toLowerCase())));
   const viejas = categoriasViejasDeSalud(k);
-  return lista.filter((h) => !yaTiene(h) && !rechazado(h)).slice(0, 3).map(({ busca, ...h }) => {
+  return lista.filter((h) => !yaTiene(h) && !rechazado(h)).slice(0, 4).map(({ busca, ...h }) => {
     // Si ya lo registraba antes como dinero (Agua como ingreso), se convierte ésa: crear otra choca con su nombre
     const vieja = viejas.find((c: Json) => busca.test(`${c.nombre ?? ""} ${c.descripcion ?? ""}`));
     return { ...h, grupo: "habito", cuenta_id: enf.cuenta_id, recordar_diario: true, ...(vieja ? { convertir: { categoria_id: vieja.id, nombre: vieja.nombre, tipo_actual: vieja.tipo } } : {}) };
@@ -1614,7 +1620,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             // Qué hábitos registrar para saber qué la detona, y lo que ya dicen los que registra
             const relaciones = relacionesDe(c);
             const habitosRegistrados = todas.filter((h: Json) => h.grupo_salud === "habito" && porDiaCat[String(h.id)]?.size).length;
-            const investigar = entre(hace(29), hoyL) >= 4 ? habitosParaInvestigar(c, todas, catalogo, notasMemoria) : [];
+            const investigar = entre(hace(29), hoyL) >= 2 ? habitosParaInvestigar(c, todas, catalogo, notasMemoria) : [];
             return {
               relaciones: relaciones.length ? relaciones : habitosRegistrados ? "ninguna clara todavía con los hábitos que registra" : "no registra hábitos todavía",
               ...(investigar.length ? { habitos_para_investigar: investigar } : {}),
@@ -3302,11 +3308,12 @@ Cuando pregunte en general cómo va de salud, llama a resumen_salud y da primero
 - Hábitos que registra y cómo van, con cifras; si dejó de registrar alguno, dilo.
 - Si alguna trae senales, una línea para verlo con su médico (con el porqué, si lo trae).
 En esa respuesta no entres al detalle de cada una ni propongas hábitos nuevos. Termina con preguntar_al_usuario: en qué quiere indagar, con opciones (sus enfermedades activas por nombre, "Mis hábitos" y "Nada por ahora").
+Cuando te pida revisar qué hábitos le faltan a un padecimiento, llama a resumen_salud y ve directo al punto 4 (sin panorama): di en una línea qué ya registra que sirve y propón lo que falte; si no falta nada, dilo en una línea.
 Cuando pregunte por una enfermedad, un síntoma o un hábito en concreto (o elija indagar en algo), da el detalle, sólo de lo que tuvo registros en los últimos 30 días:
 1. Primero Enfermedades y luego Hábitos. Por categoría, en una o dos líneas: cómo va contra lo normal (dias_ultimos_30 contra normal_dias_por_mes, que son comparables; los 7 días sólo como racha), y la cantidad según su medida contra antes, con cifras. La cantidad es lo que diga medida (intensidad, veces, horas); nunca la cambies por otra cosa (una intensidad no son pastillas).
 2. Un patrón sólo si los datos lo muestran: coincidencias, días de la semana que se repiten o notas que se repiten. No inventes causas.
 3. Si viene relaciones con cifras, dilas como pista ("los días antes de una migraña dormiste 5.8 h; los demás, 7.1 h"), nunca como causa.
-4. Si una enfermedad trae habitos_para_investigar, propón en el mismo turno esos hábitos (sin preguntarle si quiere) y di en una línea por qué cada uno; con unas semanas de registros le dirás qué la detona. Si el hábito trae convertir, ya existe como categoría vieja: propón pasarla a Salud con proponer_cambio_categoria (tipo salud, grupo_salud habito, su medida y descripción); si no, créala con proponer_nueva_categoria (tipo salud, grupo_salud habito, su medida, su descripción y su cuenta_id). Si cancela alguno, guárdalo con recordar (tema preferencia) y no lo vuelvas a proponer.
+4. Si una enfermedad trae habitos_para_investigar, propón en el mismo turno esos hábitos (sin preguntarle si quiere) y di en una línea por qué cada uno; con unas semanas de registros le dirás qué la detona. La lista es una base, no el límite: piensa por el padecimiento (su nombre, descripción y notas) si le falta seguir algo clave que no trae (alimentación, estrés, postura, ciclo menstrual, algo a lo que se expone) y agrégalo con su razón; nunca repitas lo que ya registra ni lo que rechazó (está en tu memoria). Si el hábito trae convertir, ya existe como categoría vieja: propón pasarla a Salud con proponer_cambio_categoria (tipo salud, grupo_salud habito, su medida y descripción); si no, créala con proponer_nueva_categoria (tipo salud, grupo_salud habito, su medida, su descripción y su cuenta_id). Si cancela alguno, guárdalo con recordar (tema preferencia) y no lo vuelvas a proponer.
 - Contesta cómo va en ese mismo turno aunque a alguna categoría le falten grupo o medida: resumen_salud ya trae sus cifras. En el mismo turno propón con proponer_cambio_categoria el grupo y la medida que falten, tomados de sugerencia. Sólo lo que sugerencia no traiga (y no diga la descripción) se pregunta, todo en una sola llamada a preguntar_al_usuario; con la respuesta propón la tarjeta y, si no tenía descripción, también la descripción.
 - Al registrar un síntoma con medida intensidad: si no dijo qué tan fuerte, pregúntalo con preguntar_al_usuario antes de proponer; las pastillas y lo demás van en la descripción, nunca como cantidad.
 - Si te cuenta qué medicamento toma o algo duradero de su salud ("mi analgésico tiene cafeína"), guárdalo con recordar (tema contexto) y úsalo al investigar: la cafeína de una pastilla también cuenta.

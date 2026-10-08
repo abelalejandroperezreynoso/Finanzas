@@ -9882,6 +9882,7 @@
     // necesita todos. Si la base todavía no tiene la columna, Salud se queda vacío y el
     // resto de la app sigue igual.
     var datosSalud = [];
+    var notasPreferenciaIa = [];   // lo que el usuario no quiere (p. ej. un hábito que rechazó), de la memoria del asistente
 
     function categoriasSalud() {
         return (datosCategorias || []).filter(c => c.tipo === 'salud');
@@ -9956,6 +9957,8 @@
     }
 
     async function cargarRegistrosSalud() {
+        clienteSupabase.from('memoria_ia').select('nota').eq('tema', 'preferencia').limit(200)
+            .then(({ data }) => { notasPreferenciaIa = (data || []).map(n => String(n.nota || '')); }, () => {});
         const ids = categoriasSalud().map(c => c.id);
         if (ids.length === 0) { datosSalud = []; return; }
         const { data, error } = await clienteSupabase
@@ -17317,6 +17320,48 @@
                                     // Cómo sigues va antes que los hábitos
                                     if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
                                 });
+                                // Padecimientos a los que les falta seguir hábitos que influyen en ellos: la misma base que usa
+                                // el asistente, que al revisarlo agrega lo que haga falta según el caso. Uno a la vez
+                                const BUSCA_HABITO = {
+                                    'Sueño': /sue[nñ]o|dorm/i, 'Estrés': /estr[eé]s|ansiedad|nervios/i, 'Alimentación': /aliment|dieta|qu[eé] com[ií]|comida/i,
+                                    'Agua': /\bagua\b|hidrat/i, 'Cafeína': /caf[eé]|cafe[ií]na|refresco/i, 'Alcohol': /alcohol|cerveza|vino|trago/i,
+                                    'Ejercicio': /ejercicio|gym|gimnasio|correr|camin|deporte/i, 'Pantallas': /pantalla|celular/i,
+                                    'Picante': /picante|irritant|grasa/i, 'Sal': /\bsal\b|sodio|salad/i
+                                };
+                                const HABITOS_RELACIONADOS = [
+                                    [/migra|cefal|dolor de cabeza|jaqueca/i, ['Sueño', 'Estrés', 'Alimentación', 'Agua', 'Cafeína']],
+                                    [/gastritis|colitis|acidez|reflujo|agruras|est[oó]mago|intestin|diarrea/i, ['Alimentación', 'Picante', 'Cafeína', 'Estrés']],
+                                    [/ansiedad|p[aá]nico|estr[eé]s|depresi/i, ['Sueño', 'Cafeína', 'Ejercicio']],
+                                    [/insomnio|dormir mal|desvelo/i, ['Cafeína', 'Pantallas', 'Ejercicio', 'Estrés']],
+                                    [/espalda|cuello|lumbar|contractura|ci[aá]tica/i, ['Ejercicio', 'Sueño', 'Estrés']],
+                                    [/presi[oó]n|hipertens/i, ['Sal', 'Ejercicio', 'Estrés', 'Sueño']],
+                                    [/diabet|glucosa|az[uú]car/i, ['Alimentación', 'Ejercicio', 'Sueño']],
+                                ];
+                                const rechazoHabito = /no quiere|no registrar|no le interesa|cancel[oó]|no lo propongas/i;
+                                const hace30Salud = diaLocal(new Date(hoyDate.getTime() - 29 * diaMs));
+                                const lista = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}` : xs[0];
+                                for (const c of categoriasSalud()) {
+                                    const texto = `${c.nombre || ''} ${c.descripcion || ''}`;
+                                    const base = HABITOS_RELACIONADOS.find(([p]) => p.test(texto));
+                                    if (c.grupo_salud !== 'enfermedad' && !(!c.grupo_salud && base)) continue;
+                                    const recientes = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id) && diaLocal(r.fecha) >= hace30Salud).length;
+                                    if (recientes < 2) continue;
+                                    const otras = categoriasSalud().filter(x => String(x.id) !== String(c.id));
+                                    const faltan = (base ? base[1] : ['Sueño', 'Estrés', 'Alimentación']).filter(nombre =>
+                                        !otras.some(x => BUSCA_HABITO[nombre].test(`${x.nombre || ''} ${x.descripcion || ''}`))
+                                        && !notasPreferenciaIa.some(n => rechazoHabito.test(n) && (BUSCA_HABITO[nombre].test(n) || n.toLowerCase().includes(nombre.toLowerCase()))));
+                                    if (!faltan.length) continue;
+                                    const clave = `habitos:${c.id}`;
+                                    if (!vigente(clave)) continue;
+                                    pendSalud.push({
+                                        clave, categoria_id: c.id, salud: true, etiqueta: 'Salud',
+                                        texto: `A ${c.nombre} le falta seguir ${lista(faltan.slice(0, 3))}.`,
+                                        detalle: 'Con eso puedo ver qué lo detona.',
+                                        primario: { texto: 'Revisarlo', vuelve: 30, mensaje: `Revisa qué hábitos me faltan registrar para saber qué detona mi ${c.nombre} y propónmelos.` },
+                                        secundario: { texto: 'Ahora no', dias: 14 }
+                                    });
+                                    break;
+                                }
                                 const saludPrimero = pendSalud.slice(0, 4);
                                 if ((saludoSalud || saludoSueno) && saludPrimero.length) saludPrimero[0].saludo_salud = saludoSalud || saludoSueno;
                                 avisos.push(...saludPrimero);
@@ -17535,7 +17580,7 @@
                                     ${(() => {
                                         // El resumen de la categoría sustituye el texto genérico de "Para conocerte mejor"
                                         // y en los demás pendientes va debajo de su detalle
-                                        const resumen = a.categoria_id && !a.plan && !a.registrar ? resumenCategoriaPendiente(a.categoria_id) : '';
+                                        const resumen = a.categoria_id && !a.plan && !a.salud ? resumenCategoriaPendiente(a.categoria_id) : '';
                                         const detalle = a.clave.startsWith('desc:') && resumen ? resumen : a.detalle;
                                         const extra = resumen && detalle !== resumen ? `<div class="cp-detalle cp-resumen">${escaparHtml(resumen)}</div>` : '';
                                         return (detalle ? `<div class="cp-detalle">${escaparHtml(detalle)}</div>` : '') + extra;
@@ -17661,9 +17706,9 @@
                                     abrirRegistroAsistente(a.registrar);
                                     return;
                                 }
-                                // Atendido: ya no vuelve a la lista de pendientes
+                                // Atendido: ya no vuelve a la lista de pendientes (o no en unos días, si así se pidió)
                                 const descartados = avisosDescartados();
-                                descartados[a.clave] = 0;
+                                descartados[a.clave] = a.primario.vuelve ? Date.now() + a.primario.vuelve * 86400000 : 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
                                 marcarHallazgoIa(a, 'atendido');
                                 enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
