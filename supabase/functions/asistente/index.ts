@@ -2617,8 +2617,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const gastoDiario = gasto60 / 60;
 
       // Pagos recurrentes que tocaban y no están (los calcula la app)
-      const vencidos = (zona.recurrentes ?? []).filter((r: Json) => ids.some((id: unknown) => String(id) === r.categoria_id) && r.vencido)
-        .map((r: Json) => `${nombreCat(r.categoria_id)}: tocaba el ${r.siguiente}${r.monto ? `, de unos ${pesos(signoRecurrente(tipoDeCat[r.categoria_id]) * r.monto, true)}` : ""}`);
+      // Sólo lo que, de faltar, explica la diferencia en su sentido: si tiene MÁS que la app, un gasto sin
+      // registrar la haría mayor (el modelo lo daba como explicación); sólo un ingreso faltante la explica
+      const explica = (monto: number) => diferencia > 0 ? monto > 0 : monto < 0;
+      const vencidosTodos = (zona.recurrentes ?? []).filter((r: Json) => ids.some((id: unknown) => String(id) === r.categoria_id) && r.vencido)
+        .map((r: Json) => ({ r, monto: signoRecurrente(tipoDeCat[r.categoria_id]) * (Number(r.monto) || 0) }));
+      const vencidos = vencidosTodos.filter((x) => explica(x.monto))
+        .map(({ r, monto }) => `${nombreCat(r.categoria_id)}: tocaba el ${r.siguiente}${monto ? `, de unos ${pesos(monto, true)}` : ""}`);
+      const vencidosEnContra = vencidosTodos.filter((x) => !explica(x.monto) && x.monto)
+        .map(({ r, monto }) => `${nombreCat(r.categoria_id)} ${pesos(monto, true)}`);
 
       // Lo que apareció los dos meses anteriores y este mes todavía no, ya pasado su día de costumbre
       const mesDe = (d: string) => d.slice(0, 7);
@@ -2634,6 +2641,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const diaUsual = Math.max(...a1.map((r: Json) => Number(r.dia.slice(8, 10))));
         if (diaHoy <= diaUsual + 2) return;
         const tipico = a1.reduce((t: number, r: Json) => t + Number(r.monto || 0), 0) / a1.length;
+        if (!explica(tipico)) return;
         habituales.push(`${nombreCat(c.id)}: los dos meses anteriores apareció (el mes pasado hacia el día ${diaUsual}, unos ${pesos(tipico, true)}) y este mes todavía no`);
       });
 
@@ -2643,6 +2651,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         .forEach((r: Json) => { (grupos[`${r.categoria_id}|${r.dia}|${Number(r.monto).toFixed(2)}`] ??= []).push(r); });
       const duplicados = Object.values(grupos).filter((g) => g.length > 1)
         .map((g) => `${g.length} × ${nombreCat(g[0].categoria_id)} de ${pesos(Number(g[0].monto), true)} el ${fechaConDia(g[0].fecha, zona)} (ids ${g.map((r) => r.id).join(", ")})`);
+
+      // Ajustes de cuadres anteriores ("No registrado", "Sin identificar"): son el hueco de una revisión pasada,
+      // no gastos de verdad. Si uno quedó de más, explica la diferencia; borrarlo cambia el saldo desde ese día
+      const AJUSTE = /no\s*registrad|sin\s*identificar|ajuste|cuadre|diferencia|desconocid/i;
+      const ajustes = regs.filter((r: Json) => AJUSTE.test(nombreCat(r.categoria_id)) || AJUSTE.test(String(r.descripcion ?? "")))
+        .slice(0, 8).map((r: Json) => `${fechaConDia(r.fecha, zona)} · ${nombreCat(r.categoria_id)} · ${pesos(Number(r.monto), true)}${r.descripcion ? ` · ${r.descripcion}` : ""} (id ${r.id})`);
+      // Con el total y varias cuentas: su cifra puede ser sólo la de su banco
+      const porCuenta = esTotal && cuentasRevisadas.length > 1
+        ? cuentasRevisadas.filter((c: Json) => !deInversion.has(String(c.id))).map((c: Json) => `${c.nombre}: ${pesos(balanceDe(c))}`)
+        : [];
 
       // ¿Ya sabe dónde guarda su dinero y cómo paga? Si no, es lo primero que hay que preguntar: sin eso
       // no hay por dónde empezar a buscar, y se pierde para la próxima vez.
@@ -2661,11 +2679,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ultimos_dias_sin_registros: sinRegistro.slice(0, 7).map((d) => fechaConDia(`${d}T18:00:00Z`, { ...zona, desfase: 0 })),
           gasto_diario_tipico: pesos(gastoDiario),
           estimado_dias_sin_registro: pesos(gastoDiario * sinRegistro.length),
+          ...(porCuenta.length ? { saldos_por_cuenta: porCuenta } : {}),
+          ...(diferencia < 0 ? {} : { dias_sin_registro_nota: "Con MÁS dinero que la app, gastos sin registrar harían la diferencia mayor: no la explican." }),
           recurrentes_que_tocaban_y_no_estan: vencidos,
+          ...(vencidosEnContra.length ? { no_explican_la_diferencia: `${vencidosEnContra.join(", ")}: si faltan, la harían mayor; no los des como explicación` } : {}),
           habituales_que_faltan_este_mes: habituales,
           posibles_duplicados: duplicados,
+          ...(ajustes.length ? { ajustes_de_cuadres_anteriores: ajustes } : {}),
           ...(conoceHabitos ? {} : { antes_que_nada: "Tu memoria no dice dónde guarda su dinero ni cómo suele pagar. En este mismo turno, después de decir la diferencia en una frase, pregúntalo con preguntar_al_usuario (p. ej. \"¿Cómo pagas casi siempre?\" con opciones Débito, Efectivo, Tarjeta de crédito, De todo un poco; y \"¿Tienes una cuenta de ahorro aparte?\" Sí/No). Con la respuesta, guárdalo con recordar (tema contexto) y sigue con las pistas." }),
-          guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos. Toda pregunta va con preguntar_al_usuario, nunca en el texto. " +
+          guia: "Explica la diferencia en una frase y repasa estas pistas de la más probable a la menos, sólo las que explican la diferencia en su sentido (sentido). Toda pregunta va con preguntar_al_usuario, nunca en el texto. " +
+            (porCuenta.length ? "Tiene varias cuentas en el total: si no dijo de cuál es su cifra, antes que nada pregúntale si es de todas o de una (opciones con saldos_por_cuenta); si una cuenta sola cuadra o explica la diferencia, dilo. " : "") +
+            "Los ajustes_de_cuadres_anteriores son el hueco de revisiones pasadas, no gastos de verdad: si tiene MÁS que la app, uno de esos gastos puede ser el que sobra; si pide borrarlo, primero dile qué era (un ajuste para cuadrar ese día) y cuánto cambia el saldo. " +
+            "Lo que le prestaron (deudas) está en los dos lados, en su banco y en la app: nunca lo restes de uno solo para comparar. Si sin eso quedaría en negativo, dilo aparte como alerta (está gastando dinero prestado). " +
             "Lo que recuerde, propónlo con proponer_nuevo_movimiento; un duplicado de verdad se borra con proponer_borrar_movimientos (sólo la copia: uno se queda). Lo que no recuerde es normal: " +
             (esTotal
               ? `propón el resto como un solo movimiento \"Sin identificar\" (gasto si falta dinero, ingreso si sobra) en la cuenta del día a día${cuentaDelDia ? ` (${cuentaDelDia.nombre}, cuenta_id ${cuentaDelDia.id})` : ""}; si la categoría no existe ahí, propónla antes. No le pidas el saldo de cada cuenta. No toques el saldo inicial.`
@@ -3338,7 +3363,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Antes de pedir el dato de un registro de Salud, razona cómo debe quedar: qué mide la categoría (columna salud), su descripción y qué suele registrar (si no lo sabes, consúltalo con resumen_salud). Si la medida no tiene sentido para lo que es (agua en veces), dilo en una línea y propón corregir la categoría en el mismo turno; luego pide el dato en la medida correcta. Las opciones van en su unidad y alrededor de lo que suele registrar o de lo razonable para eso (agua: 1, 1.5, 2, 2.5 L; nunca 1-2-3 por default).
 - Si pregunta si algo ya se registró ("¿ayer registramos el agua?"), búscalo y contesta con el dato; si falta, en ese mismo turno pide lo necesario para registrarlo (o propónlo si ya lo sabes). No le preguntes "¿qué quieres hacer?" cuando lo obvio es registrarlo.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
-- Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion.
+- Préstamos y deudas: el tipo ya dice quién le debe a quién; nunca lo preguntes. prestamo = él prestó (se lo deben): negativo = prestó, positivo = le pagaron. deuda = él debe (le prestaron o compró a crédito): positivo = recibió, negativo = abonó. El nombre de la categoría suele ser la persona o el bien ("Abel", "Audi A7"). Para ver cómo van usa resumen_prestamos_deudas; para registrar, proponer_nuevo_movimiento con operacion. Si pregunta si su saldo ya incluye un préstamo que le hicieron: sí, si está registrado como entrada; ese dinero está tanto en su banco como en la app, así que al comparar ambos no se resta de ninguno. Lo útil es decirle cuánto le queda sin lo que debe (saldo menos lo pendiente de pagar): si sale negativo, díselo claro como alerta (ya gastó parte de lo prestado) y qué hacer.
 - La frase del usuario también dice quién le debe a quién; tampoco entonces lo preguntes: "le debo X a Judith", "Judith me prestó X" = deuda, me_prestan. "Judith me debe X", "le presté X a Judith" = prestamo, presto. "Le pagué/abone X a Judith" = deuda, pago. "Judith me pagó X" = prestamo, me_pagan. Si la persona no tiene categoría, en el mismo turno propón la categoría (su nombre, el tipo que dice la frase, en la cuenta donde entró o salió el dinero; si no es obvia, pregunta sólo la cuenta) y el movimiento con categoria_nueva. Si ya tiene una del tipo contrario, dilo y propón una nueva del tipo correcto.
 - Inversiones (GBM): para registrar usa proponer_movimiento_inversion ("metí X a la caja" = aportación; "saqué X" = retiro; "compré/vendí N acciones" = compra/venta). En una aportación o un retiro nunca preguntes la categoría: va a la Caja GBM.
 - Si la orden ya estaba registrada y sólo falta su comisión, usa tipo comision con usd = la comisión y en descripcion sólo el nombre de la empresa (p. ej. "Visa").
