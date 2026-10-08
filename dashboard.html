@@ -16491,6 +16491,10 @@
                                         filas.push(`${escaparHtml(fechaAmigable(m.fecha))} · ${escaparHtml(m.categoria || '')} · <b>${cifra}</b>${m.descripcion ? ` · ${escaparHtml(m.descripcion)}` : ''}`);
                                     });
                                     filas.push(`Se ${movs.length === 1 ? 'borra 1 movimiento' : `borran ${movs.length} movimientos`}`);
+                                } else if (p.tipo === 'avisos') {
+                                    filas.push(p.datos && p.datos.activar
+                                        ? 'Te llegan pagos, recordatorios y hábitos aunque la app esté cerrada. Toca <b>Permitir</b> cuando el iPhone lo pida.'
+                                        : 'Este teléfono deja de recibir pagos, recordatorios y hábitos.');
                                 } else if (p.tipo === 'recordatorio') {
                                     const d = p.datos || {};
                                     const cuando = new Date(d.enviar_en);
@@ -16608,7 +16612,7 @@
                                                    <button type="button" style="background:transparent; color:#141413; border:1px solid #d6d3c9;" onclick="decidirPropuestaAsistente(${i}, false)">Cancelar</button>
                                                    <button type="button" style="background:${p.tipo === 'borrar_movimientos' ? '#d93025' : '#3d3d3a'}; color:#fff; border:none;" onclick="decidirPropuestaAsistente(${i}, true)">${p.tipo === 'borrar_movimientos' ? 'Borrar' : 'Confirmar'}</button>
                                                </div>`
-                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? (p.tipo === 'borrar_movimientos' ? '✓ Borrado' : '✓ Aplicado') : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? '✕ No se pudo guardar' : m.estado === 'interrumpida' ? 'Se cerró la app: revisa si se guardó' : 'Cancelado'}</div>`;
+                                            : `<div class="estado" style="color:${m.estado === 'aplicada' ? '#2f7d4f' : m.estado === 'fallida' ? '#b3261e' : '#8a8880'};">${m.estado === 'aplicada' ? (p.tipo === 'borrar_movimientos' ? '✓ Borrado' : p.tipo === 'avisos' ? (p.datos && p.datos.activar ? '✓ Activados' : '✓ Apagados') : '✓ Aplicado') : m.estado === 'aplicando' ? 'Guardando…' : m.estado === 'fallida' ? (p.tipo === 'avisos' ? '✕ No se pudieron cambiar' : '✕ No se pudo guardar') : m.estado === 'interrumpida' ? 'Se cerró la app: revisa si se guardó' : 'Cancelado'}</div>`;
                                         if (m.estado === 'reemplazada') return `<div class="chat-propuesta reemplazada"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="estado">Reemplazada por la nueva propuesta</div></div>`;
                                         return `<div class="chat-propuesta"><div class="titulo">${escaparHtml(p.resumen || 'Cambio propuesto')}</div><div class="detalle">${detallePropuestaHtml(p)}</div>${pie}</div>`;
                                     }
@@ -16624,7 +16628,9 @@
                                 const clave = x => x.tipo === 'cambio_movimiento' ? x.registro_id
                                     : x.tipo === 'mover_movimientos' ? x.origen_categoria_id
                                     : x.tipo === 'cambio_categoria' ? x.categoria_id
-                                    : x.tipo === 'cambio_cuenta' ? x.cuenta_id : null;
+                                    : x.tipo === 'cambio_cuenta' ? x.cuenta_id
+                                    // Una sola tarjeta de avisos: la nueva sustituye a la que siga pendiente
+                                    : x.tipo === 'avisos' ? 'avisos' : null;
                                 for (let k = chatUi.length - 1; k >= 0; k--) {
                                     const m = chatUi[k];
                                     if (m.rol !== 'propuesta' || m.estado !== 'pendiente' || !m.propuesta || m.propuesta.tipo !== p.tipo) continue;
@@ -16680,9 +16686,10 @@
                                 pintarChatAsistente();
 
                                 try {
+                                    const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -18346,6 +18353,10 @@
                                     const ids = (p.ids || []).map(String);
                                     res = ids.length ? await clienteSupabase.from('registros').delete().in('id', ids) : { falta: 'No hay movimientos que borrar.' };
                                     if (!res.error && !res.falta) ids.forEach(id => olvidarRegistrosRecienGuardados('registros', id));
+                                } else if (p.tipo === 'avisos') {
+                                    // Directo desde el toque: así el iPhone pide el permiso
+                                    const fallo = await aplicarAvisosPagos(!!(p.datos && p.datos.activar));
+                                    res = fallo ? { error: { message: fallo }, avisos: true } : {};
                                 } else if (p.tipo === 'recordatorio') {
                                     // Le llega como aviso al teléfono; lo manda la base a su hora (recordatorios_ia)
                                     res = await clienteSupabase.from('recordatorios_ia').insert([{ enviar_en: p.datos.enviar_en, texto: p.datos.texto, user_id: currentUser.id }]);
@@ -18427,7 +18438,7 @@
                                 }
                                 if (res.error) {
                                     m.estado = 'fallida';
-                                    chatUi.push({ rol: 'error', texto: explicarFalloAlGuardar(res.error, 'el cambio') });
+                                    chatUi.push({ rol: 'error', texto: res.avisos ? res.error.message : explicarFalloAlGuardar(res.error, 'el cambio') });
                                 } else {
                                     m.estado = 'aplicada';
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }]) });
@@ -18618,10 +18629,29 @@
                                 }
                                 setTimeout(() => { boton.disabled = false; boton.textContent = 'Enviar aviso de prueba'; }, 5000);
                             }
+                            // Para el asistente: cómo están los avisos en este teléfono
+                            async function estadoAvisosTelefono() {
+                                if (!avisosDisponibles()) return 'no_disponible';
+                                if (Notification.permission === 'denied') return 'negados';
+                                try {
+                                    // Sin service worker, ready no termina nunca: se espera poco
+                                    const sus = await Promise.race([suscripcionPushActual(), new Promise(r => setTimeout(() => r(undefined), 1500))]);
+                                    if (sus === undefined) return null;
+                                    return sus && Notification.permission === 'granted' ? 'activos' : 'apagados';
+                                } catch (e) { return null; }
+                            }
                             async function cambiarAvisosPagos(activo) {
+                                const error = await aplicarAvisosPagos(activo);
+                                if (error) alert(error);
+                            }
+                            // Lo usan el interruptor de Configuración y la tarjeta del asistente. Devuelve el
+                            // error, o null si quedó como se pidió.
+                            async function aplicarAvisosPagos(activo) {
                                 try {
                                     if (activo) {
-                                        // iOS sólo pide el permiso si se llama directo desde el toque
+                                        if (!avisosDisponibles()) throw new Error('Abre la app desde su ícono en la pantalla de inicio para activarlos.');
+                                        if (Notification.permission === 'denied') throw new Error('Permiso negado: actívalo en Ajustes del iPhone > Notificaciones.');
+                                        // iOS sólo pide el permiso si se llama directo desde el toque, antes de cualquier espera
                                         const permiso = await Notification.requestPermission();
                                         if (permiso !== 'granted') throw new Error('Sin permiso, no se pueden mandar avisos.');
                                         const { data, error } = await clienteSupabase.functions.invoke('avisos', { body: { accion: 'clave' } });
@@ -18638,10 +18668,12 @@
                                             await sus.unsubscribe();
                                         }
                                     }
+                                    return null;
                                 } catch (e) {
-                                    alert(e && e.message ? e.message : 'No se pudieron cambiar los avisos.');
+                                    return e && e.message ? e.message : 'No se pudieron cambiar los avisos.';
+                                } finally {
+                                    pintarAvisosPagos();
                                 }
-                                pintarAvisosPagos();
                             }
 
                             // ---- Memoria de la IA (tarjeta de Configuración) ----

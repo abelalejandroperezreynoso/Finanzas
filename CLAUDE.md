@@ -22,6 +22,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   hábitos para registrar según la enfermedad y busca relaciones entre hábitos y enfermedades.
   Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
+  La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
+  no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
+  tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
   El modelo por defecto es Haiku 4.5 (`claude-haiku-4-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función.
