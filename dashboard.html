@@ -18436,7 +18436,7 @@
                                     item.preguntas.splice(3);
                                     item.respuestas.splice(3);
                                 }
-                                const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion)].join('|') : '';
+                                const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion), c.medida_salud || '', c.unidad_salud || ''].join('|') : '';
                                 const porNombre = !!c && SOLO_MONTO_REGISTRO.test(c.nombre || '');
                                 let ia = c ? leerPreguntasRegistro()[claveIa] || null : null;
                                 let movs = [];
