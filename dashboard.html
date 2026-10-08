@@ -17222,6 +17222,59 @@
                                         });
                                     });
 
+                                // 2b. Salud: lo que registras con constancia y hoy toca. Diario si casi todos los días de
+                                // las últimas dos semanas tienen registro (hoy avisa ya pasada la hora de costumbre); si
+                                // no, cada cuántos días suele ir, cuando los espacios entre registros son parejos
+                                const diaMs = 86400000;
+                                const deDia = dia => new Date(dia + 'T12:00:00').getTime();
+                                const pendSalud = [];
+                                categoriasSalud().forEach(c => {
+                                    const suyos = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id));
+                                    const diasCat = [...new Set(suyos.map(r => diaLocal(r.fecha)))].sort();
+                                    if (diasCat.length < 4) return;
+                                    const tiene = new Set(diasCat);
+                                    const ultimo = diasCat[diasCat.length - 1];
+                                    let enDosSemanas = 0;
+                                    for (let k = 1; k <= 14; k++) if (tiene.has(diaLocal(new Date(hoyDate.getTime() - k * diaMs)))) enDosSemanas++;
+                                    let dia = null, texto = '', detalle = '', secundario = null;
+                                    if (enDosSemanas >= 10) {
+                                        if (tiene.has(hoy)) return;
+                                        const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
+                                        const hora = horas[Math.floor(horas.length / 2)];
+                                        if (hoyDate.getHours() > hora) dia = hoy;
+                                        else if (!tiene.has(ayer)) dia = ayer;
+                                        else return;
+                                        texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `Ayer no registraste ${c.nombre}.`;
+                                        detalle = dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
+                                        secundario = { texto: 'No hubo', dias: null };
+                                    } else {
+                                        const espacios = diasCat.slice(1).map((d, i) => Math.round((deDia(d) - deDia(diasCat[i])) / diaMs)).slice(-8);
+                                        if (espacios.length < 3) return;
+                                        const cada = [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)];
+                                        if (cada < 2 || cada > 60) return;
+                                        const parejos = espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length;
+                                        if (parejos < espacios.length * 0.6) return;
+                                        const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
+                                        if (toca > hoy) return;
+                                        // Muy pasado: quizá ya lo dejó; no se insiste
+                                        const atraso = Math.round((deDia(hoy) - deDia(toca)) / diaMs);
+                                        if (atraso > Math.max(3, cada)) return;
+                                        dia = toca;
+                                        texto = atraso === 0 ? `Hoy toca ${c.nombre}.` : `${c.nombre} tocaba el ${fechaCorta(toca)}.`;
+                                        detalle = `Lo registras cada ${cada} días; el último fue el ${fechaCorta(ultimo)}.`;
+                                        secundario = { texto: 'Todavía no', dias: 1 };
+                                    }
+                                    const clave = `salud:${c.id}:${dia}`;
+                                    if (!vigente(clave)) return;
+                                    pendSalud.push({
+                                        clave, categoria_id: c.id, etiqueta: 'Salud', texto, detalle,
+                                        registrar: { categoria_id: c.id, dia },
+                                        primario: { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
+                                        secundario
+                                    });
+                                });
+                                avisos.push(...pendSalud.slice(0, 3));
+
                                 // 3. Algo raro: movimientos repetidos el mismo día o un monto fuera de lo normal (último mes)
                                 const hace30 = diaLocal(new Date(hoyDate.getTime() - 30 * 86400000));
                                 const recientes = movs.filter(r => diaLocal(r.fecha) >= hace30 && Number(r.monto) !== 0);
@@ -17551,6 +17604,12 @@
                                 descartados[a.clave] = 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
                                 marcarHallazgoIa(a, 'atendido');
+                                // Los de Salud abren el registro rápido ya con la categoría y el día
+                                if (a.registrar && !mensajePropio) {
+                                    pendienteEnCurso = false;
+                                    abrirRegistroAsistente(a.registrar);
+                                    return;
+                                }
                                 enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
                             }
 
@@ -18074,11 +18133,14 @@
                                 try { return JSON.parse(localStorage.getItem(claveRegistroRapido()) || '[]') || []; } catch (e) { return []; }
                             }
 
-                            function abrirRegistroAsistente() {
+                            // Con `pre` ({ categoria_id, dia }) llega ya elegida la categoría y, si se puede, el día
+                            function abrirRegistroAsistente(pre) {
                                 if (chatEnviando) return;
-                                const cats = categoriasParaRegistro();
+                                let cats = categoriasParaRegistro();
+                                const catPre = pre && (datosCategorias || []).find(c => String(c.id) === String(pre.categoria_id));
+                                if (catPre) cats = [{ id: catPre.id, nombre: catPre.nombre, tipo: catPre.tipo }, ...cats.filter(c => String(c.id) !== String(catPre.id))].slice(0, 4);
                                 if (!cats.length) return;
-                                chatUi.push({
+                                const item = {
                                     rol: 'preguntas', registro: true, id: 'registro-' + Date.now(), pendientes: [],
                                     estado: 'pendiente', actual: 0,
                                     categorias: cats.map(c => ({ id: c.id, nombre: c.nombre, tipo: c.tipo })),
@@ -18088,7 +18150,18 @@
                                         { pregunta: '¿Qué fue y cuánto?', opciones: [], ejemplo: 'Ej. Tacos 250' }
                                     ],
                                     respuestas: [0, 1, 2].map(() => ({ opcion: null, texto: '' }))
-                                });
+                                };
+                                if (catPre) {
+                                    item.respuestas[0] = { opcion: 0, texto: '' };
+                                    item.actual = 1;
+                                    if (pre.dia) {
+                                        const atras = [0, 1, 2].find(k => diaLocal(Date.now() - k * 864e5) === pre.dia);
+                                        item.respuestas[1] = atras !== undefined ? { opcion: atras, texto: '' } : { opcion: null, texto: fechaCorta(pre.dia) };
+                                        item.actual = 2;
+                                    }
+                                    opcionesRegistroAsistente(item);
+                                }
+                                chatUi.push(item);
                                 pintarChatAsistente(true);
                             }
 
