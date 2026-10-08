@@ -722,14 +722,17 @@ function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo): Json
     return { ...h, grupo: "habito", cuenta_id: enf.cuenta_id, recordar_diario: true, ...(vieja ? { convertir: { categoria_id: vieja.id, nombre: vieja.nombre, tipo_actual: vieja.tipo } } : {}) };
   });
 }
-// Categorías de salud de antes de que existiera el tipo Salud: guardadas como gasto o ingreso en una
-// cuenta que no suma al total ("Dolor de cuello" como gasto en Seguimiento). Se proponen convertir.
+// Categorías que parecen de salud de antes de que existiera el tipo Salud: guardadas como gasto o ingreso
+// en una cuenta que no suma al total ("Dolor de cuello" como gasto en Seguimiento). Es sólo una pista por
+// el nombre, nunca una decisión: "Ejercicio" también puede ser el ejercicio fiscal. Se le pregunta o se
+// le propone convertirlas, y él confirma. pista: "nombre" si lo dice la categoría, "cuenta" si sólo su cuenta.
 function categoriasViejasDeSalud(k: Catalogo): Json[] {
   const fuera = new Set(k.cuentas.filter((c: Json) => c.incluir_en_total === false).map((c: Json) => String(c.id)));
-  return k.categorias.filter((c: Json) => {
-    if (!["gasto", "ingreso"].includes(c.tipo) || !fuera.has(String(c.cuenta_id))) return false;
+  return k.categorias.flatMap((c: Json) => {
+    if (!["gasto", "ingreso"].includes(c.tipo) || !fuera.has(String(c.cuenta_id))) return [];
+    if (sugerenciaSalud(c, []).grupo_salud) return [{ ...c, pista: "nombre" }];
     const cuenta = k.cuentas.find((x: Json) => String(x.id) === String(c.cuenta_id));
-    return !!sugerenciaSalud({ nombre: c.nombre, descripcion: `${c.descripcion ?? ""} ${cuenta?.nombre ?? ""} ${cuenta?.descripcion ?? ""}` }, []).grupo_salud;
+    return sugerenciaSalud({ nombre: cuenta?.nombre, descripcion: cuenta?.descripcion }, []).grupo_salud ? [{ ...c, pista: "cuenta" }] : [];
   });
 }
 
@@ -925,18 +928,19 @@ async function opcionesSiFalta(sb: SupabaseClient, userId: string, z: Zona, k: C
       .forEach(({ c, pendiente }) => le_deben.push(`${k.etiqueta[String(c.id)] ?? c.nombre}: te debe ${pesos(pendiente)}${c.descripcion ? ` (${String(c.descripcion).slice(0, 80)})` : ""}`));
   }
   const cuentas_fuera_del_total: string[] = [];
-  // Sin las cuentas donde todo es seguimiento de salud registrado como dinero (ejercicio, síntomas)
+  // Si por los nombres parece seguimiento de salud registrado como dinero (ejercicio, síntomas), se avisa
+  // para que pregunte; no se quita: el nombre no basta para saber que no es dinero
   const deSalud = new Set(categoriasViejasDeSalud(k).map((c: Json) => String(c.id)));
-  const esDeSalud = (cuenta: Json) => {
+  const pareceDeSalud = (cuenta: Json) => {
     const cats = k.categorias.filter((x: Json) => String(x.cuenta_id) === String(cuenta.id) && x.tipo !== "salud");
     return cats.length > 0 && cats.every((x: Json) => deSalud.has(String(x.id)));
   };
-  const fuera = k.cuentas.filter((c: Json) => c.incluir_en_total === false && !esDeSalud(c));
+  const fuera = k.cuentas.filter((c: Json) => c.incluir_en_total === false);
   if (fuera.length) {
     const { data: saldos } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
     fuera.forEach((c: Json) => {
       const s = (Number(c.saldo_inicial) || 0) + (Number((saldos ?? []).find((x: Json) => String(x.id_cuenta) === String(c.id))?.balance) || 0);
-      if (s >= 1) cuentas_fuera_del_total.push(`${c.nombre}: ${pesos(s)}`);
+      if (s >= 1) cuentas_fuera_del_total.push(`${c.nombre}: ${pesos(s)}${pareceDeSalud(c) ? " (por sus nombres podría ser un registro de salud y no dinero: pregúntale si es dinero antes de ofrecerla)" : ""}`);
     });
   }
   return {
@@ -1471,7 +1475,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       // Las que se registraban como dinero antes del tipo Salud y ningún hábito sugerido cubre
       const enHabitos = new Set(categorias.flatMap((x: Json) => (x.habitos_para_investigar ?? []).filter((h: Json) => h.convertir).map((h: Json) => String(h.convertir.categoria_id))));
       const viejas = categoriasViejasDeSalud(catalogo).filter((c: Json) => !enHabitos.has(String(c.id))).slice(0, 4)
-        .map((c: Json) => ({ categoria_id: c.id, nombre: c.nombre, tipo_actual: c.tipo, sugerencia: sugerenciaSalud(c, []) }));
+        .map((c: Json) => ({ categoria_id: c.id, nombre: c.nombre, tipo_actual: c.tipo, sugerencia: sugerenciaSalud(c, []),
+          ...(c.pista === "cuenta" ? { ojo: "sólo lo sugiere el nombre de su cuenta: pregúntale si registra salud o dinero antes de proponer" } : {}) }));
       return {
         texto: recortar({
           hoy: hoyL,
@@ -1480,7 +1485,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "Los _ultimos_30 son los últimos 30 días, no el mes. No hay horas: no hables de a qué hora pasa. En un hábito no juzgues si va bien o mal salvo que la descripción lo diga. " +
             "grupo: enfermedad (menos es mejor) o habito (depende de qué sea: lee la descripción). medida: intensidad (1–10, se promedia), veces (se suman), horas (por día) o valor (una medición con su unidad: importa el último, el promedio y si sale del rango sano). " +
             "Si grupo o medida dicen SIN DEFINIR, propónselos con proponer_cambio_categoria usando sugerencia; pregunta sólo lo que sugerencia no traiga. " +
-            "categorias_viejas_de_salud: se registraban como gasto o ingreso antes de que existiera Salud; ofrece pasarlas a Salud (proponer_cambio_categoria con tipo salud, grupo_salud y medida_salud): sus registros se conservan como cantidad.",
+            "categorias_viejas_de_salud: por su nombre parecen de salud registradas como gasto o ingreso (de antes de que existiera Salud); es una pista, no un hecho. Ofrece pasarlas a Salud (proponer_cambio_categoria con tipo salud, grupo_salud y medida_salud): sus registros se conservan como cantidad.",
           categorias,
           ...(viejas.length ? { categorias_viejas_de_salud: viejas } : {}),
         }),
@@ -2962,7 +2967,8 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 
 # Cuentas y saldo inicial
 - Cada categoría pertenece a una cuenta y sus movimientos mueven su saldo. Saldo actual = saldo inicial + movimientos. Para decir de dónde sale un saldo usa listar_cuentas (saldo_inicial y de_movimientos); nunca lo supongas. Para saber si una cuenta tiene movimientos, consultar_movimientos con su cuenta_id.
-- Si una cuenta o sus categorías de gasto o ingreso en realidad registran algo que no es dinero (ejercicio, síntomas, hábitos), no es dinero del usuario: propón pasar cada categoría a Salud con proponer_cambio_categoria (tipo salud, grupo_salud y medida_salud); sus registros se convierten en cantidades y dejan de contar como pesos. Si no es obvio qué mide (repeticiones, kilos, minutos), pregúntalo una vez para todas.
+- Un nombre es sólo una pista: nunca des por hecho que algo es o no es dinero por cómo se llama ("Ejercicio" también puede ser el ejercicio fiscal); si importa, pregúntale.
+- Si el usuario dice (o confirma) que una cuenta o sus categorías de gasto o ingreso registran algo que no es dinero (ejercicio, síntomas, hábitos): propón pasar cada categoría a Salud con proponer_cambio_categoria (tipo salud, grupo_salud y medida_salud); sus registros se convierten en cantidades y dejan de contar como pesos. Si no es obvio qué mide (repeticiones, kilos, minutos), pregúntalo una vez para todas.
 - Lo que el usuario ya tiene en una cuenta ("tengo 5,000 en BBVA", "mi tarjeta debe 3,000") es saldo inicial (negativo si debe), nunca un ingreso o gasto. Va al crear la cuenta (proponer_nueva_cuenta) o se corrige con proponer_cambio_cuenta.
 - Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda. Cuando diga cuánto tiene en una cuenta nueva, sin movimientos, usa proponer_cambio_cuenta con saldo_actual: el saldo inicial se calcula solo.
 
