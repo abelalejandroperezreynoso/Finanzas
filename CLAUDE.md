@@ -17,7 +17,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   correctos como base), revisión diaria proactiva con seguimiento, topes con IA, lectura del saldo desde una captura
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
   categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
-  varios en una sola tarjeta. La IA no borra categorías: le dice al usuario cuáles borrar.
+  varios en una sola tarjeta. Con `proponer_borrar_categoria_o_cuenta` propone borrar una categoría o una
+  cuenta completa (sólo si el usuario lo pide o acepta).
   En salud, `resumen_salud` trae un panorama (qué enfermedades están activas, qué hábitos se
   registran y cómo van) con el que empieza la respuesta general, que termina preguntando en qué
   indagar; además compara cada categoría contra lo normal de la persona, sugiere
@@ -88,8 +89,10 @@ Reglas para el SQL:
 - Las tablas usan RLS; la función `asistente` usa el JWT del usuario, no la
   service role.
 - El asistente de IA solo propone cambios: la app los aplica cuando el usuario
-  toca Confirmar. Lo único que puede proponer borrar son movimientos (`registros`), con una
-  tarjeta que enseña cada uno; nunca categorías, cuentas ni su memoria.
+  toca Confirmar. Puede proponer borrar movimientos (`registros`), con una tarjeta que enseña
+  cada uno, y categorías o cuentas completas con todos sus movimientos: al tocar Borrar, la app
+  vuelve a contar lo que se va y pide otra confirmación con cuántas categorías y movimientos son.
+  Nunca su memoria.
 - Excepción: su memoria (`memoria_ia`, notas sobre el usuario) la guarda y corrige
   sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración. La app
   también anota ahí cuando el usuario cancela la propuesta de un hábito de Salud, para que no se
