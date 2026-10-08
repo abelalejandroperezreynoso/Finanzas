@@ -726,7 +726,11 @@ function habitosParaInvestigar(enf: Json, todasSalud: Json[], k: Catalogo): Json
 // cuenta que no suma al total ("Dolor de cuello" como gasto en Seguimiento). Se proponen convertir.
 function categoriasViejasDeSalud(k: Catalogo): Json[] {
   const fuera = new Set(k.cuentas.filter((c: Json) => c.incluir_en_total === false).map((c: Json) => String(c.id)));
-  return k.categorias.filter((c: Json) => ["gasto", "ingreso"].includes(c.tipo) && fuera.has(String(c.cuenta_id)) && sugerenciaSalud(c, []).grupo_salud);
+  return k.categorias.filter((c: Json) => {
+    if (!["gasto", "ingreso"].includes(c.tipo) || !fuera.has(String(c.cuenta_id))) return false;
+    const cuenta = k.cuentas.find((x: Json) => String(x.id) === String(c.cuenta_id));
+    return !!sugerenciaSalud({ nombre: c.nombre, descripcion: `${c.descripcion ?? ""} ${cuenta?.nombre ?? ""} ${cuenta?.descripcion ?? ""}` }, []).grupo_salud;
+  });
 }
 
 // Grupo y medida probables de una categoría de Salud que no los tiene, por su nombre, su descripción
@@ -921,7 +925,13 @@ async function opcionesSiFalta(sb: SupabaseClient, userId: string, z: Zona, k: C
       .forEach(({ c, pendiente }) => le_deben.push(`${k.etiqueta[String(c.id)] ?? c.nombre}: te debe ${pesos(pendiente)}${c.descripcion ? ` (${String(c.descripcion).slice(0, 80)})` : ""}`));
   }
   const cuentas_fuera_del_total: string[] = [];
-  const fuera = k.cuentas.filter((c: Json) => c.incluir_en_total === false);
+  // Sin las cuentas donde todo es seguimiento de salud registrado como dinero (ejercicio, síntomas)
+  const deSalud = new Set(categoriasViejasDeSalud(k).map((c: Json) => String(c.id)));
+  const esDeSalud = (cuenta: Json) => {
+    const cats = k.categorias.filter((x: Json) => String(x.cuenta_id) === String(cuenta.id) && x.tipo !== "salud");
+    return cats.length > 0 && cats.every((x: Json) => deSalud.has(String(x.id)));
+  };
+  const fuera = k.cuentas.filter((c: Json) => c.incluir_en_total === false && !esDeSalud(c));
   if (fuera.length) {
     const { data: saldos } = await sb.rpc("saldos_cuentas", { p_user_id: userId });
     fuera.forEach((c: Json) => {
@@ -2339,18 +2349,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       (saldos ?? []).forEach((s: Json) => { porCuenta[String(s.id_cuenta)] = Number(s.balance) || 0; });
       // El mismo cálculo que la cifra grande de la app: saldo inicial + movimientos, sólo de las cuentas que cuentan en el total
       const deInversion = new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)));
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      // De dónde sale cada saldo: el modelo decía "es saldo inicial" de uno que era de movimientos
       const filas = catalogo.cuentas.map((c: Json) => [
-        c.id, c.nombre, c.incluir_en_total !== false, Math.round(((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)) * 100) / 100,
-        deInversion.has(String(c.id)),
+        c.id, c.nombre, c.incluir_en_total !== false, r2((Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0)),
+        r2(Number(c.saldo_inicial) || 0), r2(porCuenta[String(c.id)] || 0), deInversion.has(String(c.id)),
       ]);
       const total = filas.filter((f) => f[2]).reduce((t, f) => t + (f[3] as number), 0);
       return {
         texto: recortar({
           saldo_total: Math.round(total * 100) / 100,
-          nota: "saldo_total es la cifra grande que el usuario ve en la app: suma sólo las cuentas con cuenta_en_total = true. " +
+          nota: "saldo_total es la cifra grande que el usuario ve en la app: suma sólo las cuentas con cuenta_en_total = true. saldo = saldo_inicial + de_movimientos. " +
             "En una cuenta de inversión el saldo son sólo los pesos que entraron y salieron (aportaciones y retiros), no lo que vale: suele salir negativo y es normal. " +
             "No lo menciones ni lo uses como dinero disponible; lo que vale está en resumen_inversiones.",
-          cuentas: tabla(["id", "nombre", "cuenta_en_total", "saldo", "es_inversion"], filas),
+          cuentas: tabla(["id", "nombre", "cuenta_en_total", "saldo", "saldo_inicial", "de_movimientos", "es_inversion"], filas),
         }),
       };
     }
@@ -2362,14 +2374,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (entrada.hasta) q = q.lte("fecha", finDeDia(entrada.hasta, zona));
       if (entrada.categoria_id) q = q.eq("categoria_id", entrada.categoria_id);
       if (entrada.texto) q = q.ilike("descripcion", `%${String(entrada.texto).replace(/[%_]/g, "")}%`);
+      // La cuenta va en la consulta misma: filtrar después del límite dejaba vacía una cuenta cuyos
+      // movimientos no estaban entre los más recientes de todas
+      if (entrada.cuenta_id) {
+        const ids = catalogo.categorias.filter((c: Json) => String(c.cuenta_id) === String(entrada.cuenta_id)).map((c: Json) => c.id);
+        if (!ids.length) return { texto: "Esa cuenta no tiene categorías, así que no tiene movimientos." };
+        q = q.in("categoria_id", ids);
+      }
       const { data, error } = await q;
       if (error) return { texto: `Error: ${error.message}`, error: true };
-      let filas = data ?? [];
-      if (entrada.cuenta_id) {
-        const { data: cats } = await sb.from("categorias").select("id").eq("cuenta_id", entrada.cuenta_id);
-        const ids = new Set((cats ?? []).map((c: Json) => String(c.id)));
-        filas = filas.filter((r: Json) => ids.has(String(r.categoria_id)));
-      }
+      const filas = data ?? [];
+      if (!filas.length) return { texto: "No hay movimientos con esos filtros." };
       const conCantidad = filas.some((r: Json) => catalogo.tipo[String(r.categoria_id)] === "salud");
       const conLugar = filas.some((r: Json) => r.lugar);
       // Inversiones: las compras y ventas van en dólares y acciones, con 0 pesos
@@ -2946,7 +2961,8 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 - Si pide que lo guíes: pregunta categoría (las 3 o 4 que más usa) y cuándo (Hoy, Ayer); luego monto y descripción con opciones de sus movimientos anteriores; luego propón. No repitas lo que ya dijo.
 
 # Cuentas y saldo inicial
-- Cada categoría pertenece a una cuenta y sus movimientos mueven su saldo. Saldo actual = saldo inicial + movimientos.
+- Cada categoría pertenece a una cuenta y sus movimientos mueven su saldo. Saldo actual = saldo inicial + movimientos. Para decir de dónde sale un saldo usa listar_cuentas (saldo_inicial y de_movimientos); nunca lo supongas. Para saber si una cuenta tiene movimientos, consultar_movimientos con su cuenta_id.
+- Si una cuenta o sus categorías de gasto o ingreso en realidad registran algo que no es dinero (ejercicio, síntomas, hábitos), no es dinero del usuario: propón pasar cada categoría a Salud con proponer_cambio_categoria (tipo salud, grupo_salud y medida_salud); sus registros se convierten en cantidades y dejan de contar como pesos. Si no es obvio qué mide (repeticiones, kilos, minutos), pregúntalo una vez para todas.
 - Lo que el usuario ya tiene en una cuenta ("tengo 5,000 en BBVA", "mi tarjeta debe 3,000") es saldo inicial (negativo si debe), nunca un ingreso o gasto. Va al crear la cuenta (proponer_nueva_cuenta) o se corrige con proponer_cambio_cuenta.
 - Si no sabe cuánto tiene, crea la cuenta con saldo_pendiente: true; la app se lo recuerda. Cuando diga cuánto tiene en una cuenta nueva, sin movimientos, usa proponer_cambio_cuenta con saldo_actual: el saldo inicial se calcula solo.
 
