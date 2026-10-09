@@ -16299,9 +16299,10 @@
                             }
 
                             // ---- Abrir desde un aviso ----
-                            // El aviso de hábitos de las 9 p.m. trae destino "salud": al tocarlo se abre el chat con
-                            // sus pendientes de Salud. Llega en la dirección (?abrir=salud) si la app estaba cerrada,
-                            // o como mensaje del service worker si estaba abierta. Espera a que carguen los datos.
+                            // Cada aviso trae a dónde lleva: "salud" (hábitos de las 9 p.m.) abre los pendientes de
+                            // Salud; "pagos" (8:00) los de Finanzas con el pago del día primero; "asistente" (un
+                            // recordatorio que pidió) el chat. Llega en la dirección (?abrir=…) si la app estaba
+                            // cerrada, o como mensaje del service worker si estaba abierta. Espera a que carguen los datos.
                             var destinoAviso = null;
                             var datosArranqueListos = false;
                             try {
@@ -16316,16 +16317,19 @@
                                 });
                             }
                             async function atenderDestinoAviso() {
-                                if (destinoAviso !== 'salud' || !datosArranqueListos) return;
+                                const destino = destinoAviso;
+                                if (!['salud', 'pagos', 'asistente'].includes(destino) || !datosArranqueListos) return;
                                 destinoAviso = null;
                                 // Lo de hoy pudo registrarse desde otro teléfono: se lee de nuevo antes de decidir
-                                try { await cargarRegistrosSalud(); } catch (e) { /* con lo que haya */ }
+                                if (destino === 'salud') { try { await cargarRegistrosSalud(); } catch (e) { /* con lo que haya */ } }
                                 if (!document.getElementById('sec-asistente').classList.contains('activa')) abrirAsistente();
-                                if (chatEnviando) return;
-                                grupoPendientes = 'salud';
+                                if (destino === 'asistente' || chatEnviando) { pintarChatAsistente(true); return; }
+                                grupoPendientes = destino === 'salud' ? 'salud' : 'finanzas';
                                 ofrecerContinuar = false;
                                 indicePendiente = 0;
                                 avisosMostrados = avisosDelGrupo(avisosAsistente());
+                                // Con el aviso de pagos se abre directo en el pago del día
+                                if (destino === 'pagos') indicePendiente = Math.max(0, avisosMostrados.findIndex(a => a.etiqueta === 'Pago recurrente'));
                                 if (!avisosMostrados.length) { pintarChatAsistente(true); return; }
                                 pendientesAbiertos = true;
                                 // A media conversación también se enseñan, encima del chat que estaba
@@ -17235,9 +17239,10 @@
                                     // Lo que el plan deja para después sólo se recuerda el día que toca, antes de gastar.
                                     // Si ese día ya pasó y no se registró, va cumpliendo: no hay nada que hacer.
                                     .filter(({ c, dia }) => !(dia < hoy && enPlan(c, dia)))
-                                    // Sólo pagos: los obligatorios y lo que se repite cada dos semanas o más. Un gasto
-                                    // común frecuente (Oxxo, súper, gasolina) se registra al hacerlo, no "toca".
-                                    .filter(({ c, dia }) => c.prioridad === 'operativa' || c.diasRecurrencia >= 14 || enPlan(c, dia))
+                                    // Sólo pagos: los obligatorios, los de fecha fija (los mismos que avisa el teléfono a las
+                                    // 8:00) y lo que se repite cada dos semanas o más. Un gasto común frecuente (Oxxo, súper,
+                                    // gasolina) se registra al hacerlo, no "toca".
+                                    .filter(({ c, dia }) => c.prioridad === 'operativa' || c.esExactoRecurrencia || c.diasRecurrencia >= 14 || enPlan(c, dia))
                                     .sort((a, b) => a.dia.localeCompare(b.dia))
                                     .slice(0, 2)
                                     .forEach(({ c, dia }) => {

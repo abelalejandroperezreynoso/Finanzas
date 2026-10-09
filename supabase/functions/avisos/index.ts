@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
         // Con destino (p. ej. "salud"), tocar el aviso lleva a esa parte de la app y no sólo la abre
         JSON.stringify({
           titulo: String(a.titulo ?? "Finanzas").slice(0, 80), cuerpo: String(a.cuerpo ?? "").slice(0, 300),
-          ...(a.destino === "salud" ? { destino: "salud", url: "./dashboard.html?abrir=salud" } : { url: "./index.html" }),
+          ...(["salud", "pagos", "asistente"].includes(a.destino) ? { destino: a.destino, url: `./dashboard.html?abrir=${a.destino}` } : { url: "./index.html" }),
         }),
         // Si el teléfono está apagado, el aviso se guarda hasta 12 horas; después ya no sirve
         { TTL: 12 * 3600, urgency: "high" },

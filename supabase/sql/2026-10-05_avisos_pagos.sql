@@ -100,7 +100,9 @@ BEGIN
     SELECT jsonb_agg(jsonb_build_object(
                'endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth,
                'titulo', CASE WHEN p.n = 1 THEN 'Hoy toca pagar' ELSE 'Hoy toca pagar ' || p.n || ' cosas' END,
-               'cuerpo', p.texto))
+               'cuerpo', p.texto,
+               -- Al tocarlo, la app abre los pendientes de Finanzas con el pago del día primero
+               'destino', 'pagos'))
     INTO lista
     FROM pagos p
     JOIN suscripciones_push s ON s.user_id = p.user_id;

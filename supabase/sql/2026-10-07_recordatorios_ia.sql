@@ -49,7 +49,9 @@ BEGIN
     )
     SELECT jsonb_agg(jsonb_build_object(
                'endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth,
-               'titulo', 'Recordatorio', 'cuerpo', t.texto))
+               'titulo', 'Recordatorio', 'cuerpo', t.texto,
+               -- Al tocarlo, la app abre el chat del asistente
+               'destino', 'asistente'))
     INTO lista
     FROM tocan t
     JOIN suscripciones_push s ON s.user_id = t.user_id
