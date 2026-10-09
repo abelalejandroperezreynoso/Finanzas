@@ -18321,7 +18321,16 @@
                             // sólo pregunta cuánto y ofrece los montos que más usas; si varía, qué fue y cuánto.
                             function preguntaFinalRegistro(cat, soloMonto) {
                                 if (!cat) return { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Tacos 250' };
-                                if (cat.tipo === 'salud') return soloMonto ? { pregunta: '¿Cuánto?', ejemplo: 'Ej. 1' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Leve 1' };
+                                if (cat.tipo === 'salud') {
+                                    // Según lo que mide la categoría: así la primera vez ya pregunta bien, sin esperar a la IA
+                                    const c = (datosCategorias || []).find(x => String(x.id) === String(cat.id)) || cat;
+                                    const cuanto = c.medida_salud === 'intensidad' ? '¿Qué tan fuerte, del 1 al 10?'
+                                        : c.medida_salud === 'horas' ? '¿Cuántas horas?'
+                                        : c.medida_salud === 'veces' ? '¿Cuántas veces?'
+                                        : c.medida_salud === 'valor' && /^l/i.test(c.unidad_salud || '') ? '¿Cuántos litros?'
+                                        : c.medida_salud === 'valor' && c.unidad_salud ? `¿Cuánto? (${c.unidad_salud})` : '¿Cuánto?';
+                                    return soloMonto ? { pregunta: cuanto, ejemplo: 'Ej. 1' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Leve 1' };
+                                }
                                 if (cat.tipo === 'ingreso') return soloMonto ? { pregunta: '¿Cuánto recibiste?', ejemplo: 'Ej. 5000' } : { pregunta: '¿De qué y cuánto?', ejemplo: 'Ej. Venta 500' };
                                 return soloMonto ? { pregunta: '¿Cuánto fue?', ejemplo: 'Ej. 500' } : { pregunta: '¿Qué fue y cuánto?', ejemplo: 'Ej. Tacos 250' };
                             }
@@ -18480,10 +18489,36 @@
                                     item.preguntas.splice(3);
                                     item.respuestas.splice(3);
                                 }
+                                // Y la pregunta de antes es sólo qué tan fuerte (o cuánto), hecha aquí mismo: si la redactaba
+                                // la IA llegaba tarde, cambiaba la tarjeta ya abierta y volvía a preguntar qué tomó.
+                                // Las opciones son las cantidades que más usa, de sus registros en el teléfono
+                                if (item.medicamento) {
+                                    const veces = new Map();
+                                    (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id)).slice(0, 30).forEach(r => {
+                                        const v = cantidadDeRegistro(r);
+                                        if (v > 0) veces.set(v, (veces.get(v) || 0) + 1);
+                                    });
+                                    const usuales = [...veces.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([v]) => v).sort((a, b) => a - b);
+                                    const unidad = c.medida_salud === 'valor' && c.unidad_salud ? ` (${c.unidad_salud})` : '';
+                                    Object.assign(q, {
+                                        pregunta: c.medida_salud === 'intensidad' ? '¿Qué tan fuerte, del 1 al 10?' : c.medida_salud === 'veces' ? '¿Cuántas veces?' : `¿Cuánto?${unidad}`,
+                                        ejemplo: c.medida_salud === 'intensidad' ? 'Ej. 3, amanecí mejor' : 'Ej. 1',
+                                        opciones: usuales.map(v => fCantidadSalud(v))
+                                    });
+                                    return;
+                                }
                                 const claveIa = c ? [normRegistro(c.nombre), c.tipo, normRegistro(c.descripcion), c.medida_salud || '', c.unidad_salud || ''].join('|') : '';
                                 const porNombre = !!c && SOLO_MONTO_REGISTRO.test(c.nombre || '');
                                 let ia = c ? leerPreguntasRegistro()[claveIa] || null : null;
-                                let movs = [];
+                                // En Salud el historial ya está en el teléfono (datosSalud, completo): se usa desde el
+                                // principio y la tarjeta no se redibuja cuando llega de la base
+                                const historialLocal = !!c && c.tipo === 'salud' && c.id !== null;
+                                let movs = historialLocal
+                                    ? (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id)).slice(0, 40).map(r => ({
+                                        desc: String(r.descripcion || '').replace(/\s+/g, ' ').trim(),
+                                        valor: Math.round(cantidadDeRegistro(r) * 100) / 100
+                                    })).filter(m => m.valor > 0)
+                                    : [];
                                 const fmt = v => c && c.tipo === 'salud' ? fCantidadSalud(v) : `$${v.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
 
                                 const aplicar = () => {
@@ -18530,7 +18565,7 @@
 
                                 // Lo que se registró antes en esa categoría
                                 const historial = (async () => {
-                                    if (c.id === null) return;
+                                    if (c.id === null || historialLocal) return;
                                     try {
                                         const { data } = await clienteSupabase.from('registros').select('descripcion, monto, cantidad')
                                             .eq('categoria_id', c.id).order('fecha', { ascending: false }).limit(40);
@@ -18564,6 +18599,8 @@
                                     guardarPreguntaRegistro(claveIa, nueva);
                                     if (!vigente()) return;
                                     if (item.respuestas[2].opcion !== null) return;
+                                    // Ya la está viendo: cambiarle la pregunta enfrente parecía otra tarjeta. Queda para la próxima
+                                    if (preguntasPendientesAsistente() === item && (item.actual || 0) === 2) return;
                                     ia = nueva;
                                     aplicar();
                                     refrescarPreguntaRegistro(item);
