@@ -7060,6 +7060,9 @@
                                                                 // completa ahora con lo que depende de los datos
                                                                 categoriasParaRegistro();
                                                                 if (document.getElementById('sec-asistente').classList.contains('activa') && !document.getElementById('splashCarga')) pintarChatAsistente(true);
+                                                                // Si se abrió tocando un aviso, ahora que hay datos se va a lo que avisa
+                                                                datosArranqueListos = true;
+                                                                if (typeof atenderDestinoAviso === 'function') atenderDestinoAviso();
 
                                                                 // El histórico de precios va detrás del arranque y sin retenerlo: son dos
                                                                 // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
@@ -16295,6 +16298,41 @@
                                 } catch (e) { /* lleno o sin almacenamiento: la conversación sigue en memoria */ }
                             }
 
+                            // ---- Abrir desde un aviso ----
+                            // El aviso de hábitos de las 9 p.m. trae destino "salud": al tocarlo se abre el chat con
+                            // sus pendientes de Salud. Llega en la dirección (?abrir=salud) si la app estaba cerrada,
+                            // o como mensaje del service worker si estaba abierta. Espera a que carguen los datos.
+                            var destinoAviso = null;
+                            var datosArranqueListos = false;
+                            try {
+                                const abrir = new URLSearchParams(location.search).get('abrir');
+                                if (abrir) { destinoAviso = abrir; history.replaceState(null, '', location.pathname); }
+                            } catch (e) { /* sin dirección que leer */ }
+                            if ('serviceWorker' in navigator) {
+                                navigator.serviceWorker.addEventListener('message', (evento) => {
+                                    if (!evento.data || evento.data.tipo !== 'abrir-aviso') return;
+                                    destinoAviso = evento.data.destino;
+                                    atenderDestinoAviso();
+                                });
+                            }
+                            async function atenderDestinoAviso() {
+                                if (destinoAviso !== 'salud' || !datosArranqueListos) return;
+                                destinoAviso = null;
+                                // Lo de hoy pudo registrarse desde otro teléfono: se lee de nuevo antes de decidir
+                                try { await cargarRegistrosSalud(); } catch (e) { /* con lo que haya */ }
+                                if (!document.getElementById('sec-asistente').classList.contains('activa')) abrirAsistente();
+                                if (chatEnviando) return;
+                                grupoPendientes = 'salud';
+                                ofrecerContinuar = false;
+                                indicePendiente = 0;
+                                avisosMostrados = avisosDelGrupo(avisosAsistente());
+                                if (!avisosMostrados.length) { pintarChatAsistente(true); return; }
+                                pendientesAbiertos = true;
+                                // A media conversación también se enseñan, encima del chat que estaba
+                                pendienteEnCurso = chatUi.length > 0;
+                                pintarPreguntasAsistente();
+                            }
+
                             function abrirAsistente() {
                                 alertaRobotVista = false;
                                 reajustarAsistente();
@@ -17243,7 +17281,8 @@
                                 categoriasSalud().forEach(c => {
                                     const suyos = (datosSalud || []).filter(r => String(r.categoria_id) === String(c.id));
                                     const diasCat = [...new Set(suyos.map(r => diaLocal(r.fecha)))].sort();
-                                    const diarioPorNombre = DIARIO_SALUD.test(c.nombre || '');
+                                    // También los que tienen el aviso diario de las 9 p.m. (recordar_diario)
+                                    const diarioPorNombre = DIARIO_SALUD.test(c.nombre || '') || c.recordar_diario === true;
                                     const esSueno = /dorm|sue[ñn]o|descans/i.test(c.nombre);
                                     if (!diasCat.length && !diarioPorNombre) return;
                                     const tiene = new Set(diasCat);

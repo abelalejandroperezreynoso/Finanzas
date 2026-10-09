@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v293';
+const CACHE_NAME = 'gastos-app-v294';
 
 // Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
 // cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
@@ -201,20 +201,24 @@ self.addEventListener('push', (event) => {
         body: datos.cuerpo || '',
         icon: './icono-192.png',
         badge: './icono-192.png',
-        // Un aviso nuevo de pagos reemplaza al anterior en vez de apilarse
-        tag: 'pagos',
-        data: { url: datos.url || './index.html' }
+        // Un aviso nuevo reemplaza al anterior del mismo tipo en vez de apilarse (pagos y salud van aparte)
+        tag: datos.destino || 'pagos',
+        data: { url: datos.url || './index.html', destino: datos.destino || null }
     }));
 });
 
 // Al tocar el aviso se abre la app, o se trae al frente si ya estaba abierta
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const url = (event.notification.data && event.notification.data.url) || './index.html';
+    const datos = event.notification.data || {};
+    const url = datos.url || './index.html';
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
             const abierta = ventanas.find((v) => 'focus' in v);
-            return abierta ? abierta.focus() : self.clients.openWindow(url);
+            if (!abierta) return self.clients.openWindow(url);
+            // Ya abierta: se trae al frente y se le dice a dónde ir (p. ej. los pendientes de Salud)
+            if (datos.destino) abierta.postMessage({ tipo: 'abrir-aviso', destino: datos.destino });
+            return abierta.focus();
         })
     );
 });

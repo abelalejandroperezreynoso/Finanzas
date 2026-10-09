@@ -35,7 +35,8 @@ BEGIN
     SELECT jsonb_agg(jsonb_build_object(
                'endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth,
                'titulo', CASE WHEN f.n = 1 THEN 'Hoy te falta registrar' ELSE 'Hoy te faltan ' || f.n || ' registros' END,
-               'cuerpo', f.nombres))
+               'cuerpo', f.nombres,
+               'destino', 'salud'))
     INTO lista
     FROM faltan f
     JOIN suscripciones_push s ON s.user_id = f.user_id;

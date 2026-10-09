@@ -76,7 +76,11 @@ Deno.serve(async (req) => {
     try {
       const r = await webpush.sendNotification(
         { endpoint: String(a.endpoint), keys: { p256dh: String(a.p256dh), auth: String(a.auth) } },
-        JSON.stringify({ titulo: String(a.titulo ?? "Finanzas").slice(0, 80), cuerpo: String(a.cuerpo ?? "").slice(0, 300), url: "./index.html" }),
+        // Con destino (p. ej. "salud"), tocar el aviso lleva a esa parte de la app y no sólo la abre
+        JSON.stringify({
+          titulo: String(a.titulo ?? "Finanzas").slice(0, 80), cuerpo: String(a.cuerpo ?? "").slice(0, 300),
+          ...(a.destino === "salud" ? { destino: "salud", url: "./dashboard.html?abrir=salud" } : { url: "./index.html" }),
+        }),
         // Si el teléfono está apagado, el aviso se guarda hasta 12 horas; después ya no sirve
         { TTL: 12 * 3600, urgency: "high" },
       );
