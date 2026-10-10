@@ -16372,6 +16372,7 @@
                                 chatUi = [];
                                 pendienteEnCurso = false;
                                 ofrecerContinuar = false;
+                                ofrecerAlgoMas = false;
                                 pendientesAbiertos = false;
                                 semillaSaludo = Math.random();
                                 // La caja de escribir también empieza vacía: sin texto ni adjuntos de antes
@@ -16737,6 +16738,7 @@
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
                                 const adjuntos = chatAdjuntos.slice();
                                 if ((!texto && !adjuntos.length) || chatEnviando) return;
+                                ofrecerAlgoMas = false;
                                 if (campo) { campo.value = ''; campo.style.height = 'auto'; }
                                 chatAdjuntos = [];
                                 pintarAdjuntosAsistente();
@@ -17593,6 +17595,41 @@
                             var indicePendiente = 0;
                             var pendienteEnCurso = false;   // la conversación empezó desde un pendiente
                             var ofrecerContinuar = false;   // preguntar si seguimos con los demás
+                            var ofrecerAlgoMas = false;     // tras confirmar un cambio: "¿Te ayudo con algo más?"
+                            // Opciones rápidas para seguir, sin gastar IA; escribir manda el mensaje como siempre
+                            function tarjetaAlgoMasHtml() {
+                                const flecha = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>';
+                                const hayPendientes = avisosAsistente().length > 0;
+                                return `
+                                    <div class="cp-cabecera">
+                                        <div class="cp-nav"></div>
+                                        <button type="button" class="cp-cerrar" aria-label="Cerrar" onclick="algoMasAsistente('nada')">
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <div class="cp-titulo">¿Te ayudo con algo más?</div>
+                                    <button type="button" class="cp-opcion" onclick="algoMasAsistente('registrar')"><span>Registrar otra cosa</span>${flecha}</button>
+                                    ${hayPendientes ? `<button type="button" class="cp-opcion" onclick="algoMasAsistente('pendientes')"><span>Ver pendientes</span>${flecha}</button>` : ''}
+                                    <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="algoMasAsistente('nada')"><span>Es todo, gracias</span></button>
+                                    <div class="cp-escribir">
+                                        <input type="text" class="cp-otra" id="cpAlgoMasTexto" placeholder="Escribe lo que necesites…"
+                                            oninput="document.getElementById('cpAlgoMasEnviar').classList.toggle('vacio', !this.value.trim())"
+                                            onkeydown="if (event.key === 'Enter') { event.preventDefault(); algoMasAsistente('escribir'); }">
+                                        <button type="button" id="cpAlgoMasEnviar" class="cp-enviar vacio" aria-label="Enviar" onclick="algoMasAsistente('escribir')">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                                        </button>
+                                    </div>`;
+                            }
+                            function algoMasAsistente(accion) {
+                                const campo = document.getElementById('cpAlgoMasTexto');
+                                const texto = campo ? campo.value.trim() : '';
+                                if (accion === 'escribir' && !texto) return;
+                                ofrecerAlgoMas = false;
+                                if (accion === 'registrar') return abrirRegistroAsistente();
+                                if (accion === 'pendientes') { pendienteEnCurso = true; return abrirPendientesAsistente(null); }
+                                if (accion === 'escribir') return enviarMensajeAsistente(texto);
+                                pintarChatAsistente(true);
+                            }
                             function tarjetaContinuarHtml() {
                                 const n = avisosMostrados.length;
                                 const deSalud = grupoPendientes === 'salud';
@@ -18203,9 +18240,11 @@
                                 const verPendientes = libre && pendientesAbiertos;
                                 const verOferta = !item && !chatEnviando && !pendientesAbiertos && ofrecerContinuar && chatUi.length > 0
                                     && (libre || pendienteEnCurso);
-                                seccion.classList.toggle('con-preguntas', !!item || verPendientes || verOferta);
+                                const verAlgoMas = !item && !chatEnviando && !verPendientes && !verOferta && ofrecerAlgoMas && chatUi.length > 0;
+                                seccion.classList.toggle('con-preguntas', !!item || verPendientes || verOferta || verAlgoMas);
                                 if (verPendientes) { caja.innerHTML = tarjetaPendienteHtml(); return; }
                                 if (verOferta) { caja.innerHTML = tarjetaContinuarHtml(); return; }
+                                if (verAlgoMas) { caja.innerHTML = tarjetaAlgoMasHtml(); return; }
                                 if (!item) { caja.innerHTML = ''; return; }
                                 const n = item.preguntas.length;
                                 const k = Math.min(Math.max(item.actual || 0, 0), n - 1);
@@ -18972,6 +19011,7 @@
                                     chatUi.push({ rol: 'error', texto: res.avisos ? res.error.message : explicarFalloAlGuardar(res.error, 'el cambio') });
                                 } else {
                                     m.estado = 'aplicada';
+                                    if (!pendienteEnCurso && !chatUi.some(x => x.rol === 'propuesta' && x.estado === 'pendiente')) ofrecerAlgoMas = true;
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }]) });
                                     refrescarTodo().catch(e => console.warn('Refrescar tras el asistente', e));
                                 }
