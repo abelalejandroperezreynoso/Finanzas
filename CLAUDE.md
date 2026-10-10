@@ -115,6 +115,8 @@ Reglas para el SQL:
   las inversiones; un gasto sin prioridad no se mueve. `proponer_prioridades` clasifica varios en
   una tarjeta. Los pendientes de "Pago recurrente" son sólo para pagos (obligatorios o que se
   repiten cada 14 días o más), no para gastos comunes frecuentes como Oxxo.
+  En esos pendientes, "Retrasarlo" guarda `categorias.posponer_a`: el pago de ese ciclo se espera
+  ese día (pendiente, pronóstico y aviso de las 8:00); `ignorar_hasta` en cambio salta el ciclo.
 
 ## Antes de subir
 

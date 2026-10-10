@@ -9000,6 +9000,12 @@
                                 }
                             }
                             // -------------------------------
+                            // Retrasado ("Retrasarlo" en el pendiente): el pago de este ciclo se espera el día que eligió.
+                            // Ya registrado, el siguiente ciclo cae después de esa fecha y esto deja de aplicar
+                            if (catActual && catActual.posponer_a && proxFecha) {
+                                const retrasadoA = new Date(catActual.posponer_a + 'T12:00:00');
+                                if (proxFecha < retrasadoA) proxFecha = retrasadoA;
+                            }
                             siguienteFechaMap[catId] = proxFecha;
                             }
                             }
@@ -17268,6 +17274,7 @@
                                             clave, categoria_id: c.id, etiqueta: 'Pago recurrente', texto: `${cuando} ${dia < hoy ? 'tocaba' : 'toca'} ${c.nombre}${monto}.`,
                                             detalle: '¿Ya quedó?',
                                             primario: { texto: 'Ya quedó', mensaje: `${cuando} tocaba ${c.nombre}${monto} y ya quedó. Propónme registrarlo; pregúntame el monto exacto si hace falta.` },
+                                            retrasar: { categoria_id: c.id, nombre: c.nombre },
                                             secundario: { texto: 'Todavía no', dias: 1 }
                                         });
                                     });
@@ -17648,6 +17655,7 @@
                                     ${a.cortada && avisosMostrados.filter(x => x.cortada).length > 1
                                         ? `<button type="button" class="cp-opcion" onclick="completarCortadasAsistente()"><span>Completar todas (${avisosMostrados.filter(x => x.cortada).length})</span>${flecha('M9 18l6-6-6-6')}</button>`
                                         : ''}
+                                    ${a.retrasar ? `<button type="button" class="cp-opcion" onclick="retrasarAvisoAsistente(${k})"><span>Retrasarlo</span>${flecha('M9 18l6-6-6-6')}</button>` : ''}
                                     <button type="button" class="cp-opcion" style="color: #5e5d59;" onclick="descartarAvisoAsistente(${k})"><span>${escaparHtml(a.secundario.texto)}</span></button>
                                     <div class="cp-escribir">
                                         <input type="text" class="cp-otra" id="cpPendienteTexto" placeholder="Escribe otra respuesta…"
@@ -17741,6 +17749,33 @@
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
                                 marcarHallazgoIa(a, 'descartado');
                                 pintarChatAsistente(true);
+                            }
+
+                            // Retrasar un pago: se elige para cuándo, se guarda en la categoría (posponer_a) y el pago se
+                            // espera ese día: el pendiente se va, el pronóstico lo cuenta ese día y el aviso de las 8:00 llega ese día
+                            async function retrasarAvisoAsistente(i) {
+                                const a = avisosMostrados[i];
+                                if (!a || !a.retrasar) return;
+                                const dias = [1, 3, 7];
+                                const k = await alertaIos({
+                                    titulo: `¿Para cuándo ${a.retrasar.nombre}?`,
+                                    mensaje: 'Lo espero ese día y te aviso entonces.',
+                                    botones: [{ texto: 'Mañana' }, { texto: 'En 3 días' }, { texto: 'En una semana' }, { texto: 'Cancelar', estilo: 'cancelar' }]
+                                });
+                                if (!(k >= 0 && k < dias.length)) return;
+                                const nueva = new Date();
+                                nueva.setHours(12, 0, 0, 0);
+                                nueva.setDate(nueva.getDate() + dias[k]);
+                                const { error } = await clienteSupabase.from('categorias').update({ posponer_a: diaLocal(nueva) }).eq('id', a.retrasar.categoria_id);
+                                if (error) {
+                                    await alertaIos({ titulo: 'No se pudo retrasar', mensaje: explicarFalloAlGuardar(error, 'el cambio') });
+                                    return;
+                                }
+                                // Al momento en el teléfono; lo demás (pronóstico, aviso de las 8:00) se recalcula detrás
+                                const cat = (datosCategorias || []).find(c => String(c.id) === String(a.retrasar.categoria_id));
+                                if (cat) { cat.posponer_a = diaLocal(nueva); cat.siguienteFechaRecurrencia = nueva; }
+                                pintarChatAsistente(true);
+                                refrescarTodo().catch(e => console.warn('Refrescar tras retrasar', e));
                             }
 
                             function tomarAvisoAsistente(i, mensajePropio) {
