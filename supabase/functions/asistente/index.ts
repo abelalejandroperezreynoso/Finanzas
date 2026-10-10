@@ -230,7 +230,7 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         categoria_id: { type: "string" },
         nombre: { type: "string" },
-        descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
+        descripcion: { type: "string", description: "Qué es, completa y concisa, sin datos que cambian (montos, fechas, últimos cargos, cuántas veces, prioridad): se guarda fija y se quedaría vieja; máximo 400 caracteres" },
         prioridad: { type: "string", enum: ["operativa", "vital", "util", "prescindible"], description: "Sólo en gastos. operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: con fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio)" },
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: la lista completa de sus sectores propios para la empresa (reemplaza los que tenga)" },
@@ -255,7 +255,7 @@ const HERRAMIENTAS: Json[] = [
         nombre: { type: "string" },
         saldo_inicial: { type: "number", description: "Dinero que había en la cuenta antes de su primer movimiento registrado (puede ser negativo, por ejemplo en una tarjeta de crédito)" },
         saldo_actual: { type: "number", description: "Lo que el usuario dice que hay HOY en la cuenta (negativo si debe). Se usa en vez de saldo_inicial: el saldo inicial se calcula restando los movimientos ya registrados" },
-        descripcion: { type: "string", description: "Completa y concisa, máximo 400 caracteres" },
+        descripcion: { type: "string", description: "Qué es, completa y concisa, sin datos que cambian (montos, fechas, últimos cargos, cuántas veces, prioridad): se guarda fija y se quedaría vieja; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -275,7 +275,7 @@ const HERRAMIENTAS: Json[] = [
         saldo_inicial: { type: "number", description: "Lo que hay hoy en la cuenta (negativo si debe, como en una tarjeta de crédito)" },
         saldo_pendiente: { type: "boolean", description: "true si el usuario no sabe ahora cuánto tiene: la cuenta se crea en 0 y queda como pendiente para ponerlo después" },
         incluir_en_total: { type: "boolean", description: "Si suma al saldo total del usuario (true salvo que diga lo contrario)" },
-        descripcion: { type: "string", description: "Qué es la cuenta, en palabras del usuario; máximo 400 caracteres" },
+        descripcion: { type: "string", description: "Qué es la cuenta, en palabras del usuario; sin datos que cambian (montos, fechas, últimos cargos, cuántas veces, prioridad): se guarda fija y se quedaría vieja; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -304,7 +304,7 @@ const HERRAMIENTAS: Json[] = [
         unidad_salud: { type: "string", description: "Sólo con medida valor (obligatoria): la unidad, corta (\"°C\", \"mg/dL\", \"kg\", \"%\", \"lpm\")" },
         recordar_diario: { type: "boolean", description: "Sólo salud: true en un hábito de todos los días (agua, sueño, estrés…): a las 9 p.m. le llega un aviso si ese día no lo registró" },
         prioridad: { type: "string", enum: ["operativa", "vital", "util", "prescindible"], description: "Sólo en gastos. operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: con fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio)" },
-        descripcion: { type: "string", description: "Qué entra en la categoría; máximo 400 caracteres" },
+        descripcion: { type: "string", description: "Qué entra en la categoría; sin datos que cambian (montos, fechas, últimos cargos, cuántas veces, prioridad): se guarda fija y se quedaría vieja; máximo 400 caracteres" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -3312,6 +3312,7 @@ Calendario (úsalo para los días de la semana; no los calcules): ${calendarioCe
 - En español de México, de tú (nunca voseo: "pagas", no "pagás"), claro y breve, como en un chat. No supongas su género: "Te doy la bienvenida", no "Bienvenido". Listas cortas si ayudan y **negritas** para las cifras clave. Nunca escribas tablas: para enseñar movimientos usa mostrar_movimientos.
 - Fechas como se dicen, contando desde hoy: hoy, ayer, antier, mañana, "el sábado" (en los últimos o próximos 6 días), "el lunes pasado", "la semana pasada", "este mes", "el mes pasado", "el 28 del mes pasado". La fecha completa sólo si es de hace más de dos meses o si la pide.
 - No le repitas las descripciones de sus cuentas o categorías: son contexto para ti y ya sabe qué son.
+- La descripción de una categoría o cuenta dice qué es y qué entra ("Suscripciones de streaming: Netflix, HBO, Apple TV"), nunca datos que cambian: ni montos, ni fechas, ni últimos cargos, ni la prioridad (tiene su propio campo). Se guarda fija y nadie la actualiza; esas cifras las sacas de los movimientos cuando hagan falta. Si una descripción ya trae datos así, propón quitarlos.
 - Nunca preguntes en el texto. Para preguntar o para ofrecer alternativas (nombres, montos, categorías, qué hacer después) usa preguntar_al_usuario, con una o dos frases de contexto antes y sin repetir las opciones. Pregunta sólo lo que no puedas deducir.
 - Antes de afirmar cifras, consúltalas con las herramientas; no inventes ni hagas sumas que una herramienta ya trae. Las cuentas y categorías ya están al final de estas instrucciones, sin saldos. Nunca digas un saldo sin llamar antes a listar_cuentas en ese turno: su saldo_total es el saldo total que el usuario ve en la app (no lo recalcules ni le sumes cuentas que no cuentan en el total).
 - Todo cambio va con una herramienta proponer_* (o programar_recordatorio): deja una tarjeta que el usuario confirma. Después di qué propusiste y que lo confirme ("Te dejé la aportación para confirmar"); nunca digas "listo", "registré", "guardé" ni que ya quedó hecho.
