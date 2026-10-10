@@ -18834,6 +18834,14 @@
                                         ? { falta: `Primero confirma la categoría "${categoria_nueva}".` }
                                         : await clienteSupabase.from('registros').insert([{ ...datos, fecha: fechaDeDiaLocal(datos.fecha, hora), user_id: currentUser.id }]).select('id');
                                     if (!res.error && !res.falta && en_el_momento) anotarUbicacion((res.data || []).map(r => r.id)).catch(() => {});
+                                    // De Salud: entra ya a lo que tiene el teléfono, para que sus pendientes ("¿Cómo sigues?",
+                                    // "¿Cuánto dormiste?") se quiten al instante y no hasta que termine de recargar todo
+                                    if (!res.error && !res.falta && esCategoriaSalud(datos.categoria_id)) {
+                                        (res.data || []).forEach(r => datosSalud.unshift({
+                                            id: r.id, categoria_id: datos.categoria_id, fecha: fechaDeDiaLocal(datos.fecha, hora),
+                                            cantidad: datos.cantidad, descripcion: datos.descripcion || null
+                                        }));
+                                    }
                                 } else if (p.tipo === 'movimiento_inversion') {
                                     // Las mismas reglas que el formulario: la aportación y el retiro van en la Caja GBM
                                     // de la cuenta (se crea si falta) y se avisa si la caja o las acciones no alcanzan
