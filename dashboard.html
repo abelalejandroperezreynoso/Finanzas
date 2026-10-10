@@ -17572,6 +17572,17 @@
                             var ofrecerContinuar = false;   // preguntar si seguimos con los demás
                             function tarjetaContinuarHtml() {
                                 const n = avisosMostrados.length;
+                                const deSalud = grupoPendientes === 'salud';
+                                if (!n) return `
+                                    <div class="cp-cabecera">
+                                        <div class="cp-nav"></div>
+                                        <button type="button" class="cp-cerrar" aria-label="Cerrar" onclick="ofrecerContinuar = false; pendienteEnCurso = false; pintarChatAsistente(true);">
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <div class="cp-titulo">${deSalud ? 'Listo, terminamos lo de salud' : 'Listo, no quedan pendientes'}</div>
+                                    <div class="cp-detalle">${deSalud ? 'No queda nada por registrar hoy.' : 'Todo está al día.'}</div>
+                                    <button type="button" class="cp-opcion" style="border-bottom: none;" onclick="ofrecerContinuar = false; pendienteEnCurso = false; pintarChatAsistente(true);"><span>Cerrar</span></button>`;
                                 return `
                                     <div class="cp-cabecera">
                                         <div class="cp-nav"></div>
@@ -17750,7 +17761,6 @@
                                 // atendidos: se van solos cuando el registro de ese día queda guardado, así que si
                                 // se cierra la tarjeta a medias el pendiente sigue ahí
                                 if (a.registrar && !mensajePropio) {
-                                    pendienteEnCurso = false;
                                     abrirRegistroAsistente(a.registrar);
                                     return;
                                 }
@@ -18140,7 +18150,8 @@
                                 if (!item && !chatEnviando && chatUi.length && pendienteEnCurso && (pendientesAbiertos || ofrecerContinuar)) avisosMostrados = avisosDelGrupo(avisosAsistente());
                                 const libre = !item && !chatEnviando && avisosMostrados.length > 0 && (chatUi.length === 0 || pendienteEnCurso);
                                 const verPendientes = libre && pendientesAbiertos;
-                                const verOferta = libre && !pendientesAbiertos && ofrecerContinuar && chatUi.length > 0;
+                                const verOferta = !item && !chatEnviando && !pendientesAbiertos && ofrecerContinuar && chatUi.length > 0
+                                    && (libre || pendienteEnCurso);
                                 seccion.classList.toggle('con-preguntas', !!item || verPendientes || verOferta);
                                 if (verPendientes) { caja.innerHTML = tarjetaPendienteHtml(); return; }
                                 if (verOferta) { caja.innerHTML = tarjetaContinuarHtml(); return; }
@@ -18649,6 +18660,7 @@
                                 // La del registro no vino de la IA: se quita sin dejar rastro
                                 if (item.registro) {
                                     chatUi.splice(chatUi.indexOf(item), 1);
+                                    if (!chatUi.length) pendienteEnCurso = false;
                                     pintarChatAsistente(true);
                                     return;
                                 }
