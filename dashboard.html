@@ -12860,7 +12860,8 @@
                                     if (!dia) return;
                                     const n = cantidadDeRegistro(r);
                                     if (dentro(dia, ini, fin)) {
-                                        x.dias.add(dia);
+                                        // Un registro en 0 ("No hubo") entra en los totales pero no es un día con eso
+                                        if (n > 0) x.dias.add(dia);
                                         x.registros.push({ dia, n });
                                     } else if (iniPrev && dentro(dia, iniPrev, finPrev)) {
                                         x.registrosPrevios.push({ dia, n });
@@ -17345,6 +17346,9 @@
                                                 : dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
                                         }
                                         secundario = { texto: 'No hubo', dias: null };
+                                        // En un hábito (no en el sueño ni en una enfermedad), "No hubo" se guarda como registro en 0:
+                                        // así el asistente sabe que ese día no hubo y el otro teléfono deja de preguntar
+                                        if (!esSueno && !esEnfermedadSalud(c)) secundario.registrarCero = { categoria_id: c.id, dia };
                                     } else if (conCalendario) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
                                         if (toca > hoy) return;
@@ -17796,6 +17800,7 @@
                             function descartarAvisoAsistente(i) {
                                 const a = avisosMostrados[i];
                                 if (!a) return;
+                                if (a.secundario.registrarCero) return registrarNoHuboAsistente(a);
                                 if (a.secundario.mensaje) return tomarAvisoAsistente(i, a.secundario.mensaje);
                                 const descartados = avisosDescartados();
                                 descartados[a.clave] = a.secundario.dias ? Date.now() + a.secundario.dias * 86400000 : 0;
@@ -17829,6 +17834,22 @@
                                 if (cat) { cat.posponer_a = diaLocal(nueva); cat.siguienteFechaRecurrencia = nueva; }
                                 pintarChatAsistente(true);
                                 refrescarTodo().catch(e => console.warn('Refrescar tras retrasar', e));
+                            }
+
+                            // "No hubo" en un hábito: un registro en 0 ese día (a mediodía, lejos de la medianoche). Entra al
+                            // momento a lo que tiene el teléfono para que el pendiente se vaya; si falla, se avisa y no se descarta
+                            async function registrarNoHuboAsistente(a) {
+                                const { categoria_id, dia } = a.secundario.registrarCero;
+                                const fecha = fechaDeDiaLocal(dia, '12:00');
+                                const { data, error } = await clienteSupabase.from('registros')
+                                    .insert([{ categoria_id, fecha, monto: 0, cantidad: 0, descripcion: 'No hubo', user_id: currentUser.id }]).select('id');
+                                if (error) {
+                                    await alertaIos({ titulo: 'No se pudo guardar', mensaje: explicarFalloAlGuardar(error, 'el registro') });
+                                    return;
+                                }
+                                (data || []).forEach(r => datosSalud.unshift({ id: r.id, categoria_id, fecha, cantidad: 0, descripcion: 'No hubo' }));
+                                pintarChatAsistente(true);
+                                refrescarTodo().catch(e => console.warn('Refrescar tras No hubo', e));
                             }
 
                             function tomarAvisoAsistente(i, mensajePropio) {

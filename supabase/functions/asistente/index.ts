@@ -1485,8 +1485,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const prom = (xs: number[]) => xs.length ? r1(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
       const SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
       // Días con registro de cada categoría (un día cuenta una vez aunque tenga varios registros)
+      // Días "con" cada categoría: un registro en 0 es "no hubo" (el usuario lo dijo), no cuenta como día con eso
       const diasDeCat: Record<string, Set<string>> = {};
-      movs.forEach((r: Json) => { (diasDeCat[String(r.categoria_id)] ??= new Set()).add(fechaLocal(r.fecha, zona).slice(0, 10)); });
+      const diasNoHubo: Record<string, Set<string>> = {};
+      movs.forEach((r: Json) => {
+        const d = fechaLocal(r.fecha, zona).slice(0, 10);
+        if ((Number(r.cantidad) || 0) > 0) (diasDeCat[String(r.categoria_id)] ??= new Set()).add(d);
+        else (diasNoHubo[String(r.categoria_id)] ??= new Set()).add(d);
+      });
       const ultimos90 = Array.from({ length: 90 }, (_, k) => hace(k));
       const masUnDia = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
       // La cantidad de cada día por categoría, según su medida (horas y veces se suman; intensidad y valor se promedian)
@@ -1513,7 +1519,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const dias = ultimos90.filter((d) => d >= desde && d < hoyL);
           if (h.medida_salud === "veces" && !h.recordar_diario) {
             // Con el hábito ese día, ¿hubo más enfermedad ese día o al siguiente?
-            const conH = dias.filter((d) => valores.has(d)), sinH = dias.filter((d) => !valores.has(d));
+            const conH = dias.filter((d) => (valores.get(d) ?? 0) > 0), sinH = dias.filter((d) => !((valores.get(d) ?? 0) > 0));
             if (conH.length < 5 || sinH.length < 5) return null;
             const tasa = (ds: string[]) => Math.round(100 * ds.filter((d) => diasEnf.has(d) || diasEnf.has(masUnDia(d, 1))).length / ds.length);
             const a = tasa(conH), b = tasa(sinH);
@@ -1672,6 +1678,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             };
           })() : {}),
           ...(cambio && esHabito ? { cambio } : {}),
+          // Días que registró "no hubo" (cantidad 0): no es que dejara de registrar
+          ...(esHabito && diasNoHubo[id] ? { dias_no_hubo_ultimos_30: [...diasNoHubo[id]].filter((d) => d >= hace(29)).length } : {}),
         };
       });
       if (!categorias.length) return { texto: "No hay registros de Salud en los últimos 4 meses." };
@@ -3390,6 +3398,7 @@ Cuando pregunte por una enfermedad, un síntoma o un hábito en concreto (o elij
 - Contesta cómo va en ese mismo turno aunque a alguna categoría le falten grupo o medida: resumen_salud ya trae sus cifras. En el mismo turno propón con proponer_cambio_categoria el grupo y la medida que falten, tomados de sugerencia. Sólo lo que sugerencia no traiga (y no diga la descripción) se pregunta, todo en una sola llamada a preguntar_al_usuario; con la respuesta propón la tarjeta y, si no tenía descripción, también la descripción.
 - Al registrar un síntoma con medida intensidad: si no dijo qué tan fuerte, pregúntalo con preguntar_al_usuario antes de proponer; las pastillas y lo demás van en la descripción, nunca como cantidad.
 - Si te cuenta qué medicamento toma o algo duradero de su salud ("mi analgésico tiene cafeína"), guárdalo con recordar (tema contexto) y úsalo al investigar: la cafeína de una pastilla también cuenta.
+- En un hábito, un registro con cantidad 0 es "no hubo" (lo registró a propósito, p. ej. un día sin cafeína): cuenta como día sin el hábito, nunca como olvido ni como día con él. dias_no_hubo_ultimos_30 dice cuántos.
 - Medicamentos: si un padecimiento trae medicamento sin datos y tu memoria no dice qué toma para él (o te pide contarte qué toma), pregúntale con preguntar_al_usuario, en una sola tarjeta: qué toma cuando le da (opciones con los que se usan comúnmente para eso, sólo para contestar rápido, más "Nada"), y qué tomaba antes y si le funcionaba. Guarda la respuesta con recordar (tema contexto), por ejemplo "Para la Migraña toma Actron Plus; antes tomaba paracetamol y no le hacía efecto". Si trae con_y_sin, dilo como dato con sus cifras ("con medicamento duraron 1.2 días; sin, 2.5"), nunca como recomendación: qué tomar, cuánto o si cambiarlo lo decide su médico.
 - Un hábito de todos los días (agua, sueño, estrés, cafeína, comidas saltadas) lleva recordar_diario: a las 9 p.m. le llega un aviso si ese día no lo registró. Si uno así trae aviso_diario false, propón encenderlo con proponer_cambio_categoria (recordar_diario: true) una vez. Un día sin nada se registra con 0 ("hoy ninguna"); un día sin registro es un dato que falta, no un cero.
 - Una medición (medida valor) se dice con su unidad: el último valor, el promedio y el mínimo y máximo de los 30 días.
@@ -3624,7 +3633,7 @@ Salud (no es dinero): también recibes sus categorías de Salud, enfermedades y 
 1. Un padecimiento activo (con registros en los últimos 30 días) al que le falta seguir hábitos que influyen en él, para descubrir qué lo detona. habitos_base_que_faltan es una base, no el límite: razona por el padecimiento (su nombre, descripción y las notas de sus registros) si le falta seguir algo clave que la base no trae (alimentación, estrés, postura, ciclo menstrual, algo a lo que se expone). Nunca propongas lo que ya registra ni lo que rechazó (está en la memoria). titulo: "A Migraña le falta seguir Estrés y Alimentación"; accion: qué empezar a registrar; mensaje: "Revisa qué hábitos me faltan registrar para saber qué detona mi Migraña y propónmelos" (con los que se te ocurrieron).
 2. Un padecimiento que va claramente peor que lo normal (muchos más días o más intenso), con cifras; el mensaje pide revisarlo con sus registros.
 3. Un padecimiento activo del que no sabes qué toma: medicamento_segun_notas es "ninguno" y tu memoria no dice qué toma o tomó para él. Pregúntalo una sola vez (si ya lo preguntaste en revisiones anteriores, no). titulo: "¿Qué tomas para la Migraña?"; accion: "Cuéntame qué tomas cuando te da y qué tomabas antes"; mensaje: "Quiero contarte qué tomo y qué he tomado para mi Migraña; pregúntame con una tarjeta".
-4. Un hábito que registraba seguido y dejó de registrar.
+4. Un hábito que registraba seguido y dejó de registrar (si esos días trae dias_no_hubo_ultimos_30, sí los registró: "no hubo" no es dejarlo).
 Nada de diagnósticos ni de tratamientos: si algo preocupa, la acción es verlo con su médico llevando su registro. impacto_mxn: 0. Si lo de salud va bien o ya lo señalaste y sigue pendiente, no dejes hallazgo de salud.`;
 
 const ESQUEMA_REVISION = {
@@ -3797,15 +3806,19 @@ Deno.serve(async (req) => {
       let datosSaludR: Json[] = [];
       if (catsSalud.length) {
         const diasCat: Record<string, Set<string>> = {};
+        const noHuboCat: Record<string, Set<string>> = {};
         (regs ?? []).forEach((r: Json) => {
           if (!catsSalud.some((c: Json) => String(c.id) === String(r.categoria_id))) return;
-          (diasCat[String(r.categoria_id)] = diasCat[String(r.categoria_id)] || new Set()).add(fechaLocal(r.fecha, zonaR).slice(0, 10));
+          // Un 0 es "no hubo" (registrado a propósito): va aparte, no cuenta como día con eso
+          const destino = (Number(r.cantidad) || 0) > 0 ? diasCat : noHuboCat;
+          (destino[String(r.categoria_id)] = destino[String(r.categoria_id)] || new Set()).add(fechaLocal(r.fecha, zonaR).slice(0, 10));
         });
         const haceR = (n: number) => new Date(Date.parse(`${hoyR}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
         const kR = { cuentas: cuentasR ?? [], categorias: cats ?? [], etiqueta: {}, tipo: {} } as Catalogo;
         datosSaludR = catsSalud.map((c: Json) => {
           const dias = [...(diasCat[String(c.id)] ?? [])].sort();
           const u30 = dias.filter((d) => d >= haceR(29)).length;
+          const noHubo30 = [...(noHuboCat[String(c.id)] ?? [])].filter((d) => d >= haceR(29)).length;
           const antes = dias.filter((d) => d < haceR(29) && d >= haceR(119)).length;
           const enfermedad = c.grupo_salud === "enfermedad" || (!c.grupo_salud && sugerenciaSalud(c, []).grupo_salud === "enfermedad");
           const faltan = enfermedad && u30 >= 2 ? habitosParaInvestigar(c, catsSalud, kR, notasR) : [];
@@ -3813,6 +3826,7 @@ Deno.serve(async (req) => {
           return {
             nombre: c.nombre, grupo: c.grupo_salud ?? (enfermedad ? "enfermedad" : null), mide: c.medida_salud ?? null, descripcion: c.descripcion ?? null,
             dias_ultimos_30: u30, normal_dias_por_mes: Math.round(antes / 3 * 10) / 10, ultimo: dias[dias.length - 1] ?? null,
+            ...(noHubo30 ? { dias_no_hubo_ultimos_30: noHubo30 } : {}),
             ...(faltan.length ? { habitos_base_que_faltan: faltan.map((x: Json) => `${x.nombre}: ${x.por_que}`) } : {}),
             ...(enfermedad ? { medicamento_segun_notas: medicamentosEnNotas(suyos).join(", ") || "ninguno" } : {}),
           };
