@@ -16761,8 +16761,11 @@
                                 // Escrito en la caja desde la pantalla de inicio: puede ser la respuesta a lo que preguntó el saludo
                                 const enInicio = typeof textoFijo !== 'string' && chatUi.every(m => m.registro && m.estado === 'pendiente');
                                 const saludo = enInicio ? saludoInicio : null;
+                                // De qué categoría habla el saludo, por nombre: con varias activas el modelo dudaba entre ellas
+                                const catSaludo = saludo && saludo.aviso && saludo.aviso.categoria_id
+                                    ? (datosCategorias || []).find(c => String(c.id) === String(saludo.aviso.categoria_id)) : null;
                                 const delSaludo = saludo
-                                    ? `[Nota de la app: antes de que escribiera, la pantalla de inicio le dijo "${saludo.texto}"${saludo.aviso ? ` (pendiente: ${saludo.aviso.texto}${saludo.aviso.detalle ? ' ' + saludo.aviso.detalle : ''})` : ''}. Su mensaje probablemente contesta a eso: interprétalo con ese contexto, sin volver a preguntar de qué habla.]`
+                                    ? `[Nota de la app: antes de que escribiera, la pantalla de inicio le dijo "${saludo.texto}"${saludo.aviso ? ` (pendiente: ${saludo.aviso.texto}${saludo.aviso.detalle ? ' ' + saludo.aviso.detalle : ''})` : ''}. Su mensaje contesta a eso${catSaludo ? `: habla de ${catSaludo.nombre} y de nada más` : ''}. No lo confundas con otras categorías ni vuelvas a preguntar de qué habla.]`
                                     : '';
                                 const notas = [delSaludo, contextoApi, aqui].filter(Boolean).join('\n');
                                 bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (notas ? `\n\n${notas}` : '') });
