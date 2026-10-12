@@ -17389,7 +17389,9 @@
                                         texto = atraso === 0 ? `Hoy toca ${c.nombre}.` : `${c.nombre} tocaba el ${fechaCorta(toca)}.`;
                                         detalle = `Lo registras cada ${cada} días; el último fue el ${fechaCorta(ultimo)}.`;
                                         secundario = { texto: 'Todavía no', dias: 1 };
-                                    } else if (tiene.has(ayer) && !tiene.has(hoy)) {
+                                    } else if (esEnfermedadSalud(c) && tiene.has(ayer) && !tiene.has(hoy)) {
+                                        // Sólo en enfermedades (por su grupo o, sin grupo, por su nombre): a un hábito
+                                        // como el ejercicio no se le pregunta "¿Cómo sigues?"
                                         // Seguimiento: lo de ayer, con su descripción y cantidad, y cuántos días seguidos lleva.
                                         // Sólo si es un episodio (antes de la racha pasaron 5 días o más sin registrarlo); lo
                                         // que va salteado, como el ejercicio, no se pregunta
