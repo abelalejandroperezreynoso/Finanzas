@@ -17355,30 +17355,42 @@
                                     const cada = espacios.length >= 3 ? [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)] : 0;
                                     const conCalendario = cada >= 2 && cada <= 60
                                         && espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length >= espacios.length * 0.6;
-                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false, saludoDeEste = null;
+                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false, saludoDeEste = null, variosDias = null;
                                     const deCostumbre = enDosSemanas >= 10;
                                     if (deCostumbre || diarioPorNombre) {
-                                        if (tiene.has(hoy)) return;
-                                        // El sueño de anoche también puede quedar anotado ayer en la noche
-                                        if (esSueno && suyos.some(r => diaLocal(r.fecha) === ayer && new Date(r.fecha).getHours() >= 18)) return;
-                                        // La hora de costumbre; sin historial, el sueño se pregunta en la mañana y lo demás en la noche
+                                        // Se revisa hasta antier: hoy (ya pasada la hora de costumbre), ayer y antier. Lo de antes
+                                        // se queda como olvidado. Ayer y antier sólo si ya lo registraba antes de ese día
                                         const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
+                                        // La hora de costumbre; sin historial, el sueño se pregunta en la mañana y lo demás en la noche
                                         const hora = horas.length >= 3 ? horas[Math.floor(horas.length / 2)] : esSueno ? 6 : 19;
-                                        if (hoyDate.getHours() > hora) dia = hoy;
-                                        else if (!tiene.has(ayer) && diasCat.some(d => d < ayer)) dia = ayer;
-                                        else return;
-                                        if (esSueno && dia === hoy) {
+                                        // El sueño de anoche también puede quedar anotado ayer en la noche
+                                        const anocheAnotada = esSueno && suyos.some(r => diaLocal(r.fecha) === ayer && new Date(r.fecha).getHours() >= 18);
+                                        const antier = diaLocal(new Date(hoyDate.getTime() - 2 * diaMs));
+                                        const faltan = [];
+                                        if (!tiene.has(hoy) && !anocheAnotada && hoyDate.getHours() > hora) faltan.push(hoy);
+                                        [ayer, antier].forEach(d => { if (!tiene.has(d) && diasCat.some(x => x < d)) faltan.push(d); });
+                                        if (!faltan.length) return;
+                                        dia = faltan[0];
+                                        const nombreDia = d => d === hoy ? 'hoy' : d === ayer ? 'ayer' : 'antier';
+                                        if (faltan.length > 1) {
+                                            // Varios días: un solo pendiente; el asistente pregunta cuánto fue cada uno en una tarjeta
+                                            variosDias = faltan;
+                                            const nombres = faltan.map(nombreDia);
+                                            texto = `Te faltan ${faltan.length} días de ${c.nombre}: ${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}.`;
+                                            detalle = !deCostumbre ? 'Es algo de todos los días.' : 'Sueles hacerlo diario.';
+                                            primario = { texto: 'Registrarlos', mensaje: `Quiero registrar ${c.nombre} de estos días: ${faltan.join(', ')}. Pregúntame cuánto fue cada día en una sola tarjeta (con la opción "No hubo") y propónmelos.` };
+                                        } else if (esSueno && dia === hoy) {
                                             texto = '¿Cuánto dormiste anoche?';
                                             detalle = `Anótalo en ${c.nombre}.`;
                                         } else {
-                                            texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `Ayer no registraste ${c.nombre}.`;
+                                            texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `${dia === ayer ? 'Ayer' : 'Antier'} no registraste ${c.nombre}.`;
                                             detalle = !deCostumbre ? 'Es algo de todos los días.'
                                                 : dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
                                         }
                                         secundario = { texto: 'No hubo', dias: null };
-                                        // En un hábito (no en el sueño ni en una enfermedad), "No hubo" se guarda como registro en 0:
-                                        // así el asistente sabe que ese día no hubo y el otro teléfono deja de preguntar
-                                        if (!esSueno && !esEnfermedadSalud(c)) secundario.registrarCero = { categoria_id: c.id, dia };
+                                        // En un hábito (no en el sueño ni en una enfermedad), "No hubo" se guarda como registro en 0
+                                        // de cada día que falta: así el asistente sabe que no hubo y el otro teléfono deja de preguntar
+                                        if (!esSueno && !esEnfermedadSalud(c)) secundario.registrarCero = { categoria_id: c.id, dias: faltan };
                                     } else if (conCalendario) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
                                         if (toca > hoy) return;
@@ -17414,11 +17426,13 @@
                                             saludoDeEste = saludoSalud;
                                         }
                                     } else return;
-                                    const clave = `salud2:${c.id}:${dia}`;
+                                    // Con varios días la clave lleva todos: si registra uno, cambia y vuelve a mostrar lo que falte
+                                    const clave = `salud2:${c.id}:${variosDias ? variosDias.join('+') : dia}`;
                                     if (!vigente(clave)) return;
                                     const aviso = {
                                         clave, categoria_id: c.id, salud: true, etiqueta: 'Salud', texto, detalle,
-                                        registrar: { categoria_id: c.id, dia },
+                                        // La tarjeta de Registrar es de un día; con varios, lo arma el asistente
+                                        registrar: variosDias ? null : { categoria_id: c.id, dia },
                                         primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
                                         secundario
                                     };
@@ -17876,15 +17890,14 @@
                             // "No hubo" en un hábito: un registro en 0 ese día (a mediodía, lejos de la medianoche). Entra al
                             // momento a lo que tiene el teléfono para que el pendiente se vaya; si falla, se avisa y no se descarta
                             async function registrarNoHuboAsistente(a) {
-                                const { categoria_id, dia } = a.secundario.registrarCero;
-                                const fecha = fechaDeDiaLocal(dia, '12:00');
-                                const { data, error } = await clienteSupabase.from('registros')
-                                    .insert([{ categoria_id, fecha, monto: 0, cantidad: 0, descripcion: 'No hubo', user_id: currentUser.id }]).select('id');
+                                const { categoria_id, dias } = a.secundario.registrarCero;
+                                const filas = dias.map(dia => ({ categoria_id, fecha: fechaDeDiaLocal(dia, '12:00'), monto: 0, cantidad: 0, descripcion: 'No hubo', user_id: currentUser.id }));
+                                const { data, error } = await clienteSupabase.from('registros').insert(filas).select('id, fecha');
                                 if (error) {
                                     await alertaIos({ titulo: 'No se pudo guardar', mensaje: explicarFalloAlGuardar(error, 'el registro') });
                                     return;
                                 }
-                                (data || []).forEach(r => datosSalud.unshift({ id: r.id, categoria_id, fecha, cantidad: 0, descripcion: 'No hubo' }));
+                                (data || []).forEach((r, k) => datosSalud.unshift({ id: r.id, categoria_id, fecha: r.fecha || filas[k].fecha, cantidad: 0, descripcion: 'No hubo' }));
                                 pintarChatAsistente(true);
                                 refrescarTodo().catch(e => console.warn('Refrescar tras No hubo', e));
                             }
