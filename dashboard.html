@@ -17208,9 +17208,11 @@
                                     });
                                 });
 
-                                // 0a. Descripciones con datos que cambian (montos, años, "últimos cargos", la prioridad): se
-                                // guardan fijas y se quedan viejas, y el asistente las lee como si fueran ciertas
-                                const DATO_QUE_CAMBIA = /\$\s?\d|\b20\d\d\b|[úu]ltim[oa]s?\s+(cargos?|pagos?|movimientos?|gastos?|registros?)|es un gasto (prescindible|[úu]til|necesario|vital|obligatorio)/i;
+                                // 0a. Descripciones con datos que cambian con el tiempo ("los últimos cargos", "por última vez",
+                                // "este mes", cuánto lleva): se guardan fijas, se quedan viejas y el asistente las lee como
+                                // ciertas. Los datos fijos que dio el usuario (mensualidad y plazo de un plan, desde cuándo,
+                                // su meta) no cuentan: no cambian y le sirven
+                                const DATO_QUE_CAMBIA = /[úu]ltim[oa]s?\s+(cargos?|pagos?|movimientos?|gastos?|registros?|compras?)|por [úu]ltima vez|el mes pasado|este mes|en lo que va|hasta (ahora|hoy|la fecha)|\bllev(a|as|o)\s+(pagad|gastad|\$)|\bvan\s+\$/i;
                                 [
                                     ...(datosCuentas || []).filter(cu => cu.descripcion && DATO_QUE_CAMBIA.test(cu.descripcion)).map(cu => ({ que: 'cuenta', id: cu.id, nombre: cu.nombre, texto: cu.descripcion })),
                                     ...cats.filter(c => c.tipo !== 'salud' && c.descripcion && DATO_QUE_CAMBIA.test(c.descripcion)).map(c => ({ que: 'categoría', id: c.id, nombre: c.nombre, texto: c.descripcion, categoria_id: c.id })),
@@ -17218,8 +17220,8 @@
                                     avisos.push({
                                         clave: `descfija:${d.que}:${d.id}`, categoria_id: d.categoria_id || null, etiqueta: 'Descripción',
                                         texto: `La descripción de ${d.nombre} trae datos que cambian.`,
-                                        detalle: 'Montos o fechas se quedan viejos. Mejor que sólo diga qué es.',
-                                        primario: { texto: 'Corregirla', mensaje: `La descripción de la ${d.que} ${d.nombre} trae datos que cambian (montos, fechas, últimos cargos o la prioridad) y se quedaría vieja: "${d.texto}". Propónme una versión que sólo diga qué es y qué entra.` },
+                                        detalle: 'Lo de "últimos cargos" o "este mes" se queda viejo.',
+                                        primario: { texto: 'Corregirla', mensaje: `La descripción de la ${d.que} ${d.nombre} trae datos que cambian con el tiempo y se quedarían viejos: "${d.texto}". Propónme una versión que quite sólo eso y conserve los detalles fijos (condiciones de un plan, plazos, para qué es, metas).` },
                                         secundario: { texto: 'Está bien', dias: null }
                                     });
                                 });
