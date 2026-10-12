@@ -17355,7 +17355,7 @@
                                     const cada = espacios.length >= 3 ? [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)] : 0;
                                     const conCalendario = cada >= 2 && cada <= 60
                                         && espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length >= espacios.length * 0.6;
-                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false;
+                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false, saludoDeEste = null;
                                     const deCostumbre = enDosSemanas >= 10;
                                     if (deCostumbre || diarioPorNombre) {
                                         if (tiene.has(hoy)) return;
@@ -17409,6 +17409,7 @@
                                         if (!saludoSalud && vigente(`salud2:${c.id}:${dia}`)) {
                                             const h = hoyDate.getHours();
                                             saludoSalud = `${h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'}. ¿Cómo sigues de ${c.nombre}?`;
+                                            saludoDeEste = saludoSalud;
                                         }
                                     } else return;
                                     const clave = `salud2:${c.id}:${dia}`;
@@ -17419,7 +17420,10 @@
                                         primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
                                         secundario
                                     };
-                                    if (esSueno && dia === hoy && hoyDate.getHours() < 12) saludoSueno = 'Buenos días. ¿Cuánto dormiste anoche?';
+                                    if (esSueno && dia === hoy && hoyDate.getHours() < 12) saludoSueno = saludoDeEste = 'Buenos días. ¿Cuánto dormiste anoche?';
+                                    // El saludo va en el pendiente de su misma categoría: así, al contestarlo, se atiende ése
+                                    // (antes iba en el primero de la lista y con dos "¿Cómo sigues?" se cruzaban)
+                                    if (saludoDeEste) aviso.saludo_salud = saludoDeEste;
                                     // Cómo sigues va antes que los hábitos
                                     if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
                                 });
@@ -17470,7 +17474,8 @@
                                     break;
                                 }
                                 const saludPrimero = pendSalud.slice(0, 4);
-                                if ((saludoSalud || saludoSueno) && saludPrimero.length) saludPrimero[0].saludo_salud = saludoSalud || saludoSueno;
+                                // Si hay "¿Cómo sigues?", ése manda en el saludo antes que el del sueño
+                                if (saludoSalud) saludPrimero.forEach(a => { if (a.saludo_salud === saludoSueno) delete a.saludo_salud; });
                                 avisos.push(...saludPrimero);
 
                                 // 3. Algo raro: movimientos repetidos el mismo día o un monto fuera de lo normal (último mes)
