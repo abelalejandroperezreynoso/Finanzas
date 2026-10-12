@@ -16656,10 +16656,18 @@
                                     // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
                                     // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
                                     const estado = cargandoDatos ? null : estadoFinanzasAsistente();
+                                    // El saludo puede preguntar algo ("¿Cómo sigues de…?") o avisar de algo (el saldo, el plan):
+                                    // se guarda para que, si contesta escribiendo, la IA sepa a qué
+                                    const planHoy = (avisos.find(a => a.plan) || {}).saludo || (avisos.find(a => a.saludo_salud) || {}).saludo_salud;
+                                    const textoSaludoInicio = saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy });
+                                    const avisoDelSaludo = planHoy && textoSaludoInicio === planHoy
+                                        ? avisos.find(a => (a.plan && a.saludo === planHoy) || a.saludo_salud === planHoy) || null : null;
+                                    saludoInicio = avisoDelSaludo || (estado && textoSaludoInicio === estado.texto)
+                                        ? { texto: textoSaludoInicio, aviso: avisoDelSaludo } : null;
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 ${personajeAsistenteHtml(ocupado, !ocupado && robotConAlerta(!!(estado && estado.alerta)))}
-                                                <div class="chat-saludo">${escaparHtml(saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy: (avisos.find(a => a.plan) || {}).saludo || (avisos.find(a => a.saludo_salud) || {}).saludo_salud }))}</div>
+                                                <div class="chat-saludo">${escaparHtml(textoSaludoInicio)}</div>
                                             </div>
                                         </div>`;
                                     // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
@@ -16734,6 +16742,7 @@
                             }
 
                             // contextoApi: una nota que viaja a la IA pero no se pinta en tu burbuja
+                            var saludoInicio = null;   // lo que preguntó o avisó el saludo de la pantalla de inicio
                             async function enviarMensajeAsistente(textoFijo, contextoApi) {
                                 const campo = document.getElementById('chatTexto');
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
@@ -16749,7 +16758,13 @@
                                 // Dónde está ahora (si lo activó y es reciente): ayuda a elegir la categoría de un "acabo de"
                                 const aqui = ubicacionActiva() && ubicacionReciente && ubicacionReciente.lugar && Date.now() - ubicacionReciente.t < VIGENCIA_UBICACION
                                     ? `[Nota de la app: el usuario está ahora cerca de "${ubicacionReciente.lugar}" (aproximado).]` : '';
-                                const notas = [contextoApi, aqui].filter(Boolean).join('\n');
+                                // Escrito en la caja desde la pantalla de inicio: puede ser la respuesta a lo que preguntó el saludo
+                                const enInicio = typeof textoFijo !== 'string' && chatUi.every(m => m.registro && m.estado === 'pendiente');
+                                const saludo = enInicio ? saludoInicio : null;
+                                const delSaludo = saludo
+                                    ? `[Nota de la app: antes de que escribiera, la pantalla de inicio le dijo "${saludo.texto}"${saludo.aviso ? ` (pendiente: ${saludo.aviso.texto}${saludo.aviso.detalle ? ' ' + saludo.aviso.detalle : ''})` : ''}. Su mensaje probablemente contesta a eso: interprétalo con ese contexto, sin volver a preguntar de qué habla.]`
+                                    : '';
+                                const notas = [delSaludo, contextoApi, aqui].filter(Boolean).join('\n');
                                 bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (notas ? `\n\n${notas}` : '') });
                                 const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
                                 const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => {
@@ -16759,8 +16774,18 @@
                                     if (ref) imagenesChatEnMemoria.set(ref, a.data);
                                     return { tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura, ...(ref ? { ref } : {}) };
                                 }) };
+                                // El saludo queda en la conversación, arriba de su respuesta
+                                const burbujaSaludo = saludo ? { rol: 'asistente', texto: saludo.texto } : null;
+                                if (burbujaSaludo) chatUi.push(burbujaSaludo);
+                                // Contestar el "¿Cómo sigues?" del saludo lo atiende: ya no vuelve a la lista
+                                if (saludo && saludo.aviso && saludo.aviso.saludo_salud) {
+                                    const descartados = avisosDescartados();
+                                    descartados[saludo.aviso.clave] = 0;
+                                    try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
+                                }
                                 chatUi.push(burbuja);
                                 await conversarConAsistente(mensaje, () => {
+                                    if (burbujaSaludo && chatUi.indexOf(burbujaSaludo) >= 0) chatUi.splice(chatUi.indexOf(burbujaSaludo), 1);
                                     // No llegó: el texto y lo adjunto vuelven a la caja
                                     if (campo && !campo.value) campo.value = texto;
                                     if (!chatAdjuntos.length) chatAdjuntos = adjuntos;
