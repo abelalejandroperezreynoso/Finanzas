@@ -324,7 +324,7 @@ const HERRAMIENTAS: Json[] = [
         categoria_nueva: { type: "string", description: "En vez de categoria_id: nombre exacto de una categoría que propusiste con proponer_nueva_categoria en este mismo turno (antes que este movimiento) y que aún no existe" },
         cuenta_id: { type: "string", description: "La cuenta donde pasó el movimiento. Pásala siempre que el usuario tenga categorías con el mismo nombre en varias cuentas (p. ej. al cuadrar)" },
         importe: { type: "number", description: "Pesos (positivo). En Salud, la cantidad según la medida de la categoría: con intensidad, qué tan fuerte de 1 a 10 dicho por el usuario (nunca el número de pastillas: eso va en la descripción)" },
-        otro_episodio: { type: "boolean", description: "Sólo Salud: true si ya hay un registro de esa categoría ese día y éste es otro episodio" },
+        otro_episodio: { type: "boolean", description: "Sólo enfermedades de Salud: true si ya hay un registro de esa categoría ese día y éste es otro episodio (un hábito no lleva otro: un registro por día)" },
         operacion: {
           type: "string", enum: ["presto", "me_pagan", "me_prestan", "pago"],
           description: "Sólo en préstamos y deudas. Préstamo: presto (le presta dinero, sale) o me_pagan (le devuelven, entra). Deuda: me_prestan (recibe el préstamo o la compra a crédito, entra) o pago (abona, sale)",
@@ -744,7 +744,7 @@ const COMIDAS = H("Comidas saltadas", "veces", /ayuno|saltad|saltar/i, "Comidas 
 const EJERCICIO = H("Ejercicio", "horas", /ejercicio|gym|gimnasio|correr|camin|deporte/i, "Horas de ejercicio", "el ejercicio regular la hace menos frecuente");
 const PANTALLAS = H("Pantallas de noche", "horas", /pantalla|celular|tele/i, "Horas de pantalla antes de dormir", "la luz de la pantalla de noche quita sueño");
 const PICANTE = H("Picante o irritantes", "veces", /picante|irritant|grasa/i, "Comidas picantes, muy grasosas o irritantes", "la irritan directamente");
-const ALIMENTACION = H("Alimentación", "veces", /aliment|dieta|qu[eé] com[ií]/i, "Comidas del día; en la descripción, qué comí", "hay alimentos que la detonan y sólo se ven anotando qué comes");
+const ALIMENTACION = H("Alimentación", "veces", /aliment|dieta|qu[eé] com[ií]/i, "Un registro al día con cantidad 1; en la descripción, qué comí", "hay alimentos que la detonan y sólo se ven anotando qué comes");
 const SAL = H("Sal", "veces", /\bsal\b|sodio|salad/i, "Comidas muy saladas o procesadas", "la sal sube la presión");
 // Una base por padecimiento; el modelo agrega lo que haga falta según el caso (ver el punto 4 del sistema)
 const HABITOS_POR_ENFERMEDAD: { patron: RegExp; habitos: Json[] }[] = [
@@ -3214,11 +3214,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const cuentaPedida = entrada.cuenta_id ? catalogo.cuentas.find((x: Json) => String(x.id) === String(entrada.cuenta_id)) : null;
       if (entrada.cuenta_id && !cuentaPedida) return { texto: "No encontré esa cuenta.", error: true };
       if (entrada.categoria_id) {
-        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo, cuenta_id, medida_salud").eq("id", entrada.categoria_id).maybeSingle());
+        ({ data: c } = await sb.from("categorias").select("id, nombre, tipo, cuenta_id, medida_salud, grupo_salud").eq("id", entrada.categoria_id).maybeSingle());
         if (c && cuentaPedida && String((c as Json).cuenta_id) !== String(cuentaPedida.id)) {
           const otra = catalogo.categorias.find((x: Json) => String(x.cuenta_id) === String(cuentaPedida.id) && String(x.nombre).trim().toLowerCase() === String((c as Json).nombre).trim().toLowerCase());
           if (!otra) return { texto: `Esa categoría es de otra cuenta. Si no hay "${(c as Json).nombre}" en ${cuentaPedida.nombre}, propónla ahí primero y usa categoria_nueva.`, error: true };
-          c = { id: otra.id, nombre: otra.nombre, tipo: otra.tipo, cuenta_id: otra.cuenta_id, medida_salud: otra.medida_salud };
+          c = { id: otra.id, nombre: otra.nombre, tipo: otra.tipo, cuenta_id: otra.cuenta_id, medida_salud: otra.medida_salud, grupo_salud: otra.grupo_salud };
         }
       } else if (entrada.categoria_nueva) {
         // Una categoría propuesta en este turno: el movimiento la busca por nombre al confirmarse
@@ -3251,16 +3251,25 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (tipo === "salud") {
         const mal = cantidadSaludInvalida(c, importe);
         if (mal) return { texto: mal, error: true };
-        // Una intensidad o unas horas son una por día: antes de otra, ver si ya está la de ese día
-        if ((c as Json).id && ["intensidad", "horas"].includes((c as Json).medida_salud) && entrada.otro_episodio !== true && /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) {
+        // Un hábito lleva un solo registro por día, con todo lo del día: la Alimentación salía en tres
+        // (desayuno, comida y cena) y el usuario la quería en uno
+        const habito = (c as Json).grupo_salud === "habito";
+        if (habito && (c as Json).id && propuestas.some((p: Json) => p.tipo === "nuevo_movimiento" && String(p.datos?.categoria_id) === String((c as Json).id) && p.datos?.fecha === entrada.fecha)) {
+          return { texto: `${(c as Json).nombre} es un hábito: va en un solo registro por día. Junta todo en una propuesta (lo del día en la descripción; la cantidad, la del día según su medida y su descripción).`, error: true };
+        }
+        // Una intensidad o unas horas son una por día, y un hábito también: antes de otra, ver si ya está la de ese día
+        if ((c as Json).id && (habito || ["intensidad", "horas"].includes((c as Json).medida_salud)) && (habito || entrada.otro_episodio !== true) && /^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) {
           const { data: delDia } = await sb.from("registros").select("id, fecha, cantidad, descripcion").eq("categoria_id", (c as Json).id)
             .gte("fecha", inicioDeDia(String(entrada.fecha), zona)).lte("fecha", finDeDia(String(entrada.fecha), zona)).limit(5);
           if (delDia?.length) {
-            const ya = delDia.map((r: Json) => `id ${r.id}: ${(c as Json).medida_salud === "horas" ? `${r.cantidad} h` : `intensidad ${r.cantidad}`}${r.descripcion ? `, nota "${r.descripcion}"` : ""}`).join("; ");
+            const med = (c as Json).medida_salud;
+            const ya = delDia.map((r: Json) => `id ${r.id}: ${med === "horas" ? `${r.cantidad} h` : med === "intensidad" ? `intensidad ${r.cantidad}` : `cantidad ${r.cantidad}`}${r.descripcion ? `, nota "${r.descripcion}"` : ""}`).join("; ");
             return {
               texto: `Ya hay ${delDia.length === 1 ? "un registro" : `${delDia.length} registros`} de ${(c as Json).nombre} ese día (${ya}). ` +
-                "Si es lo mismo, propón el cambio a ese registro con proponer_cambio_movimiento (por ejemplo, agregar a su descripción lo que te dijo, o subir la intensidad). " +
-                "Sólo si de verdad es otro episodio, vuelve a llamar con otro_episodio: true. Si no es claro, pregúntale.",
+                (habito
+                  ? "Es un hábito: va en un solo registro por día. Propón el cambio a ese registro con proponer_cambio_movimiento: agrega a su descripción lo nuevo y, si la cantidad se acumula (litros de agua, horas de ejercicio, tazas), súmala; si la cantidad sólo marca que hubo (1), déjala."
+                  : "Si es lo mismo, propón el cambio a ese registro con proponer_cambio_movimiento (por ejemplo, agregar a su descripción lo que te dijo, o subir la intensidad). " +
+                    "Sólo si de verdad es otro episodio, vuelve a llamar con otro_episodio: true. Si no es claro, pregúntale."),
               error: true,
             };
           }
@@ -3368,7 +3377,9 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Prioridad de los gastos: operativa = pago obligatorio (renta, mantenimiento, luz, agua, créditos, seguros: tiene fecha, no se evita ni se pospone); vital = necesario del día a día (súper, gasolina, transporte, medicinas: no se deja, pero se cuida); util = útil, se puede reducir; prescindible = antojos y gustos (Oxxo, restaurantes, ocio). Dile al usuario los nombres (pago obligatorio, necesario, útil, prescindible), nunca operativa o vital.
 - Pagos obligatorios y gastos comunes son distintos: un pago obligatorio se anticipa (que le alcance para la fecha) y nunca le propongas posponerlo ni recortarlo; un gasto común se cuida con topes y no "toca" un día. Lo que se repite cada pocos días (Oxxo, súper) es gasto común aunque la app lo vea recurrente.
 - Si un gasto no tiene prioridad y la necesitas (un pronóstico, un plan, ordenar), propón la de todos los que falten en una sola tarjeta con proponer_prioridades, deducida de su nombre, descripción y movimientos; pregunta sólo si no es obvio.
-- En Salud cada categoría es una enfermedad (síntoma o padecimiento) o un hábito, y su cantidad es lo que diga su medida (columna salud): intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó (1 por cada vez); horas = cuántas horas; valor = una medición en su unidad (38.5 °C, 140 mg/dL). La presión arterial son dos categorías de valor: Sistólica y Diastólica, en mmHg. Sin medida, lo que diga su descripción o 1 por cada vez. Los detalles (si tomó pastilla, qué lo detonó) van en la descripción del registro, no en la cantidad. No inventes escalas que la categoría no tiene. El agua se lleva en litros al día (valor, unidad L); si una categoría de agua mide veces o vasos, propón con proponer_cambio_categoria pasarla a valor en L (los registros de antes se quedan como están: avísale).
+- En Salud cada categoría es una enfermedad (síntoma o padecimiento) o un hábito, y su cantidad es lo que diga su medida (columna salud): intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó (en la cantidad, no en registros aparte); horas = cuántas horas; valor = una medición en su unidad (38.5 °C, 140 mg/dL). La presión arterial son dos categorías de valor: Sistólica y Diastólica, en mmHg. Sin medida, lo que diga su descripción o 1 por cada vez. Los detalles (si tomó pastilla, qué lo detonó) van en la descripción del registro, no en la cantidad. No inventes escalas que la categoría no tiene. Un hábito lleva un solo registro por día con todo lo del día en la descripción (desayuno, comida y cena en uno, nunca un registro por comida); si ese día ya tiene, se cambia ése. El agua se lleva en litros al día (valor, unidad L); si una categoría de agua mide veces o vasos, propón con proponer_cambio_categoria pasarla a valor en L (los registros de antes se quedan como están: avísale).
+- Si el usuario corrige cómo se registra una categoría ("uno por día", "la cantidad sólo indica que hubo"), en ese mismo turno, además del registro, propón con proponer_cambio_categoria su descripción con esa regla (la descripción manda la próxima vez) y guárdalo con recordar (tema preferencia).
+- No le preguntes si una cantidad es poca o mucha cuando es posible (0.3 L de agua puede ser un vaso); pregunta sólo si no puede ser (300 L, 30 horas) o parece error de unidad.
 - Antes de pedir el dato de un registro de Salud, razona cómo debe quedar: qué mide la categoría (columna salud), su descripción y qué suele registrar (si no lo sabes, consúltalo con resumen_salud). Si la medida no tiene sentido para lo que es (agua en veces), dilo en una línea y propón corregir la categoría en el mismo turno; luego pide el dato en la medida correcta. Las opciones van en su unidad y alrededor de lo que suele registrar o de lo razonable para eso (agua: 1, 1.5, 2, 2.5 L; nunca 1-2-3 por default).
 - Si pregunta si algo ya se registró ("¿ayer registramos el agua?"), búscalo y contesta con el dato; si falta, en ese mismo turno pide lo necesario para registrarlo (o propónlo si ya lo sabes). No le preguntes "¿qué quieres hacer?" cuando lo obvio es registrarlo.
 - En un movimiento, monto negativo = salió dinero, positivo = entró.
