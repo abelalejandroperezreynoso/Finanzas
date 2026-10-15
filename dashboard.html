@@ -1801,6 +1801,10 @@
                     background: rgba(44, 44, 46, 0.72); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
                     border: 0.5px solid rgba(255, 255, 255, 0.12); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); color: #ffffff; -webkit-tap-highlight-color: transparent; }
                 .aj-volver:active { transform: scale(0.94); }
+                /* Lo que sube al desplazarse se desvanece bajo el botón de atrás, como en iOS: sin esto el ícono
+                   de la tarjeta pasaba por debajo del botón y se encimaban */
+                #sec-ajustes .aj-pagina:not(#ajRaiz)::before { content: ''; position: fixed; z-index: 19; top: 0; left: 0; right: 0; pointer-events: none;
+                    height: calc(64px + env(safe-area-inset-top)); background: linear-gradient(#000000 55%, rgba(0, 0, 0, 0)); }
                 .aj-volver svg { width: 11px; height: 19px; margin-left: -2px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
                 /* La primera tarjeta de cada página: ícono grande, nombre, qué es y su control principal */
                 .aj-grupo-hero { margin-top: 52px; }
@@ -1827,6 +1831,15 @@
                 .aj-fila + .aj-fila::before { content: ''; position: absolute; top: 0; left: 18px; right: 0; height: 0.5px; background: #38383a; }
                 .aj-grupo:has(.aj-icono) .aj-fila + .aj-fila::before { left: 62px; }
                 .aj-icono { flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+                /* Logo de un proveedor o de una empresa en una fila, del tamaño de un ícono de iOS */
+                .aj-logo { flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; object-fit: cover; background: #ffffff; }
+                .aj-fila .logo-empresa { border-radius: 8px; }
+                .aj-grupo:has(.aj-logo) .aj-fila + .aj-fila::before, .aj-grupo:has(.logo-empresa) .aj-fila + .aj-fila::before { left: 62px; }
+                .aj-pct { flex-shrink: 0; color: #8e8e93; font-variant-numeric: tabular-nums; }
+                .aj-siguiente { flex-shrink: 0; padding: 2px 8px; border-radius: 10px; background: rgba(10, 132, 255, 0.18); color: #0a84ff; font-size: 13px; }
+                /* La raya del avance bajo el nombre, fina como en Almacenamiento del iPhone */
+                .aj-barra { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: #3a3a3c; overflow: hidden; }
+                .aj-barra > span { display: block; height: 100%; border-radius: 2px; }
                 .aj-icono svg { width: 18px; height: 18px; fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
                 .aj-texto { flex: 1; min-width: 0; overflow-wrap: anywhere; }
                 .aj-texto small { display: block; margin-top: 2px; color: #8e8e93; font-size: 13px; }
@@ -2714,26 +2727,50 @@
         </div>
 
         <div class="aj-encabezado">Histórico</div>
-        <!-- Cuánto del pasado que la curva necesita está ya guardado. Lo pinta pintarAvanceHistorico(). -->
-        <div class="aj-grupo aj-relleno" id="avanceHistorico"></div>
+        <!-- Cuánto del pasado que la curva necesita está ya guardado, empresa por empresa con su logo.
+             Lo pinta pintarAvanceHistorico(); tocar una empresa trae la suya. -->
+        <div class="aj-grupo" id="avanceHistorico"></div>
+        <div id="avanceHistoricoNota" class="aj-nota"></div>
         <div class="aj-grupo">
-            <label class="aj-fila"><span class="aj-etiqueta">Twelve Data</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Clave (recomendada)" autocomplete="off"></label>
-            <label class="aj-fila"><span class="aj-etiqueta">Alpha Vantage</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Clave (opcional)" autocomplete="off"></label>
             <button type="button" id="btnTraerHistorico" class="aj-fila aj-accion" onclick="pedirHistoricoDesdeAjustes()">Traer histórico</button>
             <!-- Todo lo guardado del histórico, copiado como JSON para poder revisarlo fuera de la app -->
             <button type="button" id="btnCopiarHistorico" class="aj-fila aj-accion" onclick="copiarHistoricoJSON()">Copiar histórico (JSON)</button>
         </div>
         <div id="avisoHistorico" class="aj-nota"></div>
-        <div class="aj-nota">Cada día que abres la app se guarda el cierre. Para lo de antes, una empresa a la vez:
-            <a href="https://twelvedata.com/register" target="_blank" rel="noopener">Twelve Data</a> trae años y el tipo de cambio;
-            <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a>, los últimos cien cierres. Las dos claves son gratuitas.</div>
 
-        <div class="aj-encabezado">Empresas</div>
+        <!-- De dónde sale cada dato. Finnhub no pide nada; las otras dos piden su clave gratuita y sólo
+             sirven para traer lo de antes (Twelve Data se usa primero si está). -->
+        <div class="aj-encabezado">Proveedores</div>
         <div class="aj-grupo">
+            <div class="aj-fila">
+                <img class="aj-logo" src="proveedores/finnhub.png" alt="">
+                <span class="aj-texto">Finnhub<small>Precios del día, sectores y logos</small></span>
+                <span class="aj-valor">Sin clave</span>
+            </div>
             <button type="button" id="btnRefrescarPerfiles" class="aj-fila aj-accion" onclick="forzarActualizacionPerfiles()">Actualizar sectores y logos</button>
         </div>
         <div id="avisoPerfiles" class="aj-nota"></div>
-        <div class="aj-nota">Salen de Finnhub una vez por empresa. Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
+
+        <div class="aj-grupo">
+            <div class="aj-fila">
+                <img class="aj-logo" src="proveedores/twelvedata.png" alt="">
+                <span class="aj-texto">Twelve Data<small>Años de cierres y el tipo de cambio</small></span>
+                <span class="aj-valor">Recomendado</span>
+            </div>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Pégala aquí" autocomplete="off" spellcheck="false"></label>
+            <a class="aj-fila aj-accion" href="https://twelvedata.com/register" target="_blank" rel="noopener">Obtener clave gratis</a>
+        </div>
+
+        <div class="aj-grupo">
+            <div class="aj-fila">
+                <img class="aj-logo" src="proveedores/alphavantage.png" alt="">
+                <span class="aj-texto">Alpha Vantage<small>Los últimos cien cierres</small></span>
+                <span class="aj-valor">Opcional</span>
+            </div>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false"></label>
+            <a class="aj-fila aj-accion" href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Obtener clave gratis</a>
+        </div>
+        <div class="aj-nota">Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
     </div>
     </div>
 </div>
@@ -3631,18 +3668,12 @@
                                         return `faltan ${(meses / 12).toFixed(1).replace('.0', '')} años`;
                                     }
 
-                                    // Verde lo que hay y gris lo que falta. En rojo —el color con el que la app
-                                    // dice que algo va mal— un 15% se leería como una avería, y no lo es: es una
-                                    // empresa que compraste antes de lo que el proveedor alcanza a contar.
-                                    function barraAvanceHistorico(pct, alto) {
-                                        return `<span style="display: block; flex: 1; height: ${alto}px; background: #333; border-radius: ${alto / 2}px; overflow: hidden;">
-                                            <span style="display: block; height: 100%; width: ${pct.toFixed(1)}%; background: #3ecf8e;"></span>
-                                        </span>`;
-                                    }
 
                                     function pintarAvanceHistorico() {
                                         const caja = document.getElementById('avanceHistorico');
+                                        const notaCaja = document.getElementById('avanceHistoricoNota');
                                         if (!caja) return;
+                                        if (notaCaja) notaCaja.textContent = '';
 
                                         if (!historicoPreciosListo) { caja.innerHTML = ''; return; }
 
@@ -3657,10 +3688,12 @@
                                         }
 
                                         if (avance.series.length === 0) {
-                                            caja.innerHTML = '<p style="color: #666; font-size: 0.78em; margin: 0;">Todavía no hay compras de acciones, así que no hay histórico que traer.</p>';
+                                            caja.innerHTML = '<div class="aj-fila aj-gris">Todavía no hay compras de acciones</div>';
                                             return;
                                         }
 
+                                        const colorAvance = pct => pct >= 99.5 ? '#30d158' : '#ff9f0a';
+                                        const raya = pct => `<span class="aj-barra"><span style="width: ${Math.max(0, Math.min(100, pct)).toFixed(1)}%; background: ${colorAvance(pct)};"></span></span>`;
                                         const filas = avance.series.map(s => {
                                             const hueco = huecoEnPalabras(s.faltanDias);
                                             // Los huecos van detrás del tramo porque son otra cosa: aquello es
@@ -3668,23 +3701,21 @@
                                             // que no tienen precio.
                                             const sinCierre = s.huecos > 0 ? ` · ${s.huecos} días sin cierre` : '';
                                             const detalle = !s.primero
-                                                ? 'sin cierres guardados'
+                                                ? 'Sin cierres guardados'
                                                 : hueco
-                                                ? `desde ${mesEnPalabras(s.primero)} · ${hueco}${sinCierre}`
-                                                : `completo desde ${mesEnPalabras(s.desde)}${sinCierre}`;
+                                                ? `Desde ${mesEnPalabras(s.primero)} · ${hueco}${sinCierre}`
+                                                : `Completo desde ${mesEnPalabras(s.desde)}${sinCierre}`;
 
                                             // Cada fila se puede tocar para traer esa serie en concreto, y la que
                                             // toca después va marcada.
                                             const esSiguiente = s.ticker === siguiente;
                                             return `
-                                                <div onclick="pedirHistoricoDesdeAjustes('${escaparHtml(s.ticker)}')" style="cursor: pointer;">
-                                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-                                                    <span style="min-width: 58px; color: ${esSiguiente ? '#3ecf8e' : '#ccc'}; font-size: 0.75em;">${esSiguiente ? '▸ ' : ''}${escaparHtml(s.ticker)}</span>
-                                                    ${barraAvanceHistorico(s.pct, 4)}
-                                                    <span style="min-width: 32px; text-align: right; color: #888; font-size: 0.72em;">${Math.round(s.pct)}%</span>
-                                                </div>
-                                                <div style="color: #666; font-size: 0.68em; padding-left: 66px;">${detalle}</div>
-                                                </div>`;
+                                                <button type="button" class="aj-fila" onclick="pedirHistoricoDesdeAjustes('${escaparHtml(s.ticker)}')">
+                                                    ${logoEmpresaHtml(s.ticker, 30)}
+                                                    <span class="aj-texto">${escaparHtml(s.ticker)}<small>${detalle}</small>${s.pct < 99.5 ? raya(s.pct) : ''}</span>
+                                                    ${esSiguiente ? '<span class="aj-siguiente">Siguiente</span>' : ''}
+                                                    <span class="aj-pct">${Math.round(s.pct)}%</span>
+                                                </button>`;
                                         }).join('');
 
                                         // Qué hacer con lo que falta, que es la otra mitad del avance. Y son dos
@@ -3702,8 +3733,8 @@
                                         const trozos = [];
 
                                         if (avance.completo) trozos.push('El tramo está completo: la curva empieza en tu primera compra.');
-                                        else if (quedan > 0) trozos.push(`${quedan === 1 ? 'Queda' : 'Quedan'} ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada con ▸ y cualquier fila se puede tocar para traer esa. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
-                                        else if (!(localStorage.getItem(CLAVE_API_TWELVE) || '').trim()) trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae. Pega una clave gratuita de Twelve Data abajo: esa sí trae años de cierres.');
+                                        else if (quedan > 0) trozos.push(`${quedan === 1 ? 'Queda' : 'Quedan'} ${quedan} serie${quedan !== 1 ? 's' : ''} por traer. Se traen de una en una: el botón trae la marcada como Siguiente y cualquier empresa se puede tocar para traer la suya. El plan gratuito da unas pocas peticiones al día, así que puede hacer falta volver mañana; lo traído se queda guardado.`);
+                                        else if (!(localStorage.getItem(CLAVE_API_TWELVE) || '').trim()) trozos.push('Lo que falta por detrás es anterior a lo que el plan gratuito de Alpha Vantage sirve —siempre los últimos cien cierres—, así que repetir la traída no lo trae. Pega una clave gratuita de Twelve Data en Proveedores: esa sí trae años de cierres.');
                                         else trozos.push('Lo que falta por detrás no lo tiene tampoco Twelve Data: suele pasar con empresas que empezaron a cotizar después de tu compra o con símbolos que ella escribe distinto.');
 
                                         // El hueco del medio se arregla de otra manera que el de atrás, y es la
@@ -3719,15 +3750,14 @@
                                         trozos.push('Desde hoy crece sola: cada día que abras la app se guarda el cierre del día.');
                                         const cierre = trozos.join(' ');
 
+                                        const todoBien = avance.completo && avance.huecos === 0;
                                         caja.innerHTML = `
-                                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
-                                                <span style="font-size: 0.72em; color: #888; text-transform: uppercase; letter-spacing: 1px;">Avance del histórico</span>
-                                                <strong style="font-size: 0.9em; color: ${avance.completo && avance.huecos === 0 ? '#3ecf8e' : '#f39c12'};">${Math.round(avance.pct)}%</strong>
+                                            <div class="aj-fila">
+                                                <span class="aj-texto">Avance${avance.huecos > 0 ? `<small>${avance.huecos} días hábiles sin cierre dentro de lo cubierto</small>` : ''}${raya(todoBien ? 100 : Math.min(avance.pct, 99))}</span>
+                                                <span class="aj-pct" style="color: ${todoBien ? '#30d158' : '#ff9f0a'}; font-weight: 600;">${Math.round(avance.pct)}%</span>
                                             </div>
-                                            <div style="display: flex;">${barraAvanceHistorico(avance.pct, 6)}</div>
-                                            ${avance.huecos > 0 ? `<div style="color: #f39c12; font-size: 0.7em; margin-top: 5px;">${avance.huecos} días hábiles sin cierre dentro de lo cubierto</div>` : ''}
-                                            ${filas}
-                                            <p style="color: #666; font-size: 0.72em; line-height: 1.5; margin: 10px 0 0 0;">${cierre}</p>`;
+                                            ${filas}`;
+                                        if (notaCaja) notaCaja.textContent = cierre;
                                     }
 
                                     // "feb 2025", que es como la app escribe los meses en sitios estrechos
@@ -7051,10 +7081,10 @@
                                                         // El botón dice la hora de la última traída. Sólo se pone la del arranque:
                                                         // si ya dice "Actualizado", la puso el botón al pulsarse y esa manda.
                                                         const btnRefresh = document.getElementById('btnRefrescarPrecios');
-                                                        if (btnRefresh && !btnRefresh.innerHTML.includes('·')) {
+                                                        if (btnRefresh && !btnRefresh.innerHTML.includes('aj-valor')) {
                                                             const ahora = new Date();
                                                             const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                            btnRefresh.innerHTML = `Actualizar precios <span style="color: #8e8e93;">· ${horaStr}</span>`;
+                                                            btnRefresh.innerHTML = `Actualizar precios<span class="aj-valor" style="margin-left: auto;">${horaStr}</span>`;
                                                         }
                                                     }
 
@@ -24176,8 +24206,7 @@
                                         const ahora = new Date();
                                         // Formatea la hora a algo limpio como "14:30" o "02:30 PM" dependiendo de tu sistema
                                         const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                        btn.innerHTML = `Actualizar precios <span style="color: #8e8e93;">· ${horaStr}</span>`;
-                                        btn.style.color = '#3ecf8e'; // Lo pintamos de verde para confirmar el éxito
+                                        btn.innerHTML = `Actualizar precios<span class="aj-valor" style="margin-left: auto;">${horaStr}</span>`;
                                     }, 500);
                                 }
                             }
