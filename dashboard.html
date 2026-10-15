@@ -2820,6 +2820,15 @@
                 <option value="dolar">USD/MXN</option>
             </select>
         </label>
+        <!-- Encendido, la curva de cualquier periodo cuenta sólo lo ganado en él (contra el cierre del día
+             anterior a que empiece); apagado, la plusvalía total desde la primera compra -->
+        <label class="rango-ios-fila" id="filaPlusvaliaPeriodo">
+            <span>Plusvalía del periodo<small style="display:block; color:#8e8e93; font-size:0.8em; font-weight:normal;">Apagado: la total desde tu primera compra</small></span>
+            <span class="ios-switch">
+                <input type="checkbox" id="checkPlusvaliaPeriodo" onchange="cambiarPlusvaliaPeriodo(this.checked)">
+                <span class="ios-switch-pista"></span>
+            </span>
+        </label>
     </div>
     <hr class="separador-ios">
     </div>
@@ -4771,7 +4780,8 @@
                                             usos: datosUsoCompleto,
                                             cats: datosCategorias,
                                             precios: cacheHistoricoPrecios,
-                                            listo: historicoPreciosListo
+                                            listo: historicoPreciosListo,
+                                            delPeriodo: plusvaliaDelPeriodo
                                         };
                                     }
 
@@ -5015,6 +5025,15 @@
                                     // dólares, y lo que ganaron o perdieron por el cambio se queda en la curva.
                                     let curvaInversiones = localStorage.getItem('curvaInversiones') === 'dolar' ? 'dolar' : 'acciones';
 
+                                    // Qué cuenta la curva de acciones: lo ganado en el periodo a la vista (por defecto) o
+                                    // la plusvalía total desde la primera compra
+                                    let plusvaliaDelPeriodo = (() => { try { return localStorage.getItem('plusvaliaDelPeriodo') !== 'no'; } catch (e) { return true; } })();
+                                    function cambiarPlusvaliaPeriodo(activo) {
+                                        plusvaliaDelPeriodo = !!activo;
+                                        try { localStorage.setItem('plusvaliaDelPeriodo', plusvaliaDelPeriodo ? 'si' : 'no'); } catch (e) { /* sin memoria */ }
+                                        refrescarCurvaInversiones();
+                                    }
+
                                     function cambiarCurvaInversiones(modo) {
                                         curvaInversiones = modo === 'dolar' ? 'dolar' : 'acciones';
                                         try { localStorage.setItem('curvaInversiones', curvaInversiones); } catch (e) { /* sin memoria: se queda en esta visita */ }
@@ -5135,6 +5154,8 @@
                                             ? { ganancia: baseSerie.ganancias[0], costo: baseSerie.costos[0] } : null;
 
                                         // Sin cierre anterior (la primera compra fue ese día) se mide desde el primer momento
+                                        // Con el switch apagado se dibuja la plusvalía total de cada momento, sin cero movido
+                                        const relativo = plusvaliaDelPeriodo;
                                         const horas = [], cambios = [], valoresBase = [];
                                         let primero = null;
                                         momentos.forEach(m => {
@@ -5143,11 +5164,11 @@
                                             if (!primero) primero = v;
                                             const b = base || primero;
                                             horas.push(new Date(m.t).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }));
-                                            cambios.push(v.ganancia - b.ganancia);
-                                            valoresBase.push(b.costo + b.ganancia);
+                                            cambios.push(relativo ? v.ganancia - b.ganancia : v.ganancia);
+                                            valoresBase.push(relativo ? b.costo + b.ganancia : v.costo);
                                         });
                                         if (!horas.length) return { sinDatos: true };
-                                        return { dias: horas, ganancias: cambios, costos: valoresBase, intradia: true, todo: true, dia, sinBase: !base,
+                                        return { dias: horas, ganancias: cambios, costos: valoresBase, intradia: true, relativo, todo: true, dia, sinBase: !base,
                                             enPesos: monedaTreemapInversiones === 'mxn' };
                                     }
 
@@ -5270,6 +5291,24 @@
                                                 if (tituloEl) tituloEl.textContent = tituloVista;
                                             }
                                         }
+                                        // Plusvalía del periodo en cualquier rango de varios días: cada día menos lo que se
+                                        // llevaba ganado al cierre del día anterior a que empezara. Antes de la primera
+                                        // compra no había nada, así que el cero es el cero.
+                                        if (plusvaliaDelPeriodo && !esDolar && serie && !serie.fueraDePeriodo && !serie.intradia
+                                            && periodo && periodo.desde && serie.dias && serie.dias.length) {
+                                            const anterior = new Date(`${periodo.desde}T12:00:00`); anterior.setDate(anterior.getDate() - 1);
+                                            const previa = serieHistoricaAccesible(ambito, { desde: diaISO(anterior), hasta: diaISO(anterior) });
+                                            const b = (previa && !previa.fueraDePeriodo && previa.ganancias.length)
+                                                ? { ganancia: previa.ganancias[0], costo: previa.costos[0] } : { ganancia: 0, costo: 0 };
+                                            const valorBase = b.costo + b.ganancia;
+                                            serie = { ...serie,
+                                                ganancias: serie.ganancias.map(g => g - b.ganancia),
+                                                // Para el porcentaje: lo que valía entonces; si no había nada, lo que costaba cada día
+                                                costos: valorBase > 0.005 ? serie.ganancias.map(() => valorBase) : serie.costos,
+                                                relativo: true };
+                                            tituloVista = esTodo ? (nombre ? `Periodo · ${nombre}` : 'Rendimiento del periodo') : `${tituloBase} · periodo`;
+                                            if (tituloEl) tituloEl.textContent = tituloVista;
+                                        }
                                         const hayCurva = !cargandoDia && !!serie && !serie.fueraDePeriodo;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
@@ -5348,9 +5387,9 @@
                                                 // tus dólares: la cifra sola no dice si es mucho o poco.
                                                 // En la vista Hoy, lo que cambió contra el cierre anterior y qué porcentaje es
                                                 // de lo que valía entonces
-                                                const base = (serie.dolar || serie.intradia) ? serie.costos[i] : 0;
-                                                const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(serie.intradia ? 2 : 1)}%)` : '';
-                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${(serie.dolar || serie.intradia) ? pct : ` ${simbolo}`}`;
+                                                const base = (serie.dolar || serie.relativo) ? serie.costos[i] : 0;
+                                                const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(serie.relativo ? 2 : 1)}%)` : '';
+                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${(serie.dolar || serie.relativo) ? pct : ` ${simbolo}`}`;
                                             }
 
                                             if (!tituloEl) return;
@@ -5425,7 +5464,7 @@
                                         const pluginCierreAnterior = {
                                             id: 'cierreAnterior',
                                             beforeDatasetsDraw: chart => {
-                                                if (!serie.intradia) return;
+                                                if (!serie.relativo) return;
                                                 const y = chart.scales.y.getPixelForValue(0);
                                                 const { left, right, top, bottom } = chart.chartArea;
                                                 if (!(y >= top && y <= bottom)) return;
@@ -5497,7 +5536,7 @@
                                                 },
                                                 interaction: { mode: 'index', intersect: false },
                                                 // En la vista Hoy la escala incluye el cierre anterior, para que la raya se vea
-                                                scales: { x: { display: false }, y: { display: false, ...(serie.intradia ? { suggestedMin: 0, suggestedMax: 0 } : {}) } },
+                                                scales: { x: { display: false }, y: { display: false, ...(serie.relativo ? { suggestedMin: 0, suggestedMax: 0 } : {}) } },
                                                 plugins: {
                                                     legend: { display: false },
                                                     tooltip: { enabled: false }
@@ -6491,6 +6530,11 @@
                                     selectCurva.value = curvaInversiones;
                                     textoCurva.textContent = selectCurva.options[selectCurva.selectedIndex].textContent;
                                 }
+                                // El de la plusvalía sólo es de la curva de acciones
+                                const filaPlusvalia = document.getElementById('filaPlusvaliaPeriodo');
+                                if (filaPlusvalia) filaPlusvalia.style.display = curvaInversiones === 'dolar' ? 'none' : '';
+                                const checkPlusvalia = document.getElementById('checkPlusvaliaPeriodo');
+                                if (checkPlusvalia) checkPlusvalia.checked = plusvaliaDelPeriodo;
 
                                 const selectPeriodo = document.getElementById('selectPeriodoFiltro');
                                 const textoPeriodo = document.getElementById('textoPeriodoFiltro');
