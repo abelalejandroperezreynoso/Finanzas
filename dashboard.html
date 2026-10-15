@@ -1795,10 +1795,23 @@
                 @keyframes ajEntra { from { transform: translateX(100%); } to { transform: none; } }
                 @keyframes ajRegresa { from { transform: translateX(-30%); opacity: 0.6; } to { transform: none; opacity: 1; } }
                 #sec-ajustes .aj-titulo { font-size: 2.1em; margin: 0 0 18px; }
-                .aj-volver, .aj-volver:hover { display: inline-flex; align-items: center; gap: 6px; width: auto; margin: 0 0 6px -4px; padding: 6px 4px;
-                    background: none; color: #0a84ff; font-weight: 400; font-size: 17px; border-radius: 0; -webkit-tap-highlight-color: transparent; }
-                .aj-volver svg { width: 10px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-                .aj-encabezado { margin: 0 0 7px 18px; color: #8e8e93; font-size: 13px; text-transform: uppercase; letter-spacing: 0.2px; }
+                /* Atrás como en iOS 26: un círculo de vidrio que flota arriba a la izquierda, sólo con la flecha */
+                .aj-volver, .aj-volver:hover { position: fixed; z-index: 20; top: calc(8px + env(safe-area-inset-top)); left: 16px;
+                    display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; margin: 0; padding: 0; border-radius: 50%;
+                    background: rgba(44, 44, 46, 0.72); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+                    border: 0.5px solid rgba(255, 255, 255, 0.12); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); color: #ffffff; -webkit-tap-highlight-color: transparent; }
+                .aj-volver:active { transform: scale(0.94); }
+                .aj-volver svg { width: 11px; height: 19px; margin-left: -2px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+                /* La primera tarjeta de cada página: ícono grande, nombre, qué es y su control principal */
+                .aj-grupo-hero { margin-top: 52px; }
+                .aj-hero { padding: 22px 18px 16px; }
+                .aj-hero-icono { display: flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 18px; margin-bottom: 14px; }
+                .aj-hero-icono svg { width: 40px; height: 40px; fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+                .aj-hero-letra { color: #ffffff; font-size: 34px; font-weight: 600; text-transform: uppercase; }
+                .aj-hero h2 { margin: 0 0 6px; text-align: left; font-size: 24px; font-weight: 700; color: #ffffff; }
+                .aj-hero p { margin: 0; color: #8e8e93; font-size: 16px; line-height: 1.35; }
+                .aj-hero + .aj-fila::before { content: ''; position: absolute; top: 0; left: 18px; right: 18px; height: 0.5px; background: #38383a; }
+                .aj-encabezado { margin: 0 0 8px 18px; color: #8e8e93; font-size: 17px; font-weight: 600; }
                 .aj-grupo { background: #1c1c1e; border-radius: 26px; overflow: hidden; margin-bottom: 30px; }
                 .aj-grupo:empty { display: none; }
                 .aj-nota { margin: -22px 18px 30px; color: #8e8e93; font-size: 13px; line-height: 1.4; }
@@ -1836,10 +1849,15 @@
                 .aj-campo, .aj-campo:focus { flex: 1; min-width: 0; width: auto; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent;
                     color: #ffffff; font-size: 17px; outline: none; box-shadow: none; }
                 .aj-campo::placeholder { color: #5a5a5f; }
-                .aj-selector { width: auto; max-width: 50%; margin: 0; padding: 8px 10px; background: #2c2c2e; color: #ffffff; border: none; border-radius: 10px; font-size: 16px; }
+                .aj-menu { position: relative; display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 55%; color: #8e8e93; }
+                .aj-menu svg { width: 9px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+                .aj-selector { width: auto; max-width: 100%; margin: 0; padding: 0; background: transparent; color: #8e8e93; border: none; border-radius: 0;
+                    font-size: 17px; text-align: right; text-align-last: right; -webkit-appearance: none; appearance: none; }
                 .aj-version { text-align: center; color: #636366; font-size: 13px; margin: -12px 0 4px; }
                 /* Consumo de IA: la cifra del saldo en su color */
-                .aj-fila .aj-cifra { flex-shrink: 0; color: #ffffff; font-weight: 600; }
+                .aj-fila .aj-cifra { flex-shrink: 0; color: #8e8e93; }
+                .aj-fila .aj-texto { white-space: normal; }
+                .aj-fila:has(.aj-cifra) .aj-texto { white-space: nowrap; }
                 .rango-ios-fila input[type="date"] {
                     position: absolute;
                     inset: 0;
@@ -2619,10 +2637,13 @@
 
     <!-- CUENTA -->
     <div class="aj-pagina" id="ajCuenta">
-        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
-        <h2 class="titulo-seccion aj-titulo">Cuenta</h2>
-
-        <div class="aj-grupo">
+        <button type="button" class="aj-volver" onclick="volverAjustes()" aria-label="Ajustes"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg></button>
+        <div class="aj-grupo aj-grupo-hero">
+            <div class="aj-hero">
+                <span class="aj-hero-icono" style="background: linear-gradient(180deg, #8e8e93, #636366);"><span class="aj-hero-letra" id="ajAvatarGrande"></span></span>
+                <h2>Cuenta</h2>
+                <p>Con este correo entras a la app. La contraseña se cambia aquí; se pide la actual.</p>
+            </div>
             <div class="aj-fila"><span class="aj-texto">Correo</span><span class="aj-valor" id="ajCorreo"></span></div>
         </div>
 
@@ -2647,23 +2668,26 @@
 
     <!-- ASISTENTE -->
     <div class="aj-pagina" id="ajAsistente">
-        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
-        <h2 class="titulo-seccion aj-titulo">Asistente</h2>
-
-        <div class="aj-encabezado">Modelo</div>
-        <div class="aj-grupo">
+        <button type="button" class="aj-volver" onclick="volverAjustes()" aria-label="Ajustes"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg></button>
+        <div class="aj-grupo aj-grupo-hero">
+            <div class="aj-hero">
+                <span class="aj-hero-icono" style="background: #c96442;"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></span>
+                <h2>Asistente</h2>
+                <p>El modelo que usa el chat, cuánto llevas gastado en la IA y lo que recuerda de ti.</p>
+            </div>
             <label class="aj-fila">
-                <span class="aj-texto">Solo Haiku<small>Para todos; bloquea el modelo del chat</small></span>
+                <span class="aj-texto">Solo Haiku</span>
                 <span class="ios-switch">
                     <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
                     <span class="ios-switch-pista"></span>
                 </span>
             </label>
             <label class="aj-fila">
-                <span class="aj-texto">Modelo del chat<small>Vuelve a Haiku al recargar</small></span>
-                <select id="selectModeloIa" class="aj-selector" onchange="elegirModeloAsistente(this.value)"></select>
+                <span class="aj-texto">Modelo del chat</span>
+                <span class="aj-menu"><select id="selectModeloIa" class="aj-selector" onchange="elegirModeloAsistente(this.value)"></select><svg viewBox="0 0 10 16" aria-hidden="true"><path d="M1.5 5.5L5 2l3.5 3.5M1.5 10.5L5 14l3.5-3.5"/></svg></span>
             </label>
         </div>
+        <div class="aj-nota">Solo Haiku es para todos y no deja elegir otro modelo. El que elijas vuelve a Haiku al recargar.</div>
 
         <!-- Cuánto se ha gastado en la IA, de toda la app. El costo es una estimación con los tokens de
              cada consulta y el precio del modelo; la cifra oficial está en la consola de Anthropic.
@@ -2679,13 +2703,15 @@
 
     <!-- PRECIOS DE MERCADO -->
     <div class="aj-pagina" id="ajMercado">
-        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
-        <h2 class="titulo-seccion aj-titulo">Precios de mercado</h2>
-
-        <div class="aj-grupo">
+        <button type="button" class="aj-volver" onclick="volverAjustes()" aria-label="Ajustes"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg></button>
+        <div class="aj-grupo aj-grupo-hero">
+            <div class="aj-hero">
+                <span class="aj-hero-icono" style="background: #30d158;"><svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></span>
+                <h2>Precios de mercado</h2>
+                <p>Los precios de tus empresas se piden solos al abrir la app. Aquí traes el histórico de cada una y sus sectores y logos.</p>
+            </div>
             <button type="button" id="btnRefrescarPrecios" class="aj-fila aj-accion" onclick="forzarActualizacionPrecios()">Actualizar precios</button>
         </div>
-        <div class="aj-nota">Se piden solos al abrir la app.</div>
 
         <div class="aj-encabezado">Histórico</div>
         <!-- Cuánto del pasado que la curva necesita está ya guardado. Lo pinta pintarAvanceHistorico(). -->
@@ -7047,6 +7073,7 @@
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
             document.getElementById('ajCorreo').textContent = currentUser.email;
             document.getElementById('ajAvatar').textContent = String(currentUser.email || '?').charAt(0);
+            document.getElementById('ajAvatarGrande').textContent = String(currentUser.email || '?').charAt(0);
             sincronizarSoloHaiku();
             
             // La app abre en el mes en curso. El filtro se deja puesto antes de cargar los datos para que
@@ -19423,19 +19450,21 @@
                                         valorRaiz.textContent = hayAnotado ? `≈ $${restante.toFixed(2)}` : '';
                                         valorRaiz.style.color = poco ? '#ff453a' : '';
                                     }
-                                    const fila = (texto, cifra, extra = '', color = '') => `<div class="aj-fila"><span class="aj-texto">${texto}</span>`
-                                        + `<span class="aj-cifra"${color ? ` style="color:${color};"` : ''}>${cifra}${extra ? ` <span style="color:#8e8e93; font-weight:400;">${extra}</span>` : ''}</span></div>`;
-                                    const consultas = n => `· ${n} ${Number(n) === 1 ? 'consulta' : 'consultas'}`;
+                                    // Como en iOS: la etiqueta a la izquierda y el valor en gris a la derecha, en dólares
+                                    const fila = (texto, cifra, color = '') => `<div class="aj-fila"><span class="aj-texto">${texto}</span>`
+                                        + `<span class="aj-cifra"${color ? ` style="color:${color}; font-weight:600;"` : ''}>${cifra}</span></div>`;
+                                    const corto = n => `$${Number(n || 0).toFixed(2)}`;
+                                    const conConsultas = (costo, n) => `${corto(costo)} · ${n} ${Number(n) === 1 ? 'consulta' : 'consultas'}`;
                                     // De quién es lo gastado desde ese saldo: los mismos colores que la raya del chat
                                     const deQuien = hayAnotado && r.gastado_mio_desde_saldo !== undefined && r.gastado_mio_desde_saldo !== null && Number(r.gastado_desde_saldo) > 0
                                         ? ` Desde entonces: <span style="color:#d97757;">●</span> tú ${usd(r.gastado_mio_desde_saldo)}, <span style="color:#6a9bcc;">●</span> otra persona ${usd(Math.max(0, Number(r.gastado_desde_saldo) - Number(r.gastado_mio_desde_saldo)))}.`
                                         : '';
                                     const nota = (hayAnotado ? `De ${usd(r.saldo_anotado)} que anotaste el ${escaparHtml(cuandoAnotado)}.${deQuien} ` : '')
-                                        + 'De toda la app, estimado con los tokens de cada consulta.';
+                                        + 'Cifras en dólares, de toda la app, estimadas con los tokens de cada consulta.';
                                     caja.innerHTML = `<div class="aj-grupo">`
-                                        + (hayAnotado ? fila('Saldo restante', `≈ ${usd(restante)}`, '', poco ? '#ff453a' : '#30d158') : '')
-                                        + fila('Este mes', usd(r.costo_mes), consultas(r.consultas_mes))
-                                        + fila('Desde el inicio', usd(r.costo_total), consultas(r.consultas_total))
+                                        + (hayAnotado ? fila('Saldo restante', `≈ ${corto(restante)}`, poco ? '#ff453a' : '#30d158') : '')
+                                        + fila('Este mes', conConsultas(r.costo_mes, r.consultas_mes))
+                                        + fila('Desde el inicio', conConsultas(r.costo_total, r.consultas_total))
                                         + `</div><div class="aj-nota">${nota}</div>`
                                         + `<div class="aj-grupo">
                                                <label class="aj-fila aj-accion">Anotar saldo desde captura<input type="file" accept="image/*" style="display:none;" onchange="saldoIaDesdeCaptura(this)"></label>
