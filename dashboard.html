@@ -1786,6 +1786,60 @@
                 }
                 .ios-switch input:checked + .ios-switch-pista { background: #34c759; }
                 .ios-switch input:checked + .ios-switch-pista::after { transform: translateX(20px); }
+                /* ---- Ajustes al estilo de Configuración del iPhone (modo oscuro) ---- */
+                #sec-ajustes .aj-pagina { display: none; }
+                #sec-ajustes .aj-pagina.activa { display: block; }
+                /* Entrar a una página la trae desde la derecha; volver trae la raíz desde la izquierda */
+                #sec-ajustes .aj-pagina.entra { animation: ajEntra 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+                #sec-ajustes .aj-pagina.regresa { animation: ajRegresa 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+                @keyframes ajEntra { from { transform: translateX(100%); } to { transform: none; } }
+                @keyframes ajRegresa { from { transform: translateX(-30%); opacity: 0.6; } to { transform: none; opacity: 1; } }
+                #sec-ajustes .aj-titulo { font-size: 2.1em; margin: 0 0 18px; }
+                .aj-volver, .aj-volver:hover { display: inline-flex; align-items: center; gap: 6px; width: auto; margin: 0 0 6px -4px; padding: 6px 4px;
+                    background: none; color: #0a84ff; font-weight: 400; font-size: 17px; border-radius: 0; -webkit-tap-highlight-color: transparent; }
+                .aj-volver svg { width: 10px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+                .aj-encabezado { margin: 0 0 7px 18px; color: #8e8e93; font-size: 13px; text-transform: uppercase; letter-spacing: 0.2px; }
+                .aj-grupo { background: #1c1c1e; border-radius: 26px; overflow: hidden; margin-bottom: 30px; }
+                .aj-grupo:empty { display: none; }
+                .aj-nota { margin: -22px 18px 30px; color: #8e8e93; font-size: 13px; line-height: 1.4; }
+                .aj-nota:empty { display: none; }
+                .aj-nota a { color: #0a84ff; text-decoration: none; }
+                /* Una fila: ícono, texto, valor, interruptor o flecha. La raya que las separa empieza donde
+                   empieza el texto, como en iOS. */
+                .aj-fila, .aj-fila:hover { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; margin: 0;
+                    padding: 9px 18px; box-sizing: border-box; background: #1c1c1e; border: none; border-radius: 0; color: #ffffff;
+                    font-size: 17px; font-weight: 400; text-align: left; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+                div.aj-fila { cursor: default; }
+                button.aj-fila:active, label.aj-fila:active, a.aj-fila:active { background: #2c2c2e; }
+                .aj-fila + .aj-fila::before { content: ''; position: absolute; top: 0; left: 18px; right: 0; height: 0.5px; background: #38383a; }
+                .aj-grupo:has(.aj-icono) .aj-fila + .aj-fila::before { left: 62px; }
+                .aj-icono { flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+                .aj-icono svg { width: 18px; height: 18px; fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+                .aj-texto { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+                .aj-texto small { display: block; margin-top: 2px; color: #8e8e93; font-size: 13px; }
+                .aj-valor { flex-shrink: 0; max-width: 60%; color: #8e8e93; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .aj-chevron { flex-shrink: 0; width: 8px; height: 14px; fill: none; stroke: #5a5a5f; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+                .aj-accion, .aj-accion:hover { color: #0a84ff; }
+                .aj-destructivo, .aj-destructivo:hover { color: #ff453a; justify-content: center; }
+                .aj-accion:disabled { color: #5a5a5f; }
+                /* El aviso de prueba cuelga del interruptor de pagos: su texto se alinea con el de arriba */
+                .aj-sangria { padding-left: 62px; }
+                .aj-gris { color: #8e8e93; }
+                .aj-relleno { padding: 14px 18px; }
+                /* Perfil: avatar con la inicial, como la Cuenta de Apple */
+                .aj-perfil { min-height: 76px; }
+                .aj-avatar { flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                    background: linear-gradient(180deg, #8e8e93, #636366); color: #ffffff; font-size: 24px; font-weight: 600; text-transform: uppercase; }
+                .aj-correo { display: block; font-size: 19px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                /* Campos dentro de la fila: etiqueta a la izquierda y lo escrito a la derecha */
+                .aj-etiqueta { flex-shrink: 0; width: 34%; color: #ffffff; }
+                .aj-campo, .aj-campo:focus { flex: 1; min-width: 0; width: auto; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent;
+                    color: #ffffff; font-size: 17px; outline: none; box-shadow: none; }
+                .aj-campo::placeholder { color: #5a5a5f; }
+                .aj-selector { width: auto; max-width: 50%; margin: 0; padding: 8px 10px; background: #2c2c2e; color: #ffffff; border: none; border-radius: 10px; font-size: 16px; }
+                .aj-version { text-align: center; color: #636366; font-size: 13px; margin: -12px 0 4px; }
+                /* Consumo de IA: la cifra del saldo en su color */
+                .aj-fila .aj-cifra { flex-shrink: 0; color: #ffffff; font-weight: 600; }
                 .rango-ios-fila input[type="date"] {
                     position: absolute;
                     inset: 0;
@@ -2503,209 +2557,158 @@
     </div>
 
     <div id="sec-ajustes" class="seccion">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <h2 class="titulo-seccion" style="margin: 0;">Ajustes</h2>
+    <!-- Como Configuración del iPhone: una lista corta por grupos y lo largo en su propia página, que
+         entra desde la derecha y se cierra con "‹ Ajustes". Antes todo iba en tarjetas una tras otra
+         y la hoja se volvía interminable. -->
 
-        <!-- Sin ✕: se sale con la barra de pestañas -->
-        </div>
+    <!-- RAÍZ -->
+    <div class="aj-pagina activa" id="ajRaiz">
+        <h2 class="titulo-seccion aj-titulo">Ajustes</h2>
 
-    <div style="text-align: center; margin-bottom: 25px; padding: 15px; background: #222; border-radius: 8px; border: 1px solid #333;">
-    <label style="margin-bottom: 4px;">Sesión iniciada como:</label>
-    <span id="userEmailDisplay" style="font-weight: bold; color: #ffffff; font-size: 1em;">...</span>
-    </div>
-
-    <!-- INICIO CALENDARIO -->
-    <!-- Vivía en la cabecera del inicio, entre el filtro y el engrane. Ahí competía por
-         el ancho con los mandos que sí se usan a diario, y el calendario es una pantalla
-         a la que se entra de vez en cuando, no un mando. Aquí tiene sitio para decir qué
-         es sin robárselo a nadie. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Calendario</h3>
-        <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
-            Tu agenda de citas, con lo que cobras y el anticipo de cada una.
-        </p>
-        <button onclick="window.location.href='calendario.html'" aria-label="Abrir el calendario"
-                style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            Abrir el calendario
-        </button>
-    </div>
-    <!-- FIN CALENDARIO -->
-
-    <!-- INICIO CONSUMO DE IA -->
-    <!-- Cuánto se ha gastado en la IA de los topes, de toda la app. El costo es una
-         estimación con los tokens de cada consulta y el precio del modelo; la cifra oficial
-         está en la consola de Anthropic. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Consumo de IA</h3>
-        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Solo Haiku<br><small style="color: #888; font-size: 0.8em;">Para todos; bloquea el modelo del chat</small></span>
-            <span class="ios-switch">
-                <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
-                <span class="ios-switch-pista"></span>
-            </span>
-        </label>
-        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 14px 0; color: #fff; font-size: 0.95em;">
-            <span>Modelo del chat<br><small style="color: #888; font-size: 0.8em;">Vuelve a Haiku al recargar</small></span>
-            <select id="selectModeloIa" onchange="elegirModeloAsistente(this.value)"
-                style="width: auto; margin: 0; padding: 8px 10px; background: #2c2c2e; color: #fff; border: none; border-radius: 8px; font-size: 0.95em;"></select>
-        </label>
-        <div id="consumoIa" style="font-size: 0.9em; color: #ccc; line-height: 1.7;">—</div>
-    </div>
-    <!-- FIN CONSUMO DE IA -->
-
-    <!-- INICIO AVISOS -->
-    <!-- Notificaciones en el teléfono aunque la app esté cerrada. Cada teléfono se activa aparte. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Avisos</h3>
-        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Recordarme pagos<br><small id="avisosPagosNota" style="color: #888; font-size: 0.8em;">A las 8:00 del día que toca</small></span>
-            <span class="ios-switch">
-                <input type="checkbox" id="checkAvisosPagos" onchange="cambiarAvisosPagos(this.checked)">
-                <span class="ios-switch-pista"></span>
-            </span>
-        </label>
-        <button type="button" id="btnProbarAvisos" onclick="probarAvisosPagos()"
-                style="display: none; width: 100%; margin: 14px 0 0; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">Enviar aviso de prueba</button>
-    </div>
-    <!-- FIN AVISOS -->
-
-    <!-- INICIO UBICACIÓN -->
-    <!-- Dónde se registró un movimiento, para que la IA sugiera categorías y note lugares
-         frecuentes. Apagado por defecto; cada persona en su teléfono. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Ubicación</h3>
-        <label style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; color: #fff; font-size: 0.95em; cursor: pointer;">
-            <span>Guardar dónde registro<br><small id="ubicacionNota" style="color: #888; font-size: 0.8em;">Sólo al registrar en el momento, aproximada</small></span>
-            <span class="ios-switch">
-                <input type="checkbox" id="checkUbicacion" onchange="cambiarUbicacion(this.checked)">
-                <span class="ios-switch-pista"></span>
-            </span>
-        </label>
-    </div>
-    <!-- FIN UBICACIÓN -->
-
-    <!-- INICIO MEMORIA DE IA -->
-    <!-- Lo que el asistente sabe de ti: lo guarda y corrige solo; aquí se ve y se borra. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Memoria de la IA</h3>
-        <div id="memoriaIa" style="font-size: 0.9em; color: #ccc; line-height: 1.5;">—</div>
-    </div>
-    <!-- FIN MEMORIA DE IA -->
-
-
-    <!-- INICIO PRECIOS DE MERCADO -->
-    <!-- Lo que queda aquí es lo que no es un dibujo: los dos botones que traen precios.
-         Las gráficas se fueron a la ficha de cuenta, que es donde se miran; Configuración
-         es donde se aprietan las tuercas, no donde se contempla nada. -->
-    <div style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px;">
-            <h3 style="font-size: 0.85em; color: #888; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Precios de mercado</h3>
-            <button id="btnRefrescarPrecios" onclick="forzarActualizacionPrecios()" style="width: auto; padding: 6px 12px; font-size: 0.75em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap;">
-                🔄 Precios
+        <div class="aj-grupo">
+            <button type="button" class="aj-fila aj-perfil" onclick="abrirPaginaAjustes('ajCuenta')">
+                <span class="aj-avatar" id="ajAvatar"></span>
+                <span class="aj-texto"><span class="aj-correo" id="userEmailDisplay">...</span><small>Cuenta y contraseña</small></span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
             </button>
         </div>
 
-        <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 14px 0;">
-            Las cotizaciones se piden solas al abrir la app. El botón de arriba las vuelve a
-            pedir si llevas rato con la app abierta y quieres el precio del momento.
-        </p>
+        <!-- Avisos y ubicación son de cada teléfono: se encienden aquí mismo, como el modo de vuelo -->
+        <div class="aj-grupo">
+            <label class="aj-fila">
+                <span class="aj-icono" style="background: #ff3b30;"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+                <span class="aj-texto">Recordarme pagos<small id="avisosPagosNota">A las 8:00 del día que toca</small></span>
+                <span class="ios-switch">
+                    <input type="checkbox" id="checkAvisosPagos" onchange="cambiarAvisosPagos(this.checked)">
+                    <span class="ios-switch-pista"></span>
+                </span>
+            </label>
+            <button type="button" id="btnProbarAvisos" class="aj-fila aj-accion aj-sangria" onclick="probarAvisosPagos()" style="display: none;">Enviar aviso de prueba</button>
+            <label class="aj-fila">
+                <span class="aj-icono" style="background: #0a84ff;"><svg viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg></span>
+                <span class="aj-texto">Guardar dónde registro<small id="ubicacionNota">Sólo al registrar en el momento, aproximada</small></span>
+                <span class="ios-switch">
+                    <input type="checkbox" id="checkUbicacion" onchange="cambiarUbicacion(this.checked)">
+                    <span class="ios-switch-pista"></span>
+                </span>
+            </label>
+        </div>
 
-        <div style="border-top: 1px dashed #333; padding-top: 14px;">
-            <h4 style="font-size: 0.75em; color: #888; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Histórico</h4>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                Cada día que abras la app se guarda el precio de ese día, así que el histórico
-                crece solo. Para traer también lo de antes —una sola vez— se intenta primero con
-                <strong>Finnhub</strong>, que es de donde ya salen los precios de hoy y no
-                necesita nada de ti, aunque su plan gratuito ya no los sirve.
-            </p>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                Por eso la clave de abajo es hoy la que hace el trabajo. Con ella se traen los
-                <strong>últimos cien cierres</strong> de cada empresa —el pasado entero es de pago
-                en Alpha Vantage— y el <strong>tipo de cambio</strong>, que sólo lo da ella. Así
-                que la curva empezará hace unos meses y no en tu primera compra; de ahí en
-                adelante crece sola. Es
-                <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>,
-                con un puñado de peticiones al día, así que se trae <strong>una empresa a la
-                vez</strong>: el botón trae la que más falta, o toca cualquier fila para traer esa.
-            </p>
-            <!-- Cuánto del pasado que la curva necesita está ya guardado. Se pinta desde el JS
-                 porque cambia con cada traída y con cada día que abres la app. -->
-            <div id="avanceHistorico" style="margin: 0 0 12px 0;"></div>
-
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                Para llegar hasta tu primera compra usa <strong>Twelve Data</strong>: su clave
-                <a href="https://twelvedata.com/register" target="_blank" rel="noopener" style="color:#4da6ff;">gratuita</a>
-                trae años de cierres de cada empresa y del tipo de cambio de una sola vez (unas
-                ochocientas peticiones al día, ocho por minuto). Con ella puesta se usa primero.
-            </p>
-            <input type="text" id="claveApiTwelve" placeholder="Clave de Twelve Data (recomendada)" autocomplete="off"
-                   style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
-            <input type="text" id="claveApiHistorico" placeholder="Clave de Alpha Vantage (opcional)" autocomplete="off"
-                   style="width: 100%; box-sizing: border-box; margin-bottom: 8px;">
-            <button id="btnTraerHistorico" onclick="pedirHistoricoDesdeAjustes()"
-                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
-                Traer histórico
+        <div class="aj-grupo">
+            <button type="button" class="aj-fila" onclick="abrirPaginaAjustes('ajAsistente')">
+                <span class="aj-icono" style="background: #c96442;"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></span>
+                <span class="aj-texto">Asistente</span>
+                <span class="aj-valor" id="ajValorAsistente"></span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
             </button>
-            <div id="avisoHistorico" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+            <button type="button" class="aj-fila" onclick="abrirPaginaAjustes('ajMercado')">
+                <span class="aj-icono" style="background: #30d158;"><svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></span>
+                <span class="aj-texto">Precios de mercado</span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </button>
+            <button type="button" class="aj-fila" onclick="window.location.href='calendario.html'">
+                <span class="aj-icono" style="background: #5e5ce6;"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <span class="aj-texto">Calendario</span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </button>
+        </div>
+
+        <!-- La versión que el teléfono tiene guardada (la de sw.js), para saber si ya llegó un cambio -->
+        <div id="versionApp" class="aj-version"></div>
+    </div>
+
+    <!-- CUENTA -->
+    <div class="aj-pagina" id="ajCuenta">
+        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
+        <h2 class="titulo-seccion aj-titulo">Cuenta</h2>
+
+        <div class="aj-grupo">
+            <div class="aj-fila"><span class="aj-texto">Correo</span><span class="aj-valor" id="ajCorreo"></span></div>
+        </div>
+
+        <!-- Se pide la actual para que nadie la cambie con el teléfono desbloqueado. -->
+        <form id="formContrasena" onsubmit="event.preventDefault(); cambiarContrasena();">
+            <div class="aj-encabezado">Contraseña</div>
+            <div class="aj-grupo">
+                <label class="aj-fila"><span class="aj-etiqueta">Actual</span><input type="password" class="aj-campo" id="contrasenaActual" placeholder="Requerida" autocomplete="current-password" required></label>
+                <label class="aj-fila"><span class="aj-etiqueta">Nueva</span><input type="password" class="aj-campo" id="contrasenaNueva" placeholder="Mínimo 6" autocomplete="new-password" minlength="6" required></label>
+                <label class="aj-fila"><span class="aj-etiqueta">Repetir</span><input type="password" class="aj-campo" id="contrasenaRepetida" placeholder="La nueva otra vez" autocomplete="new-password" minlength="6" required></label>
+            </div>
+            <div class="aj-grupo">
+                <button type="submit" id="btnCambiarContrasena" class="aj-fila aj-accion">Cambiar contraseña</button>
+            </div>
+            <div id="avisoContrasena" class="aj-nota"></div>
+        </form>
+
+        <div class="aj-grupo">
+            <button type="button" id="btnCerrarSesion" class="aj-fila aj-accion aj-destructivo">Cerrar sesión</button>
+        </div>
+    </div>
+
+    <!-- ASISTENTE -->
+    <div class="aj-pagina" id="ajAsistente">
+        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
+        <h2 class="titulo-seccion aj-titulo">Asistente</h2>
+
+        <div class="aj-encabezado">Modelo</div>
+        <div class="aj-grupo">
+            <label class="aj-fila">
+                <span class="aj-texto">Solo Haiku<small>Para todos; bloquea el modelo del chat</small></span>
+                <span class="ios-switch">
+                    <input type="checkbox" id="checkSoloHaiku" onchange="cambiarSoloHaiku(this.checked)">
+                    <span class="ios-switch-pista"></span>
+                </span>
+            </label>
+            <label class="aj-fila">
+                <span class="aj-texto">Modelo del chat<small>Vuelve a Haiku al recargar</small></span>
+                <select id="selectModeloIa" class="aj-selector" onchange="elegirModeloAsistente(this.value)"></select>
+            </label>
+        </div>
+
+        <!-- Cuánto se ha gastado en la IA, de toda la app. El costo es una estimación con los tokens de
+             cada consulta y el precio del modelo; la cifra oficial está en la consola de Anthropic.
+             Lo pinta cargarConsumoIa(). -->
+        <div class="aj-encabezado">Consumo</div>
+        <div id="consumoIa"><div class="aj-grupo"><div class="aj-fila aj-gris">—</div></div></div>
+
+        <!-- Lo que el asistente sabe de ti: lo guarda y corrige solo; aquí se ve y se borra. -->
+        <div class="aj-encabezado">Memoria</div>
+        <div class="aj-grupo" id="memoriaIa"><div class="aj-fila aj-gris">—</div></div>
+        <div class="aj-nota">Lo que el asistente sabe de ti. La guarda solo cuando le cuentas algo en el chat.</div>
+    </div>
+
+    <!-- PRECIOS DE MERCADO -->
+    <div class="aj-pagina" id="ajMercado">
+        <button type="button" class="aj-volver" onclick="volverAjustes()"><svg viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6"/></svg>Ajustes</button>
+        <h2 class="titulo-seccion aj-titulo">Precios de mercado</h2>
+
+        <div class="aj-grupo">
+            <button type="button" id="btnRefrescarPrecios" class="aj-fila aj-accion" onclick="forzarActualizacionPrecios()">Actualizar precios</button>
+        </div>
+        <div class="aj-nota">Se piden solos al abrir la app.</div>
+
+        <div class="aj-encabezado">Histórico</div>
+        <!-- Cuánto del pasado que la curva necesita está ya guardado. Lo pinta pintarAvanceHistorico(). -->
+        <div class="aj-grupo aj-relleno" id="avanceHistorico"></div>
+        <div class="aj-grupo">
+            <label class="aj-fila"><span class="aj-etiqueta">Twelve Data</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Clave (recomendada)" autocomplete="off"></label>
+            <label class="aj-fila"><span class="aj-etiqueta">Alpha Vantage</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Clave (opcional)" autocomplete="off"></label>
+            <button type="button" id="btnTraerHistorico" class="aj-fila aj-accion" onclick="pedirHistoricoDesdeAjustes()">Traer histórico</button>
             <!-- Todo lo guardado del histórico, copiado como JSON para poder revisarlo fuera de la app -->
-            <button id="btnCopiarHistorico" onclick="copiarHistoricoJSON()"
-                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px;">
-                Copiar histórico (JSON)
-            </button>
+            <button type="button" id="btnCopiarHistorico" class="aj-fila aj-accion" onclick="copiarHistoricoJSON()">Copiar histórico (JSON)</button>
         </div>
+        <div id="avisoHistorico" class="aj-nota"></div>
+        <div class="aj-nota">Cada día que abres la app se guarda el cierre. Para lo de antes, una empresa a la vez:
+            <a href="https://twelvedata.com/register" target="_blank" rel="noopener">Twelve Data</a> trae años y el tipo de cambio;
+            <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a>, los últimos cien cierres. Las dos claves son gratuitas.</div>
 
-        <div style="border-top: 1px dashed #333; padding-top: 14px; margin-top: 14px;">
-            <h4 style="font-size: 0.75em; color: #888; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Empresas</h4>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                El <strong>sector</strong> y el <strong>logo</strong> de cada empresa salen del mismo
-                Finnhub que los precios, sin clave ni nada que configurar. Se preguntan una sola vez
-                por empresa —no cambian— y se guardan, así que esto no hace falta tocarlo: la primera
-                vez que añadas un ticker se completa solo.
-            </p>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                Los <strong>ETF</strong> y lo que cotiza fuera de Estados Unidos se quedan sin sector:
-                el plan gratuito no los perfila. Esas tarjetas salen con la inicial del ticker en lugar
-                del logo.
-            </p>
-            <p style="color: #666; font-size: 0.78em; line-height: 1.5; margin: 0 0 10px 0;">
-                Finnhub pone una sola etiqueta por empresa, y no siempre es la tuya: Apple sale como
-                <em>Technology</em> aunque viva del hardware y del software. En cada categoría de
-                inversión puedes escribir tus <strong>sectores propios</strong>, los que quieras y
-                tantos como quieras, y el mapa los reparte con la pastilla
-                <strong>Agrupar → Personalizado</strong>. <em>Sectores</em> sigue siendo el de Finnhub,
-                para leer la industria; <em>Personalizado</em> es tu manera de ver la cartera. Una
-                empresa con varios reparte su dinero en partes iguales entre ellos, para que los
-                sectores sigan sumando exactamente tu portafolio, y la que no tenga ninguno cae en
-                <em>Sin sector propio</em>. Necesita
-                <strong>migracion_sectores_categoria.sql</strong> ejecutado en Supabase.
-            </p>
-            <button id="btnRefrescarPerfiles" onclick="forzarActualizacionPerfiles()"
-                    style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">
-                🏷️ Sectores y logos
-            </button>
-            <div id="avisoPerfiles" style="color: #666; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
+        <div class="aj-encabezado">Empresas</div>
+        <div class="aj-grupo">
+            <button type="button" id="btnRefrescarPerfiles" class="aj-fila aj-accion" onclick="forzarActualizacionPerfiles()">Actualizar sectores y logos</button>
         </div>
+        <div id="avisoPerfiles" class="aj-nota"></div>
+        <div class="aj-nota">Salen de Finnhub una vez por empresa. Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
     </div>
-    <!-- FIN PRECIOS DE MERCADO -->
-
-    <!-- INICIO CONTRASEÑA -->
-    <!-- Se pide la actual para que nadie la cambie con el teléfono desbloqueado. -->
-    <form id="formContrasena" onsubmit="event.preventDefault(); cambiarContrasena();"
-          style="margin-bottom: 25px; padding: 15px; background: #1c1c1c; border-radius: 8px; border: 1px solid #333;">
-        <h3 style="font-size: 0.85em; color: #888; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 1px; text-align: left;">Contraseña</h3>
-        <input type="password" id="contrasenaActual" placeholder="Actual" autocomplete="current-password" required style="margin-bottom: 8px;">
-        <input type="password" id="contrasenaNueva" placeholder="Nueva (mínimo 6)" autocomplete="new-password" minlength="6" required style="margin-bottom: 8px;">
-        <input type="password" id="contrasenaRepetida" placeholder="Repite la nueva" autocomplete="new-password" minlength="6" required style="margin-bottom: 8px;">
-        <button type="submit" id="btnCambiarContrasena"
-                style="width: 100%; padding: 10px; font-size: 0.8em; background: #333; color: #ccc; border: none; border-radius: 6px; cursor: pointer;">Cambiar contraseña</button>
-        <div id="avisoContrasena" style="color: #888; font-size: 0.78em; margin-top: 8px; line-height: 1.4;"></div>
-    </form>
-    <!-- FIN CONTRASEÑA -->
-
-    <button id="btnCerrarSesion" class="btn-logout">Cerrar Sesión</button>
-    <!-- La versión que el teléfono tiene guardada (la de sw.js), para saber si ya llegó un cambio -->
-    <div id="versionApp" style="text-align: center; color: #666; font-size: 0.75em; margin: 14px 0 4px;"></div>
     </div>
 </div>
 
@@ -4153,8 +4156,8 @@
                                         const restaurar = (texto, color) => {
                                             if (!btn) return;
                                             btn.textContent = texto;
-                                            btn.style.color = color || '#ccc';
-                                            setTimeout(() => { btn.textContent = 'Copiar histórico (JSON)'; btn.style.color = '#ccc'; btn.disabled = false; }, 2500);
+                                            btn.style.color = color || '';
+                                            setTimeout(() => { btn.textContent = 'Copiar histórico (JSON)'; btn.style.color = ''; btn.disabled = false; }, 2500);
                                         };
                                         if (btn) { btn.disabled = true; btn.textContent = 'Preparando…'; }
 
@@ -4421,7 +4424,7 @@
                                             debouncedRefreshUI();
                                             decir('No se pudieron traer los perfiles: ' + e.message, true);
                                         } finally {
-                                            if (btn) { btn.disabled = false; btn.textContent = '🏷️ Sectores y logos'; }
+                                            if (btn) { btn.disabled = false; btn.textContent = 'Actualizar sectores y logos'; }
                                         }
                                     }
 
@@ -5803,7 +5806,23 @@
                         return { monto: parseFloat(resultado.toFixed(2)), esEstimado: true };
                     }
 
+                                                                                // Ajustes: la raíz y sus páginas, como en Configuración del iPhone
+                                                                                function abrirPaginaAjustes(id) { mostrarPaginaAjustes(id, 'entra'); }
+                                                                                function volverAjustes() { mostrarPaginaAjustes('ajRaiz', 'regresa'); }
+                                                                                function mostrarPaginaAjustes(id, animacion) {
+                                                                                    document.querySelectorAll('#sec-ajustes .aj-pagina').forEach(pag => {
+                                                                                        pag.classList.remove('activa', 'entra', 'regresa');
+                                                                                    });
+                                                                                    const pagina = document.getElementById(id);
+                                                                                    if (!pagina) return;
+                                                                                    pagina.classList.add('activa');
+                                                                                    if (animacion) pagina.classList.add(animacion);
+                                                                                    window.scrollTo(0, 0);
+                                                                                }
+
                                                                                 function cambiarSeccion(id, btn) {
+                            // Tocar Ajustes estando ya en Ajustes regresa a la raíz, como en iOS
+                            if (id === 'sec-ajustes' && document.getElementById(id).classList.contains('activa')) mostrarPaginaAjustes('ajRaiz', 'regresa');
                             window.scrollTo(0, 0);
                             document.querySelectorAll('.seccion').forEach(s => s.classList.remove('activa'));
                             if (btn) {
@@ -7006,10 +7025,10 @@
                                                         // El botón dice la hora de la última traída. Sólo se pone la del arranque:
                                                         // si ya dice "Actualizado", la puso el botón al pulsarse y esa manda.
                                                         const btnRefresh = document.getElementById('btnRefrescarPrecios');
-                                                        if (btnRefresh && !btnRefresh.innerHTML.includes('Actualizado')) {
+                                                        if (btnRefresh && !btnRefresh.innerHTML.includes('·')) {
                                                             const ahora = new Date();
                                                             const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                            btnRefresh.innerHTML = `🔄 Actualizado: ${horaStr}`;
+                                                            btnRefresh.innerHTML = `Actualizar precios <span style="color: #8e8e93;">· ${horaStr}</span>`;
                                                         }
                                                     }
 
@@ -7026,6 +7045,8 @@
             if (atajoChat) atajoChat.classList.add('lista');
             abrirChatDesdeCarga();
             document.getElementById('userEmailDisplay').textContent = currentUser.email;
+            document.getElementById('ajCorreo').textContent = currentUser.email;
+            document.getElementById('ajAvatar').textContent = String(currentUser.email || '?').charAt(0);
             sincronizarSoloHaiku();
             
             // La app abre en el mes en curso. El filtro se deja puesto antes de cargar los datos para que
@@ -19274,7 +19295,7 @@
                                 interruptor.disabled = false;
                                 interruptor.checked = !!sus && Notification.permission === 'granted';
                                 const probar = document.getElementById('btnProbarAvisos');
-                                if (probar) probar.style.display = interruptor.checked ? 'block' : 'none';
+                                if (probar) probar.style.display = interruptor.checked ? '' : 'none';
                                 nota.textContent = Notification.permission === 'denied' ? 'Permiso negado: actívalo en Ajustes del iPhone' : 'A las 8:00 del día que toca';
                                 // El teléfono queda a nombre de quien tiene la sesión abierta
                                 if (interruptor.checked) guardarSuscripcionPush(sus);
@@ -19349,12 +19370,12 @@
                                 const caja = document.getElementById('memoriaIa');
                                 if (!caja || !clienteSupabase) return;
                                 const { data, error } = await clienteSupabase.from('memoria_ia').select('id, tema, nota').order('tema').order('actualizado_en', { ascending: false });
-                                if (error) { caja.innerHTML = '<span style="color:#888;">No se pudo cargar.</span>'; return; }
-                                if (!data.length) { caja.innerHTML = '<span style="color:#888;">Vacía. Se llena sola cuando le cuentas de ti en el chat.</span>'; return; }
-                                caja.innerHTML = data.map(n => `<div style="display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-top:1px solid #2c2c2e;">
-                                        <div style="flex:1; min-width:0;"><small style="color:#888;">${escaparHtml(TEMAS_MEMORIA_IA[n.tema] || n.tema)}</small><div style="color:#fff;">${escaparHtml(n.nota)}</div></div>
+                                if (error) { caja.innerHTML = '<div class="aj-fila aj-gris">No se pudo cargar.</div>'; return; }
+                                if (!data.length) { caja.innerHTML = '<div class="aj-fila aj-gris">Vacía</div>'; return; }
+                                caja.innerHTML = data.map(n => `<div class="aj-fila" style="align-items: flex-start;">
+                                        <span class="aj-texto" style="font-size: 15px;"><small style="margin: 0 0 2px;">${escaparHtml(TEMAS_MEMORIA_IA[n.tema] || n.tema)}</small>${escaparHtml(n.nota)}</span>
                                         <button type="button" aria-label="Borrar nota" onclick="borrarNotaMemoriaIa('${n.id}')"
-                                            style="flex-shrink:0; width:28px; height:28px; margin:0; padding:0; border:none; border-radius:50%; background:#2c2c2e; color:#aaa; font-size:14px; line-height:28px;">✕</button>
+                                            style="flex-shrink:0; width:28px; height:28px; margin:0; padding:0; border:none; border-radius:50%; background:#2c2c2e; color:#8e8e93; font-size:13px; font-weight:400; line-height:28px;">✕</button>
                                     </div>`).join('');
                             }
                             async function borrarNotaMemoriaIa(id) {
@@ -19378,11 +19399,14 @@
                                 pintarVersionApp();
                                 const caja = document.getElementById('consumoIa');
                                 if (!caja || !clienteSupabase) return;
-                                caja.textContent = 'Cargando…';
+                                // Todo va en filas de iOS: un grupo con las cifras, una nota y otro con lo que se puede hacer
+                                const avisoConsumo = texto => { caja.innerHTML = `<div class="aj-grupo"><div class="aj-fila aj-gris">${texto}</div></div>`; };
+                                const valorRaiz = document.getElementById('ajValorAsistente');
+                                avisoConsumo('Cargando…');
                                 try {
                                     const { data, error } = await clienteSupabase.rpc('resumen_uso_ia');
                                     if (error) {
-                                        caja.innerHTML = '<span style="color:#888;">Falta preparar la base: ejecuta migracion_consumo_ia.sql en Supabase.</span>';
+                                        avisoConsumo('Falta preparar la base: ejecuta migracion_consumo_ia.sql en Supabase.');
                                         return;
                                     }
                                     const r = (data && data[0]) || { consultas_mes: 0, costo_mes: 0, consultas_total: 0, costo_total: 0 };
@@ -19390,40 +19414,38 @@
                                     // Lo que queda: el último saldo anotado menos lo gastado desde entonces
                                     const hayAnotado = r.saldo_anotado !== null && r.saldo_anotado !== undefined;
                                     const restante = hayAnotado ? Math.max(0, Number(r.saldo_anotado) - Number(r.gastado_desde_saldo || 0)) : null;
+                                    const poco = hayAnotado && restante < 1;
                                     const cuandoAnotado = hayAnotado && r.saldo_anotado_en
                                         ? new Date(r.saldo_anotado_en).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
                                         : '';
-                                    const bloqueSaldo = hayAnotado
-                                        ? `<div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin-bottom:10px;">
-                                               <span>Saldo restante</span><strong style="color:${restante < 1 ? '#ff5c5c' : '#3ecf8e'}; font-size:1.25em;">≈ ${usd(restante)}</strong></div>
-                                           <div style="color:#666; font-size:0.85em; margin:-6px 0 12px;">De ${usd(r.saldo_anotado)} que anotaste el ${escaparHtml(cuandoAnotado)}</div>`
-                                          // De quién es lo gastado desde ese saldo: los mismos colores que la raya del chat
-                                          + (r.gastado_mio_desde_saldo !== undefined && r.gastado_mio_desde_saldo !== null && Number(r.gastado_desde_saldo) > 0
-                                              ? `<div style="display:flex; gap:14px; flex-wrap:wrap; font-size:0.85em; margin:-4px 0 12px;">
-                                                     <span><span style="color:#d97757;">●</span> Tú ${usd(r.gastado_mio_desde_saldo)}</span>
-                                                     <span><span style="color:#6a9bcc;">●</span> Otra persona ${usd(Math.max(0, Number(r.gastado_desde_saldo) - Number(r.gastado_mio_desde_saldo)))}</span>
-                                                 </div>`
-                                              : '')
+                                    // En la raíz, junto a "Asistente", lo que queda de saldo
+                                    if (valorRaiz) {
+                                        valorRaiz.textContent = hayAnotado ? `≈ $${restante.toFixed(2)}` : '';
+                                        valorRaiz.style.color = poco ? '#ff453a' : '';
+                                    }
+                                    const fila = (texto, cifra, extra = '', color = '') => `<div class="aj-fila"><span class="aj-texto">${texto}</span>`
+                                        + `<span class="aj-cifra"${color ? ` style="color:${color};"` : ''}>${cifra}${extra ? ` <span style="color:#8e8e93; font-weight:400;">${extra}</span>` : ''}</span></div>`;
+                                    const consultas = n => `· ${n} ${Number(n) === 1 ? 'consulta' : 'consultas'}`;
+                                    // De quién es lo gastado desde ese saldo: los mismos colores que la raya del chat
+                                    const deQuien = hayAnotado && r.gastado_mio_desde_saldo !== undefined && r.gastado_mio_desde_saldo !== null && Number(r.gastado_desde_saldo) > 0
+                                        ? ` Desde entonces: <span style="color:#d97757;">●</span> tú ${usd(r.gastado_mio_desde_saldo)}, <span style="color:#6a9bcc;">●</span> otra persona ${usd(Math.max(0, Number(r.gastado_desde_saldo) - Number(r.gastado_mio_desde_saldo)))}.`
                                         : '';
-                                    const fila = (texto, consultas, costo) => `<div style="display:flex; justify-content:space-between; gap:12px;">
-                                        <span>${texto}</span><span><strong style="color:#fff;">${usd(costo)}</strong> <span style="color:#888;">· ${consultas} ${Number(consultas) === 1 ? 'consulta' : 'consultas'}</span></span></div>`;
-                                    caja.innerHTML = bloqueSaldo
-                                        + fila('Este mes', r.consultas_mes, r.costo_mes)
-                                        + fila('Desde el inicio', r.consultas_total, r.costo_total)
-                                        + `<div style="color:#666; font-size:0.85em; margin-top:6px;">De toda la app · estimado con los tokens de cada consulta</div>`
-                                        + `<div style="display:flex; gap:8px; margin-top:12px;">
-                                               <label style="flex:2; margin:0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border-radius:6px; text-align:center; cursor:pointer;">
-                                                   Saldo desde captura<input type="file" accept="image/*" style="display:none;" onchange="saldoIaDesdeCaptura(this)">
-                                               </label>
-                                               <button type="button" onclick="anotarSaldoIa()" style="flex:1; margin:0; padding:10px; font-size:0.8em; background:#333; color:#ccc; border:none; border-radius:6px;">Escribirlo</button>
-                                           </div>`
+                                    const nota = (hayAnotado ? `De ${usd(r.saldo_anotado)} que anotaste el ${escaparHtml(cuandoAnotado)}.${deQuien} ` : '')
+                                        + 'De toda la app, estimado con los tokens de cada consulta.';
+                                    caja.innerHTML = `<div class="aj-grupo">`
+                                        + (hayAnotado ? fila('Saldo restante', `≈ ${usd(restante)}`, '', poco ? '#ff453a' : '#30d158') : '')
+                                        + fila('Este mes', usd(r.costo_mes), consultas(r.consultas_mes))
+                                        + fila('Desde el inicio', usd(r.costo_total), consultas(r.consultas_total))
+                                        + `</div><div class="aj-nota">${nota}</div>`
+                                        + `<div class="aj-grupo">
+                                               <label class="aj-fila aj-accion">Anotar saldo desde captura<input type="file" accept="image/*" style="display:none;" onchange="saldoIaDesdeCaptura(this)"></label>
+                                               <button type="button" class="aj-fila aj-accion" onclick="anotarSaldoIa()">Escribir saldo</button>`
                                         // Comprar crédito sólo se puede en la consola de Anthropic: se abre su página de
-                                        // pagos. Con el saldo casi agotado el botón se resalta.
-                                        + `<a href="${URL_RECARGA_IA}" target="_blank" rel="noopener"
-                                               style="display:block; margin-top:8px; padding:10px; font-size:0.8em; text-align:center; text-decoration:none; border-radius:6px;
-                                                      background:${hayAnotado && restante < 1 ? '#c96442' : '#333'}; color:${hayAnotado && restante < 1 ? '#fff' : '#ccc'};">Comprar crédito</a>`;
+                                        // pagos. Con el saldo casi agotado se resalta.
+                                        + `<a class="aj-fila aj-accion" href="${URL_RECARGA_IA}" target="_blank" rel="noopener"${poco ? ' style="color:#ff453a; font-weight:600;"' : ''}>Comprar crédito</a>
+                                           </div>`;
                                 } catch (e) {
-                                    caja.textContent = 'No se pudo cargar el consumo.';
+                                    avisoConsumo('No se pudo cargar el consumo.');
                                 }
                             }
 
@@ -19469,7 +19491,7 @@
                                 campo.value = '';
                                 if (!archivo) return;
                                 const caja = document.getElementById('consumoIa');
-                                if (caja) caja.textContent = 'Leyendo la captura…';
+                                if (caja) caja.innerHTML = '<div class="aj-grupo"><div class="aj-fila aj-gris">Leyendo la captura…</div></div>';
                                 try {
                                     const data = await imagenReducidaBase64(archivo);
                                     const { data: res, error } = await clienteSupabase.functions.invoke('asistente', {
@@ -24097,8 +24119,7 @@
                             function forzarActualizacionPrecios() {
                                 const btn = document.getElementById('btnRefrescarPrecios');
                                 if (btn) {
-                                    btn.innerHTML = '⏳ Actualizando...';
-                                    btn.style.color = '#fff';
+                                    btn.innerHTML = 'Actualizando…';
                                 }
                                 
                                 // 1. Limpiamos las cachés actuales para obligar a pedir datos frescos
@@ -24126,7 +24147,7 @@
                                         const ahora = new Date();
                                         // Formatea la hora a algo limpio como "14:30" o "02:30 PM" dependiendo de tu sistema
                                         const horaStr = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                        btn.innerHTML = `🔄 Actualizado: ${horaStr}`;
+                                        btn.innerHTML = `Actualizar precios <span style="color: #8e8e93;">· ${horaStr}</span>`;
                                         btn.style.color = '#3ecf8e'; // Lo pintamos de verde para confirmar el éxito
                                     }, 500);
                                 }
