@@ -4290,16 +4290,56 @@
                                         pintarEstadoClaves();
                                     }
 
-                                    // La clave se guarda al escribirla. Antes sólo se guardaba al tocar "Traer
-                                    // histórico": la que se pegaba y se dejaba ahí se perdía al salir.
-                                    function guardarClaveProveedor(campo) {
-                                        const clave = String(campo.value || '').trim();
-                                        const nombre = campo.id === 'claveApiTwelve' ? CLAVE_API_TWELVE : CLAVE_API_HISTORICO;
-                                        try {
-                                            if (clave) localStorage.setItem(nombre, clave);
-                                            else localStorage.removeItem(nombre);
-                                        } catch (e) { /* sin almacenamiento */ }
+                                    // Las claves son de cada usuario y viven en Supabase (claves_proveedores), así
+                                    // que se ven en cualquier teléfono donde entre. El teléfono guarda una copia
+                                    // en localStorage, que es de donde las leen las traídas de precios, para que
+                                    // funcionen aunque no haya red. Al abrir manda la de Supabase; si allá no hay
+                                    // y el teléfono sí tiene una (de antes de existir la tabla), se sube.
+                                    const PROVEEDORES_CLAVE = [
+                                        { proveedor: 'twelvedata', local: CLAVE_API_TWELVE, campo: 'claveApiTwelve' },
+                                        { proveedor: 'alphavantage', local: CLAVE_API_HISTORICO, campo: 'claveApiHistorico' }
+                                    ];
+                                    const leerLocal = nombre => { try { return (localStorage.getItem(nombre) || '').trim(); } catch (e) { return ''; } };
+                                    const escribirLocal = (nombre, clave) => {
+                                        try { if (clave) localStorage.setItem(nombre, clave); else localStorage.removeItem(nombre); } catch (e) { /* sin almacenamiento */ }
+                                    };
+                                    async function subirClaveProveedor(proveedor, clave) {
+                                        if (!clienteSupabase || !currentUser) return;
+                                        const tabla = clienteSupabase.from('claves_proveedores');
+                                        const { error } = clave
+                                            ? await tabla.upsert({ user_id: currentUser.id, proveedor, clave, actualizado_en: new Date().toISOString() }, { onConflict: 'user_id,proveedor' })
+                                            : await tabla.delete().eq('user_id', currentUser.id).eq('proveedor', proveedor);
+                                        if (error) console.warn('Clave del proveedor', error.message);
+                                    }
+                                    async function sincronizarClavesProveedores() {
+                                        if (!clienteSupabase || !currentUser) return;
+                                        const { data, error } = await clienteSupabase.from('claves_proveedores').select('proveedor, clave');
+                                        if (error) { console.warn('Claves de proveedores', error.message); return; }
+                                        const enNube = {};
+                                        (data || []).forEach(r => { enNube[r.proveedor] = String(r.clave || '').trim(); });
+                                        for (const p of PROVEEDORES_CLAVE) {
+                                            const local = leerLocal(p.local);
+                                            if (enNube[p.proveedor]) escribirLocal(p.local, enNube[p.proveedor]);
+                                            else if (local) await subirClaveProveedor(p.proveedor, local);
+                                            // Si se está escribiendo en el campo, no se le cambia debajo
+                                            const campo = document.getElementById(p.campo);
+                                            if (campo && document.activeElement !== campo) campo.value = leerLocal(p.local);
+                                        }
                                         pintarEstadoClaves();
+                                    }
+
+                                    // La clave se guarda al escribirla, en el teléfono al momento y en Supabase un
+                                    // instante después (para no mandar una petición por cada letra). Antes sólo se
+                                    // guardaba al tocar "Traer histórico" y la que se pegaba y se dejaba ahí se perdía.
+                                    const esperaClaves = {};
+                                    function guardarClaveProveedor(campo) {
+                                        const p = PROVEEDORES_CLAVE.find(x => x.campo === campo.id);
+                                        if (!p) return;
+                                        const clave = String(campo.value || '').trim();
+                                        escribirLocal(p.local, clave);
+                                        pintarEstadoClaves();
+                                        clearTimeout(esperaClaves[p.proveedor]);
+                                        esperaClaves[p.proveedor] = setTimeout(() => subirClaveProveedor(p.proveedor, clave), 700);
                                     }
 
                                     // A la derecha de cada proveedor: si este teléfono ya tiene su clave
@@ -5965,6 +6005,7 @@
                             // recalcula cuánto histórico hay: es lo que esta sección pone al día.
                             refrescarPreciosDeMercado();
                             cargarClaveHistoricoGuardada();
+                            sincronizarClavesProveedores();
                             pintarAvanceHistorico();
                             }
                             const menuGlobal = document.querySelector('.dashboard-menu');
@@ -7120,6 +7161,8 @@
             const { data: { session } } = await clienteSupabase.auth.getSession();
             if (!session) { window.location.replace('index.html'); return; }
             currentUser = session.user;
+            // Las claves de precios de este usuario, desde Supabase: en un teléfono nuevo ya están desde el arranque
+            sincronizarClavesProveedores().catch(() => {});
             avanzarCarga(HITOS_CARGA.sesion);
             // La app abre directo en el chat: no necesita los datos del teléfono (la IA consulta la
             // base por su cuenta) y lo que sí depende de ellos se completa al terminar la carga.
