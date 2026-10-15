@@ -1352,12 +1352,19 @@
 
                 /* Alto del mapa de cuadros. En horizontal se queda en 290px; en vertical, con el
                    portafolio puesto, se estira hasta llenar la pantalla dejando sitio al título de
-                   arriba y al pie de abajo, para que los recuadros chicos se puedan leer. */
+                   arriba y al pie de abajo, para que los recuadros chicos se puedan leer. Con la barra
+                   de pestañas, la tarjeta entera (título, mapa y pie) cabe entre la barra de estado y la
+                   de pestañas: 155 = 5 de aire bajo la barra de estado + 64 del título y el pie + 78 de
+                   la barra (16 de aire + 62) + 8 de aire sobre ella. */
                 #contenedorTreemapCategorias { height: 290px; }
                 @media (orientation: portrait) {
                     #contenedorTreemapCategorias.treemap-alto {
                         height: max(290px, calc(100vh - 95px));
                         height: max(290px, calc(100svh - 95px));
+                    }
+                    html:not(.sin-pestanas) #contenedorTreemapCategorias.treemap-alto {
+                        height: max(290px, calc(100vh - 155px - env(safe-area-inset-top)));
+                        height: max(290px, calc(100svh - 155px - env(safe-area-inset-top)));
                     }
                 }
 
