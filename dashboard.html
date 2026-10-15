@@ -2755,9 +2755,9 @@
             <div class="aj-fila">
                 <img class="aj-logo" src="proveedores/twelvedata.png" alt="">
                 <span class="aj-texto">Twelve Data<small>Años de cierres y el tipo de cambio</small></span>
-                <span class="aj-valor">Recomendado</span>
+                <span class="aj-valor" id="estadoClaveTwelve">Sin clave</span>
             </div>
-            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Pégala aquí" autocomplete="off" spellcheck="false"></label>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
             <a class="aj-fila aj-accion" href="https://twelvedata.com/register" target="_blank" rel="noopener">Obtener clave gratis</a>
         </div>
 
@@ -2765,9 +2765,9 @@
             <div class="aj-fila">
                 <img class="aj-logo" src="proveedores/alphavantage.png" alt="">
                 <span class="aj-texto">Alpha Vantage<small>Los últimos cien cierres</small></span>
-                <span class="aj-valor">Opcional</span>
+                <span class="aj-valor" id="estadoClaveAlpha">Sin clave</span>
             </div>
-            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false"></label>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
             <a class="aj-fila aj-accion" href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Obtener clave gratis</a>
         </div>
         <div class="aj-nota">Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
@@ -4287,6 +4287,33 @@
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
                                         const campoTwelve = document.getElementById('claveApiTwelve');
                                         if (campoTwelve) campoTwelve.value = localStorage.getItem(CLAVE_API_TWELVE) || '';
+                                        pintarEstadoClaves();
+                                    }
+
+                                    // La clave se guarda al escribirla. Antes sólo se guardaba al tocar "Traer
+                                    // histórico": la que se pegaba y se dejaba ahí se perdía al salir.
+                                    function guardarClaveProveedor(campo) {
+                                        const clave = String(campo.value || '').trim();
+                                        const nombre = campo.id === 'claveApiTwelve' ? CLAVE_API_TWELVE : CLAVE_API_HISTORICO;
+                                        try {
+                                            if (clave) localStorage.setItem(nombre, clave);
+                                            else localStorage.removeItem(nombre);
+                                        } catch (e) { /* sin almacenamiento */ }
+                                        pintarEstadoClaves();
+                                    }
+
+                                    // A la derecha de cada proveedor: si este teléfono ya tiene su clave
+                                    function pintarEstadoClaves() {
+                                        const pintar = (id, nombre) => {
+                                            const el = document.getElementById(id);
+                                            if (!el) return;
+                                            let hay = false;
+                                            try { hay = !!(localStorage.getItem(nombre) || '').trim(); } catch (e) { /* sin almacenamiento */ }
+                                            el.textContent = hay ? 'Clave guardada' : 'Sin clave';
+                                            el.style.color = hay ? '#30d158' : '';
+                                        };
+                                        pintar('estadoClaveTwelve', CLAVE_API_TWELVE);
+                                        pintar('estadoClaveAlpha', CLAVE_API_HISTORICO);
                                     }
 
                                     // =========================================================
