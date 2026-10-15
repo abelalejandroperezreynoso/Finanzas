@@ -2749,12 +2749,14 @@
             <a class="aj-fila" href="https://finnhub.io" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/finnhub.png" alt="">
                 <span class="aj-texto">Finnhub<small>Precios en vivo, sectores y logos</small></span>
-                <span class="aj-valor" id="estadoEnVivoFinnhub">No pide clave</span>
+                <span class="aj-valor" id="estadoEnVivoFinnhub">Clave opcional</span>
                 <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
             </a>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiFinnhub" placeholder="La tuya, para en vivo" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
             <button type="button" id="btnRefrescarPerfiles" class="aj-fila aj-accion" onclick="forzarActualizacionPerfiles()">Actualizar sectores y logos</button>
         </div>
         <div id="avisoPerfiles" class="aj-nota"></div>
+        <div class="aj-nota">Finnhub da una sola conexión en vivo por clave. Si los dos teléfonos usan la de la app, uno queda con precios cada minuto; con tu clave gratuita los dos van en vivo.</div>
 
         <div class="aj-grupo">
             <a class="aj-fila" href="https://finance.yahoo.com" target="_blank" rel="noopener">
@@ -3318,6 +3320,11 @@
                                     // arriba y no dentro de una función porque ahora lo usan dos: la cotización
                                     // del día y la traída del histórico.
                                     const TOKEN_FINNHUB = 'd9c0gnpr01qnupcs8atgd9c0gnpr01qnupcs8au0';
+                                    // La clave propia de Finnhub, si el usuario la puso en Ajustes (también vive en
+                                    // Supabase). Finnhub sólo deja una conexión en vivo por clave: con la compartida, los
+                                    // dos teléfonos abiertos a la vez se sacaban uno al otro.
+                                    const CLAVE_API_FINNHUB = 'claveApiFinnhub';
+                                    const tokenFinnhub = () => { try { return (localStorage.getItem(CLAVE_API_FINNHUB) || '').trim() || TOKEN_FINNHUB; } catch (e) { return TOKEN_FINNHUB; } };
 
                                     // { TICKER: [{ dia, cierre }] } ordenado por día. Se llena una vez al
                                     // arrancar y se mantiene en memoria: la curva se repinta muchas veces
@@ -3430,7 +3437,7 @@
                                     async function historicoDesdeFinnhub(ticker, desde) {
                                         const hasta = Math.floor(Date.now() / 1000);
                                         const inicio = Math.floor(new Date(`${desde}T00:00:00`).getTime() / 1000);
-                                        const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${inicio}&to=${hasta}&token=${TOKEN_FINNHUB}`;
+                                        const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${inicio}&to=${hasta}&token=${tokenFinnhub()}`;
 
                                         const res = await fetch(url);
                                         if (res.status === 403) throw new Error('el plan gratuito de Finnhub no da históricos');
@@ -4341,6 +4348,8 @@
                                         if (campo) campo.value = localStorage.getItem(CLAVE_API_HISTORICO) || '';
                                         const campoTwelve = document.getElementById('claveApiTwelve');
                                         if (campoTwelve) campoTwelve.value = localStorage.getItem(CLAVE_API_TWELVE) || '';
+                                        const campoFinnhub = document.getElementById('claveApiFinnhub');
+                                        if (campoFinnhub) campoFinnhub.value = localStorage.getItem(CLAVE_API_FINNHUB) || '';
                                         pintarEstadoClaves();
                                     }
 
@@ -4350,6 +4359,7 @@
                                     // funcionen aunque no haya red. Al abrir manda la de Supabase; si allá no hay
                                     // y el teléfono sí tiene una (de antes de existir la tabla), se sube.
                                     const PROVEEDORES_CLAVE = [
+                                        { proveedor: 'finnhub', local: CLAVE_API_FINNHUB, campo: 'claveApiFinnhub' },
                                         { proveedor: 'twelvedata', local: CLAVE_API_TWELVE, campo: 'claveApiTwelve' },
                                         { proveedor: 'alphavantage', local: CLAVE_API_HISTORICO, campo: 'claveApiHistorico' }
                                     ];
@@ -4371,6 +4381,7 @@
                                         if (error) { console.warn('Claves de proveedores', error.message); return; }
                                         const enNube = {};
                                         (data || []).forEach(r => { enNube[r.proveedor] = String(r.clave || '').trim(); });
+                                        const finnhubAntes = leerLocal(CLAVE_API_FINNHUB);
                                         for (const p of PROVEEDORES_CLAVE) {
                                             const local = leerLocal(p.local);
                                             if (enNube[p.proveedor]) escribirLocal(p.local, enNube[p.proveedor]);
@@ -4380,6 +4391,8 @@
                                             if (campo && document.activeElement !== campo) campo.value = leerLocal(p.local);
                                         }
                                         pintarEstadoClaves();
+                                        // Llegó de Supabase una clave de Finnhub distinta (un teléfono nuevo): en vivo con ella
+                                        if (leerLocal(CLAVE_API_FINNHUB) !== finnhubAntes) reiniciarPreciosEnVivo();
                                     }
 
                                     // La clave se guarda al escribirla, en el teléfono al momento y en Supabase un
@@ -4393,7 +4406,10 @@
                                         escribirLocal(p.local, clave);
                                         pintarEstadoClaves();
                                         clearTimeout(esperaClaves[p.proveedor]);
-                                        esperaClaves[p.proveedor] = setTimeout(() => subirClaveProveedor(p.proveedor, clave), 700);
+                                        esperaClaves[p.proveedor] = setTimeout(() => {
+                                            subirClaveProveedor(p.proveedor, clave);
+                                            if (p.proveedor === 'finnhub') reiniciarPreciosEnVivo();
+                                        }, 700);
                                     }
 
                                     // A la derecha de cada proveedor: si este teléfono ya tiene su clave
@@ -4489,7 +4505,7 @@
                                     // Un viaje a Finnhub. Devuelve siempre un perfil: el objeto vacío de un ETF
                                     // es una respuesta buena —"esta no la tengo"— y se guarda como tal.
                                     async function perfilDesdeFinnhub(ticker) {
-                                        const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(ticker)}&token=${TOKEN_FINNHUB}`;
+                                        const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(ticker)}&token=${tokenFinnhub()}`;
                                         const res = await fetch(url);
                                         if (!res.ok) throw new Error(`Finnhub respondió ${res.status}`);
                                         const d = await res.json();
@@ -13418,7 +13434,7 @@
                                     return c.ticker + cuando;
                                 });
                                 // Mientras llegan precios en vivo, un punto verde que late junto al título
-                                if (typeof estadoEnVivo === 'function' && estadoEnVivo() === 'vivo') {
+                                if (typeof estadoEnVivo === 'function' && ['vivo', 'minuto'].includes(estadoEnVivo())) {
                                     const punto = document.createElement('span');
                                     punto.className = 'punto-en-vivo';
                                     punto.title = 'Precios en vivo';
@@ -24377,29 +24393,114 @@
                                                     const REPINTAR_EN_VIVO_MS = 5000;
                                                     const GUARDAR_CIERRE_EN_VIVO_MS = 15 * 60 * 1000;
                                                     const enVivo = { socket: null, simbolos: [], reintentos: 0, reconectar: null, repintar: null,
-                                                        ultimaOperacion: 0, ultimoCierreGuardado: 0, cambiosSinGuardar: {}, aTicker: {} };
+                                                        ultimaOperacion: 0, ultimoCierreGuardado: 0, cambiosSinGuardar: {}, aTicker: {}, cadaMinuto: [],
+                                                        abiertaEn: 0, expulsiones: 0, modoMinuto: false, volverAProbar: null };
+                                                    // Una conexión que se cierra sola al poco de abrir es que otro teléfono con la misma clave
+                                                    // la tomó (Finnhub deja una por clave). A la segunda seguida se deja de pelear: todas
+                                                    // las empresas pasan a consultarse cada minuto y se vuelve a probar en vivo más tarde.
+                                                    const EXPULSION_MS = 30000;
+                                                    const VOLVER_A_PROBAR_MS = 10 * 60 * 1000;
+                                                    // Horario de la bolsa de Nueva York (lunes a viernes, 9:30 a 16:00 de allá); fuera de
+                                                    // él no se pregunta nada cada minuto: el precio no se mueve
+                                                    function bolsaAbierta() {
+                                                        const partes = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false })
+                                                            .formatToParts(new Date()).map(x => [x.type, x.value]));
+                                                        if (partes.weekday === 'Sat' || partes.weekday === 'Sun') return false;
+                                                        const minutos = (Number(partes.hour) % 24) * 60 + Number(partes.minute);
+                                                        return minutos >= 9 * 60 + 30 && minutos < 16 * 60;
+                                                    }
                                                     // En vivo Finnhub escribe las clases con punto (BRK.B) aunque su consulta normal
                                                     // acepte el guion que usa la app (BRK-B): sin esto BRK-B nunca llegaba
                                                     const simboloEnVivo = ticker => String(ticker).replace(/-([A-Z])$/, '.$1');
 
-                                                    function simbolosParaEnVivo() {
+                                                    // Los lugares en vivo son para las que más pesan en tu portafolio (acciones × precio);
+                                                    // las vendidas van al final. Las que tienen acciones y no caben se consultan cada minuto.
+                                                    const CONSULTA_SIN_LUGAR_MS = 60000;
+                                                    function repartirSimbolosEnVivo() {
                                                         const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
-                                                        const conAcciones = cats.filter(c => (c.totalAcciones || 0) > 0.00001);
-                                                        const resto = cats.filter(c => !((c.totalAcciones || 0) > 0.00001));
-                                                        return [...new Set([...conAcciones, ...resto].map(c => String(c.ticker).trim().toUpperCase()))].slice(0, MAX_SIMBOLOS_EN_VIVO);
+                                                        const peso = c => (c.totalAcciones || 0) * (cachePreciosMercado[String(c.ticker).trim().toUpperCase()] || 0);
+                                                        const conAcciones = cats.filter(c => (c.totalAcciones || 0) > 0.00001).sort((a, b) => peso(b) - peso(a));
+                                                        const vendidas = cats.filter(c => !((c.totalAcciones || 0) > 0.00001));
+                                                        const tickers = lista => [...new Set(lista.map(c => String(c.ticker).trim().toUpperCase()))];
+                                                        const todas = tickers([...conAcciones, ...vendidas]);
+                                                        const enVivoLista = todas.slice(0, MAX_SIMBOLOS_EN_VIVO);
+                                                        const dentro = new Set(enVivoLista);
+                                                        return { enVivo: enVivoLista, cadaMinuto: tickers(conAcciones).filter(t => !dentro.has(t)) };
+                                                    }
+                                                    const simbolosParaEnVivo = () => repartirSimbolosEnVivo().enVivo;
+
+                                                    // Las que no caben en vivo: Finnhub por consulta normal y, si no contesta, Yahoo (todas
+                                                    // en una llamada). Nunca Twelve Data ni Alpha Vantage, que se acabarían en minutos.
+                                                    // Fuera de horario de bolsa (la conexión abierta pero callada) no se pregunta nada.
+                                                    let consultaSinLugar = null;
+                                                    // Primero Yahoo (todas en una llamada y sin gastar la cuota de Finnhub, que con dos
+                                                    // teléfonos y la clave compartida se acaba); si no da precio, Finnhub.
+                                                    async function precioRapido(ticker) {
+                                                        const deYahoo = await precioDeYahoo(ticker).catch(() => null);
+                                                        if (deYahoo > 0) return deYahoo;
+                                                        try {
+                                                            const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(ticker)}&token=${tokenFinnhub()}`);
+                                                            if (res.ok) {
+                                                                const data = await res.json();
+                                                                if (data && Number(data.c) > 0) return Number(data.c);
+                                                            }
+                                                        } catch (e) { /* sin respuesta */ }
+                                                        return null;
+                                                    }
+                                                    function consultarSinLugar() {
+                                                        if (document.visibilityState === 'hidden' || arranqueEnCurso) return;
+                                                        if (!bolsaAbierta()) return;
+                                                        enVivo.cadaMinuto.forEach(t => {
+                                                            precioRapido(t).then(p => { if (p > 0) aplicarPrecioEnVivo(t, p); }).catch(() => {});
+                                                        });
+                                                    }
+                                                    function programarConsultaSinLugar() {
+                                                        clearInterval(consultaSinLugar);
+                                                        consultaSinLugar = enVivo.cadaMinuto.length ? setInterval(consultarSinLugar, CONSULTA_SIN_LUGAR_MS) : null;
+                                                    }
+
+                                                    // Todas las empresas con acciones, cada minuto: cuando la conexión en vivo no se puede usar
+                                                    function pasarAModoMinuto() {
+                                                        enVivo.modoMinuto = true;
+                                                        clearTimeout(enVivo.reconectar);
+                                                        const reparto = repartirSimbolosEnVivo();
+                                                        enVivo.cadaMinuto = [...new Set([...reparto.enVivo.filter(t => (datosCategorias || []).some(c => c.tipo === 'inversion' && String(c.ticker).trim().toUpperCase() === t && (c.totalAcciones || 0) > 0.00001)), ...reparto.cadaMinuto])];
+                                                        enVivo.simbolos = [];
+                                                        programarConsultaSinLugar();
+                                                        consultarSinLugar();
+                                                        pintarEstadoEnVivo();
+                                                        clearTimeout(enVivo.volverAProbar);
+                                                        enVivo.volverAProbar = setTimeout(() => { enVivo.modoMinuto = false; enVivo.expulsiones = 0; iniciarPreciosEnVivo(); }, VOLVER_A_PROBAR_MS);
+                                                    }
+
+                                                    // Con otra clave (la puso o la quitó en Ajustes) se empieza de cero
+                                                    function reiniciarPreciosEnVivo() {
+                                                        clearTimeout(enVivo.volverAProbar);
+                                                        enVivo.modoMinuto = false;
+                                                        enVivo.expulsiones = 0;
+                                                        enVivo.reintentos = 0;
+                                                        const ws = enVivo.socket;
+                                                        enVivo.socket = null;
+                                                        if (ws) { ws.onclose = null; try { ws.close(); } catch (e) { /* ya cerrada */ } }
+                                                        if (!arranqueEnCurso && currentUser) iniciarPreciosEnVivo();
                                                     }
 
                                                     function iniciarPreciosEnVivo() {
                                                         if (!('WebSocket' in window) || document.visibilityState === 'hidden') return;
+                                                        if (enVivo.modoMinuto) { programarConsultaSinLugar(); return; }
                                                         if (enVivo.socket && enVivo.socket.readyState <= 1) return;
-                                                        enVivo.simbolos = simbolosParaEnVivo();
+                                                        const reparto = repartirSimbolosEnVivo();
+                                                        enVivo.simbolos = reparto.enVivo;
+                                                        enVivo.cadaMinuto = reparto.cadaMinuto;
+                                                        programarConsultaSinLugar();
                                                         if (!enVivo.simbolos.length) return;
                                                         clearTimeout(enVivo.reconectar);
                                                         let ws;
-                                                        try { ws = new WebSocket(`wss://ws.finnhub.io?token=${TOKEN_FINNHUB}`); } catch (e) { return; }
+                                                        try { ws = new WebSocket(`wss://ws.finnhub.io?token=${tokenFinnhub()}`); } catch (e) { return; }
                                                         enVivo.socket = ws;
                                                         ws.onopen = () => {
                                                             enVivo.reintentos = 0;
+                                                            enVivo.abiertaEn = Date.now();
                                                             enVivo.aTicker = {};
                                                             enVivo.simbolos.forEach(ticker => {
                                                                 const simbolo = simboloEnVivo(ticker);
@@ -24422,7 +24523,14 @@
                                                             pintarEstadoEnVivo();
                                                             // Se reintenta con espera creciente (5 s, 10 s, 20 s… hasta 5 min) mientras la app esté a la vista
                                                             if (document.visibilityState === 'hidden') return;
-                                                            const espera = Math.min(300000, 5000 * Math.pow(2, enVivo.reintentos++));
+                                                            // ¿Se la ganó otro teléfono? Se cerró sola al poco de abrir
+                                                            const expulsada = enVivo.abiertaEn && Date.now() - enVivo.abiertaEn < EXPULSION_MS;
+                                                            enVivo.abiertaEn = 0;
+                                                            enVivo.expulsiones = expulsada ? enVivo.expulsiones + 1 : 0;
+                                                            if (enVivo.expulsiones >= 2) { pasarAModoMinuto(); return; }
+                                                            // Tras una expulsión, una espera al azar: si los dos teléfonos reintentan al mismo
+                                                            // ritmo se siguen sacando y acaban los dos en modo minuto; así uno suele quedarse en vivo
+                                                            const espera = expulsada ? 5000 + Math.random() * 15000 : Math.min(300000, 5000 * Math.pow(2, enVivo.reintentos++));
                                                             enVivo.reconectar = setTimeout(iniciarPreciosEnVivo, espera);
                                                         };
                                                         ws.onerror = () => { try { ws.close(); } catch (e) { /* ya cerrada */ } };
@@ -24430,9 +24538,12 @@
 
                                                     function detenerPreciosEnVivo() {
                                                         clearTimeout(enVivo.reconectar);
+                                                        clearInterval(consultaSinLugar);
+                                                        consultaSinLugar = null;
                                                         const ws = enVivo.socket;
                                                         enVivo.socket = null;
-                                                        if (ws) { try { ws.close(); } catch (e) { /* ya cerrada */ } }
+                                                        // Cerrarla a propósito no es una expulsión
+                                                        if (ws) { ws.onclose = null; try { ws.close(); } catch (e) { /* ya cerrada */ } }
                                                         guardarPreciosEnVivoPendientes();
                                                         pintarEstadoEnVivo();
                                                     }
@@ -24476,15 +24587,21 @@
                                                     // "En vivo" mientras la conexión está abierta y llegaron operaciones en el último minuto;
                                                     // "Conectado" si está abierta pero callada (fuera de horario de bolsa).
                                                     function estadoEnVivo() {
+                                                        const reciente = Date.now() - enVivo.ultimaOperacion < 90000;
+                                                        if (enVivo.modoMinuto) return reciente ? 'minuto' : 'minuto-callado';
                                                         if (!enVivo.socket || enVivo.socket.readyState !== 1) return 'apagado';
-                                                        return Date.now() - enVivo.ultimaOperacion < 60000 ? 'vivo' : 'conectado';
+                                                        return reciente ? 'vivo' : 'conectado';
                                                     }
                                                     function pintarEstadoEnVivo() {
                                                         const el = document.getElementById('estadoEnVivoFinnhub');
                                                         if (el) {
                                                             const estado = estadoEnVivo();
-                                                            el.textContent = estado === 'vivo' ? `En vivo · ${enVivo.simbolos.length}` : estado === 'conectado' ? 'Conectado' : 'No pide clave';
-                                                            el.style.color = estado === 'vivo' ? '#30d158' : '';
+                                                            const extra = enVivo.cadaMinuto.length ? ` + ${enVivo.cadaMinuto.length} c/min` : '';
+                                                            el.textContent = estado === 'vivo' ? `En vivo · ${enVivo.simbolos.length}${extra}`
+                                                                : estado === 'conectado' ? 'Conectado'
+                                                                : estado.startsWith('minuto') ? `Cada minuto · ${enVivo.cadaMinuto.length}`
+                                                                : 'Clave opcional';
+                                                            el.style.color = estado === 'vivo' || estado === 'minuto' ? '#30d158' : '';
                                                         }
                                                         if (typeof actualizarTituloInicio === 'function') actualizarTituloInicio();
                                                     }
@@ -24522,7 +24639,7 @@
                                                     }
 
                                                     async function buscarPrecioFinnhub(ticker, elementId, totalAcciones = 0, totalInvertido = 0, totalInvertidoUsd = 0, tcPromedioExacto = 0, mesesPromedioExacto = 0) {
-                                                                                    const FinnhubToken = TOKEN_FINNHUB;
+                                                                                    const FinnhubToken = tokenFinnhub();
                                                                                     
                                                                                     const mostrarDatosMercado = (precioUsd, errorMsg = null) => {
                                                                                         const idCat = elementId.replace('precio-mercado-', '');
