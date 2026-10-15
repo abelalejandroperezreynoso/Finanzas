@@ -2753,6 +2753,15 @@
         <div id="avisoPerfiles" class="aj-nota"></div>
 
         <div class="aj-grupo">
+            <a class="aj-fila" href="https://finance.yahoo.com" target="_blank" rel="noopener">
+                <img class="aj-logo" src="proveedores/yahoo.png" alt="">
+                <span class="aj-texto">Yahoo Finance<small>Respaldo de precios y del tipo de cambio</small></span>
+                <span class="aj-valor">No pide clave</span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </a>
+        </div>
+
+        <div class="aj-grupo">
             <a class="aj-fila" href="https://twelvedata.com" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/twelvedata.png" alt="">
                 <span class="aj-texto">Twelve Data<small>Años de cierres y el tipo de cambio</small></span>
@@ -2771,6 +2780,7 @@
             </a>
             <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
         </div>
+        <div class="aj-nota">Si Finnhub no contesta, el precio se pide a Yahoo Finance, luego a Twelve Data y al final a Alpha Vantage. El tipo de cambio sale de ExchangeRate-API, Frankfurter o Yahoo; si ninguno contesta, se usa el último guardado.</div>
         <div class="aj-nota">Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
     </div>
     </div>
@@ -3227,19 +3237,57 @@
                                         await Promise.race([Promise.allSettled(promesasPreciosMercado), tope]);
                                     }
                                     let timeoutBusqueda = null;
-                                    let globalUsdToMxn = 17.50; // Valor por defecto de seguridad
+                                    // Sólo si nunca se ha podido traer ni guardar ninguno: el primer arranque sin red
+                                    let globalUsdToMxn = 17.50;
+                                    // Día del tipo de cambio guardado que se está usando porque ninguna fuente contestó
+                                    // (null = es de hoy). Con uno viejo no se guarda como cierre de hoy.
+                                    let tipoCambioGuardadoDel = null;
+                                    const CLAVE_ULTIMO_TIPO_CAMBIO = 'ultimoTipoCambio';
+                                    const tipoCambioValido = n => Number.isFinite(n) && n > 5 && n < 100;
 
-                                    // NUEVO: Consulta gratuita y sin límite para el tipo de cambio en tiempo real
+                                    // Varias fuentes gratuitas y sin clave, en orden; se queda con la primera que
+                                    // conteste algo creíble. Cada una tiene su propio tope de espera.
+                                    const FUENTES_TIPO_CAMBIO = [
+                                        async (senal) => (await (await fetch('https://open.er-api.com/v6/latest/USD', { signal: senal })).json())?.rates?.MXN,
+                                        async (senal) => (await (await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=MXN', { signal: senal })).json())?.rates?.MXN,
+                                        async (senal) => (await (await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json', { signal: senal })).json())?.usd?.mxn,
+                                        async () => (await preguntarAYahoo([], true))?.usdmxn
+                                    ];
+
                                     async function obtenerTipoCambioActual() {
-                                        try {
-                                            const res = await fetch('https://open.er-api.com/v6/latest/USD');
-                                            const data = await res.json();
-                                            if (data && data.rates && data.rates.MXN) {
-                                                globalUsdToMxn = data.rates.MXN;
+                                        for (const fuente of FUENTES_TIPO_CAMBIO) {
+                                            const control = new AbortController();
+                                            const reloj = setTimeout(() => control.abort(), 4000);
+                                            try {
+                                                const valor = Number(await fuente(control.signal));
+                                                if (tipoCambioValido(valor)) {
+                                                    globalUsdToMxn = valor;
+                                                    tipoCambioGuardadoDel = null;
+                                                    try { localStorage.setItem(CLAVE_ULTIMO_TIPO_CAMBIO, JSON.stringify({ valor, dia: diaISO(new Date()) })); } catch (e) { /* sin almacenamiento */ }
+                                                    return;
+                                                }
+                                            } catch (e) {
+                                                // Sin respuesta: la siguiente fuente
+                                            } finally {
+                                                clearTimeout(reloj);
                                             }
-                                        } catch (e) {
-                                            console.error("Error obteniendo tipo de cambio", e);
                                         }
+                                        // Ninguna contestó: el último que se trajo. Primero el del teléfono, luego el último
+                                        // cierre guardado en la base (sirve en un teléfono nuevo).
+                                        let guardado = null;
+                                        try { guardado = JSON.parse(localStorage.getItem(CLAVE_ULTIMO_TIPO_CAMBIO) || 'null'); } catch (e) { guardado = null; }
+                                        if (!(guardado && tipoCambioValido(Number(guardado.valor))) && clienteSupabase && currentUser) {
+                                            try {
+                                                const { data } = await clienteSupabase.from('precios_historicos').select('cierre, dia')
+                                                    .eq('ticker', TICKER_TIPO_CAMBIO).order('dia', { ascending: false }).limit(1);
+                                                if (data && data[0]) guardado = { valor: Number(data[0].cierre), dia: data[0].dia };
+                                            } catch (e) { /* sin red */ }
+                                        }
+                                        if (guardado && tipoCambioValido(Number(guardado.valor))) {
+                                            globalUsdToMxn = Number(guardado.valor);
+                                            tipoCambioGuardadoDel = guardado.dia || '';
+                                        }
+                                        console.warn('Tipo de cambio: ninguna fuente contestó; se usa el último guardado', globalUsdToMxn, tipoCambioGuardadoDel);
                                     }
 
                                     // =========================================================
@@ -3331,10 +3379,11 @@
                                         const filas = [];
 
                                         (datosCategorias || [])
-                                            .filter(c => c.tipo === 'inversion' && c.ticker && cachePreciosMercado[c.ticker] > 0)
+                                            // Un precio sacado de lo guardado es de otro día: no es el cierre de hoy
+                                            .filter(c => c.tipo === 'inversion' && c.ticker && cachePreciosMercado[c.ticker] > 0 && !(window.preciosGuardadosUsados && window.preciosGuardadosUsados[c.ticker] !== undefined))
                                             .forEach(c => { filas.push({ user_id: currentUser.id, ticker: c.ticker, dia: hoy, cierre: cachePreciosMercado[c.ticker] }); });
 
-                                        if (globalUsdToMxn > 0) {
+                                        if (globalUsdToMxn > 0 && tipoCambioGuardadoDel === null) {
                                             filas.push({ user_id: currentUser.id, ticker: TICKER_TIPO_CAMBIO, dia: hoy, cierre: globalUsdToMxn });
                                         }
 
@@ -13362,7 +13411,9 @@
                                     const cuando = f && !isNaN(f) ? ` (${f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} ${f.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : '';
                                     return c.ticker + cuando;
                                 });
-                                if (sinPrecio.length === 0 && conGuardado.length === 0) return;
+                                // El tipo de cambio también: si ninguna fuente contestó se usa el último guardado
+                                const tcViejo = tipoCambioGuardadoDel !== null;
+                                if (sinPrecio.length === 0 && conGuardado.length === 0 && !tcViejo) return;
 
                                 const aviso = document.createElement('span');
                                 aviso.title = 'Empresas sin precio';
@@ -13373,6 +13424,10 @@
                                     const partes = [];
                                     if (conGuardado.length) partes.push(`Se usa el último precio guardado de: ${conGuardado.join(', ')}.`);
                                     if (sinPrecio.length) partes.push(`Sin ningún precio (se calculan con lo que costaron): ${sinPrecio.join(', ')}.`);
+                                    if (tcViejo) {
+                                        const f = tipoCambioGuardadoDel ? new Date(`${tipoCambioGuardadoDel}T12:00:00`) : null;
+                                        partes.push(`Tipo de cambio: se usa el último guardado, $${globalUsdToMxn.toFixed(2)}${f && !isNaN(f) ? ` del ${f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}` : ''}.`);
+                                    }
                                     alert(`No se pudo traer el precio actual.\n\n${partes.join('\n\n')}\n\nSe volverá a intentar en la próxima actualización.`);
                                 };
                                 titulo.appendChild(aviso);
@@ -24296,6 +24351,31 @@
                                                         } catch (e) { /* sin espacio: se queda sin guardar */ }
                                                     }
 
+                                                    // Las empresas que caen a Yahoo en el mismo momento (al abrir, todas a la vez) se
+                                                    // juntan en una sola llamada a la función "precios", en vez de una por empresa.
+                                                    let loteYahoo = null;
+                                                    function preguntarAYahoo(tickers, tipoCambio) {
+                                                        if (!clienteSupabase) return Promise.resolve({});
+                                                        return clienteSupabase.functions.invoke('precios', { body: { tickers, tipo_cambio: !!tipoCambio } })
+                                                            .then(({ data, error }) => (error || !data) ? {} : data)
+                                                            .catch(() => ({}));
+                                                    }
+                                                    function precioDeYahoo(ticker) {
+                                                        if (!loteYahoo) {
+                                                            const lote = { tickers: new Set() };
+                                                            lote.respuesta = new Promise(resolve => setTimeout(() => {
+                                                                loteYahoo = null;
+                                                                preguntarAYahoo([...lote.tickers]).then(resolve);
+                                                            }, 60));
+                                                            loteYahoo = lote;
+                                                        }
+                                                        loteYahoo.tickers.add(ticker);
+                                                        return loteYahoo.respuesta.then(r => {
+                                                            const p = Number(r && r.precios && r.precios[ticker]);
+                                                            return p > 0 ? p : null;
+                                                        });
+                                                    }
+
                                                     async function buscarPrecioFinnhub(ticker, elementId, totalAcciones = 0, totalInvertido = 0, totalInvertidoUsd = 0, tcPromedioExacto = 0, mesesPromedioExacto = 0) {
                                                                                     const FinnhubToken = TOKEN_FINNHUB;
                                                                                     
@@ -24329,6 +24409,10 @@
                                         if (data && data.error) throw new Error(`Finnhub: ${data.error}`);
                                         return data && data.c ? parseFloat(data.c) : null;
                                     },
+                                    // Yahoo Finance no pide clave ni tiene cuota, pero sólo se le puede preguntar
+                                    // desde un servidor: va por la función "precios" de Supabase. Va antes de Twelve
+                                    // Data y Alpha Vantage, que se acaban en pocas peticiones al día.
+                                    () => precioDeYahoo(tickerLimpio),
                                     async () => {
                                         const clave = (localStorage.getItem('claveApiTwelveData') || '').trim();
                                         if (!clave) return null;
