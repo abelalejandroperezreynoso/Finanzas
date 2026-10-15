@@ -4010,7 +4010,9 @@
                                     // a ser el rendimiento de todas las compras vivas, ganen o pierdan: la misma
                                     // pregunta que el mapa contesta en esa vista. Ahí sí puede bajar de cero, y
                                     // cada moneda mide contra su propio costo, igual que los recuadros.
-                                    function serieHistoricaAccesible(ambito, periodo) {
+                                    // momento: { dia, precios, tc } para valorar ese día con los precios de un momento
+                                    // dado en vez de con su cierre (la vista Hoy la llama una vez por cada momento).
+                                    function serieHistoricaAccesible(ambito, periodo, momento) {
                                         const donde = ambito || {};
                                         const todo = donde.vista === 'todo';
                                         const tolerancia = donde.tolerancia || 0;
@@ -4125,7 +4127,9 @@
                                             // unos centavos de tipo de cambio eran cientos de pesos de diferencia
                                             // entre la curva y el pie del mapa.
                                             const esHoy = dia === diaISO(hoy);
-                                            const cambio = (esHoy && globalUsdToMxn > 0) ? globalUsdToMxn : (tc.valor || globalUsdToMxn || 1);
+                                            const enMomento = !!momento && dia === momento.dia;
+                                            const cambio = (enMomento && momento.tc > 0) ? momento.tc
+                                                : (esHoy && globalUsdToMxn > 0) ? globalUsdToMxn : (tc.valor || globalUsdToMxn || 1);
 
                                             // Lo accesible se decide en pesos, como la ficha y el mapa: la pregunta
                                             // es cuánto puedo sacar sin perder, y sacar es sacar pesos, así que el
@@ -4142,7 +4146,8 @@
                                                 const peso = pesos[String(c.id)];
                                                 const cierre = cierreHasta(serieDe(c.ticker), dia, cursores[c.ticker]);
                                                 cursores[c.ticker] = cierre.cursor;
-                                                if (esHoy && cachePreciosMercado[c.ticker] > 0) cierre.valor = cachePreciosMercado[c.ticker];
+                                                if (enMomento) { if (momento.precios[c.ticker] > 0) cierre.valor = momento.precios[c.ticker]; }
+                                                else if (esHoy && cachePreciosMercado[c.ticker] > 0) cierre.valor = cachePreciosMercado[c.ticker];
 
                                                 // Sin cierre de ese día no se puede saber si esa empresa salía sin
                                                 // pérdida, así que corta la cuenta y no suma. Cuáles son y cuánto
@@ -5011,6 +5016,111 @@
                                         repintarTreemapCategorias();
                                     }
 
+                                    // ---- Vista Hoy: cómo se movió el portafolio durante un día ----
+                                    // Con el filtro en un solo día, la curva deja de tener un punto por día y pasa a tener
+                                    // uno por momento: los de Yahoo cada 5 minutos desde que abrió la bolsa (por la
+                                    // función "precios") y, si es hoy, una muestra por minuto de los precios en vivo y el
+                                    // punto de ahora. Lo que se dibuja es cuánto cambió contra el cierre del día anterior,
+                                    // así el cero es esa raya punteada, como en la app Bolsa.
+                                    const intradia = { porDia: {}, pidiendo: {}, muestras: [], calculos: new Map(), refs: null };
+                                    const MUESTRA_INTRADIA_MS = 60000;
+
+                                    // Cada minuto con precios en vivo, una foto de los precios para la vista Hoy
+                                    function anotarMuestraIntradia() {
+                                        const ahora = Date.now();
+                                        const ultima = intradia.muestras[intradia.muestras.length - 1];
+                                        if (ultima && ahora - ultima.t < MUESTRA_INTRADIA_MS) return;
+                                        const hoy = diaISO(new Date());
+                                        // Las de ayer ya no sirven
+                                        intradia.muestras = intradia.muestras.filter(m => m.dia === hoy);
+                                        intradia.muestras.push({ t: ahora, dia: hoy, precios: { ...cachePreciosMercado }, tc: globalUsdToMxn });
+                                    }
+
+                                    function pedirIntradia(dia) {
+                                        if (intradia.porDia[dia] || intradia.pidiendo[dia] || !clienteSupabase) return;
+                                        const tickers = [...new Set((datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker)
+                                            .map(c => String(c.ticker).trim().toUpperCase()))];
+                                        intradia.pidiendo[dia] = clienteSupabase.functions.invoke('precios', { body: { dia, tickers, tipo_cambio: true } })
+                                            .then(({ data, error }) => {
+                                                intradia.porDia[dia] = (!error && data && data.intradia) ? data : { intradia: {}, sinDatos: true };
+                                                // Lo de hoy se vuelve a pedir en un rato: Yahoo va sumando puntos
+                                                if (dia === diaISO(new Date())) setTimeout(() => { delete intradia.porDia[dia]; }, 10 * 60 * 1000);
+                                            })
+                                            .catch(() => { intradia.porDia[dia] = { intradia: {}, sinDatos: true }; })
+                                            .finally(() => { delete intradia.pidiendo[dia]; refrescarCurvaInversiones(); });
+                                    }
+
+                                    // El valor a seguir es el de serieHistoricaAccesible con los precios de ese momento: así
+                                    // la vista Hoy cuenta exactamente lo mismo que la curva de días y que el mapa.
+                                    function valorEnMomento(ambito, dia, precios, tc) {
+                                        const s = serieHistoricaAccesible(ambito, { desde: dia, hasta: dia }, { dia, precios, tc });
+                                        return (s && !s.fueraDePeriodo && s.ganancias.length) ? { ganancia: s.ganancias[0], costo: s.costos[0] } : null;
+                                    }
+
+                                    // null mientras llegan los datos del día
+                                    function serieIntradia(ambito, dia) {
+                                        const datos = intradia.porDia[dia];
+                                        if (!datos) { pedirIntradia(dia); return null; }
+                                        const esHoy = dia === diaISO(new Date());
+
+                                        // Los cálculos de cada momento se guardan: con los precios en vivo la curva se
+                                        // rehace cada pocos segundos y sólo cambia el último punto
+                                        const refs = [datosUsoCompleto, datosCategorias, cacheHistoricoPrecios, monedaTreemapInversiones, JSON.stringify(ambito || {}), datos];
+                                        if (!intradia.refs || refs.some((r, k) => r !== intradia.refs[k])) { intradia.calculos = new Map(); intradia.refs = refs; }
+                                        const calcular = (clave, precios, tc) => {
+                                            if (clave !== null && intradia.calculos.has(clave)) return intradia.calculos.get(clave);
+                                            const v = valorEnMomento(ambito, dia, precios, tc);
+                                            if (clave !== null) intradia.calculos.set(clave, v);
+                                            return v;
+                                        };
+
+                                        // Los momentos de Yahoo: el precio de cada empresa es su último cierre de 5 min
+                                        // hasta ese momento (una que todavía no opera se queda con su precio de antes)
+                                        const series = datos.intradia || {};
+                                        const tiempos = [...new Set(Object.values(series).flatMap(x => x.t || []))].sort((a, b) => a - b);
+                                        const ultimoDe = (x, t) => {
+                                            if (!x || !x.t) return null;
+                                            let k = -1;
+                                            for (let i = 0; i < x.t.length && x.t[i] <= t; i++) k = i;
+                                            return k >= 0 ? x.c[k] : null;
+                                        };
+                                        const momentos = tiempos.map(t => {
+                                            const precios = {};
+                                            Object.keys(series).forEach(tk => { const p = ultimoDe(series[tk], t); if (p > 0) precios[tk] = p; });
+                                            return { t: t * 1000, precios, tc: ultimoDe(datos.usdmxn, t) || (esHoy ? globalUsdToMxn : 0), clave: `y${t}` };
+                                        });
+                                        // Hoy: lo que llegó en vivo después del último de Yahoo, y el de ahora
+                                        if (esHoy) {
+                                            const desde = momentos.length ? momentos[momentos.length - 1].t : 0;
+                                            intradia.muestras.filter(m => m.dia === dia && m.t > desde)
+                                                .forEach(m => momentos.push({ t: m.t, precios: m.precios, tc: m.tc, clave: `m${m.t}` }));
+                                            momentos.push({ t: Date.now(), precios: { ...cachePreciosMercado }, tc: globalUsdToMxn, clave: null });
+                                        }
+                                        if (!momentos.length) return { sinDatos: true };
+
+                                        // El cierre del día anterior: la raya punteada y el cero de la curva
+                                        const anterior = new Date(`${dia}T12:00:00`); anterior.setDate(anterior.getDate() - 1);
+                                        const baseSerie = serieHistoricaAccesible(ambito, { desde: diaISO(anterior), hasta: diaISO(anterior) });
+                                        const base = (baseSerie && !baseSerie.fueraDePeriodo && baseSerie.ganancias.length)
+                                            ? { ganancia: baseSerie.ganancias[0], costo: baseSerie.costos[0] } : null;
+
+                                        // Sin cierre anterior (la primera compra fue ese día) se mide desde el primer momento
+                                        const horas = [], cambios = [], valoresBase = [];
+                                        let primero = null;
+                                        momentos.forEach(m => {
+                                            const v = calcular(m.clave, m.precios, m.tc);
+                                            if (!v) return;
+                                            if (!primero) primero = v;
+                                            const b = base || primero;
+                                            horas.push(new Date(m.t).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }));
+                                            cambios.push(v.ganancia - b.ganancia);
+                                            valoresBase.push(b.costo + b.ganancia);
+                                        });
+                                        if (!horas.length) return { sinDatos: true };
+                                        return { dias: horas, ganancias: cambios, costos: valoresBase, intradia: true, todo: true, dia, sinBase: !base,
+                                            enPesos: monedaTreemapInversiones === 'mxn' };
+                                    }
+
                                     function serieTipoCambio(ambito, periodo) {
                                         const donde = ambito || {};
                                         const recorte = periodo || {};
@@ -5109,12 +5219,28 @@
                                             : (ambito && ambito.tolerancia > 0)
                                             ? (nombre ? `Pérdida ≤${ambito.tolerancia}% · ${nombre}` : `Lo que sale perdiendo ≤${ambito.tolerancia}%`)
                                             : (nombre ? `Sin pérdida · ${nombre}` : 'Lo que sale sin pérdida');
-                                        if (tituloEl) tituloEl.textContent = tituloBase;
+                                        let tituloVista = tituloBase;
+                                        if (tituloEl) tituloEl.textContent = tituloVista;
 
                                         let serie = !historicoPreciosListo ? null
                                             : esDolar ? serieTipoCambio(ambito, periodo)
                                             : serieHistoricaAccesible(ambito, periodo);
-                                        const hayCurva = !!serie && !serie.fueraDePeriodo;
+                                        // Un solo día en el filtro: la vista Hoy, momento a momento. Si ese día no hubo
+                                        // bolsa (o no se pudo traer) se queda la de siempre.
+                                        let cargandoDia = false;
+                                        if (!esDolar && historicoPreciosListo && periodo && periodo.desde && periodo.desde === periodo.hasta
+                                            && serie && !serie.fueraDePeriodo) {
+                                            const delDia = serieIntradia(ambito, periodo.desde);
+                                            if (!delDia) cargandoDia = true;
+                                            else if (!delDia.sinDatos) {
+                                                serie = delDia;
+                                                const [, mes, d] = periodo.desde.split('-');
+                                                const cuando = periodo.desde === diaISO(new Date()) ? 'Hoy' : `${parseInt(d, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()}`;
+                                                tituloVista = nombre ? `${cuando} · ${nombre}` : cuando;
+                                                if (tituloEl) tituloEl.textContent = tituloVista;
+                                            }
+                                        }
+                                        const hayCurva = !cargandoDia && !!serie && !serie.fueraDePeriodo;
 
                                         if (destino.chart) { destino.chart.destroy(); destino.chart = null; }
                                         if (lienzo._snapBackHandler) {
@@ -5131,7 +5257,9 @@
                                             if (caja) caja.style.display = 'none';
                                             if (cifraEl) cifraEl.textContent = '';
                                             pie.style.display = 'block';
-                                            pie.innerHTML = !historicoPreciosListo
+                                            pie.innerHTML = cargandoDia
+                                                ? 'Trayendo cómo se movió el día…'
+                                                : !historicoPreciosListo
                                                 ? (historicoPreciosIntentado
                                                     ? 'Falta la tabla de precios. Ejecuta <strong>migracion_historico_precios.sql</strong> en Supabase y recarga.'
                                                     : 'Buscando el histórico de precios…')
@@ -5188,16 +5316,19 @@
                                                 cifraEl.style.color = color;
                                                 // En la del dólar el porcentaje es lo que se movió el peso para
                                                 // tus dólares: la cifra sola no dice si es mucho o poco.
-                                                const base = serie.dolar ? serie.costos[i] : 0;
-                                                const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(1)}%)` : '';
-                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${serie.dolar ? pct : ` ${simbolo}`}`;
+                                                // En la vista Hoy, lo que cambió contra el cierre anterior y qué porcentaje es
+                                                // de lo que valía entonces
+                                                const base = (serie.dolar || serie.intradia) ? serie.costos[i] : 0;
+                                                const pct = base > 0.005 ? ` (${ganancia < 0 ? '' : '+'}${((ganancia / base) * 100).toFixed(serie.intradia ? 2 : 1)}%)` : '';
+                                                cifraEl.textContent = `${ganancia < -0.005 ? '' : '+'}${fMoneda(ganancia)}${(serie.dolar || serie.intradia) ? pct : ` ${simbolo}`}`;
                                             }
 
                                             if (!tituloEl) return;
                                             // El dólar dice siempre a cuánto estaba, que es lo primero que se busca
                                             // en una gráfica del tipo de cambio.
                                             const tipoDia = serie.dolar ? ` · $${serie.tipos[i].toFixed(2)}` : '';
-                                            if (!conFecha) { tituloEl.textContent = serie.dolar ? `USD/MXN${tipoDia}` : tituloBase; return; }
+                                            if (!conFecha) { tituloEl.textContent = serie.dolar ? `USD/MXN${tipoDia}` : tituloVista; return; }
+                                            if (serie.intradia) { tituloEl.textContent = serie.dias[i]; return; }
                                             const [anio, mes, dia] = serie.dias[i].split('-');
                                             tituloEl.textContent = `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}${tipoDia}`;
                                         };
@@ -5219,6 +5350,7 @@
                                                 cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
                                                 cifraEl.textContent = `${cambio < -0.005 ? '' : '+'}${fMoneda(cambio)}${pct !== null ? ` (${textoPct(pct)})` : ''}`;
                                             }
+                                            if (tituloEl && serie.intradia) { tituloEl.textContent = `${serie.dias[a]} – ${serie.dias[b]}`; return; }
                                             if (tituloEl) {
                                                 const mismoAnio = serie.dias[a].slice(0, 4) === serie.dias[b].slice(0, 4);
                                                 tituloEl.textContent = `${fechaCorta(serie.dias[a], !mismoAnio)} – ${fechaCorta(serie.dias[b], true)}`;
@@ -5255,6 +5387,27 @@
                                                     c.arc(p.x, p.y, 4, 0, Math.PI * 2);
                                                     c.fill();
                                                 });
+                                                c.restore();
+                                            }
+                                        };
+
+                                        // Vista Hoy: la raya punteada del cierre anterior, que es el cero de la curva
+                                        const pluginCierreAnterior = {
+                                            id: 'cierreAnterior',
+                                            beforeDatasetsDraw: chart => {
+                                                if (!serie.intradia) return;
+                                                const y = chart.scales.y.getPixelForValue(0);
+                                                const { left, right, top, bottom } = chart.chartArea;
+                                                if (!(y >= top && y <= bottom)) return;
+                                                const c = chart.ctx;
+                                                c.save();
+                                                c.strokeStyle = 'rgba(142, 142, 147, 0.6)';
+                                                c.lineWidth = 1;
+                                                c.setLineDash([2, 4]);
+                                                c.beginPath();
+                                                c.moveTo(left, y);
+                                                c.lineTo(right, y);
+                                                c.stroke();
                                                 c.restore();
                                             }
                                         };
@@ -5298,7 +5451,10 @@
                                                 datasets: [{
                                                     label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: valores,
-                                                    ...estiloCurva()
+                                                    ...estiloCurva(),
+                                                    // Momento a momento la línea va recta entre puntos: el suavizado inventaba
+                                                    // subidas y bajadas que no pasaron
+                                                    ...(serie.intradia ? { tension: 0, cubicInterpolationMode: 'monotone' } : {})
                                                 }]
                                             },
                                             options: {
@@ -5310,13 +5466,14 @@
                                                     if (activos && activos.length > 0) escribirDia(activos[0].index, true);
                                                 },
                                                 interaction: { mode: 'index', intersect: false },
-                                                scales: { x: { display: false }, y: { display: false } },
+                                                // En la vista Hoy la escala incluye el cierre anterior, para que la raya se vea
+                                                scales: { x: { display: false }, y: { display: false, ...(serie.intradia ? { suggestedMin: 0, suggestedMax: 0 } : {}) } },
                                                 plugins: {
                                                     legend: { display: false },
                                                     tooltip: { enabled: false }
                                                 }
                                             },
-                                            plugins: [pluginMarcasCompraVenta, crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
+                                            plugins: [pluginCierreAnterior, pluginMarcasCompraVenta, crearPluginLineaVertical(ultimo), pluginTramoDosDedos]
                                         });
                                         destino.chart.$escribirTramo = escribirTramo;
 
@@ -24559,6 +24716,7 @@
                                                         enVivo.repintar = setTimeout(() => {
                                                             enVivo.repintar = null;
                                                             guardarPreciosEnVivoPendientes();
+                                                            anotarMuestraIntradia();
                                                             pintarEstadoEnVivo();
                                                             // Con una hoja o una ventana abierta no se repinta debajo: espera a la siguiente vuelta
                                                             if (arranqueEnCurso || document.querySelector('.modal-overlay.activa')) return;
