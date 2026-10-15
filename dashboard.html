@@ -1370,6 +1370,14 @@
                         height: max(290px, calc(100svh - 155px - env(safe-area-inset-top)));
                     }
                 }
+                /* En horizontal los 290px pasaban por debajo de la barra de pestañas: se le da lo que
+                   cabe con la misma cuenta que en vertical */
+                @media (orientation: landscape) {
+                    html:not(.sin-pestanas) #contenedorTreemapCategorias.treemap-alto {
+                        height: max(160px, calc(100vh - 155px - env(safe-area-inset-top)));
+                        height: max(160px, calc(100svh - 155px - env(safe-area-inset-top)));
+                    }
+                }
 
                 /* Rango personalizado de la hoja de Filtro, con la forma de las tarjetas de iOS. Dentro de una
                    hoja iOS usa el gris elevado (#2c2c2e): el de las tarjetas normales no se distingue del fondo. */
