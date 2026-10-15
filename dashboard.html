@@ -7260,7 +7260,10 @@
                                         // Por aquí pasan los atajos de la hoja de Filtro y las flechas ◀ ▶: en cuanto
                                         // se toca cualquiera de los dos, el recorte pasa a ser cosa del usuario.
                                         filtroPorDefectoPuesto = false;
+                                        // A mediodía: valueAsDate escribe la fecha en UTC, y después de las 6 p.m. de
+                                        // México "hoy" ya era mañana allá (el filtro Hoy apuntaba al día siguiente)
                                         const base = new Date();
+                                        base.setHours(12, 0, 0, 0);
                                         const relativoAHoy = document.getElementById('checkDesdeHoy')?.checked;
 
                                         if (tipoFiltroActual === 'hoy') base.setDate(base.getDate() + offsetFiltroActual);
