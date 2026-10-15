@@ -814,6 +814,10 @@ function cantidadSaludInvalida(c: Json, n: number): string | null {
 // (columna categorias.sectores). Se limpian como en la app y, si ya usa uno con otra escritura,
 // se toma la suya: "apps" y "Apps" serían dos recuadros distintos en el mapa.
 const LARGO_MAXIMO_SECTOR = 40;
+// La app no limita cuántos; esto sólo frena una lista desbocada. Antes se cortaba a 4 sin avisar y el
+// quinto ("Games" en Microsoft) se perdía aunque el asistente dijera que lo agregó
+const MAXIMO_SECTORES = 8;
+const sectoresDeMas = (n: number) => n > MAXIMO_SECTORES ? { texto: `Son ${n} sectores; el máximo es ${MAXIMO_SECTORES}. Quédate con los que mejor la describen.`, error: true } : null;
 function vocabularioSectores(k: Catalogo): Map<string, { nombre: string; empresas: string[] }> {
   const vocab = new Map<string, { nombre: string; empresas: string[] }>();
   k.categorias.filter((c: Json) => c.tipo === "inversion" && Array.isArray(c.sectores)).forEach((c: Json) => {
@@ -838,7 +842,7 @@ function limpiarSectores(lista: unknown, k: Catalogo): string[] {
     vistos.add(nombre.toLowerCase());
     limpios.push(nombre);
   });
-  return limpios.slice(0, 4);
+  return limpios;
 }
 const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
   .sort((a, b) => b.empresas.length - a.empresas.length)
@@ -3040,7 +3044,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       if (entrada.sectores !== undefined) {
         if ((c as Json).tipo !== "inversion") return { texto: "Los sectores propios sólo son de categorías de inversión.", error: true };
         const nuevos = limpiarSectores(entrada.sectores, catalogo);
-        cambios.sectores = nuevos.length ? nuevos : null;
+        const mal = sectoresDeMas(nuevos.length);
+        if (mal) return mal;
+        // Una tarjeta que dice "Agregar Games" con los mismos sectores de antes no cambia nada
+        const actuales = Array.isArray((c as Json).sectores) ? (c as Json).sectores.map((x: unknown) => String(x).toLowerCase()) : [];
+        const iguales = nuevos.length === actuales.length && nuevos.every((x) => actuales.includes(x.toLowerCase()));
+        if (!iguales) cambios.sectores = nuevos.length ? nuevos : null;
       }
       if (entrada.tipo && entrada.tipo !== (c as Json).tipo) {
         if (["inversion", "salud"].includes((c as Json).tipo)) {
@@ -3149,6 +3158,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         // El nombre lo pone la función: el modelo escribió "Vanguard" aun sabiendo que V es Visa
         nombre = nombreCortoEmpresa(empresa);
         sectores = limpiarSectores(entrada.sectores, catalogo);
+        const deMas = sectoresDeMas(sectores.length);
+        if (deMas) return deMas;
         // Si ya agrupa sus empresas en sectores propios, la nueva entra con los suyos: sin ellos cae en
         // "Sin sector propio" y tiene que ir a ponérselos a mano
         if (!sectores.length && vocabularioSectores(catalogo).size) {
