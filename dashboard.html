@@ -32,6 +32,9 @@
         /* Agregamos el color al HTML para que la barra de estado sea del mismo tono */
         html, body { background-color: #000000; }
 
+        /* Sin esto iOS agranda la letra al girar a horizontal y la regresa al volver, después de que el
+           pie del mapa y el saldo ya se midieron: el pie quedaba grande y cortado a la derecha */
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; margin: 0; color: #fff; padding: calc(20px + env(safe-area-inset-top)) 20px 20px 20px; box-sizing: border-box; touch-action: pan-x pan-y; }
         .main-container {
             width: 100%;
@@ -10176,9 +10179,16 @@
 
                             // Girar el teléfono cambia el ancho y el tamaño de partida del clamp, así que hay que
                             // volver a medir aunque el saldo no haya cambiado.
-                            window.addEventListener('resize', () => {
+                            // En iOS el resize llega antes de que termine el giro: se mide otra vez ya asentado.
+                            let remedirTrasGiro = null;
+                            const remedirSaldoYPie = () => {
                                 ajustarSaldoAlAncho();
                                 ajustarPieAlAncho(document.getElementById('totalTreemapCategorias'));
+                            };
+                            window.addEventListener('resize', () => {
+                                remedirSaldoYPie();
+                                clearTimeout(remedirTrasGiro);
+                                remedirTrasGiro = setTimeout(remedirSaldoYPie, 350);
                             });
 
                             // Al volver a enseñarse el inicio, la cifra pasa de no tener ancho a tenerlo: es el
