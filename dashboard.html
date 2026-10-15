@@ -5084,23 +5084,33 @@
                                             for (let i = 0; i < x.t.length && x.t[i] <= t; i++) k = i;
                                             return k >= 0 ? x.c[k] : null;
                                         };
+                                        // Todo el día con el tipo de cambio de Yahoo, el mismo para cada momento, para el
+                                        // cierre de ayer y para lo que llega en vivo. El del arranque es de otra fuente
+                                        // y sólo cambia una vez al día: mezclarlos daba saltos de cientos de pesos que el
+                                        // mercado no dio.
+                                        const tcYahoo = datos.usdmxn && datos.usdmxn.c && datos.usdmxn.c.length ? datos.usdmxn : null;
+                                        const tcUltimoYahoo = tcYahoo ? tcYahoo.c[tcYahoo.c.length - 1] : 0;
+                                        const tcEn = t => (tcYahoo && ultimoDe(tcYahoo, t)) || (tcYahoo && tcYahoo.anterior) || tcUltimoYahoo || (esHoy ? globalUsdToMxn : 0);
                                         const momentos = tiempos.map(t => {
                                             const precios = {};
                                             Object.keys(series).forEach(tk => { const p = ultimoDe(series[tk], t); if (p > 0) precios[tk] = p; });
-                                            return { t: t * 1000, precios, tc: ultimoDe(datos.usdmxn, t) || (esHoy ? globalUsdToMxn : 0), clave: `y${t}` };
+                                            return { t: t * 1000, precios, tc: tcEn(t), clave: `y${t}` };
                                         });
                                         // Hoy: lo que llegó en vivo después del último de Yahoo, y el de ahora
                                         if (esHoy) {
                                             const desde = momentos.length ? momentos[momentos.length - 1].t : 0;
+                                            const tcVivo = tcUltimoYahoo || globalUsdToMxn;
                                             intradia.muestras.filter(m => m.dia === dia && m.t > desde)
-                                                .forEach(m => momentos.push({ t: m.t, precios: m.precios, tc: m.tc, clave: `m${m.t}` }));
-                                            momentos.push({ t: Date.now(), precios: { ...cachePreciosMercado }, tc: globalUsdToMxn, clave: null });
+                                                .forEach(m => momentos.push({ t: m.t, precios: m.precios, tc: tcVivo, clave: `m${m.t}|${tcVivo}` }));
+                                            momentos.push({ t: Date.now(), precios: { ...cachePreciosMercado }, tc: tcVivo, clave: null });
                                         }
                                         if (!momentos.length) return { sinDatos: true };
 
                                         // El cierre del día anterior: la raya punteada y el cero de la curva
                                         const anterior = new Date(`${dia}T12:00:00`); anterior.setDate(anterior.getDate() - 1);
-                                        const baseSerie = serieHistoricaAccesible(ambito, { desde: diaISO(anterior), hasta: diaISO(anterior) });
+                                        // Con el cierre anterior del dólar según Yahoo; los precios, los cierres guardados
+                                        const baseSerie = serieHistoricaAccesible(ambito, { desde: diaISO(anterior), hasta: diaISO(anterior) },
+                                            tcYahoo && tcYahoo.anterior > 0 ? { dia: diaISO(anterior), precios: {}, tc: tcYahoo.anterior } : undefined);
                                         const base = (baseSerie && !baseSerie.fueraDePeriodo && baseSerie.ganancias.length)
                                             ? { ganancia: baseSerie.ganancias[0], costo: baseSerie.costos[0] } : null;
 

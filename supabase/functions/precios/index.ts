@@ -12,7 +12,7 @@
 //
 // Con dia ("AAAA-MM-DD") da cómo se movió cada uno ese día, cada 5 minutos, para la vista Hoy:
 //   { dia: "2026-10-15", tickers: ["AAPL"], tipo_cambio: true }
-//   → { intradia: { AAPL: { t: [1792071000, …], c: [346.89, …] } }, usdmxn: { t: […], c: […] } }
+//   → { intradia: { AAPL: { t: [1792071000, …], c: [346.89, …], anterior: 342.96 } }, usdmxn: { t, c, anterior } }
 // (t en segundos). Yahoo guarda unos 60 días de datos cada 5 minutos.
 
 const CORS = {
@@ -67,7 +67,8 @@ async function pedirYahoo(simbolo: string, consulta: string): Promise<Json | nul
 }
 
 // Cómo se movió un símbolo un día, cada 5 minutos. Los huecos (minutos sin operaciones) se saltan.
-async function intradiaYahoo(simbolo: string, dia: string): Promise<{ t: number[]; c: number[] } | null> {
+// "anterior" es su cierre del día hábil anterior, también de Yahoo: la vista Hoy mide contra él.
+async function intradiaYahoo(simbolo: string, dia: string): Promise<{ t: number[]; c: number[]; anterior?: number } | null> {
   const desde = Math.floor(Date.parse(`${dia}T00:00:00Z`) / 1000);
   const hasta = desde + 30 * 3600;
   const r = await pedirYahoo(simbolo, `period1=${desde}&period2=${hasta}&interval=5m`);
@@ -78,7 +79,8 @@ async function intradiaYahoo(simbolo: string, dia: string): Promise<{ t: number[
     const v = Number(cierres[k]);
     if (v > 0 && Number.isFinite(v)) { t.push(ts); c.push(Math.round(v * 10000) / 10000); }
   });
-  return t.length ? { t, c } : null;
+  const anterior = Number(r?.meta?.chartPreviousClose);
+  return t.length ? { t, c, ...(anterior > 0 && Number.isFinite(anterior) ? { anterior } : {}) } : null;
 }
 // Los tickers como los escribe la app y como los entiende Yahoo: letras, números, punto y guion (BRK-B)
 const TICKER_VALIDO = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
