@@ -2738,35 +2738,38 @@
         </div>
         <div id="avisoHistorico" class="aj-nota"></div>
 
-        <!-- De dónde sale cada dato. Finnhub no pide nada; las otras dos piden su clave gratuita y sólo
+        <!-- De dónde sale cada dato; tocar un proveedor abre su página. Finnhub no pide nada; las otras dos piden su clave gratuita y sólo
              sirven para traer lo de antes (Twelve Data se usa primero si está). -->
         <div class="aj-encabezado">Proveedores</div>
         <div class="aj-grupo">
-            <div class="aj-fila">
+            <a class="aj-fila" href="https://finnhub.io" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/finnhub.png" alt="">
                 <span class="aj-texto">Finnhub<small>Precios del día, sectores y logos</small></span>
-                <span class="aj-valor">Sin clave</span>
-            </div>
+                <span class="aj-valor">No pide clave</span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </a>
             <button type="button" id="btnRefrescarPerfiles" class="aj-fila aj-accion" onclick="forzarActualizacionPerfiles()">Actualizar sectores y logos</button>
         </div>
         <div id="avisoPerfiles" class="aj-nota"></div>
 
         <div class="aj-grupo">
-            <div class="aj-fila">
+            <a class="aj-fila" href="https://twelvedata.com" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/twelvedata.png" alt="">
                 <span class="aj-texto">Twelve Data<small>Años de cierres y el tipo de cambio</small></span>
                 <span class="aj-valor" id="estadoClaveTwelve">Sin clave</span>
-            </div>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </a>
             <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiTwelve" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
             <a class="aj-fila aj-accion" href="https://twelvedata.com/register" target="_blank" rel="noopener">Obtener clave gratis</a>
         </div>
 
         <div class="aj-grupo">
-            <div class="aj-fila">
+            <a class="aj-fila" href="https://www.alphavantage.co" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/alphavantage.png" alt="">
                 <span class="aj-texto">Alpha Vantage<small>Los últimos cien cierres</small></span>
                 <span class="aj-valor" id="estadoClaveAlpha">Sin clave</span>
-            </div>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </a>
             <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
             <a class="aj-fila aj-accion" href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Obtener clave gratis</a>
         </div>
