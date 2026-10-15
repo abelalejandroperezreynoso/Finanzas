@@ -79,6 +79,10 @@
             --aire-pestanas: 16px; left: var(--aire-pestanas); right: var(--aire-pestanas); bottom: var(--aire-pestanas);
             display: flex; align-items: center; gap: 10px; pointer-events: none; }
         html.sin-pestanas .barra-pestanas { display: none; }
+        /* Precios en vivo: el punto verde junto al título de Inversiones */
+        .punto-en-vivo { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-left: 8px; border-radius: 50%; background: #30d158;
+            box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.6); animation: latidoEnVivo 2s infinite; }
+        @keyframes latidoEnVivo { 0% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.6); } 70% { box-shadow: 0 0 0 7px rgba(48, 209, 88, 0); } 100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0); } }
         .barra-pestanas-capsula, .barra-pestanas-mas { pointer-events: auto;
             /* Vidrio oscuro: sobre el mapa blanco uno más claro dejaba las pestañas sin leerse */
             background: rgba(28, 28, 30, 0.78); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
@@ -2744,8 +2748,8 @@
         <div class="aj-grupo">
             <a class="aj-fila" href="https://finnhub.io" target="_blank" rel="noopener">
                 <img class="aj-logo" src="proveedores/finnhub.png" alt="">
-                <span class="aj-texto">Finnhub<small>Precios del día, sectores y logos</small></span>
-                <span class="aj-valor">No pide clave</span>
+                <span class="aj-texto">Finnhub<small>Precios en vivo, sectores y logos</small></span>
+                <span class="aj-valor" id="estadoEnVivoFinnhub">No pide clave</span>
                 <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
             </a>
             <button type="button" id="btnRefrescarPerfiles" class="aj-fila aj-accion" onclick="forzarActualizacionPerfiles()">Actualizar sectores y logos</button>
@@ -7308,6 +7312,8 @@
                                                                 // Finnhub tardó más que el tope) ya pueden pedir su refresco como durante el
                                                                 // resto de la sesión.
                                                                 arranqueEnCurso = false;
+                                                                // Ya con las empresas cargadas: los precios en vivo de Finnhub
+                                                                iniciarPreciosEnVivo();
                                                                 // Dos cuadros de espera: el primero cierra el que está en curso y el segundo asegura
                                                                 // que el navegador ya pintó las cifras antes de quitar el velo. Sin esto se alcanza
                                                                 // a ver un parpadeo del dashboard todavía en $0.00.
@@ -13411,6 +13417,14 @@
                                     const cuando = f && !isNaN(f) ? ` (${f.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} ${f.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })})` : '';
                                     return c.ticker + cuando;
                                 });
+                                // Mientras llegan precios en vivo, un punto verde que late junto al título
+                                if (typeof estadoEnVivo === 'function' && estadoEnVivo() === 'vivo') {
+                                    const punto = document.createElement('span');
+                                    punto.className = 'punto-en-vivo';
+                                    punto.title = 'Precios en vivo';
+                                    titulo.appendChild(punto);
+                                }
+
                                 // El tipo de cambio también: si ninguna fuente contestó se usa el último guardado
                                 const tcViejo = tipoCambioGuardadoDel !== null;
                                 if (sinPrecio.length === 0 && conGuardado.length === 0 && !tcViejo) return;
@@ -24350,6 +24364,137 @@
                                                             localStorage.setItem(CLAVE_ULTIMOS_PRECIOS, JSON.stringify(todos));
                                                         } catch (e) { /* sin espacio: se queda sin guardar */ }
                                                     }
+
+                                                    // ---- Precios en vivo (WebSocket de Finnhub) ----
+                                                    // Con la app abierta, Finnhub manda cada operación de tus empresas al momento, sin gastar
+                                                    // consultas. Su plan gratuito deja seguir hasta 50 símbolos: van primero las empresas en
+                                                    // las que tienes acciones. Sólo llegan operaciones en horario de bolsa; fuera de él la
+                                                    // conexión queda callada y se usan los precios del arranque. Se cierra al salir de la app
+                                                    // (el iPhone la cortaría de todos modos) y se vuelve a abrir al regresar.
+                                                    const MAX_SIMBOLOS_EN_VIVO = 50;
+                                                    // La pantalla se repinta como mucho cada tanto: una empresa puede mandar decenas de
+                                                    // operaciones por segundo y redibujar el mapa con cada una trabaría el teléfono.
+                                                    const REPINTAR_EN_VIVO_MS = 5000;
+                                                    const GUARDAR_CIERRE_EN_VIVO_MS = 15 * 60 * 1000;
+                                                    const enVivo = { socket: null, simbolos: [], reintentos: 0, reconectar: null, repintar: null,
+                                                        ultimaOperacion: 0, ultimoCierreGuardado: 0, cambiosSinGuardar: {}, aTicker: {} };
+                                                    // En vivo Finnhub escribe las clases con punto (BRK.B) aunque su consulta normal
+                                                    // acepte el guion que usa la app (BRK-B): sin esto BRK-B nunca llegaba
+                                                    const simboloEnVivo = ticker => String(ticker).replace(/-([A-Z])$/, '.$1');
+
+                                                    function simbolosParaEnVivo() {
+                                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker);
+                                                        const conAcciones = cats.filter(c => (c.totalAcciones || 0) > 0.00001);
+                                                        const resto = cats.filter(c => !((c.totalAcciones || 0) > 0.00001));
+                                                        return [...new Set([...conAcciones, ...resto].map(c => String(c.ticker).trim().toUpperCase()))].slice(0, MAX_SIMBOLOS_EN_VIVO);
+                                                    }
+
+                                                    function iniciarPreciosEnVivo() {
+                                                        if (!('WebSocket' in window) || document.visibilityState === 'hidden') return;
+                                                        if (enVivo.socket && enVivo.socket.readyState <= 1) return;
+                                                        enVivo.simbolos = simbolosParaEnVivo();
+                                                        if (!enVivo.simbolos.length) return;
+                                                        clearTimeout(enVivo.reconectar);
+                                                        let ws;
+                                                        try { ws = new WebSocket(`wss://ws.finnhub.io?token=${TOKEN_FINNHUB}`); } catch (e) { return; }
+                                                        enVivo.socket = ws;
+                                                        ws.onopen = () => {
+                                                            enVivo.reintentos = 0;
+                                                            enVivo.aTicker = {};
+                                                            enVivo.simbolos.forEach(ticker => {
+                                                                const simbolo = simboloEnVivo(ticker);
+                                                                enVivo.aTicker[simbolo] = ticker;
+                                                                ws.send(JSON.stringify({ type: 'subscribe', symbol: simbolo }));
+                                                            });
+                                                            pintarEstadoEnVivo();
+                                                        };
+                                                        ws.onmessage = (evento) => {
+                                                            let msg;
+                                                            try { msg = JSON.parse(evento.data); } catch (e) { return; }
+                                                            if (!msg || msg.type !== 'trade' || !Array.isArray(msg.data)) return;
+                                                            // Del lote, la última operación de cada empresa
+                                                            const ultimos = {};
+                                                            msg.data.forEach(t => { if (t && t.s && Number(t.p) > 0 && (!ultimos[t.s] || t.t >= ultimos[t.s].t)) ultimos[t.s] = t; });
+                                                            Object.values(ultimos).forEach(t => aplicarPrecioEnVivo(enVivo.aTicker[t.s] || t.s, Number(t.p)));
+                                                        };
+                                                        ws.onclose = () => {
+                                                            if (enVivo.socket === ws) enVivo.socket = null;
+                                                            pintarEstadoEnVivo();
+                                                            // Se reintenta con espera creciente (5 s, 10 s, 20 s… hasta 5 min) mientras la app esté a la vista
+                                                            if (document.visibilityState === 'hidden') return;
+                                                            const espera = Math.min(300000, 5000 * Math.pow(2, enVivo.reintentos++));
+                                                            enVivo.reconectar = setTimeout(iniciarPreciosEnVivo, espera);
+                                                        };
+                                                        ws.onerror = () => { try { ws.close(); } catch (e) { /* ya cerrada */ } };
+                                                    }
+
+                                                    function detenerPreciosEnVivo() {
+                                                        clearTimeout(enVivo.reconectar);
+                                                        const ws = enVivo.socket;
+                                                        enVivo.socket = null;
+                                                        if (ws) { try { ws.close(); } catch (e) { /* ya cerrada */ } }
+                                                        guardarPreciosEnVivoPendientes();
+                                                        pintarEstadoEnVivo();
+                                                    }
+
+                                                    function aplicarPrecioEnVivo(simbolo, precio) {
+                                                        if (cachePreciosMercado[simbolo] === precio) return;
+                                                        cachePreciosMercado[simbolo] = precio;
+                                                        if (window.cacheErroresMercado) delete window.cacheErroresMercado[simbolo];
+                                                        if (window.preciosGuardadosUsados) delete window.preciosGuardadosUsados[simbolo];
+                                                        enVivo.cambiosSinGuardar[simbolo] = precio;
+                                                        enVivo.ultimaOperacion = Date.now();
+                                                        if (enVivo.repintar) return;
+                                                        enVivo.repintar = setTimeout(() => {
+                                                            enVivo.repintar = null;
+                                                            guardarPreciosEnVivoPendientes();
+                                                            pintarEstadoEnVivo();
+                                                            // Con una hoja o una ventana abierta no se repinta debajo: espera a la siguiente vuelta
+                                                            if (arranqueEnCurso || document.querySelector('.modal-overlay.activa')) return;
+                                                            refrescarVistaConFiltros();
+                                                            // El cierre de hoy se va poniendo al día con lo que llega, cada tanto
+                                                            if (Date.now() - enVivo.ultimoCierreGuardado > GUARDAR_CIERRE_EN_VIVO_MS) {
+                                                                enVivo.ultimoCierreGuardado = Date.now();
+                                                                guardarCierresDeHoy().catch(() => {});
+                                                            }
+                                                        }, REPINTAR_EN_VIVO_MS);
+                                                    }
+
+                                                    // El último precio de cada empresa en el teléfono, para tener uno reciente si mañana no hay red
+                                                    function guardarPreciosEnVivoPendientes() {
+                                                        const pendientes = Object.entries(enVivo.cambiosSinGuardar);
+                                                        if (!pendientes.length) return;
+                                                        enVivo.cambiosSinGuardar = {};
+                                                        try {
+                                                            const todos = leerUltimosPrecios();
+                                                            const ahora = new Date().toISOString();
+                                                            pendientes.forEach(([t, p]) => { todos[t] = { precio: p, fecha: ahora }; });
+                                                            localStorage.setItem(CLAVE_ULTIMOS_PRECIOS, JSON.stringify(todos));
+                                                        } catch (e) { /* sin espacio */ }
+                                                    }
+
+                                                    // "En vivo" mientras la conexión está abierta y llegaron operaciones en el último minuto;
+                                                    // "Conectado" si está abierta pero callada (fuera de horario de bolsa).
+                                                    function estadoEnVivo() {
+                                                        if (!enVivo.socket || enVivo.socket.readyState !== 1) return 'apagado';
+                                                        return Date.now() - enVivo.ultimaOperacion < 60000 ? 'vivo' : 'conectado';
+                                                    }
+                                                    function pintarEstadoEnVivo() {
+                                                        const el = document.getElementById('estadoEnVivoFinnhub');
+                                                        if (el) {
+                                                            const estado = estadoEnVivo();
+                                                            el.textContent = estado === 'vivo' ? `En vivo · ${enVivo.simbolos.length}` : estado === 'conectado' ? 'Conectado' : 'No pide clave';
+                                                            el.style.color = estado === 'vivo' ? '#30d158' : '';
+                                                        }
+                                                        if (typeof actualizarTituloInicio === 'function') actualizarTituloInicio();
+                                                    }
+                                                    // Si deja de llegar nada, el punto verde se apaga solo al minuto
+                                                    setInterval(() => { if (enVivo.socket) pintarEstadoEnVivo(); }, 30000);
+
+                                                    document.addEventListener('visibilitychange', () => {
+                                                        if (document.visibilityState === 'hidden') detenerPreciosEnVivo();
+                                                        else if (!arranqueEnCurso && currentUser) { enVivo.reintentos = 0; iniciarPreciosEnVivo(); }
+                                                    });
 
                                                     // Las empresas que caen a Yahoo en el mismo momento (al abrir, todas a la vez) se
                                                     // juntan en una sola llamada a la función "precios", en vez de una por empresa.
