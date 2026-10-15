@@ -3252,20 +3252,25 @@
                                     const tipoCambioValido = n => Number.isFinite(n) && n > 5 && n < 100;
 
                                     // Varias fuentes gratuitas y sin clave, en orden; se queda con la primera que
-                                    // conteste algo creíble. Cada una tiene su propio tope de espera.
+                                    // conteste algo creíble. Cada una tiene su propio tope de espera. Yahoo va primero:
+                                    // se mueve durante el día (las otras cambian una vez al día) y es el mismo que usa
+                                    // la vista Hoy, así que la cifra grande, el mapa y esa curva cuentan con el mismo dólar.
                                     const FUENTES_TIPO_CAMBIO = [
+                                        async () => (await preguntarAYahoo([], true))?.usdmxn,
                                         async (senal) => (await (await fetch('https://open.er-api.com/v6/latest/USD', { signal: senal })).json())?.rates?.MXN,
                                         async (senal) => (await (await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=MXN', { signal: senal })).json())?.rates?.MXN,
-                                        async (senal) => (await (await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json', { signal: senal })).json())?.usd?.mxn,
-                                        async () => (await preguntarAYahoo([], true))?.usdmxn
+                                        async (senal) => (await (await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json', { signal: senal })).json())?.usd?.mxn
                                     ];
+                                    const ESPERA_TIPO_CAMBIO_MS = 4000;
 
                                     async function obtenerTipoCambioActual() {
                                         for (const fuente of FUENTES_TIPO_CAMBIO) {
                                             const control = new AbortController();
-                                            const reloj = setTimeout(() => control.abort(), 4000);
+                                            let reloj = null;
+                                            // El tope también corta la de Yahoo, que va por la función y no se puede abortar
+                                            const tope = new Promise(resolve => { reloj = setTimeout(() => { control.abort(); resolve(null); }, ESPERA_TIPO_CAMBIO_MS); });
                                             try {
-                                                const valor = Number(await fuente(control.signal));
+                                                const valor = Number(await Promise.race([fuente(control.signal), tope]));
                                                 if (tipoCambioValido(valor)) {
                                                     globalUsdToMxn = valor;
                                                     tipoCambioGuardadoDel = null;
@@ -5015,6 +5020,21 @@
                                         try { localStorage.setItem('curvaInversiones', curvaInversiones); } catch (e) { /* sin memoria: se queda en esta visita */ }
                                         repintarTreemapCategorias();
                                     }
+
+                                    // Con la app abierta el dólar se vuelve a pedir cada 10 minutos (y al volver a la app
+                                    // si pasó más que eso): así la cifra grande también se mueve por el tipo de cambio.
+                                    const REFRESCO_TIPO_CAMBIO_MS = 10 * 60 * 1000;
+                                    let tipoCambioPedidoEn = Date.now();
+                                    async function refrescarTipoCambio() {
+                                        if (document.visibilityState === 'hidden' || arranqueEnCurso || !currentUser) return;
+                                        if (Date.now() - tipoCambioPedidoEn < REFRESCO_TIPO_CAMBIO_MS - 5000) return;
+                                        tipoCambioPedidoEn = Date.now();
+                                        const antes = globalUsdToMxn;
+                                        await obtenerTipoCambioActual();
+                                        if (Math.abs(globalUsdToMxn - antes) > 0.00005 && !document.querySelector('.modal-overlay.activa')) refrescarVistaConFiltros();
+                                    }
+                                    setInterval(refrescarTipoCambio, REFRESCO_TIPO_CAMBIO_MS);
+                                    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refrescarTipoCambio(); });
 
                                     // ---- Vista Hoy: cómo se movió el portafolio durante un día ----
                                     // Con el filtro en un solo día, la curva deja de tener un punto por día y pasa a tener
