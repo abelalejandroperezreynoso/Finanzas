@@ -7387,7 +7387,7 @@
                                         const btnIrHistorial = document.getElementById('btnVerHistorialRecurrente');
                             btnIrHistorial.onclick = () => {
                                 cerrarModalInfoRecurrente();
-                                filtrarRegistrosPorCategoria(cat.id);
+                                filtrarRegistrosPorCategoria(cat.id, true);
                             };
 
                             // Mostrar
@@ -10169,7 +10169,7 @@
                                                                                                                                                                                                                                                                                                                                                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                                                                                                                                                                                                                                                                                                                                                             </button>
                                                                                                                                 </div>
-                                                                                                                                                                            <div class="swipe-content" style="cursor:pointer; flex-wrap: wrap; align-items: flex-start;" onclick="filtrarRegistrosPorCategoria('${cat.id}')">
+                                                                                                                                                                            <div class="swipe-content" style="cursor:pointer; flex-wrap: wrap; align-items: flex-start;" onclick="filtrarRegistrosPorCategoria('${cat.id}', true)">
                                                                                                                                                                                                                         <div style="display: flex; justify-content: space-between; width: 100%;">
                                                                                                                                                                                                                         <div style="flex:1;">
                                                                                                                                                                                                                                                                                                                                                             <strong style="display: flex; align-items: center; color: ${colorTipo}; min-height: 24px; margin-bottom: 2px;">
@@ -24333,7 +24333,10 @@
 
                                                     document.getElementById('btnCerrarSesion').onclick = async () => { await clienteSupabase.auth.signOut(); window.location.replace('index.html'); };
 
-                                                    async function filtrarRegistrosPorCategoria(idCat) {
+                                                    // irAMovimientos: sólo cuando la abre el usuario. Los repintados (precios en vivo,
+                                                    // tipo de cambio, recargas) la vuelven a llamar para respetar el filtro, y si
+                                                    // cambiaran de pestaña sacarían al usuario de la que esté viendo.
+                                                    async function filtrarRegistrosPorCategoria(idCat, irAMovimientos = false) {
                                                         window.filtroMovimientosActivo = { tipo: 'categoria', valor: idCat }; // NUEVO: Memorizar filtro
                                                         const cat = datosCategorias.find(c => String(c.id) === String(idCat));
                                                         document.getElementById('textoRangoFechas').textContent = cat ? `Categoría: ${cat.nombre}` : 'Filtrando...';
@@ -24400,8 +24403,10 @@
                                 actualizarGrafico(datosAgrupadosParaGrafico);
                                 
                                 // 5. Cambiamos visualmente a la pestaña de movimientos (ahora en la posición 1)
-                                const btnMovs = document.querySelectorAll('.tab-btn')[1];
-                                verSubLista('sub-movs', btnMovs);
+                                if (irAMovimientos) {
+                                    const btnMovs = document.querySelectorAll('.tab-btn')[1];
+                                    verSubLista('sub-movs', btnMovs);
+                                }
                             }
 
                             async function filtrarDashboardPorCuenta(idCuenta) {
