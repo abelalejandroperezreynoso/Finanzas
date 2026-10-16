@@ -14888,8 +14888,12 @@
                                     }
                                 };
 
-                                // Comparando, cada recuadro marcado lleva un marco del color de su línea y los demás
-                                // se apagan, para ver de un vistazo qué está en la curva.
+                                // Comparando, cada recuadro marcado lleva la selección de iOS (Fotos, fondos de
+                                // pantalla): un anillo del color de su línea separado del contenido por un hueco negro,
+                                // y en la esquina el círculo con la palomita. Los demás se apagan, para ver de un
+                                // vistazo qué está en la curva.
+                                const ANILLO_SELECCION_TREEMAP = 2.5;
+                                const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
                                     id: 'seleccionTreemap',
                                     afterDatasetsDraw(chart) {
@@ -14897,11 +14901,21 @@
                                         const meta = chart.getDatasetMeta(0);
                                         if (!meta || !meta.data) return;
                                         const lienzo = chart.ctx;
-                                        const camino = (x, y, w, h) => {
-                                            const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP, w / 2, h / 2));
-                                            lienzo.beginPath();
-                                            if (lienzo.roundRect) lienzo.roundRect(x, y, w, h, r);
-                                            else lienzo.rect(x, y, w, h);
+                                        // Rectángulo redondeado metido `m` píxeles hacia dentro, con el radio que le toca
+                                        // para que las curvas de los tres bordes vayan paralelas
+                                        const camino = (x, y, w, h, m = 0, nuevo = true) => {
+                                            const ancho = w - 2 * m, alto = h - 2 * m;
+                                            const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP - m, ancho / 2, alto / 2));
+                                            if (nuevo) lienzo.beginPath();
+                                            if (lienzo.roundRect) lienzo.roundRect(x + m, y + m, ancho, alto, r);
+                                            else lienzo.rect(x + m, y + m, ancho, alto);
+                                        };
+                                        // Banda entre dos contornos: se rellena con la regla par-impar
+                                        const banda = (el, desde, hasta, color) => {
+                                            camino(el.x, el.y, el.width, el.height, desde);
+                                            camino(el.x, el.y, el.width, el.height, hasta, false);
+                                            lienzo.fillStyle = color;
+                                            lienzo.fill('evenodd');
                                         };
                                         lienzo.save();
                                         meta.data.forEach((el, i) => {
@@ -14909,10 +14923,34 @@
                                             const d = buscarDato(chart.data.datasets[0].data[i]);
                                             const marcado = d ? seleccionTreemapInversiones.find(s => s.id === String(d.id)) : null;
                                             if (marcado) {
-                                                const grueso = Math.min(3, el.width / 4, el.height / 4);
-                                                lienzo.lineWidth = grueso;
-                                                lienzo.strokeStyle = marcado.color;
-                                                camino(el.x + grueso / 2, el.y + grueso / 2, el.width - grueso, el.height - grueso);
+                                                const anillo = Math.min(ANILLO_SELECCION_TREEMAP, el.width / 8, el.height / 8);
+                                                const hueco = Math.min(HUECO_SELECCION_TREEMAP, el.width / 8, el.height / 8);
+                                                // Medio píxel hacia fuera tapa el borde suavizado del recuadro
+                                                banda(el, -0.5, anillo, marcado.color);
+                                                banda(el, anillo, anillo + hueco, '#000000');
+
+                                                // La palomita, si el recuadro da para ella
+                                                const radio = 9;
+                                                const borde = anillo + hueco;
+                                                if (el.width < radio * 2 + borde * 2 + 8 || el.height < radio * 2 + borde * 2 + 8) return;
+                                                const cx = el.x + el.width - borde - radio - 4;
+                                                const cy = el.y + borde + radio + 4;
+                                                lienzo.beginPath();
+                                                lienzo.arc(cx, cy, radio + 1.5, 0, Math.PI * 2);
+                                                lienzo.fillStyle = '#ffffff';
+                                                lienzo.fill();
+                                                lienzo.beginPath();
+                                                lienzo.arc(cx, cy, radio, 0, Math.PI * 2);
+                                                lienzo.fillStyle = marcado.color;
+                                                lienzo.fill();
+                                                lienzo.beginPath();
+                                                lienzo.moveTo(cx - 4, cy + 0.2);
+                                                lienzo.lineTo(cx - 1.2, cy + 3);
+                                                lienzo.lineTo(cx + 4.2, cy - 3);
+                                                lienzo.lineWidth = 2;
+                                                lienzo.lineCap = 'round';
+                                                lienzo.lineJoin = 'round';
+                                                lienzo.strokeStyle = '#ffffff';
                                                 lienzo.stroke();
                                             } else {
                                                 lienzo.fillStyle = 'rgba(0, 0, 0, 0.55)';
