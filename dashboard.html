@@ -7538,12 +7538,49 @@
                                     // opacidad, que devuelve el mes en curso. Ese segundo vive sólo en la pantalla de
                                     // inicio: en Gestión de Datos basta con poder quitar el filtro.
                                     function pintarBotonesDeFiltro(hayFiltro) {
-                                        ['btnQuitarFiltroInicio', 'btnQuitarFiltroLista'].forEach(id => {
-                                            const btn = document.getElementById(id);
-                                            if (btn) btn.style.display = hayFiltro ? 'flex' : 'none';
-                                        });
+                                        const btnLista = document.getElementById('btnQuitarFiltroLista');
+                                        if (btnLista) btnLista.style.display = hayFiltro ? 'flex' : 'none';
+                                        // En Inversiones y Salud el filtro de cuenta, categoría o búsqueda no cambia
+                                        // nada de Inicio (sólo vale en Datos): ahí la ✕ sólo cuenta las fechas
+                                        const enInicio = inicioEnFinanzas() ? hayFiltro : hayFiltroDeTiempoActivo();
+                                        const btnInicio = document.getElementById('btnQuitarFiltroInicio');
+                                        if (btnInicio) btnInicio.style.display = enInicio ? 'flex' : 'none';
                                         const btnMes = document.getElementById('btnFiltroMesInicio');
-                                        if (btnMes) btnMes.style.display = hayFiltro ? 'none' : 'flex';
+                                        if (btnMes) btnMes.style.display = enInicio ? 'none' : 'flex';
+                                    }
+
+                                    // Inicio está en Finanzas (no en Inversiones ni en Salud)
+                                    function inicioEnFinanzas() {
+                                        try { return !modoSaludInicio && tipoTreemapCategorias !== 'inversion'; } catch (e) { return true; }
+                                    }
+
+                                    // La pastilla de fechas de Inicio. Con un filtro de lista puesto dice cuál es, pero
+                                    // sólo en Finanzas: en Inversiones y Salud la gráfica y el mapa no lo usan (sólo
+                                    // las fechas), así que ahí dice el periodo. `texto` es lo que diría en Finanzas.
+                                    function escribirEtiquetaFiltro(texto) {
+                                        const el = document.getElementById('textoRangoFechas');
+                                        if (!el) return;
+                                        el.textContent = inicioEnFinanzas() ? texto : textoDelRangoDeFechas(
+                                            document.getElementById('filtroInicio').value, document.getElementById('filtroFin').value);
+                                    }
+
+                                    // Rehace la pastilla y la ✕ al cambiar de modo, con el filtro que haya puesto
+                                    function refrescarEtiquetaFiltro() {
+                                        const f = window.filtroMovimientosActivo;
+                                        if (!f) {
+                                            const el = document.getElementById('textoRangoFechas');
+                                            if (el && document.getElementById('filtroInicio')) el.textContent = textoDelRangoDeFechas(
+                                                document.getElementById('filtroInicio').value, document.getElementById('filtroFin').value);
+                                        } else if (f.tipo === 'categoria') {
+                                            const cat = (datosCategorias || []).find(c => String(c.id) === String(f.valor));
+                                            escribirEtiquetaFiltro(cat ? `Categoría: ${cat.nombre}` : 'Filtrando...');
+                                        } else if (f.tipo === 'cuenta') {
+                                            const cuenta = (datosCuentas || []).find(c => String(c.id) === String(f.valor));
+                                            escribirEtiquetaFiltro(cuenta ? `Cuenta: ${cuenta.nombre}` : 'Filtrando...');
+                                        } else if (f.tipo === 'busqueda') {
+                                            escribirEtiquetaFiltro(`Resultados para: "${f.valor}"`);
+                                        }
+                                        actualizarBotonQuitarFiltro();
                                     }
 
                                     // Un único lugar decide cuál de los dos se ve, para que el rango de tiempo cuente
@@ -10963,6 +11000,52 @@
                                 }).observe(pieEl);
                             }
 
+                                // Lo que dice la pastilla de fechas de Inicio cuando no hay filtro de lista puesto
+                                function textoDelRangoDeFechas(inicio, fin) {
+                                    const obtenerPartes = (fechaStr) => {
+                                        const d = new Date(fechaStr + 'T00:00:00');
+                                        const mes = d.toLocaleString('es-MX', { month: 'long' });
+                                        return {
+                                            dia: d.getDate(),
+                                            mes: mes.charAt(0).toUpperCase() + mes.slice(1),
+                                            anio: d.getFullYear()
+                                        };
+                                    };
+
+                                    const formatearFecha = (fechaStr) => {
+                                        const p = obtenerPartes(fechaStr);
+                                        return `${p.dia} de ${p.mes} ${p.anio}`;
+                                    };
+
+                                    let textoFiltro = 'Todo el tiempo';
+                                    if (tipoFiltroActual === 'mes' && inicio) {
+                                        const p = obtenerPartes(inicio);
+                                        textoFiltro = `${p.mes} ${p.anio}`;
+                                    } else if (tipoFiltroActual === 'año' && inicio) {
+                                        const p = obtenerPartes(inicio);
+                                        textoFiltro = p.anio.toString();
+                                    } else if (inicio && fin && inicio === fin) {
+                                        textoFiltro = formatearFecha(inicio);
+                                    } else if (inicio && fin) {
+                                        const pIni = obtenerPartes(inicio);
+                                        const pFin = obtenerPartes(fin);
+                                        
+                                        if (pIni.anio === pFin.anio && pIni.mes === pFin.mes) {
+                                            textoFiltro = `${pIni.dia} ➔ ${pFin.dia} de ${pFin.mes} ${pFin.anio}`;
+                                        } else if (pIni.anio === pFin.anio) {
+                                            textoFiltro = `${pIni.dia} de ${pIni.mes} ➔ ${pFin.dia} de ${pFin.mes} ${pFin.anio}`;
+                                        } else {
+                                            textoFiltro = `${formatearFecha(inicio)} ➔ ${formatearFecha(fin)}`;
+                                        }
+                                    } else if (inicio) {
+                                        textoFiltro = `Desde ${formatearFecha(inicio)}`;
+                                    } else if (fin) {
+                                        textoFiltro = `Hasta ${formatearFecha(fin)}`;
+                                    }
+                                    
+                                    return textoFiltro;
+                                }
+
                             function aplicarFiltrosYRenderizar(forzarLimpieza = false) {
                                 // Este repintado ya recoge los tipos de la gráfica que estuvieran pendientes
                                 cambiosPanelPendientes = false;
@@ -11021,48 +11104,7 @@
 
                                 const inicio = document.getElementById('filtroInicio').value, fin = document.getElementById('filtroFin').value;
                                     
-                                    const obtenerPartes = (fechaStr) => {
-                                        const d = new Date(fechaStr + 'T00:00:00');
-                                        const mes = d.toLocaleString('es-MX', { month: 'long' });
-                                        return {
-                                            dia: d.getDate(),
-                                            mes: mes.charAt(0).toUpperCase() + mes.slice(1),
-                                            anio: d.getFullYear()
-                                        };
-                                    };
-
-                                    const formatearFecha = (fechaStr) => {
-                                        const p = obtenerPartes(fechaStr);
-                                        return `${p.dia} de ${p.mes} ${p.anio}`;
-                                    };
-
-                                    let textoFiltro = 'Todo el tiempo';
-                                    if (tipoFiltroActual === 'mes' && inicio) {
-                                        const p = obtenerPartes(inicio);
-                                        textoFiltro = `${p.mes} ${p.anio}`;
-                                    } else if (tipoFiltroActual === 'año' && inicio) {
-                                        const p = obtenerPartes(inicio);
-                                        textoFiltro = p.anio.toString();
-                                    } else if (inicio && fin && inicio === fin) {
-                                        textoFiltro = formatearFecha(inicio);
-                                    } else if (inicio && fin) {
-                                        const pIni = obtenerPartes(inicio);
-                                        const pFin = obtenerPartes(fin);
-                                        
-                                        if (pIni.anio === pFin.anio && pIni.mes === pFin.mes) {
-                                            textoFiltro = `${pIni.dia} ➔ ${pFin.dia} de ${pFin.mes} ${pFin.anio}`;
-                                        } else if (pIni.anio === pFin.anio) {
-                                            textoFiltro = `${pIni.dia} de ${pIni.mes} ➔ ${pFin.dia} de ${pFin.mes} ${pFin.anio}`;
-                                        } else {
-                                            textoFiltro = `${formatearFecha(inicio)} ➔ ${formatearFecha(fin)}`;
-                                        }
-                                    } else if (inicio) {
-                                        textoFiltro = `Desde ${formatearFecha(inicio)}`;
-                                    } else if (fin) {
-                                        textoFiltro = `Hasta ${formatearFecha(fin)}`;
-                                    }
-                                    
-                                    document.getElementById('textoRangoFechas').textContent = textoFiltro;
+                                    document.getElementById('textoRangoFechas').textContent = textoDelRangoDeFechas(inicio, fin);
 
                                     // La ✕ de arriba se recalcula aquí para que aparezca también cuando el único filtro
                                     // puesto sea el rango de tiempo del panel de filtros.
@@ -13979,6 +14021,7 @@
 
                             function actualizarTituloInicio() {
                                 pintarSegmentoModo();
+                                refrescarEtiquetaFiltro();
                                 const titulo = document.getElementById('tituloInicio');
                                 if (!titulo) return;
                                 if (modoSaludInicio) { titulo.textContent = 'Salud'; return; }
@@ -24339,7 +24382,7 @@
                                                     async function filtrarRegistrosPorCategoria(idCat, irAMovimientos = false) {
                                                         window.filtroMovimientosActivo = { tipo: 'categoria', valor: idCat }; // NUEVO: Memorizar filtro
                                                         const cat = datosCategorias.find(c => String(c.id) === String(idCat));
-                                                        document.getElementById('textoRangoFechas').textContent = cat ? `Categoría: ${cat.nombre}` : 'Filtrando...';
+                                                        escribirEtiquetaFiltro(cat ? `Categoría: ${cat.nombre}` : 'Filtrando...');
 
                                                         const btnTabCategorias = document.getElementById('btnTabCategorias');
                                                         if (btnTabCategorias && cat) {
@@ -24414,7 +24457,7 @@
                                 const cuenta = datosCuentas.find(c => String(c.id) === String(idCuenta));
                                 if (!cuenta) return;
 
-                                document.getElementById('textoRangoFechas').textContent = `Cuenta: ${cuenta.nombre}`;
+                                escribirEtiquetaFiltro(`Cuenta: ${cuenta.nombre}`);
 
                                 const btnTabCategorias = document.getElementById('btnTabCategorias');
                                 if (btnTabCategorias) {
@@ -24502,13 +24545,13 @@
                         actualizarBotonQuitarFiltro();
 
                         // 2. Indicador visual para que el usuario sepa que la app está procesando
-            document.getElementById('textoRangoFechas').textContent = `Escribiendo...`;
+            escribirEtiquetaFiltro(`Escribiendo...`);
 
             // 3. Debounce: Limpiamos el contador anterior y lo reiniciamos
             clearTimeout(timeoutBusqueda);
             
             timeoutBusqueda = setTimeout(async () => {
-                document.getElementById('textoRangoFechas').textContent = `Buscando...`;
+                escribirEtiquetaFiltro(`Buscando...`);
                 // Sin acentos ni mayúsculas: "super" encuentra "Súper"
                 const sinAcentos = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
                 const textoLower = sinAcentos(textoBusqueda);
@@ -24540,7 +24583,7 @@
                     busquedaHistorialLlena = !error && (data || []).length >= limiteBusquedaHistorial;
                     if (error) {
                                         console.error("Error en búsqueda:", error.message);
-                                        document.getElementById('textoRangoFechas').textContent = `Error al buscar`;
+                                        escribirEtiquetaFiltro(`Error al buscar`);
                                         return;
                                     }
 
@@ -24552,7 +24595,7 @@
                                     });
                                     // --- FIN DE LA CORRECCIÓN ---
 
-                                    document.getElementById('textoRangoFechas').textContent = `Resultados para: "${textoBusqueda}"`;
+                                    escribirEtiquetaFiltro(`Resultados para: "${textoBusqueda}"`);
 
                 // Agrupamos los resultados encontrados para generar la gráfica correctamente
                 const datosAgrupadosParaGrafico = [];
