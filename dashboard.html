@@ -4057,6 +4057,15 @@
                                     // cada moneda mide contra su propio costo, igual que los recuadros.
                                     // momento: { dia, precios, tc } para valorar ese día con los precios de un momento
                                     // dado en vez de con su cierre (la vista Hoy la llama una vez por cada momento).
+                                    // Las empresas que entran en un ámbito de la curva
+                                    function categoriasDelAmbito(ambito) {
+                                        const donde = ambito || {};
+                                        return (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
+                                            && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
+                                            && (!donde.categoria || String(c.id) === String(donde.categoria))
+                                            && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0));
+                                    }
+
                                     function serieHistoricaAccesible(ambito, periodo, momento) {
                                         const donde = ambito || {};
                                         const todo = donde.vista === 'todo';
@@ -4065,10 +4074,7 @@
                                         const desdeFiltro = recorte.desde || '';
                                         const hastaFiltro = recorte.hasta || '';
                                         const enPesos = monedaTreemapInversiones === 'mxn';
-                                        const cats = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
-                                            && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
-                                            && (!donde.categoria || String(c.id) === String(donde.categoria))
-                                            && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0));
+                                        const cats = categoriasDelAmbito(donde);
                                         if (cats.length === 0) return null;
 
                                         // Dentro de un sector, una empresa que está en varios entra con la parte
@@ -5206,7 +5212,24 @@
                                             valoresBase.push(relativo ? b.costo + b.ganancia : v.costo);
                                         });
                                         if (!horas.length) return { sinDatos: true };
-                                        return { dias: horas, instantes, ganancias: cambios, costos: valoresBase, intradia: true, relativo, todo: true, dia, sinBase: !base,
+
+                                        // Las compras y ventas de ese día, en el primer momento a partir de su hora
+                                        const ids = {};
+                                        categoriasDelAmbito(ambito).forEach(c => { ids[String(c.id)] = true; });
+                                        const marcas = [];
+                                        (datosUsoCompleto || [])
+                                            .filter(u => ids[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0
+                                                && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) === dia)
+                                            .forEach(u => {
+                                                const t = Date.parse(u.fecha);
+                                                if (isNaN(t)) return;
+                                                let i = instantes.findIndex(x => x >= t);
+                                                if (i < 0) i = instantes.length - 1;
+                                                const tipo = esCompraInversion(u) ? 'compra' : 'venta';
+                                                if (!marcas.some(m => m.indice === i && m.tipo === tipo)) marcas.push({ indice: i, tipo });
+                                            });
+
+                                        return { dias: horas, instantes, marcas, ganancias: cambios, costos: valoresBase, intradia: true, relativo, todo: true, dia, sinBase: !base,
                                             enPesos: monedaTreemapInversiones === 'mxn' };
                                     }
 
@@ -5361,6 +5384,36 @@
                                             }
                                         };
                                     }
+
+                                    // Un punto pequeño sobre la línea en cada compra (blanco) o venta (azul cielo). Cada
+                                    // línea trae las suyas en `marcas` ({ indice, tipo }).
+                                    const pluginMarcasCompraVenta = {
+                                        id: 'marcasCompraVenta',
+                                        afterDatasetsDraw: chart => {
+                                            const c = chart.ctx;
+                                            c.save();
+                                            chart.data.datasets.forEach((ds, k) => {
+                                                const marcas = ds.marcas || [];
+                                                if (marcas.length === 0) return;
+                                                const meta = chart.getDatasetMeta(k);
+                                                marcas.forEach(m => {
+                                                    const p = meta.data[m.indice];
+                                                    if (!p || p.skip || !isFinite(p.y)) return;
+                                                    // Si el mismo día hubo compra y venta, se separan un poco.
+                                                    const doble = marcas.some(o => o.indice === m.indice && o.tipo !== m.tipo);
+                                                    const dx = doble ? (m.tipo === 'compra' ? -3 : 3) : 0;
+                                                    c.beginPath();
+                                                    c.arc(p.x + dx, p.y, 3.5, 0, Math.PI * 2);
+                                                    c.fillStyle = m.tipo === 'compra' ? '#ffffff' : '#5ac8fa';
+                                                    c.fill();
+                                                    c.lineWidth = 1.5;
+                                                    c.strokeStyle = '#000000';
+                                                    c.stroke();
+                                                });
+                                            });
+                                            c.restore();
+                                        }
+                                    };
 
                                     // Las dos rayas y el tramo sombreado entre ellas, con el punto de cada línea en
                                     // los dos extremos (del color de su línea cuando hay varias).
@@ -5535,6 +5588,7 @@
                                         });
                                         const claves = [...etiquetas.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
                                         const ultimo = claves.length - 1;
+                                        const posicion = new Map(claves.map((k, i) => [k, i]));
 
                                         // Por línea, en cada punto del eje: la ganancia, su base y el porcentaje
                                         conSerie.forEach(l => {
@@ -5543,6 +5597,9 @@
                                             l.ganancias = claves.map(k => (indice.has(k) ? l.serie.ganancias[indice.get(k)] : null));
                                             l.bases = claves.map(k => (indice.has(k) ? l.serie.costos[indice.get(k)] : null));
                                             l.pcts = l.ganancias.map((g, i) => (g !== null && l.bases[i] > 0.005 ? (g / l.bases[i]) * 100 : null));
+                                            // Sus compras y ventas, en el punto del eje común (reducirSerie siempre las conserva)
+                                            l.marcas = (l.serie.marcas || []).map(m => ({ ...m, indice: posicion.get(claveDe(l.serie, m.indice)) }))
+                                                .filter(m => m.indice !== undefined);
                                         });
 
                                         const textoPct = (v) => `${v < 0 ? '' : '+'}${v.toFixed(2)}%`;
@@ -5593,6 +5650,7 @@
                                                 datasets: conSerie.map(l => ({
                                                     label: l.sel.nombre,
                                                     data: l.pcts,
+                                                    marcas: l.marcas,
                                                     borderColor: l.sel.color,
                                                     borderWidth: 2,
                                                     pointRadius: 0,
@@ -5625,7 +5683,7 @@
                                                 }
                                             },
                                             // El cero de todas: sin él no se ve cuál va ganando y cuál perdiendo
-                                            plugins: [crearPluginLineaCero(true), crearPluginLineaVertical(ultimo, 'rgba(255, 255, 255, 0.45)'), pluginTramoDosDedos]
+                                            plugins: [crearPluginLineaCero(true), pluginMarcasCompraVenta, crearPluginLineaVertical(ultimo, 'rgba(255, 255, 255, 0.45)'), pluginTramoDosDedos]
                                         });
 
                                         conectarGestosCurva(destino, lienzo, ultimo, escribirDia, escribirTramo);
@@ -5789,30 +5847,6 @@
                                         // Dentro de una empresa, un punto pequeño en cada día que se compró
                                         // (blanco) o se vendió (azul cielo), encima de la línea.
                                         const marcasCompraVenta = (ambito && ambito.categoria && !esDolar && serie.marcas) ? serie.marcas : [];
-                                        const pluginMarcasCompraVenta = {
-                                            id: 'marcasCompraVenta',
-                                            afterDatasetsDraw: chart => {
-                                                if (marcasCompraVenta.length === 0) return;
-                                                const meta = chart.getDatasetMeta(0);
-                                                const c = chart.ctx;
-                                                c.save();
-                                                marcasCompraVenta.forEach(m => {
-                                                    const p = meta.data[m.indice];
-                                                    if (!p) return;
-                                                    // Si el mismo día hubo compra y venta, se separan un poco.
-                                                    const doble = marcasCompraVenta.some(o => o.indice === m.indice && o.tipo !== m.tipo);
-                                                    const dx = doble ? (m.tipo === 'compra' ? -3 : 3) : 0;
-                                                    c.beginPath();
-                                                    c.arc(p.x + dx, p.y, 3.5, 0, Math.PI * 2);
-                                                    c.fillStyle = m.tipo === 'compra' ? '#ffffff' : '#5ac8fa';
-                                                    c.fill();
-                                                    c.lineWidth = 1.5;
-                                                    c.strokeStyle = '#000000';
-                                                    c.stroke();
-                                                });
-                                                c.restore();
-                                            }
-                                        };
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
                                         // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
@@ -5825,6 +5859,7 @@
                                                 datasets: [{
                                                     label: serie.dolar ? 'USD/MXN' : serie.todo ? 'Rendimiento' : 'Accesible',
                                                     data: valores,
+                                                    marcas: marcasCompraVenta,
                                                     ...estiloCurva(),
                                                     // Momento a momento la línea va recta entre puntos: el suavizado inventaba
                                                     // subidas y bajadas que no pasaron
