@@ -16897,39 +16897,24 @@
                             })();
 
                             // ---- La barra de pestañas, siempre abajo ----
-                            // iOS a veces deja la barra a media pantalla después de cerrar el teclado: lo visible
-                            // vuelve a su tamaño, pero lo fijo se queda acomodado como si el teclado siguiera
-                            // abierto (sube justo lo que mide el teclado) hasta que algo lo recoloca. Al cerrarse
-                            // el teclado se le da un empujón al desplazamiento, que es lo que hace a iOS
-                            // recolocar lo fijo; y si aun así lo visible y lo fijo no coinciden, la barra se
-                            // corre lo que les falta. Con el teclado abierto no se toca: ahí debe quedarse detrás.
+                            // iOS a veces deja la barra a media pantalla después de cerrar el teclado: lo fijo se
+                            // queda acomodado como si el teclado siguiera abierto hasta que algo lo recoloca. Al
+                            // cerrarse el teclado se le da un empujón de un píxel al desplazamiento, que es lo que
+                            // hace a iOS recolocar lo fijo. No se corrige la barra a mano con visualViewport: en el
+                            // rebote al jalar la página más allá del tope iOS también la reporta corrida, y la
+                            // barra se subía con el rebote.
                             (function sostenerBarraPestanas() {
-                                const vv = window.visualViewport;
-                                if (!vv) return;
                                 const escribiendo = () => {
                                     const el = document.activeElement;
                                     if (!el) return false;
                                     if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
                                     return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'file', 'range', 'color'].includes(el.type);
                                 };
-                                const acomodar = () => {
-                                    const barra = document.getElementById('barraPestanas');
-                                    if (!barra) return;
-                                    const desfase = escribiendo() ? 0 : Math.round(vv.offsetTop + vv.height - window.innerHeight);
-                                    barra.style.transform = Math.abs(desfase) > 1 ? `translateY(${desfase}px)` : '';
-                                };
-                                vv.addEventListener('resize', acomodar);
-                                vv.addEventListener('scroll', acomodar);
-                                window.addEventListener('scroll', acomodar, { passive: true });
-                                window.addEventListener('resize', acomodar);
-                                window.addEventListener('pageshow', acomodar);
-                                document.addEventListener('visibilitychange', () => { if (!document.hidden) acomodar(); });
                                 document.addEventListener('focusout', () => setTimeout(() => {
                                     if (escribiendo()) return;
                                     const y = window.scrollY;
                                     window.scrollTo(window.scrollX, y + 1);
                                     window.scrollTo(window.scrollX, y);
-                                    acomodar();
                                 }, 350));
                             })();
 
