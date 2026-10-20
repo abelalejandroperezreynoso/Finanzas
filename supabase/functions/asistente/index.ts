@@ -2497,7 +2497,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
               fechas: fechasMes.filter((f: string) => f > hoyL), atrasado: Math.round(vencido), exacto: rec.exacto });
           }
         }
-        const falta = rec ? 0 : normalMes < 0 ? Math.min(0, normalMes - x.mtd) : Math.max(0, normalMes - x.mtd);
+        // Sólo en el sentido de lo normal: sin historia (normal 0) no falta nada, y lo que ya pasó en sentido contrario
+        // no "regresa". Un gasto de una vez este mes (la topografía de un terreno, $3,500, sin nada en los 3 meses
+        // anteriores) salía como $3,500 que iban a entrar el resto del mes.
+        const falta = rec ? 0 : normalMes < 0 ? Math.min(0, normalMes - Math.min(0, x.mtd)) : normalMes > 0 ? Math.max(0, normalMes - Math.max(0, x.mtd)) : 0;
         if (Math.abs(falta) >= 1) {
           const despues = Object.entries(x.despues).map(([d, v]) => [Number(d), v / n] as [number, number]);
           const sumaDespues = despues.reduce((t, [, v]) => t + v, 0);
