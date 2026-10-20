@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v338';
+const CACHE_NAME = 'gastos-app-v339';
 
 // Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
 // cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
@@ -17,6 +17,7 @@ const ASSETS_TO_CACHE = [
     './dashboard.html',
     './calendario.html',
     './manifest.json',
+    './icono-180.png',
     './icono-192.png',
     './icono-512.png',
     './proveedores/finnhub.png',
