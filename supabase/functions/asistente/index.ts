@@ -17,6 +17,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
+import { respuestaRecuperarControl } from "./control.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
 const MODELO_SECRETO = Deno.env.get("MODELO_IA");
@@ -2632,6 +2633,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           ...(sinPrioridad.length ? { gastos_sin_prioridad: { categorias: sinPrioridad, nota: "No se pueden posponer hasta que tengan prioridad. Propón la de todos en una sola tarjeta con proponer_prioridades." } } : {}),
           gasto_variable_estimado: r0(porDiaVariable.slice(dia + 1, diaIngreso).reduce((a, b) => a + b, 0)),
         };
+        // La respuesta a "¿cómo recupero el control?" ya escrita, con las cifras del cálculo: qué se espera hasta el
+        // ingreso, cuánto falta, cómo llega con el plan y qué pagos esperados no están registrados
+        if (minAntes < 0) {
+          hastaIngreso.respuesta = respuestaRecuperarControl({
+            saldoHoy, dia, diaIngreso, entra: entraIngreso, minimo: minAntes, diaMinimo: diaMinAntes,
+            movimientos: desglose([]).movimientos, plan, planPrevio: !!planPrevio, vencidos: pagosAntes.filter((p) => p.vencido),
+          });
+        }
       }
       filas.sort((a, b) => Math.abs(b[5]) - Math.abs(a[5]) || b[4] - a[4]);
       porVenir.sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto));
@@ -2680,6 +2689,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "vencido = la app esperaba ese pago el día se_esperaba y NO está registrado, así que lo cuenta como pendiente para mañana: es un dato, no una suposición. " +
             "desglose: cómo pasa el saldo de hoy a su punto más bajo, renglón por renglón y ya sumado; lo ya gastado está restado en saldo_hoy. " +
             "plan: qué pagos dejar para después del ingreso para que alcance y con cuánto llegaría (saldo_minimo_con_plan); alcanza = false si ni así. " +
+            "respuesta: la respuesta completa a cómo recuperar el control, ya escrita con estas cifras. " +
             "Incluye deudas, préstamos e inversiones de esas cuentas.",
         }),
       };
@@ -3600,7 +3610,8 @@ Cuando pregunte por una enfermedad, un síntoma o un hábito en concreto (o elij
 
 # Bajo control
 Tu objetivo es que sus finanzas estén bajo control: saldo positivo, que no gaste más de lo que entra y que llegue bien a fin de mes. Si no lo están, no lograste tu objetivo: lo que sigue es darle soluciones para recuperar el control, claras y directas. No necesita análisis.
-Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga. Contesta en 5 renglones o menos, sin preguntas:
+Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recuperar el control (o la app te avise de una alerta), llama a pronostico_mes. El veredicto es su campo control (o la alerta que te pase la app): úsalo tal cual. Todas las cifras salen de la herramienta; no afirmes nada que no diga.
+Si hasta_el_ingreso trae respuesta, contesta con ella tal cual, en su mismo orden y formato: ya trae lo que se espera, cuánto falta, el plan y los pagos que se esperaban y no están registrados. No le cambies cifras, renglones ni fechas ni le agregues otros; si el plan no alcanza, agrega al final sólo lo de plan.si_aun_falta, y si vienen gastos_sin_prioridad, una línea para proponer su prioridad. Sin respuesta, contesta en 5 renglones o menos, sin preguntas:
 1. El problema en una frase, con la cifra que importa (el primer motivo de control). Si el nivel es 0, dilo en una frase y, como mucho, da una idea para que le quede más; ahí terminas.
 2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes ni pospongas un pago obligatorio ni lo necesario. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
