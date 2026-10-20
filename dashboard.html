@@ -24377,6 +24377,19 @@
 
                                                     document.getElementById('btnCerrarSesion').onclick = async () => { await clienteSupabase.auth.signOut(); window.location.replace('index.html'); };
 
+                                                    // Con la bolsa abierta los precios en vivo repintan cada 5 s, y con un filtro puesto (cuenta,
+                                                    // categoría o búsqueda) eso volvía a pedir sus movimientos a la base cada vez. Los
+                                                    // movimientos no cambian por un precio: esos repintados reusan la última consulta.
+                                                    // Cualquier otro repintado (guardar, recargar, cambiar el periodo) consulta de nuevo.
+                                                    var repintadoPorPrecios = false;
+                                                    const ultimaConsultaFiltro = { clave: '', data: null };
+                                                    async function consultaDeFiltro(clave, consultar, reusar = repintadoPorPrecios) {
+                                                        if (reusar && ultimaConsultaFiltro.clave === clave && ultimaConsultaFiltro.data) return { data: ultimaConsultaFiltro.data, error: null };
+                                                        const res = await consultar();
+                                                        if (!res.error) { ultimaConsultaFiltro.clave = clave; ultimaConsultaFiltro.data = res.data || []; }
+                                                        return res;
+                                                    }
+
                                                     // irAMovimientos: sólo cuando la abre el usuario. Los repintados (precios en vivo,
                                                     // tipo de cambio, recargas) la vuelven a llamar para respetar el filtro, y si
                                                     // cambiaran de pestaña sacarían al usuario de la que esté viendo.
@@ -24395,11 +24408,11 @@
                                                             pintarBotonesDeFiltro(true);
 
                                                             // 1. Consultamos a Supabase por TODOS los registros de esta categoría específica
-                const { data, error } = await clienteSupabase
+                const { data, error } = await consultaDeFiltro(`categoria:${idCat}`, () => clienteSupabase
                     .from('registros')
                     .select('*, categorias(nombre, tipo)')
                     .eq('categoria_id', idCat)
-                    .order('fecha', { ascending: false });
+                    .order('fecha', { ascending: false }));
 
                     if (error) {
                                         console.error("Error al filtrar registros:", error.message);
@@ -24474,11 +24487,11 @@
                                 }
 
                                 // 1. Consultamos a Supabase cruzando tablas para obtener solo movimientos de esta cuenta
-                                    const { data: registrosCuentaBruto, error } = await clienteSupabase
+                                    const { data: registrosCuentaBruto, error } = await consultaDeFiltro(`cuenta:${idCuenta}`, () => clienteSupabase
                                         .from('registros')
                                         .select('*, categorias!inner(nombre, tipo, cuenta_id)')
                                         .eq('categorias.cuenta_id', idCuenta)
-                                        .order('fecha', { ascending: false });
+                                        .order('fecha', { ascending: false }));
 
                                         if (error) {
                                             console.error("Error al filtrar dashboard por cuenta:", error.message);
@@ -24531,6 +24544,8 @@
                     // --- NUEVO BUSCADOR GLOBAL ---
                     function buscarEnTodosLosMovimientos() {
                         const textoBusqueda = document.getElementById('buscadorMovimientos').value.trim();
+                        // Un repintado por precios no es alguien escribiendo: sin "Escribiendo…" ni "Buscando…"
+                        const porPrecios = repintadoPorPrecios;
 
                         // Otra búsqueda empieza otra vez por los primeros cien
                         if (textoBusqueda !== textoBusquedaHistorial) {
@@ -24553,13 +24568,13 @@
                         actualizarBotonQuitarFiltro();
 
                         // 2. Indicador visual para que el usuario sepa que la app está procesando
-            escribirEtiquetaFiltro(`Escribiendo...`);
+            if (!porPrecios) escribirEtiquetaFiltro(`Escribiendo...`);
 
             // 3. Debounce: Limpiamos el contador anterior y lo reiniciamos
             clearTimeout(timeoutBusqueda);
             
             timeoutBusqueda = setTimeout(async () => {
-                escribirEtiquetaFiltro(`Buscando...`);
+                if (!porPrecios) escribirEtiquetaFiltro(`Buscando...`);
                 // Sin acentos ni mayúsculas: "super" encuentra "Súper"
                 const sinAcentos = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
                 const textoLower = sinAcentos(textoBusqueda);
@@ -24581,12 +24596,12 @@
                 }
 
                 // Hacemos la petición profunda a la base de datos
-                const { data, error } = await clienteSupabase
+                const { data, error } = await consultaDeFiltro(`busqueda:${textoBusqueda}:${limiteBusquedaHistorial}`, () => clienteSupabase
                     .from('registros')
                     .select('*, categorias(nombre, tipo)')
                     .or(orQuery)
                     .order('fecha', { ascending: false })
-                    .limit(limiteBusquedaHistorial);
+                    .limit(limiteBusquedaHistorial), porPrecios);
 
                     busquedaHistorialLlena = !error && (data || []).length >= limiteBusquedaHistorial;
                     if (error) {
@@ -25295,7 +25310,8 @@
                                                             pintarEstadoEnVivo();
                                                             // Con una hoja o una ventana abierta no se repinta debajo: espera a la siguiente vuelta
                                                             if (arranqueEnCurso || document.querySelector('.modal-overlay.activa')) return;
-                                                            refrescarVistaConFiltros();
+                                                            repintadoPorPrecios = true;
+                                                            try { refrescarVistaConFiltros(); } finally { repintadoPorPrecios = false; }
                                                             // El cierre de hoy se va poniendo al día con lo que llega, cada tanto
                                                             if (Date.now() - enVivo.ultimoCierreGuardado > GUARDAR_CIERRE_EN_VIVO_MS) {
                                                                 enVivo.ultimoCierreGuardado = Date.now();
