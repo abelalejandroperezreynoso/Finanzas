@@ -56,6 +56,24 @@ const diasEntre = (desde: string, hasta: string) =>
 
 const tabla = (columnas: string[], filas: unknown[][]) => ({ columnas, filas });
 
+// Si una categoría se repite con constancia: el mismo criterio con que la app detecta un pago recurrente
+// (dashboard.html): 3 o más días con registro, la mediana entre uno y otro, al menos 60 % de los espacios
+// dentro de 5 días o 30 % de esa mediana, y el último no más viejo que dos vueltas (mínimo 15 días)
+export function constancia(dias: string[], hoy: string) {
+  const unicos = [...new Set(dias)].sort();
+  if (unicos.length < 3) return null;
+  const espacios = unicos.slice(1).map((x, i) => diasEntre(unicos[i], x)).filter((n) => n > 0);
+  if (espacios.length < 2) return null;
+  const mediana = [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)];
+  const tolerancia = Math.max(5, mediana * 0.3);
+  const validos = espacios.filter((n) => Math.abs(n - mediana) <= tolerancia);
+  if (mediana <= 0 || validos.length / espacios.length < 0.6) return null;
+  const cada = validos.reduce((t, n) => t + n, 0) / validos.length;
+  const ultimo = unicos[unicos.length - 1];
+  if (diasEntre(ultimo, hoy) > Math.max(15, cada * 2)) return null;
+  return { veces: validos.length + 1, cada_dias: Math.round(cada), exacto: Math.max(...validos) - Math.min(...validos) <= 4, ultimo };
+}
+
 export function revisarOrden(d: DatosOrden) {
   const cats = d.categorias ?? [];
   const porId = new Map<string, Json>(cats.map((c: Json) => [String(c.id), c]));
@@ -84,6 +102,28 @@ export function revisarOrden(d: DatosOrden) {
     movsPorCuenta.set(cuenta, (movsPorCuenta.get(cuenta) ?? 0) + 1);
   }
   const usoDe = (c: Json) => uso.get(String(c.id))!;
+
+  // Predicciones apagadas ("Omitir predicciones") en lo que sí va con constancia: la app no lo espera y el
+  // pronóstico no lo cuenta. Las inversiones las apaga la app a propósito (se compra cuando conviene) y Salud
+  // no es dinero: no se sugieren
+  const apagadas = new Map<string, { dias: string[]; montos: number[] }>();
+  cats.forEach((c: Json) => { if (c.desactivar_prediccion === true && c.tipo !== "inversion" && c.tipo !== "salud") apagadas.set(String(c.id), { dias: [], montos: [] }); });
+  if (apagadas.size) {
+    for (const r of d.registros ?? []) {
+      const a = apagadas.get(String(r.categoria_id));
+      if (!a) continue;
+      a.dias.push(d.diaDe(r.fecha));
+      if (Math.abs(Number(r.monto) || 0) > 0) a.montos.push(Math.abs(Number(r.monto)));
+    }
+  }
+  const constantesApagadas = cats.filter((c: Json) => apagadas.has(String(c.id))).map((c: Json) => {
+    const a = apagadas.get(String(c.id))!;
+    const k = constancia(a.dias, d.hoy);
+    if (!k) return null;
+    const ultimos = a.montos.slice(-12).sort((x, y) => x - y);
+    return { c, k, monto: ultimos.length ? Math.round(ultimos[Math.floor(ultimos.length / 2)]) : null };
+  }).filter((x): x is { c: Json; k: NonNullable<ReturnType<typeof constancia>>; monto: number | null } => x !== null)
+    .sort((x, y) => x.k.cada_dias - y.k.cada_dias);
 
   // Posibles duplicadas: misma cuenta y mismo tipo (la misma categoría en dos cuentas es normal:
   // cada cuenta tiene las suyas)
@@ -201,6 +241,9 @@ export function revisarOrden(d: DatosOrden) {
       cuentasSinDescripcion.map((c: Json) => [c.id, c.nombre, movsPorCuenta.get(String(c.id)) ?? 0])),
     gastos_sin_prioridad: tabla(["id", "categoria", "movimientos"],
       gastosSinPrioridad.slice(0, 20).map((c: Json) => [c.id, etiqueta(c), usoDe(c).n])),
+    // monto_tipico: la mediana de sus últimos 12 movimientos
+    predicciones_apagadas_con_constancia: tabla(["id", "categoria", "tipo", "cuenta", "veces", "cada_dias", "exacto", "ultimo", "monto_tipico"],
+      constantesApagadas.slice(0, 15).map(({ c, k, monto }) => [c.id, etiqueta(c), c.tipo, cuentaDe(c), k.veces, k.cada_dias, k.exacto, k.ultimo, monto])),
   };
 }
 

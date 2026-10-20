@@ -34,6 +34,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   modelo no suma) y marca lo vencido (esperado y sin registrar); `proponer_omitir_pago` deja de
   esperar un pago recurrente que esta vez no toca (`ignorar_hasta`); `proponer_no_recurrente` apaga para
   siempre las predicciones de un gasto esporádico (`desactivar_prediccion`, "Omitir predicciones").
+  Al revés, `revisar_orden` marca las categorías con predicciones apagadas que sí se repiten (el mismo
+  criterio de la app, `constancia` en `orden.ts`) y `proponer_activar_predicciones` las vuelve a encender.
+  Lo que el usuario apagó a propósito o no quiso encender queda en su memoria para no insistir.
   El modelo por defecto es Haiku 5.5 (`claude-haiku-5-5`), con o sin el ajuste
   "Solo Haiku"; en el chat se puede elegir otro a mano. La variable `MODELO_IA`
   sólo cambia el respaldo de la función (Haiku 4.5 ya no se usa). El chat piensa antes de

@@ -137,7 +137,8 @@ const HERRAMIENTAS: Json[] = [
     description:
       "Revisa qué tan ordenadas están sus cuentas y categorías: uso de cada categoría (movimientos y último uso), posibles duplicadas (nombre igual o parecido " +
       "en la misma cuenta y tipo), movimientos que parecen ir en otra categoría (con sus ids), categorías sin uso, y categorías, cuentas y gastos sin descripción " +
-      "o sin prioridad. Úsala cuando pida ordenar, limpiar o revisar sus categorías o cuentas, al atender un hallazgo de orden, o si dudas de si una categoría se usa. " +
+      "o sin prioridad, y categorías con las predicciones apagadas que sí se repiten con constancia. Úsala cuando pida ordenar, limpiar o revisar sus categorías o cuentas, " +
+      "al atender un hallazgo de orden, si dudas de si una categoría se usa o si pregunta por qué la app no espera algo. " +
       "Son pistas: confírmalas con las descripciones antes de proponer.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
@@ -531,6 +532,21 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "proponer_activar_predicciones",
+    description:
+      "Propone volver a encender las predicciones de una o varias categorías que las tienen apagadas (\"Omitir predicciones\") y que sí se repiten con constancia " +
+      "(predicciones_apagadas_con_constancia de revisar_orden). La app las vuelve a esperar: Recurrentes, pronóstico, pagos pendientes y avisos. " +
+      "Todas en una tarjeta. NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categoria_ids: { type: "array", items: { type: "string" }, description: "Las categorías a encender (máximo 10)" },
+      },
+      required: ["categoria_ids"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "proponer_avisos",
     description:
       "Propone activar o apagar los avisos de este teléfono (pagos, recordatorios y el aviso de hábitos de las 9 p.m.). Deja una tarjeta: al confirmarla, " +
@@ -899,12 +915,13 @@ const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
 // conPrioridades: la app sabe aplicar proponer_prioridades (varios gastos en una tarjeta)
 // conOmitir: la app sabe aplicar proponer_omitir_pago
 // conNoRecurrente: la app sabe aplicar proponer_no_recurrente
+// conActivarPredicciones: la app sabe aplicar proponer_activar_predicciones
 // conBorrarTodo: la app sabe borrar una categoría o una cuenta completa (proponer_borrar_categoria_o_cuenta)
 // avisos: cómo están en el teléfono que escribe: activos, apagados, negados (el permiso se negó en
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conBorrarTodo?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conActivarPredicciones?: boolean; conBorrarTodo?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -1957,6 +1974,29 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         datos: { categoria: nombre, ...(rec?.siguiente ? { esperado: rec.siguiente } : {}), ...(entrada.motivo ? { motivo: String(entrada.motivo).slice(0, 120) } : {}) },
       });
       return { texto: `Propuesta registrada: si la confirma, la app deja de esperar ${nombre} para siempre (sale de pendientes, pronóstico y avisos); lo que registre ahí sigue contando. Todavía NO está aplicada. Si algún día vuelve a ser recurrente, se reactiva en la categoría (Omitir predicciones).` };
+    }
+    case "proponer_activar_predicciones": {
+      if (!zona.conActivarPredicciones) return { texto: "Esta versión de la app no enciende predicciones desde el chat: dile que cierre y abra la app para actualizarla, o que apague \"Omitir predicciones\" al editar la categoría.", error: true };
+      const ids = [...new Set((Array.isArray(entrada.categoria_ids) ? entrada.categoria_ids : []).map((x: unknown) => String(x).trim()).filter(Boolean))] as string[];
+      if (!ids.length) return { texto: "Faltan las categorías.", error: true };
+      const categorias: Json[] = [];
+      const avisos: string[] = [];
+      for (const id of ids.slice(0, 10)) {
+        const c = catalogo.categorias.find((k: Json) => String(k.id) === id);
+        const nombre = c ? catalogo.etiqueta[String(c.id)] ?? c.nombre : null;
+        if (!c) avisos.push(`${id}: no existe`);
+        else if (c.tipo === "inversion" || c.tipo === "salud") avisos.push(`${nombre}: ${c.tipo === "salud" ? "Salud no es dinero" : "en las inversiones la app las deja apagadas a propósito"}`);
+        else if (c.desactivar_prediccion !== true) avisos.push(`${nombre}: ya tiene las predicciones encendidas`);
+        else categorias.push({ categoria_id: c.id, nombre });
+      }
+      if (ids.length > 10) avisos.push(`sólo van 10 por tarjeta; faltaron ${ids.length - 10}`);
+      if (!categorias.length) return { texto: `No hay nada que encender: ${avisos.join("; ")}.`, error: true };
+      propuestas.push({
+        tipo: "activar_predicciones", categorias,
+        resumen: categorias.length === 1 ? `Esperar ${categorias[0].nombre}` : `Esperar ${categorias.length} categorías`,
+      });
+      return { texto: `Propuesta registrada: si la confirma, la app vuelve a esperar ${categorias.map((x) => x.nombre).join(", ")} (Recurrentes, pronóstico, pendientes y avisos). Todavía NO está aplicada.` +
+        (avisos.length ? ` No se incluyeron: ${avisos.join("; ")}.` : "") };
     }
     case "proponer_prioridades": {
       if (!zona.conPrioridades) return { texto: "Esta versión de la app no aplica varias prioridades en una tarjeta: dile que cierre y abra la app para actualizarla, o propónlas una por una con proponer_cambio_categoria.", error: true };
@@ -3579,7 +3619,8 @@ Que todo esté claro para el usuario y para ti. Cuando pida ordenar, limpiar o r
 1. Duplicadas: dos categorías de la misma cuenta y tipo para lo mismo. Léelas antes: "Uber" y "Uber Eats" o "Comida" y "Comida rápida" pueden ser distintas a propósito. Se queda la de más movimientos o mejor descrita (si no es claro cuál, pregunta); pásale todos los de la otra con proponer_mover_movimientos (origen_categoria_id) y, si hace falta, mejora su descripción. Ofrece borrar la otra ya vacía (proponer_borrar_categoria_o_cuenta) si ya no la usa.
 2. Mal clasificados: movimientos cuya descripción dice que van en otra categoría. Muévelos juntos con proponer_mover_movimientos (registro_ids). Si la otra categoría también tiene sentido, pregunta.
 3. Descripciones: a cada categoría o cuenta sin descripción propónle una con lo que ves en sus movimientos (qué entra en ella); si no es obvio, pregunta con opciones. A los gastos sin prioridad, propónsela (todos juntos con proponer_prioridades).
-4. Sin uso: dile cuáles no usa hace meses o nunca usó; si quiere borrarlas, propón cada una con proponer_borrar_categoria_o_cuenta. No sugieras borrar las de pagos de una vez al año, ni deudas o préstamos con saldo pendiente, ni inversiones con acciones.
+4. Predicciones apagadas: si predicciones_apagadas_con_constancia trae alguna, dile cuál va con constancia aunque la app no la espere (cada cuántos días y cuántas veces) y que por eso el pronóstico no la cuenta; si quiere que la app la espere, propón proponer_activar_predicciones (varias en una tarjeta). Si tu memoria dice que es esporádica o que él la apagó a propósito, no la sugieras.
+5. Sin uso: dile cuáles no usa hace meses o nunca usó; si quiere borrarlas, propón cada una con proponer_borrar_categoria_o_cuenta. No sugieras borrar las de pagos de una vez al año, ni deudas o préstamos con saldo pendiente, ni inversiones con acciones.
 - La misma categoría en dos cuentas no es duplicada: cada cuenta tiene las suyas. Para ordenar nunca muevas movimientos a otra cuenta (cambia los saldos), salvo que el usuario diga que ese dinero de verdad salió o entró por esa cuenta. Si te pide pasarlos a una categoría de otra cuenta sin decirlo, pregúntale antes con preguntar_al_usuario (con lo que cambiaría cada saldo) si ese dinero salió de esa cuenta o si prefiere una categoría en la misma cuenta.
 - Si todo está en orden, dilo en una frase.
 
@@ -3763,7 +3804,7 @@ Busca, en este orden de importancia:
 2. Seguimiento ("seguimiento"): de lo que atendió antes o de sus compromisos y metas en la memoria, sólo si NO va funcionando, con cifras y lo que tiene que hacer (por ejemplo, "Comida fuera: $3,900 este mes vs $3,400 de costumbre"). Si va bien, no es hallazgo.
 3. Lo que más mueve lo que le queda cada mes: ahorros concretos en lo que creció o es prescindible ("ahorro"); ingresos que bajaron o se retrasaron, deudas que conviene pagar primero o dinero parado que podría rendir ("patrimonio"). Da cifras.
 4. Algo que convenga anticipar este mes ("anticipar").
-5. Orden ("clasificacion"), máximo 2 y sólo si son claros, con las pistas de orden: categorías duplicadas en la misma cuenta, movimientos en la categoría equivocada, categorías muy usadas sin descripción o que ya no se usan. Confírmalo con las descripciones ("Uber" y "Uber Eats" no son duplicadas). El mensaje pide ordenarlo en concreto, por ejemplo "Junta Comidas en Comida: pasa sus 12 movimientos".
+5. Orden ("clasificacion"), máximo 2 y sólo si son claros, con las pistas de orden: categorías duplicadas en la misma cuenta, movimientos en la categoría equivocada, categorías muy usadas sin descripción o que ya no se usan, o categorías que se repiten con constancia pero tienen las predicciones apagadas. Confírmalo con las descripciones ("Uber" y "Uber Eats" no son duplicadas). El mensaje pide ordenarlo en concreto, por ejemplo "Junta Comidas en Comida: pasa sus 12 movimientos".
 
 Reglas:
 - Máximo 3 hallazgos, del de más impacto al de menos. Mejor ninguno que uno que no sirva: si no hay nada que el usuario tenga que hacer, devuelve la lista vacía.
@@ -3908,7 +3949,7 @@ Deno.serve(async (req) => {
       const desde = new Date(Date.now() - 125 * 86_400_000).toISOString();
       const hace45 = fechaLocal(new Date(Date.now() - 45 * 86_400_000).toISOString(), zonaR).slice(0, 10);
       const [{ data: cats, error: e1 }, { data: regs, error: e2 }, notasR, { data: previos }, { data: cuentasR }, todosR] = await Promise.all([
-        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuenta_id, ticker, grupo_salud, medida_salud, cuentas(*)"),
+        sb.from("categorias").select("id, nombre, tipo, prioridad, descripcion, cuenta_id, ticker, grupo_salud, medida_salud, desactivar_prediccion, cuentas(*)"),
         sb.from("registros").select("id, categoria_id, monto, cantidad, fecha, descripcion, lugar").gte("fecha", desde).order("fecha", { ascending: false }).limit(4000),
         leerMemoria(sb),
         conSeguimiento
@@ -4107,7 +4148,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conBorrarTodo: entrada.con_borrar_todo === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conActivarPredicciones: entrada.con_activar_predicciones === true, conBorrarTodo: entrada.con_borrar_todo === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

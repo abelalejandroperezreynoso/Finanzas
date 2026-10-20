@@ -17539,6 +17539,10 @@
                                     filaCuenta(cuentaDe(p.categoria_id));
                                     if (d.motivo) filas.push(`Motivo: <b>${escaparHtml(d.motivo)}</b>`);
                                     filas.push('Lo que registres ahí sigue contando');
+                                } else if (p.tipo === 'activar_predicciones') {
+                                    const nombres = (p.categorias || []).map(x => x.nombre);
+                                    filas.push(`Se vuelve a esperar: <b>${escaparHtml(nombres.join(', '))}</b>`);
+                                    filas.push('Entra en el pronóstico, los pendientes y los avisos');
                                 } else if (p.tipo === 'prioridades') {
                                     // Una fila por gasto: cómo queda (y cómo estaba, si tenía)
                                     (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.nombre || '')}: ${x.antes
@@ -17772,7 +17776,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_borrar_todo: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -19765,6 +19769,11 @@
                                         clienteSupabase.from('memoria_ia').insert([{ user_id: currentUser.id, tema: 'preferencia', nota: `No quiere registrar el hábito ${String(d.nombre).slice(0, 60)}: canceló la propuesta.` }])
                                             .then(() => {}, () => {});
                                     }
+                                    // Lo mismo si no quiso que la app volviera a esperar una categoría
+                                    if (p.tipo === 'activar_predicciones' && (p.categorias || []).length) {
+                                        clienteSupabase.from('memoria_ia').insert([{ user_id: currentUser.id, tema: 'preferencia',
+                                            nota: `No quiere que la app espere ${p.categorias.map(x => String(x.nombre).slice(0, 40)).join(', ')}: canceló encender sus predicciones.` }]).then(() => {}, () => {});
+                                    }
                                     pintarChatAsistente();
                                     return;
                                 }
@@ -19894,6 +19903,12 @@
                                 } else if (p.tipo === 'no_recurrente') {
                                     // El mismo interruptor que "Omitir predicciones" al editar la categoría
                                     res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: true }).eq('id', p.categoria_id);
+                                    // Para que el asistente no vuelva a sugerir encenderlas (se ve y se borra en Configuración)
+                                    const nombreNoRec = (p.datos || {}).categoria;
+                                    if (!res.error && nombreNoRec) clienteSupabase.from('memoria_ia').insert([{ user_id: currentUser.id, tema: 'preferencia',
+                                        nota: `${String(nombreNoRec).slice(0, 60)} es esporádica: apagó sus predicciones a propósito.` }]).then(() => {}, () => {});
+                                } else if (p.tipo === 'activar_predicciones') {
+                                    res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: false }).in('id', (p.categorias || []).map(x => x.categoria_id));
                                 } else if (p.tipo === 'prioridades') {
                                     // Una escritura por prioridad, con todos sus gastos
                                     const porPrioridad = {};
