@@ -17318,9 +17318,10 @@
                                 pintarCreditoAsistente();
                             }
 
-                            async function nuevaConversacionAsistente() {
+                            // sinPreguntar: al despedirse ("Es todo, gracias") ya no hay nada que perder
+                            async function nuevaConversacionAsistente(sinPreguntar = false) {
                                 if (chatEnviando) return;
-                                if (chatUi.length) {
+                                if (chatUi.length && !sinPreguntar) {
                                     const eleccion = await alertaIos({
                                         titulo: '¿Empezar una conversación nueva?',
                                         mensaje: 'La conversación actual se borra.',
@@ -18602,7 +18603,8 @@
                                 if (accion === 'registrar') return abrirRegistroAsistente();
                                 if (accion === 'pendientes') { pendienteEnCurso = true; return abrirPendientesAsistente(null); }
                                 if (accion === 'escribir') return enviarMensajeAsistente(texto);
-                                pintarChatAsistente(true);
+                                // "Es todo, gracias": la próxima vez empieza de cero
+                                nuevaConversacionAsistente(true);
                             }
                             function tarjetaContinuarHtml() {
                                 const n = avisosMostrados.length;
