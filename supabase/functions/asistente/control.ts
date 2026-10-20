@@ -21,7 +21,6 @@ export type DatosRespuesta = {
 const pesos = (v: number) => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString("en-US")}`;
 const negrita = (v: number) => `**${pesos(v)}**`;
 const lista = (xs: string[]) => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}` : xs[0] ?? "";
-const conMayuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 export function respuestaRecuperarControl(d: DatosRespuesta): string {
   const renglon = (m: Json) => {
@@ -38,15 +37,22 @@ export function respuestaRecuperarControl(d: DatosRespuesta): string {
     `Te van a faltar ${negrita(-d.minimo)}${d.diaMinimo !== d.diaIngreso - 1 ? ` (el ${d.diaMinimo})` : ""}.`,
   ];
   if (d.plan) {
-    const porCategoria = new Map<string, number>();
-    (d.plan.mover ?? []).forEach((m: Json) => porCategoria.set(m.categoria, (porCategoria.get(m.categoria) ?? 0) + Number(m.monto)));
-    const mover = [...porCategoria.entries()].sort((a, b) => b[1] - a[1]).map(([c, v]) => `${c} (${pesos(v)})`);
-    const delPlan = d.planPrevio && d.plan.creado ? `Tu plan del ${Number(String(d.plan.creado).slice(8, 10))} sigue: ` : "";
-    const texto = !mover.length ? `evita lo prescindible hasta el ${d.diaIngreso}`
-      : d.plan.alcanza
-      ? `si dejas para después del ${d.diaIngreso} ${lista(mover)} y evitas lo prescindible, llegas con ${negrita(d.plan.saldo_minimo_con_plan).replace("**$", "**+$")}`
-      : `aunque dejes para después del ${d.diaIngreso} ${lista(mover)} y evites lo prescindible, te faltarían ${negrita(-d.plan.saldo_minimo_con_plan)}`;
-    partes.push(delPlan ? `${delPlan}${texto}.` : `${conMayuscula(texto)}.`);
+    // Dos listas: lo que se deja para después del ingreso y lo que sí se paga antes (lo esperado menos lo movido)
+    const movido = new Map<string, number>();
+    (d.plan.mover ?? []).forEach((m: Json) => movido.set(m.categoria, (movido.get(m.categoria) ?? 0) + Number(m.monto)));
+    const despues = [...movido.entries()].sort((a, b) => b[1] - a[1]).map(([c, v]) => `- ${c}: ${negrita(v)}`);
+    const sePaga = salen.map((m) => [m.concepto, Math.abs(m.monto) - (movido.get(m.concepto) ?? 0)] as [string, number])
+      .filter(([, v]) => v >= 1).sort((a, b) => b[1] - a[1]).map(([c, v]) => `- ${c}: ${negrita(v)}`);
+    const inicio = d.planPrevio && d.plan.creado ? `Tu plan del ${Number(String(d.plan.creado).slice(8, 10))} sigue:` : "El plan:";
+    const cierre = d.plan.alcanza
+      ? `Y evita lo prescindible. Así llegas con ${negrita(d.plan.saldo_minimo_con_plan).replace("**$", "**+$")}.`
+      : `Y evita lo prescindible. Aun así te faltarían ${negrita(-d.plan.saldo_minimo_con_plan)}.`;
+    partes.push([
+      inicio,
+      despues.length ? `Para después del ${d.diaIngreso}:\n${despues.join("\n")}` : "",
+      sePaga.length ? `Sí se paga:\n${sePaga.join("\n")}` : "",
+      cierre,
+    ].filter(Boolean).join("\n\n"));
   }
   if (d.vencidos.length) {
     const uno = d.vencidos.length === 1;
