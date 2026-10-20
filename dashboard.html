@@ -15232,9 +15232,26 @@
                                 }
                             }
 
+                            // Los precios en vivo repintan el inicio cada pocos segundos aunque los movimientos no
+                            // cambien: rehacer la gráfica entonces la hacía parpadear (el título volvía a "Tendencia de
+                            // Balance" y se perdía el día marcado). Con lo mismo que ya está dibujado, se deja como está.
+                            var firmaGraficoDiario = '';
                             function actualizarGrafico(datosGraf, balanceInicial = 0) {
                                 const canvas = document.getElementById('graficoResumen');
                                 if (!canvas) return;
+
+                                if (modoGrafica !== 'mensual') {
+                                    let firma = '';
+                                    try {
+                                        firma = JSON.stringify([balanceInicial, canvas.clientWidth, fMoneda(1234.5), new Date().toDateString(), datosGraf]);
+                                    } catch (e) { firma = ''; }
+                                    if (firma && firma === firmaGraficoDiario && miGrafico && miGrafico.canvas === canvas) {
+                                        // El mapa de categorías sí se repinta: tiene sus propios mandos
+                                        renderizarTreemapCategorias(construirMesesDesglosados(datosGraf), null);
+                                        return;
+                                    }
+                                    firmaGraficoDiario = firma;
+                                } else firmaGraficoDiario = '';
 
                                 if (canvas._snapBackHandler) {
                                     canvas.removeEventListener('mouseleave', canvas._snapBackHandler);
