@@ -2425,10 +2425,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const saldoHoy = catalogo.cuentas.filter((c: Json) => incluidas.has(String(c.id)))
         .reduce((t: number, c: Json) => t + (Number(c.saldo_inicial) || 0) + (porCuenta[String(c.id)] || 0), 0);
 
-      // Lo que falta del mes: lo normal del mes menos lo que ya pasó, sin pasarse al otro lado (si ya se gastó
-      // o cobró más que lo normal, no falta nada). Se reparte en los días en que suele caer; lo que suele caer
-      // antes de hoy y no ha llegado (atrasado) se reparte en los días que quedan. Antes iba todo a mañana y
-      // el pronóstico decía "negativo mañana" cuando mañana sólo salían $994.
+      // Lo que falta del mes: sólo lo de Recurrentes, en sus fechas; lo vencido (esperado y sin registrar) va mañana
       const porDia: number[] = new Array(diasMes + 2).fill(0);
       const filas: Json[] = [];
       const porVenir: Json[] = [];
@@ -2445,16 +2442,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const manana = `${mesActual}-${String(Math.min(dia + 1, diasMes)).padStart(2, "0")}`;
       const pagosAntes: Json[] = [];
       let entraIngreso = 0;
-      const porDiaVariable: number[] = new Array(diasMes + 2).fill(0);
       // Cada cantidad que entra al pronóstico queda anotada con su categoría: así se puede explicar, sumado
       // exacto, cómo pasa el saldo de hoy a su punto más bajo (el modelo lo armaba a mano y sumaba mal)
       type Aporte = { d: number; monto: number; categoria: string; tipo: string; origen: "pago" | "promedio"; esperado?: string; clave?: string; es?: string };
       const aportes: Aporte[] = [];
       const sumar = (d: number, v: number, info: Omit<Aporte, "d" | "monto">) => { porDia[d] += v; aportes.push({ d, monto: v, ...info }); };
-      const repartir = (v: number, enVariable: boolean, info: Omit<Aporte, "d" | "monto">) => {
-        const dias = diasMes - dia;
-        for (let d = dia + 1; d <= diasMes; d++) { sumar(d, v / dias, info); if (enVariable) porDiaVariable[d] += v / dias; }
-      };
       for (const c of cats) {
         const x = h[String(c.id)] ?? { mtd: 0, total: {}, hasta: {}, despues: {} };
         const rec = recPorCat[String(c.id)];
@@ -2497,25 +2489,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
               fechas: fechasMes.filter((f: string) => f > hoyL), atrasado: Math.round(vencido), exacto: rec.exacto });
           }
         }
-        // Sólo en el sentido de lo normal: sin historia (normal 0) no falta nada, y lo que ya pasó en sentido contrario
-        // no "regresa". Un gasto de una vez este mes (la topografía de un terreno, $3,500, sin nada en los 3 meses
-        // anteriores) salía como $3,500 que iban a entrar el resto del mes.
-        const falta = rec ? 0 : normalMes < 0 ? Math.min(0, normalMes - Math.min(0, x.mtd)) : normalMes > 0 ? Math.max(0, normalMes - Math.max(0, x.mtd)) : 0;
-        if (Math.abs(falta) >= 1) {
-          const despues = Object.entries(x.despues).map(([d, v]) => [Number(d), v / n] as [number, number]);
-          const sumaDespues = despues.reduce((t, [, v]) => t + v, 0);
-          let atrasado = 0;
-          const info = { categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, origen: "promedio" as const };
-          if (sumaDespues !== 0 && Math.sign(sumaDespues) === Math.sign(falta)) {
-            const escala = Math.min(1, falta / sumaDespues);
-            despues.forEach(([d, v]) => { sumar(d, v * escala, info); if (c.tipo === "gasto") porDiaVariable[d] += v * escala; });
-            atrasado = falta - sumaDespues * escala;
-          } else atrasado = falta;
-          if (Math.abs(atrasado) >= 1 && dia < diasMes) repartir(atrasado, c.tipo === "gasto", info);
-          const dias = despues.filter(([, v]) => Math.sign(v) === Math.sign(falta)).map(([d]) => d).sort((a, b) => a - b);
-          porVenir.push({ categoria: catalogo.etiqueta[String(c.id)] ?? c.nombre, tipo: c.tipo, monto: Math.round(falta), origen: "promedio",
-            dias_en_que_suele_caer: dias.slice(0, 6), atrasado: Math.abs(atrasado) >= 1 ? Math.round(atrasado) : 0 });
-        }
+        // Lo que no está en Recurrentes no se pronostica: el usuario quiere que el pronóstico se base sólo en la
+        // lista que la app detecta sin IA. Antes se estimaba con el promedio de los 3 meses anteriores y metía
+        // dinero que no estaba asegurado (lo que "suele" entrar de un préstamo) o un gasto de una vez al revés.
         if (c.tipo === "gasto" && (x.mtd !== 0 || normalMes !== 0)) {
           filas.push([catalogo.etiqueta[String(c.id)] ?? c.nombre, nombrePrioridad(c.prioridad), Math.round(-x.mtd), Math.round(-normalHoy), Math.round(-normalMes), Math.round(-x.mtd + normalHoy)]);
         }
@@ -2634,7 +2610,6 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             .map(({ _d, _f, ...p }) => ({ ...p, prioridad: p.tipo === "gasto" ? nombrePrioridad(p.prioridad) ?? "sin asignar" : null })),
           // Sin prioridad no se pueden posponer (podría ser la renta): que el usuario diga qué es cada uno
           ...(sinPrioridad.length ? { gastos_sin_prioridad: { categorias: sinPrioridad, nota: "No se pueden posponer hasta que tengan prioridad. Propón la de todos en una sola tarjeta con proponer_prioridades." } } : {}),
-          gasto_variable_estimado: r0(porDiaVariable.slice(dia + 1, diaIngreso).reduce((a, b) => a + b, 0)),
         };
         // La respuesta a "¿cómo recupero el control?" ya escrita, con las cifras del cálculo: qué se espera hasta el
         // ingreso, cuánto falta, cómo llega con el plan y qué pagos esperados no están registrados
@@ -2685,9 +2660,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           gastos_por_categoria: tabla(["categoria", "prioridad", "llevas", "normal_a_esta_fecha", "normal_del_mes", "diferencia"], filas.slice(0, 15)),
           por_venir: porVenir.slice(0, 15),
           nota: "control es el veredicto (nivel 0 = todo bien, 1 = cuidado, 2 = hay que actuar ya) y sus motivos: úsalo tal cual, no lo cambies ni le agregues problemas. " +
-            "Estimación. Lo recurrente (origen recurrente) usa las fechas y montos que detectó la app; lo demás supone que el resto del mes será como un mes normal " +
-            "(origen promedio, de los meses comparados). monto negativo en por_venir = saldrá; " +
-            "positivo = entrará. atrasado = parte que en otros meses ya había pasado a estas fechas y aún no (el cálculo la reparte en los días que quedan). " +
+            "Estimación con sólo lo que está en Recurrentes (las fechas y montos que detectó la app); lo que no está ahí no se pronostica. " +
+            "gastos_por_categoria compara lo que lleva contra lo normal, pero eso no entra al pronóstico. monto negativo en por_venir = saldrá; " +
+            "positivo = entrará. atrasado = lo que ya tocaba y no está registrado. " +
             "hasta_el_ingreso: el próximo ingreso fijo del mes, el saldo más bajo antes de ese día, cuánto falta para llegar y los pagos programados antes (se_puede_mover = se puede dejar para después). " +
             "vencido = la app esperaba ese pago el día se_esperaba y NO está registrado, así que lo cuenta como pendiente para mañana: es un dato, no una suposición. " +
             "desglose: cómo pasa el saldo de hoy a su punto más bajo, renglón por renglón y ya sumado; lo ya gastado está restado en saldo_hoy. " +

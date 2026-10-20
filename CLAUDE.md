@@ -30,7 +30,7 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
-  `pronostico_mes` trae el desglose exacto de cómo pasa el saldo de hoy a su punto más bajo (el
+  `pronostico_mes` pronostica sólo con la lista de Recurrentes que detecta la app (sin promedios ni IA) y trae el desglose exacto de cómo pasa el saldo de hoy a su punto más bajo (el
   modelo no suma) y marca lo vencido (esperado y sin registrar); si no llega al ingreso, trae además la
   respuesta de "Ver soluciones" ya escrita (`control.ts`: qué se espera, cuánto falta, el plan y lo vencido); `proponer_omitir_pago` deja de
   esperar un pago recurrente que esta vez no toca (`ignorar_hasta`); `proponer_no_recurrente` apaga para
