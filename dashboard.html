@@ -10273,8 +10273,9 @@
                                                         }
                                                         // -------------------------------------------------------
 
-                                                        // NUEVO: Filtra el gráfico, el historial y los bloques de resumen para esta cuenta
-                                                        filtrarDashboardPorCuenta(idCuenta);
+                                                        // NUEVO: Filtra el gráfico, el historial y los bloques de resumen para esta cuenta,
+                                                        // en todo el tiempo
+                                                        filtrarDashboardPorCuenta(idCuenta, true);
 
                                                         // ---> NUEVO: Mostrar el botón de quitar filtro en ambas pantallas <---
                                                             pintarBotonesDeFiltro(true);
@@ -16399,7 +16400,7 @@
                                                     if (btnEditarCta) btnEditarCta.onclick = () => { cerrarModalDetallesCuenta(); prepEditCuenta(id); };
 
                                                     const btnMovsCta = document.getElementById('btnVerMovsCuentaModal');
-                                                    if (btnMovsCta) btnMovsCta.onclick = () => { cerrarModalDetallesCuenta(); filtrarDashboardPorCuenta(id); };
+                                                    if (btnMovsCta) btnMovsCta.onclick = () => { cerrarModalDetallesCuenta(); filtrarDashboardPorCuenta(id, true); };
 
                                                     prepararBotonCopiarJson(document.getElementById('btnCopiarJsonCuenta'),
                                                         () => copiarRegistrosCuentaJSON(id));
@@ -24435,8 +24436,15 @@
                                 }
                             }
 
-                            async function filtrarDashboardPorCuenta(idCuenta) {
+                            // todoElTiempo: cuando el usuario elige la cuenta (no en los repintados), el periodo pasa a
+                            // "Todo el tiempo": una cuenta se mira entera, no sólo el mes que estuviera puesto
+                            async function filtrarDashboardPorCuenta(idCuenta, todoElTiempo = false) {
                                 window.filtroMovimientosActivo = { tipo: 'cuenta', valor: idCuenta }; // NUEVO: Memorizar filtro
+                                if (todoElTiempo) {
+                                    quitarRangoDeTiempo();
+                                    actualizarRangoFiltroIos();
+                                    guardarPeriodoActual();
+                                }
                                 const cuenta = datosCuentas.find(c => String(c.id) === String(idCuenta));
                                 if (!cuenta) return;
 
