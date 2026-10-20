@@ -40,17 +40,19 @@ export function respuestaRecuperarControl(d: DatosRespuesta): string {
     // Dos listas: lo que se deja para después del ingreso y lo que sí se paga antes (lo esperado menos lo movido)
     const movido = new Map<string, number>();
     (d.plan.mover ?? []).forEach((m: Json) => movido.set(m.categoria, (movido.get(m.categoria) ?? 0) + Number(m.monto)));
-    const despues = [...movido.entries()].sort((a, b) => b[1] - a[1]).map(([c, v]) => `- ${c}: ${negrita(v)}`);
+    const despues = [...movido.entries()].sort((a, b) => b[1] - a[1]);
     const sePaga = salen.map((m) => [m.concepto, Math.abs(m.monto) - (movido.get(m.concepto) ?? 0)] as [string, number])
-      .filter(([, v]) => v >= 1).sort((a, b) => b[1] - a[1]).map(([c, v]) => `- ${c}: ${negrita(v)}`);
+      .filter(([, v]) => v >= 1).sort((a, b) => b[1] - a[1]);
+    const renglones = (xs: [string, number][]) => xs.map(([c, v]) => `- ${c}: ${negrita(v)}`).join("\n");
+    const total = (xs: [string, number][]) => negrita(xs.reduce((t, [, v]) => t + v, 0));
     const inicio = d.planPrevio && d.plan.creado ? `Tu plan del ${Number(String(d.plan.creado).slice(8, 10))} sigue:` : "El plan:";
     const cierre = d.plan.alcanza
       ? `Y evita lo prescindible. Así llegas con ${negrita(d.plan.saldo_minimo_con_plan).replace("**$", "**+$")}.`
       : `Y evita lo prescindible. Aun así te faltarían ${negrita(-d.plan.saldo_minimo_con_plan)}.`;
     partes.push([
       inicio,
-      despues.length ? `Para después del ${d.diaIngreso}:\n${despues.join("\n")}` : "",
-      sePaga.length ? `Sí se paga:\n${sePaga.join("\n")}` : "",
+      despues.length ? `Para después del ${d.diaIngreso} (${total(despues)}):\n${renglones(despues)}` : "",
+      sePaga.length ? `Sí se paga (${total(sePaga)}):\n${renglones(sePaga)}` : "",
       cierre,
     ].filter(Boolean).join("\n\n"));
   }
