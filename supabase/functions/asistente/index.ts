@@ -16,6 +16,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { resumenOrden, revisarOrden } from "./orden.ts";
+import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
 const MODELO_SECRETO = Deno.env.get("MODELO_IA");
@@ -419,6 +420,22 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         tickers: { type: "array", items: { type: "string" }, description: "Tickers a revisar (máximo 10). Omítelo para revisar todas las que tiene; úsalo para las que mencione que no tiene." },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "finanzas_empresa",
+    description:
+      "Los números de la empresa por dentro, tal como los reportó a la SEC (Finnhub): por año fiscal, ventas, utilidad operativa y neta con sus márgenes, lo que ganó o perdió fuera de la operación, " +
+      "flujo de operación, inversión en activos, flujo libre, dividendos, recompras, caja, deuda y patrimonio, con el crecimiento contra el año anterior; además lo que va del año " +
+      "contra el mismo periodo del anterior. Con FMP, de qué vende y dónde: ventas por segmento y por región. Sólo empresas de EE. UU. que reportan a la SEC. " +
+      "Úsala cuando pregunte por las ventas, utilidades, deuda o segmentos de una empresa, o si es sana por dentro.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tickers: { type: "array", items: { type: "string" }, description: "Tickers a revisar (máximo 3)" },
+      },
+      required: ["tickers"],
       additionalProperties: false,
     },
   },
@@ -950,6 +967,11 @@ async function nombreDeTicker(ticker: string): Promise<string> {
   } catch (_) { /* sin red: se avisa como no encontrado */ }
   return "";
 }
+// Financial Modeling Prep: sólo para las ventas por segmento y por región, que Finnhub gratis no da. La clave va
+// en el secreto FMP_API_KEY de las Edge Functions; sin ella la herramienta lo dice y sigue con lo de Finnhub
+const CLAVE_FMP = Deno.env.get("FMP_API_KEY") ?? "";
+// Los reportes cambian una vez por trimestre: se guardan mientras la función siga despierta
+const cacheReportes = new Map<string, { t: number; d: Json }>();
 // "Visa Inc" → "Visa"; "NVIDIA Corp" → "NVIDIA": el nombre de la categoría sin la razón social
 const nombreCortoEmpresa = (nombre: string) => nombre.replace(/[,.]?\s+(Inc|Corp|Corporation|Co|Company|Ltd|Plc|SA|NV|AG|Holdings?|Group|Class [A-Z])\.?$/i, "").replace(/[,.]?\s+(Inc|Corp|Corporation|Co|Ltd)\.?$/i, "").trim().slice(0, 80);
 
@@ -1457,6 +1479,83 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           referencia: tabla(["indice", "hoy", "5_dias", "mes_en_curso", "3_meses", "año"], indices),
           titulares_mercado: titulares,
           ...(Object.keys(deEmpresas).length ? { titulares_empresas: deEmpresas } : {}),
+          ...(avisos.length ? { avisos } : {}),
+        }),
+      };
+    }
+    case "finanzas_empresa": {
+      // Lo que reportó a la SEC (Finnhub gratis) y de qué vende y dónde (FMP). Sin esto el modelo contestaba
+      // ventas y segmentos de memoria, con cifras redondeadas o de otro año
+      const limpio = (t: unknown) => String(t ?? "").trim().toUpperCase().replace(/\s+/g, "");
+      const pedidos = [...new Set((Array.isArray(entrada.tickers) ? entrada.tickers : []).map(limpio).filter((t: string) => /^[A-Z0-9.\-]{1,10}$/.test(t)))] as string[];
+      if (!pedidos.length) return { texto: "Falta el ticker de la empresa (p. ej. GOOGL).", error: true };
+      const tickers = pedidos.slice(0, 3);
+      const avisos: string[] = [];
+      if (pedidos.length > 3) avisos.push(`Sólo se revisan 3 a la vez; faltaron ${pedidos.slice(3).join(", ")}.`);
+      let limitado = false;
+      // Lo que no se pudo leer regresa { error } para decir por qué, en vez de inventarlo
+      const consultar = async (url: string, clave: string): Promise<Json> => {
+        const guardado = cacheReportes.get(clave);
+        if (guardado && Date.now() - guardado.t < 12 * 3_600_000) return guardado.d;
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          if (r.status === 429) { limitado = true; return { error: 429 }; }
+          const texto = await r.text();
+          let d: Json = null;
+          try { d = JSON.parse(texto); } catch (_) { /* no es JSON */ }
+          const mensaje = d && !Array.isArray(d) ? d["Error Message"] ?? d.error ?? d.message : null;
+          if (!r.ok || mensaje) return { error: r.status, mensaje: String(mensaje ?? texto).slice(0, 200) };
+          cacheReportes.set(clave, { t: Date.now(), d });
+          return d;
+        } catch (_) { return { error: 0 }; }
+      };
+      const sinPlan = (d: Json) => /premium|subscription|plan|upgrade|not available/i.test(String(d?.mensaje ?? "")) || d?.error === 402 || d?.error === 403;
+      const empresas: Json[] = [];
+      for (const t of tickers) {
+        const deFinnhub = encodeURIComponent(t.replace("-", "."));
+        const deFmp = encodeURIComponent(t.replace(".", "-"));
+        const [anual, trimestral, nombre, productos, regiones] = await Promise.all([
+          consultar(`https://finnhub.io/api/v1/stock/financials-reported?symbol=${deFinnhub}&freq=annual&token=${TOKEN_FINNHUB}`, `anual:${t}`),
+          consultar(`https://finnhub.io/api/v1/stock/financials-reported?symbol=${deFinnhub}&freq=quarterly&token=${TOKEN_FINNHUB}`, `trimestral:${t}`),
+          nombreDeTicker(t),
+          CLAVE_FMP ? consultar(`https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${deFmp}&period=annual&apikey=${CLAVE_FMP}`, `productos:${t}`) : Promise.resolve(null),
+          CLAVE_FMP ? consultar(`https://financialmodelingprep.com/stable/revenue-geographic-segmentation?symbol=${deFmp}&period=annual&apikey=${CLAVE_FMP}`, `regiones:${t}`) : Promise.resolve(null),
+        ]);
+        const años = resumenAnual(anual?.data);
+        const empresa: Json = { ticker: t, nombre: nombreCortoEmpresa(nombre) || null };
+        if (años.filas.length) {
+          empresa.moneda = años.moneda;
+          empresa.anual = tabla(COLUMNAS_ANUAL, años.filas);
+          const va = loQueVa(trimestral?.data, años.ultimoCierre);
+          if (va) empresa.en_lo_que_va = va;
+        } else {
+          avisos.push(`${t}: Finnhub no tiene sus reportes a la SEC (puede ser un ETF, una empresa de fuera de EE. UU. o un ticker de otra clase de acción).`);
+        }
+        if (CLAVE_FMP) {
+          const porProducto = resumenSegmentos(productos), porRegion = resumenSegmentos(regiones);
+          if (porProducto) empresa.ventas_por_segmento = { ...porProducto, ...tabla(["segmento", "ventas", "parte", "crecimiento"], porProducto.filas) };
+          if (porRegion) empresa.ventas_por_region = { ...porRegion, ...tabla(["region", "ventas", "parte", "crecimiento"], porRegion.filas) };
+          if (!porProducto && !porRegion) {
+            avisos.push(productos?.error === 401 || regiones?.error === 401
+              ? "La clave de FMP (secreto FMP_API_KEY en Supabase) no es válida: no hay ventas por segmento ni por región."
+              : sinPlan(productos) || sinPlan(regiones)
+              ? `${t}: el plan gratis de FMP no incluye los segmentos de esta empresa.`
+              : `${t}: FMP no tiene sus ventas por segmento.`);
+          }
+        }
+        empresas.push(empresa);
+      }
+      if (!CLAVE_FMP) avisos.push("Las ventas por segmento y por región no están disponibles: falta la clave de FMP en Supabase (secreto FMP_API_KEY). Si las pide, díselo así.");
+      if (limitado) avisos.push("Se llegó al límite de consultas: faltan datos. No los inventes; dile que lo vuelva a pedir en un minuto.");
+      return {
+        texto: recortar({
+          nota: "Cifras de los reportes anuales (10-K) y trimestrales (10-Q) que la empresa entregó a la SEC, en su moneda y por año fiscal (puede no coincidir con el año de calendario: di el cierre). " +
+            "Los crecimientos son contra el año anterior. margen = parte de las ventas que le queda. fuera_de_operacion = ganancias o pérdidas que no son del negocio (p. ej. lo que subieron sus inversiones): " +
+            "si la utilidad neta crece mucho más que la operativa, es por eso, dilo. flujo_libre = flujo de operación menos inversión en activos. deuda = deuda financiera de corto y largo plazo. " +
+            "en_lo_que_va = desde que empezó su año fiscal hasta el último 10-Q, contra el mismo periodo del año anterior. " +
+            "ventas_por_segmento y ventas_por_region (FMP): parte = del total de los segmentos, que puede no ser igual a las ventas totales. " +
+            "Usa estas cifras tal cual: no las recalcules ni las completes de memoria. Son el pasado: no dicen qué hará la acción.",
+          empresas,
           ...(avisos.length ? { avisos } : {}),
         }),
       };
@@ -3402,6 +3501,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
+- Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
 - Fechas en hora local. El día es confiable; la hora no (muchos se capturan después o quedan a las 12:00): no saques conclusiones de horarios salvo que te lo pida, y entonces adviértelo. Algunos movimientos traen "lugar" (aproximado): úsalo para sugerir categorías; no lo menciones si no aporta.
 

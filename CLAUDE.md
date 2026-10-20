@@ -25,6 +25,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   hábitos para registrar según la enfermedad y busca relaciones entre hábitos y enfermedades.
   Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
+  `finanzas_empresa` (cálculo puro en `empresa.ts`) trae los 10-K y 10-Q de la SEC desde Finnhub (ventas,
+  utilidades, flujo, deuda, por año fiscal y lo que va del año) y, con FMP, las ventas por segmento y por región.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
@@ -86,6 +88,8 @@ Reglas para el SQL:
 - La clave de Anthropic vive solo en el secreto `ANTHROPIC_API_KEY` de las Edge
   Functions de Supabase. Nunca se pide, escribe ni guarda en el chat, el código o
   la app. Lo mismo con el token de Supabase.
+- La clave de Financial Modeling Prep (segmentos) va en el secreto `FMP_API_KEY` de las Edge Functions; sin
+  ella `finanzas_empresa` sigue con lo de Finnhub y avisa que faltan los segmentos.
 - Las tablas usan RLS; la función `asistente` usa el JWT del usuario, no la
   service role.
 - El asistente de IA solo propone cambios: la app los aplica cuando el usuario
