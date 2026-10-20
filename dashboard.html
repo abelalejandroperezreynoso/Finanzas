@@ -308,6 +308,7 @@
         .chat-inicio-centro { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 10px 0 20px; }
         .chat-inicio.con-avisos .chat-inicio-centro { margin: 12px 0 4px; }
         .chat-bienvenida { font-size: 16px; line-height: 1.4; color: #73726c; text-align: center; max-width: 300px; text-wrap: balance; margin-top: -8px; }
+        .chat-saludo-detalle { font-size: 16px; line-height: 1.4; color: #73726c; text-align: center; max-width: 300px; text-wrap: balance; margin-top: -6px; }
         .chat-saludo { font-family: ui-serif, "New York", Georgia, serif; font-size: 26px; line-height: 1.25; color: #3d3d3a; text-align: center; max-width: 320px; text-wrap: balance; }
         /* Sugerencias como fichas sobre la caja de escribir, con el chat vacío */
         .chat-chips { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; scrollbar-width: none; }
@@ -17630,11 +17631,13 @@
                                     const textoSaludoInicio = saludoAsistente(avisos.length, revisandoIa, { cargando: cargandoDatos, sinConexion, estado, planHoy });
                                     const avisoDelSaludo = planHoy && textoSaludoInicio === planHoy
                                         ? avisos.find(a => (a.plan && a.saludo === planHoy) || a.saludo_salud === planHoy) || null : null;
+                                    const detalleSaludo = !avisoDelSaludo && estado && textoSaludoInicio === estado.texto ? estado.detalle || '' : '';
                                     saludoInicio = avisoDelSaludo || (estado && textoSaludoInicio === estado.texto)
-                                        ? { texto: textoSaludoInicio, aviso: avisoDelSaludo } : null;
+                                        ? { texto: textoSaludoInicio + (detalleSaludo ? `. ${detalleSaludo}` : ''), aviso: avisoDelSaludo } : null;
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
                                                 <div class="chat-saludo">${escaparHtml(textoSaludoInicio)}</div>
+                                                ${detalleSaludo ? `<div class="chat-saludo-detalle">${escaparHtml(detalleSaludo)}</div>` : ''}
                                             </div>
                                         </div>`;
                                     // Sin internet la IA no contesta: no hay pendientes, que terminan en ella
@@ -17883,7 +17886,8 @@
                             // para recuperarlo. La alerta que se ve va como nota, para que sepa de qué se trata.
                             window.pedirSolucionesAsistente = () => {
                                 const e = estadoFinanzasAsistente();
-                                enviarMensajeAsistente('¿Cómo recupero el control?', e ? `[Nota de la app: la pantalla del chat avisa "${e.texto.replace(/\u2060/g, '')}".]` : '');
+                                const aviso = e ? (e.texto + (e.detalle ? `. ${e.detalle}` : '')).replace(/\u2060/g, '') : '';
+                                enviarMensajeAsistente('¿Cómo recupero el control?', e ? `[Nota de la app: la pantalla del chat avisa "${aviso}".]` : '');
                             };
                             window.empezarComoNuevo = () => enviarMensajeAsistente('Quiero empezar',
                                 '[Nota de la app: el usuario es nuevo y no tiene cuentas. Empieza por su cuenta principal.]');
@@ -17907,9 +17911,31 @@
                                 // El signo menos pegado a la cifra: con el guion normal el renglón se cortaba justo
                                 // después de él y quedaba "Tu saldo está en -" arriba y "$1,883" abajo
                                 const cifra = n => fMoneda(Math.round(n), fNumSaldo).replace(/^-/, '\u2212\u2060');
+                                // Para cuántos días tiene que alcanzar el saldo: hasta el ingreso del plan del asistente o, sin
+                                // plan, el próximo ingreso recurrente que pese (una cuarta parte de lo que gasta al mes o más);
+                                // sin ninguno, hasta fin de mes
+                                const durar = () => {
+                                    const hoyL = diaLocal(hoyD);
+                                    const plan = planIaVigente();
+                                    const ingresos = (datosCategorias || [])
+                                        .filter(c => c.tipo === 'ingreso' && c.diasRecurrencia > 0 && c.siguienteFechaRecurrencia)
+                                        .map(c => ({ dia: diaLocal(new Date(c.siguienteFechaRecurrencia)), monto: Math.abs(parseFloat(c.montoSugerido) || 0) }))
+                                        .filter(x => x.dia >= hoyL && x.monto >= gastoProm * 0.25)
+                                        .sort((a, b) => a.dia.localeCompare(b.dia));
+                                    const ingreso = plan ? (ingresos.find(x => x.dia === plan.hasta) || { dia: plan.hasta, monto: 0 }) : ingresos[0];
+                                    const dias = d => Math.round((new Date(d + 'T12:00:00') - new Date(hoyL + 'T12:00:00')) / 86400000);
+                                    if (!ingreso) {
+                                        const n = diasMes - hoyD.getDate();
+                                        return n > 0 ? `Te tiene que durar ${n === 1 ? '1 día' : `${n} días`}, hasta fin de mes` : null;
+                                    }
+                                    const n = dias(ingreso.dia);
+                                    const entran = ingreso.monto > 0 ? `entran ${cifra(ingreso.monto)}` : 'entra tu ingreso';
+                                    if (n <= 0) return `Hoy ${entran}`;
+                                    return `Te tiene que durar ${n === 1 ? '1 día' : `${n} días`}, hasta ${n === 1 ? 'mañana' : `el ${Number(ingreso.dia.slice(8, 10))}`}, cuando ${entran}`;
+                                };
                                 // alerta: saldo en cero, negativo o muy bajo
-                                if (saldo <= 0) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
-                                if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
+                                if (saldo <= 0) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar`, detalle: durar() };
+                                if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes`, detalle: durar() };
                                 if (previos.length >= 2 && quedaProm < 0) return { nivel: 'mal', texto: 'Los últimos meses gastaste más de lo que entró. Hay que ajustar' };
                                 if (flujo < 0 && -flujo > gastoProm * 0.1) return { nivel: 'atento', texto: `Este mes vas ${cifra(-flujo)} abajo. Veamos dónde ajustar` };
                                 if (esperado > 0 && actual.gastos > esperado * 1.2) return { nivel: 'atento', texto: 'Este mes vas gastando más rápido que otros meses' };
