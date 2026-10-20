@@ -302,52 +302,12 @@
         .chat-propuesta.reemplazada { padding: 12px 18px; opacity: 0.6; }
         .chat-propuesta.reemplazada .titulo { margin-bottom: 0; text-decoration: line-through; }
         .chat-propuesta.reemplazada .estado { margin-top: 4px; color: #8a8880; font-weight: 500; }
-        /* Inicio del chat: personaje y saludo al centro; si hay pendientes, suben y las tarjetas van debajo */
+        /* Inicio del chat: saludo al centro; si hay pendientes, suben y las tarjetas van debajo */
         .chat-inicio { flex: 1 0 auto; display: flex; flex-direction: column; gap: 16px; }
         .chat-inicio-centro { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 10px 0 20px; }
         .chat-inicio.con-avisos .chat-inicio-centro { margin: 12px 0 4px; }
         .chat-bienvenida { font-size: 16px; line-height: 1.4; color: #73726c; text-align: center; max-width: 300px; text-wrap: balance; margin-top: -8px; }
         .chat-saludo { font-family: ui-serif, "New York", Georgia, serif; font-size: 26px; line-height: 1.25; color: #3d3d3a; text-align: center; max-width: 320px; text-wrap: balance; }
-        /* Robotito al estilo plano de Claude, por capas (cada celda mide 10 px): respira y
-           parpadea; de vez en cuando golpea el piso con una pata y se estira (brazos arriba,
-           cuerpo y cabeza hacia arriba, ojos cerrados). Las animaciones del ciclo de 14 s
-           arrancan juntas para ir sincronizadas. */
-        .robotito { position: relative; width: 100px; height: 100px; flex-shrink: 0; }
-        .robotito img, .robotito .torso, .robotito .cuello, .robotito .cabeza { position: absolute; inset: 0; width: 100%; height: 100%; }
-        .robotito img { image-rendering: pixelated; -webkit-user-drag: none; user-select: none; }
-        .robotito .cabeza { animation: robotRespira 1.6s steps(1) infinite; }
-        .robotito .parpadeo { opacity: 0; animation: robotParpadea 4.5s steps(1) infinite; }
-        .robotito .brazos-arriba, .robotito .ojos-estira { opacity: 0; }
-        .robotito .pie-der { animation: robotPieDer 14s steps(1) infinite; }
-        .robotito .pie-izq { animation: robotPieIzq 14s steps(1) infinite; }
-        .robotito .torso { animation: robotTorso 14s steps(1) infinite; }
-        .robotito .cuello { animation: robotCuello 14s steps(1) infinite; }
-        .robotito .brazos { animation: robotBrazos 14s steps(1) infinite; }
-        .robotito .brazos-arriba, .robotito .ojos-estira { animation: robotBrazosArriba 14s steps(1) infinite; }
-        .robotito.pensando .cabeza { animation-duration: 0.5s; }
-        .robotito.pensando :is(.pie-der, .pie-izq, .torso, .cuello, .brazos, .brazos-arriba, .ojos-estira) { animation: none; }
-        .robotito.alerta { animation: robotTiembla 2.4s steps(1) infinite; }
-        .robotito.alerta .cabeza { animation-duration: 0.8s; }
-        .robotito.alerta :is(.pie-der, .pie-izq, .torso, .cuello) { animation: none; }
-        .robotito.alerta .brazos { animation: robotPanicoAbajo 2.4s steps(1) infinite; }
-        .robotito.alerta .brazos-arriba { animation: robotPanicoArriba 2.4s steps(1) infinite; }
-        .robotito .alarma { animation: robotAlarma 0.8s steps(1) infinite; }
-        @keyframes robotTiembla { 0%, 9% { transform: translateX(0); } 10%, 16%, 22% { transform: translateX(-2px); }
-            13%, 19%, 25% { transform: translateX(2px); } 28%, 100% { transform: translateX(0); } }
-        @keyframes robotPanicoAbajo { 0%, 9% { opacity: 1; } 10%, 27% { opacity: 0; } 28%, 100% { opacity: 1; } }
-        @keyframes robotPanicoArriba { 0%, 9% { opacity: 0; } 10%, 27% { opacity: 1; } 28%, 100% { opacity: 0; } }
-        @keyframes robotAlarma { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
-        @keyframes robotRespira { 0%, 49% { transform: translateY(0); } 50%, 100% { transform: translateY(-2px); } }
-        @keyframes robotParpadea { 0%, 93% { opacity: 0; } 94%, 96% { opacity: 1; } 97%, 100% { opacity: 0; } }
-        @keyframes robotPieDer { 0%, 29% { transform: translateY(0); } 30% { transform: translateY(-5px); } 31%, 32% { transform: translateY(0); }
-            33% { transform: translateY(-5px); } 34%, 100% { transform: translateY(0); } }
-        @keyframes robotPieIzq { 0%, 54% { transform: translateY(0); } 55% { transform: translateY(-5px); } 56%, 57% { transform: translateY(0); }
-            58% { transform: translateY(-5px); } 59%, 100% { transform: translateY(0); } }
-        @keyframes robotTorso { 0%, 78% { transform: translateY(0); } 79%, 90% { transform: translateY(-5px); } 91%, 100% { transform: translateY(0); } }
-        @keyframes robotCuello { 0%, 78% { transform: translateY(0); } 79% { transform: translateY(-5px); }
-            80%, 89% { transform: translateY(-10px); } 90% { transform: translateY(-5px); } 91%, 100% { transform: translateY(0); } }
-        @keyframes robotBrazos { 0%, 78% { opacity: 1; } 79%, 90% { opacity: 0; } 91%, 100% { opacity: 1; } }
-        @keyframes robotBrazosArriba { 0%, 78% { opacity: 0; } 79%, 90% { opacity: 1; } 91%, 100% { opacity: 0; } }
         /* Sugerencias como fichas sobre la caja de escribir, con el chat vacío */
         .chat-chips { flex-shrink: 0; display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; scrollbar-width: none; }
         .chat-chips:empty { display: none; }
@@ -16787,7 +16747,6 @@
                                         if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.2) {
                                             modo = 'lado';
                                             // El chat se pinta ya, con lo último a la vista, para que entre completo
-                                            alertaRobotVista = false;
                                             reajustarAsistente();
                                             cargarChatAsistente();
                                             pintarChatAsistente(true);
@@ -17345,7 +17304,6 @@
                             }
 
                             function abrirAsistente() {
-                                alertaRobotVista = false;
                                 reajustarAsistente();
                                 precalentarUbicacion();
                                 cargarChatAsistente();
@@ -17630,20 +17588,18 @@
                                 if (chips) chips.innerHTML = '';
                                 // La tarjeta de registro se abre sobre la pantalla de inicio, como la de pendientes
                                 if (chatUi.every(m => m.registro && m.estado === 'pendiente') && !chatEnviando) {
-                                    // Pantalla de inicio: el personaje, un saludo que cambia y, debajo, lo que el
+                                    // Pantalla de inicio: un saludo que cambia y, debajo, lo que el
                                     // asistente tiene pendiente de revisar contigo
                                     const avisos = avisosAsistente();
                                     avisosMostrados = avisosDelGrupo(avisos);
-                                    // Abierto desde la pantalla de carga: los pendientes y Registrar dependen de los
+                                    // Abierto desde la pantalla de carga: los pendientes dependen de los
                                     // datos, que siguen llegando; mientras tanto se saluda como al revisar
                                     const cargandoDatos = !!document.getElementById('splashCarga');
                                     const sinConexion = !navigator.onLine;
-                                    const ocupado = !sinConexion && (revisandoIa || cargandoDatos);
                                     // Usuario nuevo: bienvenida y un botón para armar su cuenta principal con la IA
                                     if (window.usuarioSinCuentas && !cargandoDatos) {
                                         caja.innerHTML = `<div class="chat-inicio">
                                                 <div class="chat-inicio-centro">
-                                                    ${personajeAsistenteHtml(false)}
                                                     <div class="chat-saludo">Te doy la bienvenida</div>
                                                     <div class="chat-bienvenida">Soy tu asistente de finanzas. Empecemos con tu cuenta principal: me dices cuánto tienes y yo la creo.</div>
                                                 </div>
@@ -17652,7 +17608,7 @@
                                         pintarPreguntasAsistente();
                                         return;
                                     }
-                                    // Minimalista, como Claude: sólo el personaje y el saludo. Los pendientes no se
+                                    // Minimalista, como Claude: sólo el saludo. Los pendientes no se
                                     // muestran de entrada: una ficha sobre la caja de escribir los abre si quieres
                                     // atenderlos, uno por uno, en una tarjeta como la de las preguntas.
                                     const estado = cargandoDatos ? null : estadoFinanzasAsistente();
@@ -17666,11 +17622,10 @@
                                         ? { texto: textoSaludoInicio, aviso: avisoDelSaludo } : null;
                                     caja.innerHTML = `<div class="chat-inicio">
                                             <div class="chat-inicio-centro">
-                                                ${personajeAsistenteHtml(ocupado, !ocupado && robotConAlerta(!!(estado && estado.alerta)))}
                                                 <div class="chat-saludo">${escaparHtml(textoSaludoInicio)}</div>
                                             </div>
                                         </div>`;
-                                    // Sin internet la IA no contesta: ni pendientes ni Registrar, que terminan en ella
+                                    // Sin internet la IA no contesta: no hay pendientes, que terminan en ella
                                     if (chips && !sinConexion) {
                                         // Si algo se salió de control, lo primero son las soluciones para recuperarlo;
                                         // los pendientes quedan a un lado
@@ -17682,8 +17637,7 @@
                                             : `<button type="button" class="chip-pendientes" onclick="abrirPendientesAsistente('${grupo}')"><span class="punto"></span>${texto}</button>`;
                                         chips.innerHTML = (estado ? `<button type="button" class="chip-pendientes" onclick="pedirSolucionesAsistente()"><span class="punto"></span>Ver soluciones</button>` : '')
                                             + (deFinanzas ? chipPendientes('finanzas', deSalud ? 'Finanzas' : estado ? 'Pendientes' : 'Revisar pendientes') : '')
-                                            + (deSalud ? chipPendientes('salud', 'Salud') : '')
-                                            + (categoriasParaRegistro().length ? `<button type="button" onclick="abrirRegistroAsistente()">Registrar</button>` : '');
+                                            + (deSalud ? chipPendientes('salud', 'Salud') : '');
                                     }
                                     pintarPreguntasAsistente();
                                     return;
@@ -17879,49 +17833,6 @@
                                 return { titulo: 'Algo salió mal', texto: t };
                             }
 
-                            // ---- Personaje y saludo de la pantalla de inicio del chat ----
-                            // Un robotito al estilo plano de Claude (10×10 celdas), por capas para animar
-                            // patas, cuerpo, brazos y cabeza por separado. Lo dibuja herramientas/robotito.py.
-                            // Mientras la IA revisa, se le prende la perilla, mira hacia arriba y sólo respira.
-                            const ROBOT_PNG = {
-                                pie_izq: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAJUlEQVR42mNgGAWjYBSMggEFb6YU/X8zpeg/qfqYqO2QUQMpBwCTtAXt+eZUjAAAAABJRU5ErkJggg==',
-                                pie_der: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAJUlEQVR42mNgGAWjYBSMgkEJ3kwp+v9mStF/XPJM1LZw1EDKAQAGhAXtk/vI+AAAAABJRU5ErkJggg==',
-                                brazos: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAKElEQVR42mNgGAWjYBQMB8D4ZkrRf2QBkZw+RlIMQNfPNBqmo4B0AADBrAb1fZwI1AAAAABJRU5ErkJggg==',
-                                brazos_arriba: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAANklEQVR42mNgGAXDHzC+mVL0n4GBgUEkp4+REoNg5jBR24WjBlIxlmGA1NhG1880mnNGAekAALySDfG37XgGAAAAAElFTkSuQmCC',
-                                cuerpo: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAANklEQVR42mNgGAWjYOABIy6J8+Xh//FpNOxciVUvE81dCHOZrKw0UQaI5PQx0tSFowaOgsEAAO30CA8NYx4rAAAAAElFTkSuQmCC',
-                                normal: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAWklEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RPi4k1WW4XEp1F+I0UKNhIYNGw0KixWkfhm+mFP2nxCCaheEoGAWjgBgAANv1FTX7mSC2AAAAAElFTkSuQmCC',
-                                parpadeo: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAWklEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RPi4k1WW4XEp1F9LPQI2GhQwaDQuJFscIwzdTiv5T4jKaheEoGAWjgBgAADuCFTX2na4EAAAAAElFTkSuQmCC',
-                                pensando: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAXklEQVR42mNkIAC+H8n5j8zntJnCiE89EwOVAYZt58vD/zMwMDDIykoTZYBITh8jfVxIqstwuRSnCzUaFjJoNCwkWpxmXmbBJXGjIZ4kcQwDyQ07mnt5FIyCUUAMAACtpRT9HFaIUgAAAABJRU5ErkJggg==',
-                                alerta: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAgElEQVR42mNkIABmz+j/j8xPzShkxKeeiYHKAMO28+Xh/xkYGBhkZaWJMkAkp4+RaBdqNCwkSgyrC9FdptGwkOFGQzxOi9DlYC7F6UJchuGS6zv66j9eAzUaFuL0Mi5v9x199Z+FWrFbZC3GiBKGb6YU/afEQIJhOApGwSigJQAAIT8oc2r7MRYAAAAASUVORK5CYII=',
-                                alarma: 'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAJElEQVR42mNkIACeevj+R+ZL79jMiE89E8MoGAWjYBSMghEKAMemBAQsVNznAAAAAElFTkSuQmCC'
-                            };
-                            // Con alerta (saldo en cero, negativo o muy bajo) pone cara de preocupación, la
-                            // perilla parpadea en rojo y tiembla con los brazos arriba.
-                            // La alerta sólo se ve unos segundos (dos temblores) al abrir el chat; luego el robotito
-                            // vuelve a la normalidad hasta la siguiente vez que se abra.
-                            var DURACION_ALERTA_ROBOT = 4800;
-                            var alertaRobotVista = false, alertaRobotHasta = 0;
-                            function robotConAlerta(alerta) {
-                                if (!alerta) return false;
-                                if (!alertaRobotVista) {
-                                    alertaRobotVista = true;
-                                    alertaRobotHasta = Date.now() + DURACION_ALERTA_ROBOT;
-                                    setTimeout(() => document.querySelectorAll('.robotito.alerta').forEach(r => { r.outerHTML = personajeAsistenteHtml(false); }), DURACION_ALERTA_ROBOT);
-                                }
-                                return Date.now() < alertaRobotHasta;
-                            }
-                            function personajeAsistenteHtml(pensando, alerta = false) {
-                                const img = (clave, clase = '') => `<img${clase ? ` class="${clase}"` : ''} src="data:image/png;base64,${ROBOT_PNG[clave]}" alt="">`;
-                                const cara = pensando ? img('pensando')
-                                    : alerta ? img('alerta') + img('alarma', 'alarma')
-                                    : img('normal') + img('parpadeo', 'parpadeo') + img('parpadeo', 'ojos-estira');
-                                return `<div class="robotito${pensando ? ' pensando' : alerta ? ' alerta' : ''}" aria-hidden="true">
-                                    ${img('pie_izq', 'pie-izq')}${img('pie_der', 'pie-der')}
-                                    <div class="torso">${img('brazos', 'brazos')}${img('brazos_arriba', 'brazos-arriba')}${img('cuerpo')}</div>
-                                    <div class="cuello"><div class="cabeza">${cara}</div></div>
-                                </div>`;
-                            }
-
                             // Las recurrencias que la app ya detectó (las de Recurrentes), con sus próximas fechas en los
                             // siguientes 45 días calculadas igual que la proyección de la gráfica. Viajan con cada mensaje
                             // para que el asistente y su pronóstico usen las mismas fechas y montos.
@@ -17984,7 +17895,7 @@
                                 // El signo menos pegado a la cifra: con el guion normal el renglón se cortaba justo
                                 // después de él y quedaba "Tu saldo está en -" arriba y "$1,883" abajo
                                 const cifra = n => fMoneda(Math.round(n), fNumSaldo).replace(/^-/, '\u2212\u2060');
-                                // alerta: saldo en cero, negativo o muy bajo; el robotito del chat se preocupa
+                                // alerta: saldo en cero, negativo o muy bajo
                                 if (saldo <= 0) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Hay que actuar` };
                                 if (gastoProm > 0 && saldo < gastoProm * 0.25) return { nivel: 'mal', alerta: true, texto: `Tu saldo está en ${cifra(saldo)}. Cuidemos el resto del mes` };
                                 if (previos.length >= 2 && quedaProm < 0) return { nivel: 'mal', texto: 'Los últimos meses gastaste más de lo que entró. Hay que ajustar' };
