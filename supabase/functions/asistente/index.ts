@@ -502,12 +502,29 @@ const HERRAMIENTAS: Json[] = [
     name: "proponer_omitir_pago",
     description:
       "Propone que la app deje de esperar el pago (o cobro) recurrente que tocaba en esta vuelta, cuando el usuario dice que esta vez no toca o no se va a hacer. " +
-      "El pronóstico deja de contarlo y vuelve a esperarlo en la siguiente fecha. No es para lo que ya pagó: eso se registra. NO lo aplica: el usuario lo confirmará.",
+      "El pronóstico deja de contarlo y vuelve a esperarlo en la siguiente fecha. No es para lo que ya pagó: eso se registra. " +
+      "Si dice que es esporádico o que no es un pago que se repita, usa proponer_no_recurrente. NO lo aplica: el usuario lo confirmará.",
     input_schema: {
       type: "object",
       properties: {
         categoria_id: { type: "string" },
         motivo: { type: "string", description: "Por qué no toca, en pocas palabras (\"este mes no hubo\", \"se pasó al otro mes\")" },
+      },
+      required: ["categoria_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "proponer_no_recurrente",
+    description:
+      "Propone apagar las predicciones de una categoría (\"Omitir predicciones\"), cuando el usuario dice que ese gasto o ingreso es esporádico, que no se repite o que nunca lo tiene contemplado. " +
+      "La app deja de tratarlo como recurrente para siempre: sale de Recurrentes, de los pagos pendientes, del pronóstico y de los avisos; lo que registre en ella sigue contando normal. " +
+      "Para saltarse sólo esta vuelta usa proponer_omitir_pago. NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categoria_id: { type: "string" },
+        motivo: { type: "string", description: "Por qué no es recurrente, en pocas palabras (\"es esporádico\", \"sólo cuando se descompone\")" },
       },
       required: ["categoria_id"],
       additionalProperties: false,
@@ -881,12 +898,13 @@ const textoVocabulario = (k: Catalogo) => [...vocabularioSectores(k).values()]
 // conAvisos: la app sabe activar o apagar los avisos de su teléfono (proponer_avisos)
 // conPrioridades: la app sabe aplicar proponer_prioridades (varios gastos en una tarjeta)
 // conOmitir: la app sabe aplicar proponer_omitir_pago
+// conNoRecurrente: la app sabe aplicar proponer_no_recurrente
 // conBorrarTodo: la app sabe borrar una categoría o una cuenta completa (proponer_borrar_categoria_o_cuenta)
 // avisos: cómo están en el teléfono que escribe: activos, apagados, negados (el permiso se negó en
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conBorrarTodo?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conBorrarTodo?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -1925,6 +1943,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         datos: { categoria: nombre, esperado: rec.siguiente, ...(entrada.motivo ? { motivo: String(entrada.motivo).slice(0, 120) } : {}) },
       });
       return { texto: `Propuesta registrada: si la confirma, la app deja de esperar ${nombre} del ${dia} y lo vuelve a esperar en la siguiente fecha. Todavía NO está aplicada. Después de confirmar, el pronóstico ya no lo cuenta.` };
+    }
+    case "proponer_no_recurrente": {
+      if (!zona.conNoRecurrente) return { texto: "Esta versión de la app no apaga predicciones desde el chat: dile que cierre y abra la app para actualizarla, o que active \"Omitir predicciones\" al editar la categoría.", error: true };
+      const c = catalogo.categorias.find((k: Json) => String(k.id) === String(entrada.categoria_id));
+      if (!c) return { texto: "No encontré esa categoría.", error: true };
+      const nombre = catalogo.etiqueta[String(c.id)] ?? c.nombre;
+      if (c.desactivar_prediccion === true) return { texto: `${nombre} ya tiene las predicciones apagadas: la app no la espera.`, error: true };
+      const rec = (zona.recurrentes ?? []).find((r: Json) => r.categoria_id === String(c.id));
+      propuestas.push({
+        tipo: "no_recurrente", categoria_id: c.id,
+        resumen: `${nombre} no es recurrente`,
+        datos: { categoria: nombre, ...(rec?.siguiente ? { esperado: rec.siguiente } : {}), ...(entrada.motivo ? { motivo: String(entrada.motivo).slice(0, 120) } : {}) },
+      });
+      return { texto: `Propuesta registrada: si la confirma, la app deja de esperar ${nombre} para siempre (sale de pendientes, pronóstico y avisos); lo que registre ahí sigue contando. Todavía NO está aplicada. Si algún día vuelve a ser recurrente, se reactiva en la categoría (Omitir predicciones).` };
     }
     case "proponer_prioridades": {
       if (!zona.conPrioridades) return { texto: "Esta versión de la app no aplica varias prioridades en una tarjeta: dile que cierre y abra la app para actualizarla, o propónlas una por una con proponer_cambio_categoria.", error: true };
@@ -3533,7 +3565,7 @@ Cuando pregunte cómo va, si llega a fin de mes, dónde ajustar o cómo recupera
 2. Las soluciones: 2 o 3 acciones sobre lo que viene, cada una con monto y fecha. Si hasta_el_ingreso trae plan, tus soluciones son sólo esas (si ya había un plan vigente, es el mismo: preséntalo como "Tu plan del <día de plan.creado>", di sólo lo nuevo, lo que trae nuevo: true, y lo que ya hizo, sus hechos; si trae plan_terminado, dile eso y nada más): cada pago de plan.mover, dejarlo para después del ingreso (sin sumar ni cambiar sus montos), y como última, no gastar en lo prescindible (antojos, restaurantes) hasta ese día. No propongas mover nada más ni lo que normalmente gasta (súper, comida, gasolina). Si plan.alcanza es false, di cuánto sigue faltando y ofrece sólo lo que traiga plan.si_aun_falta, con sus montos (a quién cobrarle, de qué cuenta pasar dinero). Sin plan, recorta lo prescindible que va arriba de lo normal. Nunca recortes ni pospongas un pago obligatorio ni lo necesario. Lo ya gastado no se recupera: no digas que "ahorras" algo que ya salió. Identificar gastos sin identificar es orden, no una solución.
 3. Cómo queda si lo hace: con plan, termina con plan.cierre tal cual. Para cada pago usa su cuando ("hoy", "mañana", "el 8"). No hagas otras cuentas.
 Si pregunta qué gastos lo llevan a esa cifra o por qué llega así, contesta con hasta_el_ingreso.desglose tal cual: un renglón por movimiento (concepto, monto y cuándo), del más grande al más chico, y termina con su saldo_ese_dia. No sumes nada ni agregues lo que ya gastó: eso ya está restado en el saldo de hoy.
-Un pago vencido es uno que la app esperaba (se_esperaba) y no está registrado: dilo así ("Intereses Jalos: se esperaba el 2 y no lo tienes registrado"). No supongas si ya lo pagó; dile que si ya lo pagó lo registre, y si esta vez no toca, que te lo diga: entonces propón proponer_omitir_pago.
+Un pago vencido es uno que la app esperaba (se_esperaba) y no está registrado: dilo así ("Intereses Jalos: se esperaba el 2 y no lo tienes registrado"). No supongas si ya lo pagó; dile que si ya lo pagó lo registre, y si esta vez no toca, que te lo diga: entonces propón proponer_omitir_pago. Si dice que es esporádico o que nunca lo tiene contemplado, propón proponer_no_recurrente.
 Nada de repasar categorías, explicar cálculos, hablar de metas ni dar contexto que no cambie lo que tiene que hacer. No digas el nivel ni frases como "estás fuera de control": di el problema. Antes de interpretar una categoría, lee su descripción.
 Ejemplo de respuesta completa (no llega a la quincena):
 "Con $3,100 no llegas a la quincena del 15: te faltan $650.
@@ -4075,7 +4107,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conBorrarTodo: entrada.con_borrar_todo === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conBorrarTodo: entrada.con_borrar_todo === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];

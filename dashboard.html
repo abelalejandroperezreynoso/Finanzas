@@ -17533,6 +17533,12 @@
                                     filaCuenta(cuentaDe(p.categoria_id));
                                     if (d.motivo) filas.push(`Motivo: <b>${escaparHtml(d.motivo)}</b>`);
                                     filas.push('Vuelve a esperarse en la siguiente fecha');
+                                } else if (p.tipo === 'no_recurrente') {
+                                    const d = p.datos || {};
+                                    filas.push(`Ya no se espera nunca: <b>${escaparHtml(d.categoria || '')}</b>`);
+                                    filaCuenta(cuentaDe(p.categoria_id));
+                                    if (d.motivo) filas.push(`Motivo: <b>${escaparHtml(d.motivo)}</b>`);
+                                    filas.push('Lo que registres ahí sigue contando');
                                 } else if (p.tipo === 'prioridades') {
                                     // Una fila por gasto: cómo queda (y cómo estaba, si tenía)
                                     (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.nombre || '')}: ${x.antes
@@ -17766,7 +17772,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_borrar_todo: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_borrar_todo: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -19885,6 +19891,9 @@
                                 } else if (p.tipo === 'omitir_pago') {
                                     // Igual que omitir una sugerencia en Registrar: la próxima fecha pasa a la siguiente vuelta
                                     res = await clienteSupabase.from('categorias').update({ ignorar_hasta: p.hasta }).eq('id', p.categoria_id);
+                                } else if (p.tipo === 'no_recurrente') {
+                                    // El mismo interruptor que "Omitir predicciones" al editar la categoría
+                                    res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: true }).eq('id', p.categoria_id);
                                 } else if (p.tipo === 'prioridades') {
                                     // Una escritura por prioridad, con todos sus gastos
                                     const porPrioridad = {};
