@@ -18355,7 +18355,23 @@
                                     const cada = espacios.length >= 3 ? [...espacios].sort((a, b) => a - b)[Math.floor(espacios.length / 2)] : 0;
                                     const conCalendario = cada >= 2 && cada <= 60
                                         && espacios.filter(e => Math.abs(e - cada) <= Math.max(1, cada * 0.25)).length >= espacios.length * 0.6;
-                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false, saludoDeEste = null, variosDias = null;
+                                    let dia = null, texto = '', detalle = '', secundario = null, primario = null, seguimiento = false, saludoDeEste = null;
+                                    const agregar = () => {
+                                        const clave = `salud2:${c.id}:${dia}`;
+                                        if (!vigente(clave)) return;
+                                        const aviso = {
+                                            clave, categoria_id: c.id, salud: true, etiqueta: 'Salud', texto, detalle,
+                                            registrar: { categoria_id: c.id, dia },
+                                            primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
+                                            secundario
+                                        };
+                                        if (esSueno && dia === hoy && hoyDate.getHours() < 12) saludoSueno = saludoDeEste = 'Buenos días. ¿Cuánto dormiste anoche?';
+                                        // El saludo va en el pendiente de su misma categoría: así, al contestarlo, se atiende ése
+                                        // (antes iba en el primero de la lista y con dos "¿Cómo sigues?" se cruzaban)
+                                        if (saludoDeEste) aviso.saludo_salud = saludoDeEste;
+                                        // Cómo sigues va antes que los hábitos
+                                        if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
+                                    };
                                     const deCostumbre = enDosSemanas >= 10;
                                     if (deCostumbre || diarioPorNombre) {
                                         // Se revisa hasta antier: hoy (ya pasada la hora de costumbre), ayer y antier. Lo de antes
@@ -18369,28 +18385,24 @@
                                         const faltan = [];
                                         if (!tiene.has(hoy) && !anocheAnotada && hoyDate.getHours() > hora) faltan.push(hoy);
                                         [ayer, antier].forEach(d => { if (!tiene.has(d) && diasCat.some(x => x < d)) faltan.push(d); });
-                                        if (!faltan.length) return;
-                                        dia = faltan[0];
-                                        const nombreDia = d => d === hoy ? 'hoy' : d === ayer ? 'ayer' : 'antier';
-                                        if (faltan.length > 1) {
-                                            // Varios días: un solo pendiente; el asistente pregunta cuánto fue cada uno en una tarjeta
-                                            variosDias = faltan;
-                                            const nombres = faltan.map(nombreDia);
-                                            texto = `Te faltan ${faltan.length} días de ${c.nombre}: ${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}.`;
-                                            detalle = !deCostumbre ? 'Es algo de todos los días.' : 'Sueles hacerlo diario.';
-                                            primario = { texto: 'Registrarlos', mensaje: `Quiero registrar ${c.nombre} de estos días: ${faltan.join(', ')}. Pregúntame cuánto fue cada día en una sola tarjeta (con la opción "No hubo") y propónmelos.` };
-                                        } else if (esSueno && dia === hoy) {
-                                            texto = '¿Cuánto dormiste anoche?';
-                                            detalle = `Anótalo en ${c.nombre}.`;
-                                        } else {
-                                            texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `${dia === ayer ? 'Ayer' : 'Antier'} no registraste ${c.nombre}.`;
-                                            detalle = !deCostumbre ? 'Es algo de todos los días.'
-                                                : dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
-                                        }
-                                        secundario = { texto: 'No hubo', dias: null };
-                                        // En un hábito (no en el sueño ni en una enfermedad), "No hubo" se guarda como registro en 0
-                                        // de cada día que falta: así el asistente sabe que no hubo y el otro teléfono deja de preguntar
-                                        if (!esSueno && !esEnfermedadSalud(c)) secundario.registrarCero = { categoria_id: c.id, dias: faltan };
+                                        // Un pendiente por cada día que falta, cada uno con su propia tarjeta de Registrar
+                                        faltan.forEach(d => {
+                                            dia = d;
+                                            if (esSueno && dia === hoy) {
+                                                texto = '¿Cuánto dormiste anoche?';
+                                                detalle = `Anótalo en ${c.nombre}.`;
+                                            } else {
+                                                texto = dia === hoy ? `Hoy no has registrado ${c.nombre}.` : `${dia === ayer ? 'Ayer' : 'Antier'} no registraste ${c.nombre}.`;
+                                                detalle = !deCostumbre ? 'Es algo de todos los días.'
+                                                    : dia === hoy ? `Sueles hacerlo diario, cerca de las ${hora}:00.` : 'Sueles hacerlo diario.';
+                                            }
+                                            secundario = { texto: 'No hubo', dias: null };
+                                            // En un hábito (no en el sueño ni en una enfermedad), "No hubo" se guarda como registro en 0
+                                            // de ese día: así el asistente sabe que no hubo y el otro teléfono deja de preguntar
+                                            if (!esSueno && !esEnfermedadSalud(c)) secundario.registrarCero = { categoria_id: c.id, dias: [dia] };
+                                            agregar();
+                                        });
+                                        return;
                                     } else if (conCalendario) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
                                         if (toca > hoy) return;
@@ -18426,22 +18438,7 @@
                                             saludoDeEste = saludoSalud;
                                         }
                                     } else return;
-                                    // Con varios días la clave lleva todos: si registra uno, cambia y vuelve a mostrar lo que falte
-                                    const clave = `salud2:${c.id}:${variosDias ? variosDias.join('+') : dia}`;
-                                    if (!vigente(clave)) return;
-                                    const aviso = {
-                                        clave, categoria_id: c.id, salud: true, etiqueta: 'Salud', texto, detalle,
-                                        // La tarjeta de Registrar es de un día; con varios, lo arma el asistente
-                                        registrar: variosDias ? null : { categoria_id: c.id, dia },
-                                        primario: primario || { texto: 'Registrar', mensaje: `Quiero registrar ${c.nombre} del ${dia}. Pregúntame la cantidad con una tarjeta y propónmelo.` },
-                                        secundario
-                                    };
-                                    if (esSueno && dia === hoy && hoyDate.getHours() < 12) saludoSueno = saludoDeEste = 'Buenos días. ¿Cuánto dormiste anoche?';
-                                    // El saludo va en el pendiente de su misma categoría: así, al contestarlo, se atiende ése
-                                    // (antes iba en el primero de la lista y con dos "¿Cómo sigues?" se cruzaban)
-                                    if (saludoDeEste) aviso.saludo_salud = saludoDeEste;
-                                    // Cómo sigues va antes que los hábitos
-                                    if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
+                                    agregar();
                                 });
                                 // Padecimientos a los que les falta seguir hábitos que influyen en ellos: la misma base que usa
                                 // el asistente, que al revisarlo agrega lo que haga falta según el caso. Uno a la vez
