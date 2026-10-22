@@ -12954,6 +12954,8 @@
                             const HUECO_RECUADROS_INVERSION = 1;
                             const COLOR_BARRA_SECTOR_INVERSION = '#2c2e35';
                             const COLOR_BARRA_INDUSTRIA_INVERSION = '#1f2025';
+                            // Lado mínimo (estimado) de un grupo de industria para que lleve su barra
+                            const LADO_MIN_INDUSTRIA_TREEMAP = 55;
 
                             // Finnhub da sólo la industria de cada empresa. El sector de arriba sale de juntar esas
                             // industrias en los once sectores estándar (GICS).
@@ -14703,10 +14705,23 @@
                                     // Un sector con una sola empresa, o cuya industria se llama igual, lleva sólo
                                     // su barra: la segunda se comía el recuadro sin decir nada nuevo. Sin industria
                                     // el treemap salta ese nivel y la empresa queda directo bajo su sector.
+                                    //
+                                    // Lo mismo con una industria que no da para su barra y sus empresas: el título se
+                                    // comía el grupo y la empresa quedaba como una raya sin nombre. Su tamaño se
+                                    // estima con lo que pesa en el mapa, antes de dibujarlo.
                                     const porSectorMapa = {};
-                                    datos.forEach(d => { porSectorMapa[d.sectorMapa] = (porSectorMapa[d.sectorMapa] || 0) + 1; });
+                                    const montoIndustria = {};
+                                    const llaveIndustria = (d) => `${d.sectorMapa}\u0000${d.industriaMapa}`;
                                     datos.forEach(d => {
-                                        if (porSectorMapa[d.sectorMapa] === 1 || d.industriaMapa === d.sectorMapa) d.industriaMapa = null;
+                                        porSectorMapa[d.sectorMapa] = (porSectorMapa[d.sectorMapa] || 0) + 1;
+                                        montoIndustria[llaveIndustria(d)] = (montoIndustria[llaveIndustria(d)] || 0) + d.monto;
+                                    });
+                                    const montoMapa = datos.reduce((acc, d) => acc + d.monto, 0);
+                                    const areaMapa = contenedor.clientWidth * contenedor.clientHeight;
+                                    const ladoIndustria = (d) => montoMapa > 0 ? Math.sqrt(areaMapa * montoIndustria[llaveIndustria(d)] / montoMapa) : 0;
+                                    datos.forEach(d => {
+                                        if (porSectorMapa[d.sectorMapa] === 1 || d.industriaMapa === d.sectorMapa
+                                            || ladoIndustria(d) < LADO_MIN_INDUSTRIA_TREEMAP) d.industriaMapa = null;
                                     });
                                 }
                                 // Las barras son recuadros más del mapa: nivel 0 el sector, nivel 1 la industria; las
