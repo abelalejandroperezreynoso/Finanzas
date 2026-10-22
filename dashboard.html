@@ -12569,8 +12569,10 @@
                             // absoluto (el color dice si es ganancia o pérdida). Así una compra de hoy con +8% queda
                             // diminuta y una que lleva 12 meses a 4% al mes, grande; una pérdida larga, también grande.
                             // No pesa cuánto dinero hay en cada una: mide cómo le ha ido en el tiempo.
-                            const RENDIMIENTOS_TREEMAP_INVERSIONES = ['total', 'mensual', 'sostenido'];
-                            const NOMBRES_RENDIMIENTO_TREEMAP = { total: '$ Total', mensual: '% Mensual', sostenido: '% Sostenido' };
+                            // "Plusvalía" sí lo pesa: el tamaño son los dólares ganados o perdidos (lo de menos de un mes,
+                            // por la fracción de mes que lleva). Una pérdida larga en una posición grande es lo más grande.
+                            const RENDIMIENTOS_TREEMAP_INVERSIONES = ['total', 'mensual', 'sostenido', 'plusvalia'];
+                            const NOMBRES_RENDIMIENTO_TREEMAP = { total: '$ Total', mensual: '% Mensual', sostenido: '% Sostenido', plusvalia: '$ Plusvalía' };
                             let rendimientoTreemapInversiones = (function () {
                                 const guardado = localStorage.getItem('rendimientoTreemapInversiones');
                                 return RENDIMIENTOS_TREEMAP_INVERSIONES.indexOf(guardado) >= 0 ? guardado : 'total';
@@ -14625,6 +14627,11 @@
                                 // Lo que da tamaño a un recuadro en "Sostenido". Con menos de un mes, el ritmo es lo ganado
                                 // (la app cuenta mínimo un mes) y se multiplica por la fracción de mes que lleva.
                                 const sostenidoDe = (d) => d.mensual !== undefined && d.meses !== undefined ? d.mensual * d.meses : 0;
+                                const vistaPlusvalia = esPortafolio && rendimientoTreemapInversiones === 'plusvalia';
+                                const plusvaliaDe = (d) => d.esperado > 0 && d.real !== undefined
+                                    ? (d.real - d.esperado) * (d.meses !== undefined ? Math.min(1, d.meses) : 1) : 0;
+                                // En estas dos vistas el tamaño no es lo que vale: los recuadros van de un solo color
+                                const tamanoNoEsValor = vistaSostenida || vistaPlusvalia;
                                 const porSector = esPortafolio && agrupaPorSectorTreemap();
 
                                 // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
@@ -14946,8 +14953,10 @@
                                 const totalCategorias = datos.length;
                                 // El tamaño de cada recuadro: lo que vale, o en "Sostenido" el ritmo por los meses. Lo
                                 // que no tiene ritmo, o va plano, queda diminuto en vez de desaparecer (se ve con zoom).
-                                const minimoSostenido = Math.max(0.01, datos.reduce((m, d) => Math.max(m, Math.abs(sostenidoDe(d))), 0) * 0.002);
-                                datos.forEach(d => { d.tamanoMapa = vistaSostenida ? Math.max(Math.abs(sostenidoDe(d)), minimoSostenido) : d.monto; });
+                                const medidaTamano = vistaSostenida ? sostenidoDe : vistaPlusvalia ? plusvaliaDe : null;
+                                const minimoTamano = !medidaTamano ? 0
+                                    : Math.max(0.01, datos.reduce((m, d) => Math.max(m, Math.abs(medidaTamano(d))), 0) * 0.002);
+                                datos.forEach(d => { d.tamanoMapa = medidaTamano ? Math.max(Math.abs(medidaTamano(d)), minimoTamano) : d.monto; });
                                 // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
                                 // el último nivel.
                                 const nivelHojaMapa = gruposMapa.length - 1;
@@ -15420,8 +15429,8 @@
                                     const base = esPortafolio
                                         ? colorRendimientoInversion(pctInversion, (vistaMensual && d.mensual !== undefined) ? TOPE_RENDIMIENTO_MENSUAL : TOPE_RENDIMIENTO_TOTAL)
                                         : colorTreemapCategoria(d.cat, entradas);
-                                    // En "Sostenido" el tamaño no es dinero: el recuadro va de un solo color, sin franja
-                                    if (vistaSostenida) return base;
+                                    // En "Sostenido" y "Plusvalía" el tamaño no es lo que vale: un solo color, sin franja
+                                    if (tamanoNoEsValor) return base;
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
                                     const { y, h } = context.raw;
