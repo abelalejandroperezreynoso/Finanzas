@@ -15447,7 +15447,8 @@
                                         const lienzo = chart.ctx;
                                         lienzo.save();
                                         lienzo.strokeStyle = '#000000';
-                                        lienzo.lineWidth = 1.5 / zoomTreemap;
+                                        // Dos píxeles físicos de la pantalla, con o sin zoom
+                                        lienzo.lineWidth = 2 / (chart.currentDevicePixelRatio || window.devicePixelRatio || 1) / zoomTreemap;
                                         meta.data.forEach(el => {
                                             if (el.width > 0 && el.height > 0) lienzo.strokeRect(el.x, el.y, el.width, el.height);
                                         });
