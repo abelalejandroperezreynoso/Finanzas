@@ -12808,6 +12808,37 @@
                             const VERDE_GANANCIA_TREEMAP = '#3ecf8e';
                             const ROJO_PERDIDA_TREEMAP = '#ff5c5c';
 
+                            // El mapa de inversiones tiene su propio estilo, el de los mapas de bolsa: cada
+                            // recuadro lleno de un solo color, del rojo al verde según cuánto se movió, con el
+                            // gris en medio para lo que está plano. Recuadros pegados, casi sin redondeo, y
+                            // texto blanco. Los mapas de finanzas siguen con sus tarjetas.
+                            const HUECO_RECUADROS_INVERSION = 1;
+                            const RADIO_RECUADROS_INVERSION = 2;
+                            const ESCALA_RENDIMIENTO_INVERSION = [
+                                [-1, [246, 53, 56]],
+                                [-2 / 3, [191, 64, 69]],
+                                [-1 / 3, [139, 68, 78]],
+                                [0, [65, 69, 84]],
+                                [1 / 3, [53, 118, 78]],
+                                [2 / 3, [47, 158, 79]],
+                                [1, [48, 204, 90]]
+                            ];
+                            // Dónde se satura el color: en "% Mensual" se mide el ritmo por mes; en "Total", lo
+                            // ganado o perdido desde la compra.
+                            const TOPE_RENDIMIENTO_MENSUAL = 3;
+                            const TOPE_RENDIMIENTO_TOTAL = 15;
+
+                            function colorRendimientoInversion(porcentaje, tope) {
+                                const t = Math.max(-1, Math.min(1, (porcentaje || 0) / tope));
+                                let i = 0;
+                                while (i < ESCALA_RENDIMIENTO_INVERSION.length - 2 && t > ESCALA_RENDIMIENTO_INVERSION[i + 1][0]) i++;
+                                const [t0, c0] = ESCALA_RENDIMIENTO_INVERSION[i];
+                                const [t1, c1] = ESCALA_RENDIMIENTO_INVERSION[i + 1];
+                                const k = (t - t0) / (t1 - t0);
+                                const c = c0.map((v, j) => Math.round(v + (c1[j] - v) * k));
+                                return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+                            }
+
                             // Qué parte del recuadro está cubierta por gasto real. Fuera del modo avance el esperado
                             // es cero, el recuadro vale lo registrado y sale lleno: el mapa de siempre.
                             function fraccionLlenado(d) {
@@ -14842,6 +14873,15 @@
                                     if (!d) return '#444444';
                                     if (!d.cat) return '#3a3a3a';
 
+                                    // Inversiones: un solo color por recuadro, según su rendimiento
+                                    if (esPortafolio) {
+                                        if (vistaMensual && d.mensual !== undefined) {
+                                            return colorRendimientoInversion(d.mensual, TOPE_RENDIMIENTO_MENSUAL);
+                                        }
+                                        const pct = d.esperado > 0 ? ((d.real - d.esperado) / d.esperado) * 100 : 0;
+                                        return colorRendimientoInversion(pct, TOPE_RENDIMIENTO_TOTAL);
+                                    }
+
                                     const base = colorTreemapCategoria(d.cat, entradas);
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
@@ -14933,6 +14973,7 @@
                                 // pantalla): un anillo del color de su línea separado del contenido por un hueco negro,
                                 // y en la esquina el círculo con la palomita. Los demás se apagan, para ver de un
                                 // vistazo qué está en la curva.
+                                const radioRecuadros = esPortafolio ? RADIO_RECUADROS_INVERSION : RADIO_RECUADROS_TREEMAP;
                                 const ANILLO_SELECCION_TREEMAP = 2.5;
                                 const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
@@ -14946,7 +14987,7 @@
                                         // para que las curvas de los tres bordes vayan paralelas
                                         const camino = (x, y, w, h, m = 0, nuevo = true) => {
                                             const ancho = w - 2 * m, alto = h - 2 * m;
-                                            const r = Math.max(0, Math.min(RADIO_RECUADROS_TREEMAP - m, ancho / 2, alto / 2));
+                                            const r = Math.max(0, Math.min(radioRecuadros - m, ancho / 2, alto / 2));
                                             if (nuevo) lienzo.beginPath();
                                             if (lienzo.roundRect) lienzo.roundRect(x + m, y + m, ancho, alto, r);
                                             else lienzo.rect(x + m, y + m, ancho, alto);
@@ -15027,8 +15068,8 @@
                                             unsorted: !!empresaAbierta,
                                             // Cada recuadro va suelto, con un hueco y las esquinas redondeadas,
                                             // como las tarjetas de iOS
-                                            spacing: HUECO_RECUADROS_TREEMAP,
-                                            borderRadius: RADIO_RECUADROS_TREEMAP,
+                                            spacing: esPortafolio ? HUECO_RECUADROS_INVERSION : HUECO_RECUADROS_TREEMAP,
+                                            borderRadius: radioRecuadros,
                                             borderWidth: 0,
                                             backgroundColor: fondoRecuadro,
                                             hoverBackgroundColor: fondoRecuadro,
@@ -15041,14 +15082,9 @@
                                                 overflow: 'fit',
                                                 color: (context) => {
                                                     if (context.type !== 'data') return '#ffffff';
-                                                    // En el portafolio, negro siempre. Las tres partes del recuadro
-                                                    // son claras —blanco lo que costó, verde o rojo la diferencia—
-                                                    // y el negro se lee sobre las tres. Tiene que ser un solo color
-                                                    // porque la junta cruza el texto: eligiendo por la mitad más
-                                                    // grande, los renglones que caían del otro lado salían blancos
-                                                    // sobre el blanco del relleno y desaparecían, que es lo que le
-                                                    // pasaba a las posiciones en pérdida.
-                                                    if (esPortafolio) return '#0a0a0a';
+                                                    // En el portafolio, blanco siempre: los recuadros son rojos,
+                                                    // grises o verdes oscuros y el blanco se lee sobre todos.
+                                                    if (esPortafolio) return '#ffffff';
                                                     const d = buscarDato(context.raw);
                                                     if (!d || !d.cat) return '#ffffff';
                                                     // En los otros mapas el recuadro es del color de la categoría y
