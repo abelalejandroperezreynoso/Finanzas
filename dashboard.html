@@ -13191,6 +13191,21 @@
                                 return Math.min(1, d.esperado / d.monto);
                             }
 
+                            // Ancho de un texto con letra de 1 px en la fuente de las gráficas, medido de verdad
+                            const medidasTextoTreemap = new Map();
+                            let lienzoMedidaTreemap = null;
+                            function anchoTextoMedidoTreemap(texto, peso) {
+                                const clave = `${peso}|${texto}`;
+                                if (medidasTextoTreemap.has(clave)) return medidasTextoTreemap.get(clave);
+                                if (!lienzoMedidaTreemap) lienzoMedidaTreemap = document.createElement('canvas').getContext('2d');
+                                const familia = (typeof Chart !== 'undefined' && Chart.defaults.font.family) || 'sans-serif';
+                                lienzoMedidaTreemap.font = `${peso} 100px ${familia}`;
+                                const ancho = lienzoMedidaTreemap.measureText(texto).width / 100;
+                                if (medidasTextoTreemap.size > 3000) medidasTextoTreemap.clear();
+                                medidasTextoTreemap.set(clave, ancho);
+                                return ancho;
+                            }
+
                             // Cuerpo mínimo del texto. Por debajo el treemap lo encoge él mismo con overflow 'fit',
                             // pero nunca partimos de algo más chico.
                             const MIN_FUENTE_TREEMAP = 7;
@@ -14942,29 +14957,56 @@
                                 // intenta antes que nada y se cae solo si el recuadro no da para cuatro renglones.
                                 // Con el portafolio leído en ritmo mensual ese renglón desaparece: el ritmo pasa a
                                 // encabezar el recuadro, en todas las capas, y no hace falta repetirlo abajo.
-                                // En el portafolio hasta el recuadro más chico lleva su nombre, en letra diminuta y
-                                // del tamaño exacto que cabe: no se lee en el mapa entero, pero sí al acercarlo con
-                                // zoom. Con el hueco normal no quedaría espacio para la letra.
+                                // Etiqueta de un recuadro del portafolio, como en los mapas de bolsa: la letra crece con el
+                                // recuadro, sin tope (el nombre ~25% de su lado menor, en negritas; la cifra ~3/4 de eso,
+                                // menos gruesa), y hasta el más chico lleva la suya en letra diminuta, que se lee con zoom.
+                                // Los tamaños se miden con el texto de verdad para que el treemap no tenga que encogerlos.
                                 const paddingEtiquetaTreemap = (raw) => !esPortafolio || !raw
                                     ? PADDING_ETIQUETA_TREEMAP
                                     : Math.min(PADDING_ETIQUETA_TREEMAP, Math.min(raw.w, raw.h) * 0.08);
-                                const etiquetaDiminutaTreemap = (d, w, h) => {
+                                const etiquetaInversionTreemap = (d, w, h) => {
                                     const p = Math.min(PADDING_ETIQUETA_TREEMAP, Math.min(w, h) * 0.08);
-                                    const ganancia = d.real - d.esperado;
-                                    const cifra = vistaMensual && d.mensual !== undefined
-                                        ? `${d.mensual >= 0 ? '+' : ''}${d.mensual.toFixed(1)}%`
-                                        : d.esperado > 0 && Math.abs(ganancia) >= 0.005
-                                        ? `${ganancia >= 0 ? '+' : '-'}${montoCompactoTreemap(Math.abs(ganancia))}`
-                                        : montoCompactoTreemap(d.real !== undefined ? d.real : d.monto);
+                                    const ancho = w - 2 * p, alto = h - 2 * p;
+                                    if (ancho <= 0 || alto <= 0) return null;
+                                    // Ancho de un texto con letra de 1 px (con holgura)
+                                    const ancho1 = (texto, peso) => anchoTextoMedidoTreemap(texto, peso) * 1.04;
                                     const nombre = String(d.nombre || '');
-                                    // Ancho y alto de la letra con holgura, para que el treemap no la tenga que encoger
-                                    const porAncho = (texto) => (w - 2 * p) / (Math.max(1, texto.length) * 0.75);
-                                    const dos = Math.min((h - 2 * p) / 2.5, porAncho(nombre), porAncho(cifra));
-                                    const uno = Math.min((h - 2 * p) / 1.25, porAncho(nombre));
-                                    if (Math.max(dos, uno) < 0.15) return null;
-                                    return dos >= uno * 0.6
-                                        ? { lineas: [nombre, cifra], fuentes: [{ size: dos, weight: 'bold' }, { size: dos, weight: 'bold' }] }
-                                        : { lineas: [nombre], fuentes: [{ size: uno, weight: 'bold' }] };
+                                    const ganancia = d.real - d.esperado;
+                                    const redondo = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+                                    const hayRitmo = d.mensual !== undefined && d.meses !== undefined;
+                                    const ritmo = !hayRitmo ? [] : [
+                                        `${d.mensual >= 0 ? '+' : ''}${d.mensual.toFixed(2)}% /${d.meses.toFixed(1)}m`,
+                                        `${d.mensual >= 0 ? '+' : ''}${d.mensual.toFixed(1)}%/${Math.round(d.meses)}m`,
+                                        `${d.mensual >= 0 ? '+' : ''}${d.mensual.toFixed(1)}%`
+                                    ];
+                                    const signo = ganancia >= 0 ? '+' : '-', abs = Math.abs(ganancia);
+                                    const dinero = d.esperado > 0 && abs >= 0.005
+                                        ? [`${signo}${fMoneda(abs)}`, `${signo}${redondo(abs)}`, `${signo}${montoCompactoTreemap(abs)}`]
+                                        : [fMoneda(d.real !== undefined ? d.real : d.monto), montoCompactoTreemap(d.real !== undefined ? d.real : d.monto)];
+                                    const formas = vistaMensual && hayRitmo ? ritmo : dinero;
+
+                                    // Dos renglones: nombre y cifra
+                                    let tamNombre = Math.min(Math.min(w, h) * 0.25, ancho / ancho1(nombre, 'bold'));
+                                    let tamCifra = tamNombre * 0.75;
+                                    let cifra = formas.find(f => ancho1(f, '600') * tamCifra <= ancho) || formas[formas.length - 1];
+                                    tamCifra = Math.min(tamCifra, ancho / ancho1(cifra, '600'));
+                                    const altoDos = 1.2 * (tamNombre + tamCifra);
+                                    if (altoDos > alto) { const f = alto / altoDos; tamNombre *= f; tamCifra *= f; }
+                                    // Un renglón sólo con el nombre cuando con dos ya no se distinguiría nada
+                                    const tamUno = Math.min(alto / 1.2, ancho / ancho1(nombre, 'bold'));
+                                    if (tamNombre < 4 && tamUno > tamNombre * 1.5) {
+                                        return tamUno < 0.15 ? null : { lineas: [nombre], fuentes: [{ size: tamUno, weight: 'bold' }] };
+                                    }
+                                    if (tamNombre < 0.15) return null;
+                                    // Las compras llevan además su ritmo, si cabe
+                                    if (hayRitmo && d.esLote && !(vistaMensual)) {
+                                        const extra = ritmo.find(f => ancho1(f, 'normal') * tamCifra * 0.85 <= ancho);
+                                        if (extra && 1.2 * (tamNombre + tamCifra * 1.85) <= alto) {
+                                            return { lineas: [nombre, cifra, extra],
+                                                fuentes: [{ size: tamNombre, weight: 'bold' }, { size: tamCifra, weight: '600' }, { size: tamCifra * 0.85, weight: 'normal' }] };
+                                        }
+                                    }
+                                    return { lineas: [nombre, cifra], fuentes: [{ size: tamNombre, weight: 'bold' }, { size: tamCifra, weight: '600' }] };
                                 };
 
                                 const medidasEtiqueta = (raw) => {
@@ -14974,9 +15016,8 @@
                                     const vacio = { lineas: [], fuentes: [{ size: 12, weight: 'bold' }] };
 
                                     if (!d) return vacio;
-                                    if (h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) {
-                                        return esPortafolio ? etiquetaDiminutaTreemap(d, w, h) || vacio : vacio;
-                                    }
+                                    if (esPortafolio) return etiquetaInversionTreemap(d, w, h) || vacio;
+                                    if (h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) return vacio;
 
                                     const disponible = w - PADDING_ETIQUETA_TREEMAP * 2;
                                     const cabe = (texto, tam) => anchoTexto(texto, tam) <= disponible;
@@ -15389,11 +15430,12 @@
                                 const PADDING_TITULO_TREEMAP = 2;
                                 const fuenteTituloTreemap = (context) => {
                                     const r = context && context.raw;
-                                    const tope = r && r.l === 0 ? 12 : 10.5;
+                                    const tope = r && r.l === 0 ? 11.5 : 7.5;
                                     const cabe = r ? (r.h - 2 * PADDING_TITULO_TREEMAP) / 1.2 : tope;
                                     return { size: Math.max(0.3, Math.min(tope, cabe)), weight: 'bold' };
                                 };
-                                Object.assign(fuenteTituloTreemap, { size: 11, weight: 'bold', lineHeight: 1.2 });
+                                // La altura de las barras sale de ésta: 9 × 1.2 + 2 × 2 ≈ 15 px, como en los mapas de bolsa
+                                Object.assign(fuenteTituloTreemap, { size: 9, weight: 'bold', lineHeight: 1.2 });
 
                                 // Las líneas negras entre recuadros del portafolio. Van trazadas y no como hueco para que
                                 // con zoom sigan igual de finas: su grosor se divide entre el zoom.
