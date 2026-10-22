@@ -12605,6 +12605,11 @@
                             let cuentaTreemapInversiones = null;
                             let sectorTreemapInversiones = null;
                             let empresaTreemapInversiones = null;
+                            // En "Empresas", antes de las compras de una empresa se pasa por su sector y su industria
+                            // (GICS). Si al abrir el sector se saltó la industria (había una sola), al subir se salta igual.
+                            let sectorGicsTreemap = null;
+                            let industriaGicsTreemap = null;
+                            let saltoIndustriaGicsTreemap = false;
 
                             // El sector lo trae el perfil de cada empresa, y de un ETF o de algo que cotiza fuera
                             // de Estados Unidos no hay perfil: esas caen juntas en "Sin sector". Es dinero tuyo y
@@ -12744,6 +12749,8 @@
                                 cuentaTreemapInversiones = String(id);
                                 sectorTreemapInversiones = null;
                                 empresaTreemapInversiones = null;
+                                sectorGicsTreemap = null;
+                                industriaGicsTreemap = null;
                                 repintarTreemapCategorias();
                             }
 
@@ -12769,10 +12776,35 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // Un toque en una empresa del mapa de "Empresas": abre su sector, luego su industria y al
+                            // final sus compras. Una capa que tendría una sola cosa se salta.
+                            function abrirCapaGicsTreemap(d, datosCapa) {
+                                const delSector = datosCapa.filter(x => x.sectorMapa === d.sectorMapa);
+                                const deLaIndustria = datosCapa.filter(x => x.sectorMapa === d.sectorMapa && x.industriaGics === d.industriaGics);
+                                if (industriaGicsTreemap || deLaIndustria.length === 1) { abrirEmpresaTreemap(d.id); return; }
+                                if (!sectorGicsTreemap) {
+                                    if (delSector.length === 1) { abrirEmpresaTreemap(d.id); return; }
+                                    sectorGicsTreemap = d.sectorMapa;
+                                    const industrias = new Set(delSector.map(x => x.industriaGics));
+                                    saltoIndustriaGicsTreemap = industrias.size === 1;
+                                    if (saltoIndustriaGicsTreemap) industriaGicsTreemap = d.industriaGics;
+                                } else {
+                                    industriaGicsTreemap = d.industriaGics;
+                                    saltoIndustriaGicsTreemap = false;
+                                }
+                                repintarTreemapCategorias();
+                            }
+
                             // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
                             // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
+                                else if (industriaGicsTreemap) {
+                                    industriaGicsTreemap = null;
+                                    if (saltoIndustriaGicsTreemap) sectorGicsTreemap = null;
+                                    saltoIndustriaGicsTreemap = false;
+                                }
+                                else if (sectorGicsTreemap) sectorGicsTreemap = null;
                                 else if (sectorTreemapInversiones) sectorTreemapInversiones = null;
                                 else if (cuentaTreemapInversiones) cuentaTreemapInversiones = null;
                                 else return;
@@ -13194,6 +13226,19 @@
                             // Ancho de un texto con letra de 1 px en la fuente de las gráficas, medido de verdad
                             const medidasTextoTreemap = new Map();
                             let lienzoMedidaTreemap = null;
+                            function sectorIndustriaTreemap(d) {
+                                const esCaja = d.esCaja || esCategoriaCajaGbm(d.cat);
+                                const gics = !esCaja && d.cat ? clasificacionDeTicker(d.cat.ticker) : null;
+                                const industria = esCaja ? SECTOR_CAJA_TREEMAP
+                                    : gics ? gics.subindustria
+                                    : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP);
+                                const sector = esCaja ? SECTOR_CAJA_TREEMAP
+                                    : gics ? gics.sector
+                                    : industria === SECTOR_SIN_PERFIL_TREEMAP ? SECTOR_SIN_PERFIL_TREEMAP
+                                    : (SECTOR_DE_INDUSTRIA_FINNHUB[industria] || 'Other');
+                                return { sector, industria };
+                            }
+
                             function anchoTextoMedidoTreemap(texto, peso) {
                                 const clave = `${peso}|${texto}`;
                                 if (medidasTextoTreemap.has(clave)) return medidasTextoTreemap.get(clave);
@@ -14615,6 +14660,17 @@
                                     : null;
                                 if (!empresaAbierta) empresaTreemapInversiones = null;
 
+                                // El sector y la industria abiertos (vista "Empresas"); si ya no queda nada en ellos, se sube
+                                const enCapaGics = esPortafolio && !porSector && (!!cuentaAbierta || !hayCapaCuentas);
+                                const clasesDelNivel = enCapaGics ? empresasDelNivel.map(d => sectorIndustriaTreemap(d)) : [];
+                                const sectorGicsAbierto = enCapaGics && sectorGicsTreemap && clasesDelNivel.some(c => c.sector === sectorGicsTreemap)
+                                    ? sectorGicsTreemap : null;
+                                if (!sectorGicsAbierto) sectorGicsTreemap = null;
+                                const industriaGicsAbierta = sectorGicsAbierto && industriaGicsTreemap
+                                    && clasesDelNivel.some(c => c.sector === sectorGicsAbierto && c.industria === industriaGicsTreemap)
+                                    ? industriaGicsTreemap : null;
+                                if (!industriaGicsAbierta) industriaGicsTreemap = null;
+
                                 // Lo marcado para comparar vive en la capa de empresas o de sectores donde se marcó:
                                 // al salir de ella se suelta, y lo que ya no tiene recuadro (se vendió, Accesible lo
                                 // dejó fuera) se quita.
@@ -14721,7 +14777,7 @@
 
                                     // Dentro de una capa el título es además la salida: el mapa no tiene otro
                                     // sitio donde poner un "volver" sin quitarle espacio a los recuadros.
-                                    const dentroDeAlgo = !!(empresaAbierta || sectorAbierto || cuentaAbierta);
+                                    const dentroDeAlgo = !!(empresaAbierta || sectorAbierto || sectorGicsAbierto || cuentaAbierta);
                                     tituloEl.style.cursor = dentroDeAlgo ? 'pointer' : '';
                                     tituloEl.onclick = dentroDeAlgo ? (() => subirNivelTreemap()) : null;
 
@@ -14740,7 +14796,11 @@
                                             const catsDelNivel = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                                 && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id))
                                                 && (!sectorAbierto || sectoresDeCategoriaTreemap(c).indexOf(sectorAbierto) >= 0)
-                                                && (!empresaAbierta || String(c.id) === String(empresaAbierta.id)));
+                                                && (!empresaAbierta || String(c.id) === String(empresaAbierta.id))
+                                                && (empresaAbierta || !sectorGicsAbierto || (() => {
+                                                    const k = sectorIndustriaTreemap({ cat: c });
+                                                    return k.sector === sectorGicsAbierto && (!industriaGicsAbierta || k.industria === industriaGicsAbierta);
+                                                })()));
                                             const mejor = mejorToleranciaTreemap(catsDelNivel);
                                             return TOLERANCIAS_TREEMAP_INVERSIONES.map(t =>
                                                 [String(t), etiquetaToleranciaTreemap(t) + (t === mejor ? '  \u2605\uFE0E' : '')]);
@@ -14759,6 +14819,9 @@
                                     } else if (empresaAbierta) {
                                         // Dentro de una empresa los recuadros son sus compras, y la fecha de cada uno ya lo dice
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${empresaAbierta.ticker || empresaAbierta.nombre}`, () => subirNivelTreemap(),
+                                            [trozoVista]);
+                                    } else if (sectorGicsAbierto) {
+                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${industriaGicsAbierta || sectorGicsAbierto}`, () => subirNivelTreemap(),
                                             [trozoVista]);
                                     } else if (sectorAbierto) {
                                         // Dentro de un sector lo que se ve son sus empresas, sin más: no hace falta decirlo
@@ -14833,27 +14896,26 @@
                                 });
 
                                 datos.sort((a, b) => b.monto - a.monto);
-                                const totalCategorias = datos.length;
 
                                 // En la capa de empresas los recuadros van agrupados por sector y, dentro, por
                                 // industria (la oficial de Finnhub), cada grupo con su barra de título, como en los
                                 // mapas de bolsa. La caja va aparte y lo que no tiene perfil cae en "Sin sector".
                                 const conSectores = esPortafolio && !empresaAbierta && !sectorAbierto && !porSector
                                     && (!!cuentaAbierta || !hayCapaCuentas);
+                                // Dentro de un sector sólo van sus industrias y dentro de una industria sólo sus empresas.
+                                const gruposMapa = !conSectores ? ['nombre']
+                                    : industriaGicsAbierta ? ['nombre']
+                                    : sectorGicsAbierto ? ['industriaMapa', 'nombre']
+                                    : ['sectorMapa', 'industriaMapa', 'nombre'];
                                 if (conSectores) {
                                     datos = datos.map(d => {
-                                        const esCaja = d.esCaja || esCategoriaCajaGbm(d.cat);
-                                        // Primero la GICS (índice S&P, IA o a mano); sin ella, la industria de Finnhub
-                                        const gics = !esCaja && d.cat ? clasificacionDeTicker(d.cat.ticker) : null;
-                                        const industria = esCaja ? SECTOR_CAJA_TREEMAP
-                                            : gics ? gics.subindustria
-                                            : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP);
-                                        const sector = esCaja ? SECTOR_CAJA_TREEMAP
-                                            : gics ? gics.sector
-                                            : industria === SECTOR_SIN_PERFIL_TREEMAP ? SECTOR_SIN_PERFIL_TREEMAP
-                                            : (SECTOR_DE_INDUSTRIA_FINNHUB[industria] || 'Other');
-                                        return Object.assign({}, d, { sectorMapa: sector, industriaMapa: industria });
+                                        const k = sectorIndustriaTreemap(d);
+                                        return Object.assign({}, d, { sectorMapa: k.sector, industriaMapa: k.industria, industriaGics: k.industria });
                                     });
+                                    if (sectorGicsAbierto) datos = datos.filter(d => d.sectorMapa === sectorGicsAbierto);
+                                    if (industriaGicsAbierta) datos = datos.filter(d => d.industriaGics === industriaGicsAbierta);
+                                }
+                                if (conSectores && !sectorGicsAbierto) {
                                     // Un sector con una sola empresa, o cuya industria se llama igual, lleva sólo
                                     // su barra: la segunda se comía el recuadro sin decir nada nuevo. Sin industria
                                     // el treemap salta ese nivel y la empresa queda directo bajo su sector.
@@ -14864,9 +14926,11 @@
                                         if (porSectorMapa[d.sectorMapa] === 1 || d.industriaMapa === d.sectorMapa) d.industriaMapa = null;
                                     });
                                 }
-                                // Las barras son recuadros más del mapa: nivel 0 el sector, nivel 1 la industria; las
-                                // empresas van dentro, en el nivel 2.
-                                const esBarraSector = (raw) => conSectores && !!raw && raw.l < 2;
+                                const totalCategorias = datos.length;
+                                // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
+                                // el último nivel.
+                                const nivelHojaMapa = gruposMapa.length - 1;
+                                const esBarraSector = (raw) => conSectores && !!raw && raw.l < nivelHojaMapa;
 
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
@@ -15303,7 +15367,8 @@
                                 conectarZoomTreemap(contenedor);
                                 zoomPermitidoTreemap = esPortafolio;
                                 const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '',
-                                    empresaAbierta ? empresaAbierta.id : '', agrupacionTreemapInversiones, vistaAccesible, vistaMensual].join('|');
+                                    empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
+                                    agrupacionTreemapInversiones, vistaAccesible, vistaMensual].join('|');
                                 if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
                                     llaveZoomTreemap = llaveZoom;
                                     reiniciarZoomTreemap();
@@ -15319,7 +15384,7 @@
                                 const fondoRecuadro = (context) => {
                                     if (context.type !== 'data') return 'transparent';
                                     if (esBarraSector(context.raw)) {
-                                        return context.raw.l === 0 ? COLOR_BARRA_SECTOR_INVERSION : COLOR_BARRA_INDUSTRIA_INVERSION;
+                                        return gruposMapa[context.raw.l] === 'sectorMapa' ? COLOR_BARRA_SECTOR_INVERSION : COLOR_BARRA_INDUSTRIA_INVERSION;
                                     }
                                     const d = buscarDato(context.raw);
                                     if (!d) return '#444444';
@@ -15533,13 +15598,13 @@
                                         datasets: [{
                                             tree: datos,
                                             key: 'monto',
-                                            groups: conSectores ? ['sectorMapa', 'industriaMapa', 'nombre'] : ['nombre'],
+                                            groups: gruposMapa,
                                             // Como en los mapas de bolsa: cada sector e industria es sólo su barra de
                                             // título y las empresas van pegadas debajo, sin caja ni márgenes. En un
                                             // grupo chico la barra se encoge y su letra con ella (se lee con zoom).
-                                            displayMode: conSectores ? 'headerBoxes' : 'containerBoxes',
+                                            displayMode: gruposMapa.length > 1 ? 'headerBoxes' : 'containerBoxes',
                                             captions: {
-                                                display: conSectores,
+                                                display: gruposMapa.length > 1,
                                                 align: 'center',
                                                 color: '#ffffff',
                                                 font: fuenteTituloTreemap,
@@ -15671,6 +15736,7 @@
                                         // así que un toque abre su ficha, que es lo único que hay que ver de ella.
                                         else if (d.esCaja) verDetallesCategoria(d.id);
                                         else if (d.esSector) abrirSectorTreemap(d.id);
+                                        else if (conSectores) abrirCapaGicsTreemap(d, datos);
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {
