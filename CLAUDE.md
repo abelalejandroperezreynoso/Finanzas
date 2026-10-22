@@ -27,6 +27,12 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
   `finanzas_empresa` (cálculo puro en `empresa.ts`) trae los 10-K y 10-Q de la SEC desde Finnhub (ventas,
   utilidades, flujo, deuda, por año fiscal y lo que va del año) y, con FMP, las ventas por segmento y por región.
+  Clasificación GICS de las empresas (sector y subindustria, la del mapa del S&P 500): sale de `gics_indices`
+  (S&P 500, 400 y 600); lo que no está ahí lo clasifica la IA con el modo `clasificar` (sólo nombres de
+  `gics.ts`, más el grupo "ETFs"), y el usuario la cambia a mano en la ficha o con `proponer_clasificacion_empresa`.
+  Va en `perfiles_empresas.gics_*` con origen `ia` o `manual`; lo manual manda, luego el índice y al final la IA.
+  Es aparte de los sectores propios (`categorias.sectores`). La lista de `gics.ts` está copiada en
+  `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
@@ -60,7 +66,10 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
 
 ## Publicación automática (GitHub Actions)
 
-Ambos flujos usan los secretos del repositorio `SUPABASE_ACCESS_TOKEN` y
+`actualizar-gics.yml` corre cada lunes (o a mano): baja de Wikipedia la clasificación GICS del S&P 500, 400 y
+600 (`.github/scripts/actualizar_gics.py`) y la guarda en `gics_indices`. Son datos públicos.
+
+Los dos flujos de abajo usan los secretos del repositorio `SUPABASE_ACCESS_TOKEN` y
 `SUPABASE_PROJECT_REF`.
 
 - `.github/workflows/deploy-functions.yml`: al subir cambios en

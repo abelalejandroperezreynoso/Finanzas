@@ -4651,6 +4651,136 @@
                                         return p && p.sector ? p.sector : null;
                                     }
 
+                                    // --- Clasificación GICS (sector y subindustria) ---
+                                    // La misma del mapa del S&P 500. Viene de la lista de los índices S&P 500, 400
+                                    // y 600 (gics_indices, la actualiza un flujo cada semana), de la IA para lo que
+                                    // no está ahí o de un cambio a mano (perfiles_empresas.gics_*). Lo manual manda,
+                                    // luego el índice y al final la IA. La lista es la de la función asistente
+                                    // (gics.ts): si cambia allá, cambia aquí.
+                                    const GICS_SECTORES = {
+                                        "Communication Services": ["Advertising", "Alternative Carriers", "Broadcasting", "Cable & Satellite", "Integrated Telecommunication Services", "Interactive Home Entertainment", "Interactive Media & Services", "Movies & Entertainment", "Publishing", "Wireless Telecommunication Services"],
+                                        "Consumer Discretionary": ["Apparel Retail", "Apparel, Accessories & Luxury Goods", "Automobile Manufacturers", "Automotive Parts & Equipment", "Automotive Retail", "Broadline Retail", "Casinos & Gaming", "Computer & Electronics Retail", "Consumer Electronics", "Distributors", "Education Services", "Footwear", "Home Furnishings", "Home Improvement Retail", "Homebuilding", "Homefurnishing Retail", "Hotels, Resorts & Cruise Lines", "Household Appliances", "Housewares & Specialties", "Leisure Facilities", "Leisure Products", "Motorcycle Manufacturers", "Other Specialty Retail", "Publishing", "Restaurants", "Specialized Consumer Services", "Tires & Rubber"],
+                                        "Consumer Staples": ["Agricultural Products & Services", "Consumer Staples Merchandise Retail", "Distillers & Vintners", "Food Distributors", "Food Retail", "Household Products", "Packaged Foods & Meats", "Personal Care Products", "Soft Drinks & Non-alcoholic Beverages", "Tobacco"],
+                                        "Energy": ["Coal & Consumable Fuels", "Integrated Oil & Gas", "Oil & Gas Drilling", "Oil & Gas Equipment & Services", "Oil & Gas Exploration & Production", "Oil & Gas Refining & Marketing", "Oil & Gas Storage & Transportation"],
+                                        "Financials": ["Application Software", "Asset Management & Custody Banks", "Commercial & Residential Mortgage Finance", "Consumer Finance", "Diversified Banks", "Diversified Capital Markets", "Diversified Financial Services", "Financial Exchanges & Data", "Insurance Brokers", "Investment Banking & Brokerage", "Life & Health Insurance", "Mortgage REITs", "Multi-Sector Holdings", "Multi-line Insurance", "Property & Casualty Insurance", "Regional Banks", "Reinsurance", "Specialized Finance", "Transaction & Payment Processing Services"],
+                                        "Health Care": ["Biotechnology", "Health Care Distributors", "Health Care Equipment", "Health Care Facilities", "Health Care Services", "Health Care Supplies", "Health Care Technology", "Life Sciences Tools & Services", "Managed Health Care", "Pharmaceuticals"],
+                                        "Industrials": ["Aerospace & Defense", "Agricultural & Farm Machinery", "Air Freight & Logistics", "Building Products", "Cargo Ground Transportation", "Commercial Printing", "Construction & Engineering", "Construction Machinery & Heavy Transportation Equipment", "Data Processing & Outsourced Services", "Diversified Support Services", "Electrical Components & Equipment", "Environmental & Facilities Services", "Heavy Electrical Equipment", "Human Resource & Employment Services", "Industrial Conglomerates", "Industrial Machinery & Supplies & Components", "Marine Transportation", "Office Services & Supplies", "Passenger Airlines", "Passenger Ground Transportation", "Rail Transportation", "Research & Consulting Services", "Security & Alarm Services", "Technology Distributors", "Trading Companies & Distributors"],
+                                        "Information Technology": ["Application Software", "Communications Equipment", "Electronic Components", "Electronic Equipment & Instruments", "Electronic Manufacturing Services", "IT Consulting & Other Services", "Internet Services & Infrastructure", "Semiconductor Materials & Equipment", "Semiconductors", "Systems Software", "Technology Distributors", "Technology Hardware, Storage & Peripherals"],
+                                        "Materials": ["Agricultural & Farm Machinery", "Aluminum", "Commodity Chemicals", "Construction Materials", "Copper", "Diversified Chemicals", "Diversified Metals & Mining", "Fertilizers & Agricultural Chemicals", "Gold", "Industrial Gases", "Metal, Glass & Plastic Containers", "Paper & Plastic Packaging Products & Materials", "Paper Products", "Silver", "Specialty Chemicals", "Steel"],
+                                        "Real Estate": ["Data Center REITs", "Diversified REITs", "Health Care REITs", "Hotel & Resort REITs", "Industrial REITs", "Mortgage REITs", "Multi-Family Residential REITs", "Office REITs", "Other Specialized REITs", "Real Estate Development", "Real Estate Services", "Retail REITs", "Self-Storage REITs", "Single-Family Residential REITs", "Telecom Tower REITs", "Timber REITs"],
+                                        "Utilities": ["Electric Utilities", "Gas Utilities", "Independent Power Producers & Energy Traders", "Multi-Utilities", "Renewable Electricity", "Water Utilities"],
+                                        "ETFs": ["Broad Market", "Sector", "Thematic", "International", "Bonds", "Commodities", "Leveraged & Inverse", "Other"],
+                                    };
+                                    let cacheGicsIndices = {};      // { TICKER: { sector, subindustria, indice } }
+                                    let cacheGicsPropia = {};       // { TICKER: { sector, subindustria, origen: 'ia' | 'manual' } }
+                                    let gicsDisponible = false;
+                                    let clasificacionIaIntentada = false;
+
+                                    function clasificacionDeTicker(ticker) {
+                                        if (!ticker) return null;
+                                        const t = String(ticker).trim().toUpperCase();
+                                        const propia = cacheGicsPropia[t];
+                                        if (propia && propia.origen === 'manual') return propia;
+                                        if (cacheGicsIndices[t]) return Object.assign({ origen: 'indice' }, cacheGicsIndices[t]);
+                                        return propia || null;
+                                    }
+
+                                    function textoOrigenClasificacion(c) {
+                                        if (!c) return '';
+                                        return c.origen === 'manual' ? 'A mano' : c.origen === 'ia' ? 'IA' : (c.indice || 'S&P');
+                                    }
+
+                                    async function cargarClasificacionGics() {
+                                        if (!clienteSupabase || !currentUser) return;
+                                        const tickers = tickersConPerfil();
+                                        if (tickers.length === 0) { gicsDisponible = true; return; }
+                                        const [indices, propias] = await Promise.all([
+                                            clienteSupabase.from('gics_indices').select('ticker, sector, subindustria, indice').in('ticker', tickers),
+                                            clienteSupabase.from('perfiles_empresas').select('ticker, gics_sector, gics_subindustria, gics_origen').not('gics_origen', 'is', null)
+                                        ]);
+                                        // Sin las tablas el mapa sigue con lo de Finnhub
+                                        if (indices.error || propias.error) {
+                                            console.warn('Sin clasificación GICS todavía', (indices.error || propias.error).message);
+                                            return;
+                                        }
+                                        cacheGicsIndices = {};
+                                        (indices.data || []).forEach(x => { cacheGicsIndices[x.ticker] = { sector: x.sector, subindustria: x.subindustria, indice: x.indice }; });
+                                        cacheGicsPropia = {};
+                                        (propias.data || []).forEach(x => {
+                                            if (x.gics_subindustria) cacheGicsPropia[x.ticker] = { sector: x.gics_sector, subindustria: x.gics_subindustria, origen: x.gics_origen };
+                                        });
+                                        gicsDisponible = true;
+                                    }
+
+                                    // valor null quita lo propio y la empresa vuelve a la del índice
+                                    async function guardarClasificacionPropia(ticker, valor, origen) {
+                                        const t = String(ticker).trim().toUpperCase();
+                                        const cambios = valor
+                                            ? { gics_sector: valor.sector, gics_subindustria: valor.subindustria, gics_origen: origen }
+                                            : { gics_sector: null, gics_subindustria: null, gics_origen: null };
+                                        let { data, error } = await clienteSupabase.from('perfiles_empresas').update(cambios).eq('ticker', t).select('ticker');
+                                        // Sin perfil todavía: se crea la fila ya vencida para que el logo y el sector
+                                        // de Finnhub se pidan igual en la siguiente vuelta
+                                        if (!error && !(data || []).length && valor) {
+                                            ({ error } = await clienteSupabase.from('perfiles_empresas')
+                                                .insert([{ user_id: currentUser.id, ticker: t, ...cambios, actualizado_en: '2000-01-01T00:00:00Z' }]));
+                                        }
+                                        if (error) return error;
+                                        if (valor) cacheGicsPropia[t] = { sector: valor.sector, subindustria: valor.subindustria, origen };
+                                        else delete cacheGicsPropia[t];
+                                        return null;
+                                    }
+
+                                    // Lo que no está en los índices (empresas de fuera, ETFs) lo clasifica la IA una
+                                    // vez y se guarda. Se intenta una vez por sesión.
+                                    async function clasificarFaltantesConIa() {
+                                        if (clasificacionIaIntentada || !gicsDisponible || !clienteSupabase || !currentUser) return;
+                                        clasificacionIaIntentada = true;
+                                        const faltan = tickersConPerfil().filter(t => !clasificacionDeTicker(t)).slice(0, 40);
+                                        if (faltan.length === 0) return;
+                                        const empresas = faltan.map(t => {
+                                            const p = perfilDeTicker(t);
+                                            const cat = (datosCategorias || []).find(c => c.tipo === 'inversion' && String(c.ticker || '').trim().toUpperCase() === t);
+                                            return { ticker: t, nombre: (p && p.nombre) || (cat && cat.nombre) || null };
+                                        });
+                                        const { data, error } = await clienteSupabase.functions.invoke('asistente', { body: { modo: 'clasificar', empresas, ...modeloIaFijo() } });
+                                        if (error || !data || !Array.isArray(data.clasificaciones)) {
+                                            console.warn('La IA no clasificó las empresas', error ? error.message : data && data.error);
+                                            return;
+                                        }
+                                        for (const c of data.clasificaciones) {
+                                            if (clasificacionDeTicker(c.ticker)) continue;
+                                            const fallo = await guardarClasificacionPropia(c.ticker, c, 'ia');
+                                            if (fallo) console.warn(`No se guardó la clasificación de ${c.ticker}`, fallo.message);
+                                        }
+                                        debouncedRefreshUI();
+                                    }
+
+                                    // El selector de la ficha de la empresa
+                                    function selectorClasificacionHtml(ticker) {
+                                        const actual = clasificacionDeTicker(ticker);
+                                        const manual = actual && actual.origen === 'manual' ? actual.subindustria : '';
+                                        const opcion = (v, texto) => `<option value="${escaparHtml(v)}"${v === manual ? ' selected' : ''}>${escaparHtml(texto)}</option>`;
+                                        return `<select aria-label="Clasificación" onchange="cambiarClasificacionDesdeFicha(this, '${escaparHtml(String(ticker).trim().toUpperCase())}')"
+                                            style="position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;">
+                                            ${opcion('', 'Automática')}
+                                            ${Object.keys(GICS_SECTORES).map(sec => `<optgroup label="${escaparHtml(sec)}">${GICS_SECTORES[sec].map(sub => opcion(sub, sub)).join('')}</optgroup>`).join('')}
+                                        </select>`;
+                                    }
+
+                                    async function cambiarClasificacionDesdeFicha(sel, ticker) {
+                                        const sub = sel.value;
+                                        const sector = Object.keys(GICS_SECTORES).find(sec => GICS_SECTORES[sec].includes(sub));
+                                        const actual = clasificacionDeTicker(ticker);
+                                        let fallo = null;
+                                        if (sub && sector) fallo = await guardarClasificacionPropia(ticker, { sector, subindustria: sub }, 'manual');
+                                        else if (actual && actual.origen === 'manual') fallo = await guardarClasificacionPropia(ticker, null);
+                                        if (fallo) { alertaIos({ titulo: 'No se guardó', mensaje: fallo.message }); return; }
+                                        const cat = (datosCategorias || []).find(c => c.tipo === 'inversion' && String(c.ticker || '').trim().toUpperCase() === ticker);
+                                        if (cat) verDetallesCategoria(cat.id);
+                                        debouncedRefreshUI();
+                                    }
+
                                     // El logo, con la inicial del ticker debajo. La imagen la sirve Finnhub
                                     // desde otro dominio; el service worker la guarda la primera vez en su
                                     // propia caché y ya no la vuelve a bajar. El onerror la quita y deja ver la inicial, que es la misma pieza
@@ -7800,6 +7930,9 @@
                                                                 await tipoCambioListo;
                                                                 await cargarCategorias();
                                                                 avanzarCarga(HITOS_CARGA.categorias);
+                                                                // La clasificación GICS necesita saber qué empresas hay: va justo después
+                                                                const gicsListo = cargarClasificacionGics()
+                                                                    .catch(e => console.warn('No se pudo leer la clasificación GICS', e));
                                                                 // Las cotizaciones se piden dentro de cargarCategorias y se esperan aquí, antes
                                                                 // del único dibujo del arranque. Sin esta espera llegaban con la pantalla ya
                                                                 // pintada y forzaban un segundo render completo: la gráfica se rehacía y
@@ -7807,6 +7940,7 @@
                                                                 await esperarPreciosDeMercado();
                                                                 avanzarCarga(HITOS_CARGA.precios);
                                                                 await perfilesListos;
+                                                                await gicsListo;
                                                                 await cargarDatosBase();
                                                                 // La barra se llena con el dashboard ya pintado detrás: el último tramo
                                                                 // corre durante el fundido, así que se ve terminar y no cortarse.
@@ -7837,7 +7971,10 @@
                                                                 // la primera vez que aparece un ticker. Cuando terminan, la lista se
                                                                 // repinta sola con los logos puestos.
                                                                 completarPerfilesEmpresas()
-                                                                    .catch(e => console.error('No se pudieron completar los perfiles de empresa', e));
+                                                                    .catch(e => console.error('No se pudieron completar los perfiles de empresa', e))
+                                                                    // Con los perfiles completos, la IA clasifica lo que no está en los índices S&P
+                                                                    .then(() => clasificarFaltantesConIa())
+                                                                    .catch(e => console.warn('No se pudo clasificar con IA', e));
                                                             } catch (e) {
                                                                 // Si algo falla (sin red, por ejemplo) se destapa igual: más vale la app vacía
                                                                 // y usable que un spinner que no se va nunca.
@@ -14552,12 +14689,24 @@
                                 if (conSectores) {
                                     datos = datos.map(d => {
                                         const esCaja = d.esCaja || esCategoriaCajaGbm(d.cat);
+                                        // Primero la GICS (índice S&P, IA o a mano); sin ella, la industria de Finnhub
+                                        const gics = !esCaja && d.cat ? clasificacionDeTicker(d.cat.ticker) : null;
                                         const industria = esCaja ? SECTOR_CAJA_TREEMAP
+                                            : gics ? gics.subindustria
                                             : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP);
                                         const sector = esCaja ? SECTOR_CAJA_TREEMAP
+                                            : gics ? gics.sector
                                             : industria === SECTOR_SIN_PERFIL_TREEMAP ? SECTOR_SIN_PERFIL_TREEMAP
                                             : (SECTOR_DE_INDUSTRIA_FINNHUB[industria] || 'Other');
                                         return Object.assign({}, d, { sectorMapa: sector, industriaMapa: industria });
+                                    });
+                                    // Un sector con una sola empresa, o cuya industria se llama igual, lleva sólo
+                                    // su barra: la segunda se comía el recuadro sin decir nada nuevo. Sin industria
+                                    // el treemap salta ese nivel y la empresa queda directo bajo su sector.
+                                    const porSectorMapa = {};
+                                    datos.forEach(d => { porSectorMapa[d.sectorMapa] = (porSectorMapa[d.sectorMapa] || 0) + 1; });
+                                    datos.forEach(d => {
+                                        if (porSectorMapa[d.sectorMapa] === 1 || d.industriaMapa === d.sectorMapa) d.industriaMapa = null;
                                     });
                                 }
                                 // Las barras son recuadros más del mapa: nivel 0 el sector, nivel 1 la industria; las
@@ -16680,6 +16829,14 @@
                             </div>
                             </div>` : '';
 
+                            // La clasificación GICS con la que el mapa agrupa la empresa; tocarla abre la lista
+                            const clasifCat = cat.tipo === 'inversion' && cat.ticker && !esCategoriaCajaGbm(cat) ? clasificacionDeTicker(cat.ticker) : null;
+                            const htmlClasificacion = cat.tipo === 'inversion' && cat.ticker && !esCategoriaCajaGbm(cat) ? `
+                                <div class="rango-ios-fila" style="position: relative; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 12px; padding-bottom: 12px;">
+                                    <span style="font-size: 0.85em; color: #98989d;">Clasificación${clasifCat ? ` · ${escaparHtml(textoOrigenClasificacion(clasifCat))}` : ''}</span>
+                                    <span style="color: #fff; line-height: 1.4; text-align: left;">${clasifCat ? `${escaparHtml(clasifCat.sector)} · ${escaparHtml(clasifCat.subindustria)}` : 'Sin clasificar'}</span>
+                                    ${selectorClasificacionHtml(cat.ticker)}
+                                </div>` : '';
                             const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
                             const cuentaCat = (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
                             const htmlContenido = `
@@ -16687,6 +16844,7 @@
                             <div class="rango-ios-grupo">
                                 ${filaDetalleIos('Cuenta', cuentaCat ? escaparHtml(cuentaCat.nombre) : '—')}
                                 ${filaDetalleIos('Tipo', nombresTipo[cat.tipo] || escaparHtml(cat.tipo))}
+                                ${htmlClasificacion}
                                 ${cat.descripcion ? `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 12px; padding-bottom: 12px;">
                                     <span style="font-size: 0.85em; color: #98989d;">Descripción</span>
                                     <span style="color: #fff; line-height: 1.4; text-align: left;">${escaparHtml(cat.descripcion)}</span>
@@ -17691,6 +17849,10 @@
                                     const nombres = (p.categorias || []).map(x => x.nombre);
                                     filas.push(`Se vuelve a esperar: <b>${escaparHtml(nombres.join(', '))}</b>`);
                                     filas.push('Entra en el pronóstico, los pendientes y los avisos');
+                                } else if (p.tipo === 'clasificacion') {
+                                    (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.ticker || '')}: ${x.automatica
+                                        ? `<b>Automática</b>${x.antes ? ` (quita ${escaparHtml(x.antes)})` : ''}`
+                                        : x.antes ? flecha(x.antes, `${x.sector} / ${x.subindustria}`) : `<b>${escaparHtml(`${x.sector} / ${x.subindustria}`)}</b>`}`));
                                 } else if (p.tipo === 'prioridades') {
                                     // Una fila por gasto: cómo queda (y cómo estaba, si tenía)
                                     (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.nombre || '')}: ${x.antes
@@ -17926,7 +18088,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, con_clasificacion: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -20083,6 +20245,12 @@
                                         nota: `${String(nombreNoRec).slice(0, 60)} es esporádica: apagó sus predicciones a propósito.` }]).then(() => {}, () => {});
                                 } else if (p.tipo === 'activar_predicciones') {
                                     res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: false }).in('id', (p.categorias || []).map(x => x.categoria_id));
+                                } else if (p.tipo === 'clasificacion') {
+                                    res = {};
+                                    for (const x of (p.cambios || [])) {
+                                        const fallo = await guardarClasificacionPropia(x.ticker, x.automatica ? null : { sector: x.sector, subindustria: x.subindustria }, 'manual');
+                                        if (fallo) { res = { error: fallo }; break; }
+                                    }
                                 } else if (p.tipo === 'prioridades') {
                                     // Una escritura por prioridad, con todos sus gastos
                                     const porPrioridad = {};

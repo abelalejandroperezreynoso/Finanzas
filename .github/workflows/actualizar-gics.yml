@@ -1,0 +1,32 @@
+# Cada lunes baja la clasificación GICS (sector y subindustria) del S&P 500, 400 y 600 desde
+# Wikipedia y la guarda en la tabla gics_indices. Son datos públicos: no se lee ni se imprime
+# nada de la base. También se corre a mano (Run workflow).
+name: Actualizar clasificación GICS
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bajar las listas
+        run: python3 .github/scripts/actualizar_gics.py > gics.sql
+      - name: Guardar en la base
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          codigo=$(jq -Rs '{query: .}' gics.sql | curl -sS -o respuesta.json -w '%{http_code}' \
+            -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" --data @-)
+          if [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]; then
+            echo "Bien ($codigo)"
+          else
+            echo "Error ($codigo): $(jq -r '.message // .error // .' respuesta.json 2>/dev/null | head -c 2000)"
+            exit 1
+          fi
