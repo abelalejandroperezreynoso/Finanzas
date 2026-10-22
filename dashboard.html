@@ -12675,8 +12675,8 @@
                                 // lado puede tener el centro más próximo que el pequeño que se tocó.
                                 const recuadroEn = (e) => {
                                     const encontrados = grafica.getElementsAtEventForMode(e, 'point', { intersect: true, includeInvisible: true }, false);
-                                    // Con sectores, el punto cae en la barra del sector y en la empresa que tiene
-                                    // dentro; la empresa va después de su barra, así que manda el último.
+                                    // Con sectores, el punto cae en las barras del sector y la industria y en la
+                                    // empresa que tienen dentro; la empresa va después de sus barras: manda el último.
                                     return (encontrados && encontrados.length) ? encontrados[encontrados.length - 1].index : null;
                                 };
 
@@ -12815,7 +12815,58 @@
                             // gris en medio para lo que está plano. Recuadros pegados, casi sin redondeo, y
                             // texto blanco. Los mapas de finanzas siguen con sus tarjetas.
                             const HUECO_RECUADROS_INVERSION = 1;
-                            const COLOR_BARRA_SECTOR_INVERSION = '#26282e';
+                            const COLOR_BARRA_SECTOR_INVERSION = '#2c2e35';
+                            const COLOR_BARRA_INDUSTRIA_INVERSION = '#1f2025';
+
+                            // Finnhub da sólo la industria de cada empresa. El sector de arriba sale de juntar esas
+                            // industrias en los once sectores estándar (GICS).
+                            const SECTOR_DE_INDUSTRIA_FINNHUB = {
+                                'Technology': 'Information Technology',
+                                'Semiconductors': 'Information Technology',
+                                'Communications': 'Information Technology',
+                                'Media': 'Communication Services',
+                                'Telecommunication': 'Communication Services',
+                                'Retail': 'Consumer Discretionary',
+                                'Automobiles': 'Consumer Discretionary',
+                                'Auto Components': 'Consumer Discretionary',
+                                'Hotels, Restaurants & Leisure': 'Consumer Discretionary',
+                                'Textiles, Apparel & Luxury Goods': 'Consumer Discretionary',
+                                'Leisure Products': 'Consumer Discretionary',
+                                'Diversified Consumer Services': 'Consumer Discretionary',
+                                'Distributors': 'Consumer Discretionary',
+                                'Beverages': 'Consumer Staples',
+                                'Food Products': 'Consumer Staples',
+                                'Tobacco': 'Consumer Staples',
+                                'Consumer products': 'Consumer Staples',
+                                'Health Care': 'Health Care',
+                                'Pharmaceuticals': 'Health Care',
+                                'Biotechnology': 'Health Care',
+                                'Life Sciences Tools & Services': 'Health Care',
+                                'Banking': 'Financials',
+                                'Financial Services': 'Financials',
+                                'Insurance': 'Financials',
+                                'Aerospace & Defense': 'Industrials',
+                                'Airlines': 'Industrials',
+                                'Building': 'Industrials',
+                                'Commercial Services & Supplies': 'Industrials',
+                                'Construction': 'Industrials',
+                                'Electrical Equipment': 'Industrials',
+                                'Industrial Conglomerates': 'Industrials',
+                                'Logistics & Transportation': 'Industrials',
+                                'Machinery': 'Industrials',
+                                'Marine': 'Industrials',
+                                'Professional Services': 'Industrials',
+                                'Road & Rail': 'Industrials',
+                                'Trading Companies & Distributors': 'Industrials',
+                                'Transportation Infrastructure': 'Industrials',
+                                'Energy': 'Energy',
+                                'Chemicals': 'Materials',
+                                'Metals & Mining': 'Materials',
+                                'Packaging': 'Materials',
+                                'Paper & Forest': 'Materials',
+                                'Real Estate': 'Real Estate',
+                                'Utilities': 'Utilities'
+                            };
                             const RADIO_RECUADROS_INVERSION = 2;
                             const ESCALA_RENDIMIENTO_INVERSION = [
                                 [-1, [246, 53, 56]],
@@ -14493,20 +14544,25 @@
                                 datos.sort((a, b) => b.monto - a.monto);
                                 const totalCategorias = datos.length;
 
-                                // En la capa de empresas los recuadros van agrupados por su sector oficial (el de
-                                // Finnhub), cada grupo con su barra de título, como en los mapas de bolsa. La caja
-                                // va aparte y lo que no tiene perfil cae en "Sin sector".
+                                // En la capa de empresas los recuadros van agrupados por sector y, dentro, por
+                                // industria (la oficial de Finnhub), cada grupo con su barra de título, como en los
+                                // mapas de bolsa. La caja va aparte y lo que no tiene perfil cae en "Sin sector".
                                 const conSectores = esPortafolio && !empresaAbierta && !sectorAbierto && !porSector
                                     && (!!cuentaAbierta || !hayCapaCuentas);
                                 if (conSectores) {
-                                    datos = datos.map(d => Object.assign({}, d, {
-                                        sectorMapa: (d.esCaja || esCategoriaCajaGbm(d.cat)) ? SECTOR_CAJA_TREEMAP
-                                            : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP)
-                                    }));
+                                    datos = datos.map(d => {
+                                        const esCaja = d.esCaja || esCategoriaCajaGbm(d.cat);
+                                        const industria = esCaja ? SECTOR_CAJA_TREEMAP
+                                            : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP);
+                                        const sector = esCaja ? SECTOR_CAJA_TREEMAP
+                                            : industria === SECTOR_SIN_PERFIL_TREEMAP ? SECTOR_SIN_PERFIL_TREEMAP
+                                            : (SECTOR_DE_INDUSTRIA_FINNHUB[industria] || 'Other');
+                                        return Object.assign({}, d, { sectorMapa: sector, industriaMapa: industria });
+                                    });
                                 }
-                                // La barra de un sector es un recuadro más del mapa (nivel 0); los de las empresas
-                                // van dentro de ella (nivel 1).
-                                const esBarraSector = (raw) => conSectores && !!raw && raw.l === 0;
+                                // Las barras son recuadros más del mapa: nivel 0 el sector, nivel 1 la industria; las
+                                // empresas van dentro, en el nivel 2.
+                                const esBarraSector = (raw) => conSectores && !!raw && raw.l < 2;
 
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
@@ -14894,7 +14950,9 @@
                                 // la ficha de la categoría—, así que los dos estados se pintan igual.
                                 const fondoRecuadro = (context) => {
                                     if (context.type !== 'data') return 'transparent';
-                                    if (esBarraSector(context.raw)) return COLOR_BARRA_SECTOR_INVERSION;
+                                    if (esBarraSector(context.raw)) {
+                                        return context.raw.l === 0 ? COLOR_BARRA_SECTOR_INVERSION : COLOR_BARRA_INDUSTRIA_INVERSION;
+                                    }
                                     const d = buscarDato(context.raw);
                                     if (!d) return '#444444';
                                     if (!d.cat) return '#3a3a3a';
@@ -15075,7 +15133,7 @@
                                         datasets: [{
                                             tree: datos,
                                             key: 'monto',
-                                            groups: conSectores ? ['sectorMapa', 'nombre'] : ['nombre'],
+                                            groups: conSectores ? ['sectorMapa', 'industriaMapa', 'nombre'] : ['nombre'],
                                             captions: {
                                                 display: conSectores,
                                                 align: 'center',
