@@ -12675,7 +12675,9 @@
                                 // lado puede tener el centro más próximo que el pequeño que se tocó.
                                 const recuadroEn = (e) => {
                                     const encontrados = grafica.getElementsAtEventForMode(e, 'point', { intersect: true, includeInvisible: true }, false);
-                                    return (encontrados && encontrados.length) ? encontrados[0].index : null;
+                                    // Con sectores, el punto cae en la barra del sector y en la empresa que tiene
+                                    // dentro; la empresa va después de su barra, así que manda el último.
+                                    return (encontrados && encontrados.length) ? encontrados[encontrados.length - 1].index : null;
                                 };
 
                                 const soltarTemporizador = () => {
@@ -12813,6 +12815,7 @@
                             // gris en medio para lo que está plano. Recuadros pegados, casi sin redondeo, y
                             // texto blanco. Los mapas de finanzas siguen con sus tarjetas.
                             const HUECO_RECUADROS_INVERSION = 1;
+                            const COLOR_BARRA_SECTOR_INVERSION = '#26282e';
                             const RADIO_RECUADROS_INVERSION = 2;
                             const ESCALA_RENDIMIENTO_INVERSION = [
                                 [-1, [246, 53, 56]],
@@ -14490,6 +14493,21 @@
                                 datos.sort((a, b) => b.monto - a.monto);
                                 const totalCategorias = datos.length;
 
+                                // En la capa de empresas los recuadros van agrupados por su sector oficial (el de
+                                // Finnhub), cada grupo con su barra de título, como en los mapas de bolsa. La caja
+                                // va aparte y lo que no tiene perfil cae en "Sin sector".
+                                const conSectores = esPortafolio && !empresaAbierta && !sectorAbierto && !porSector
+                                    && (!!cuentaAbierta || !hayCapaCuentas);
+                                if (conSectores) {
+                                    datos = datos.map(d => Object.assign({}, d, {
+                                        sectorMapa: (d.esCaja || esCategoriaCajaGbm(d.cat)) ? SECTOR_CAJA_TREEMAP
+                                            : ((d.cat && sectorDeTicker(d.cat.ticker)) || SECTOR_SIN_PERFIL_TREEMAP)
+                                    }));
+                                }
+                                // La barra de un sector es un recuadro más del mapa (nivel 0); los de las empresas
+                                // van dentro de ella (nivel 1).
+                                const esBarraSector = (raw) => conSectores && !!raw && raw.l === 0;
+
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
                                     miTreemapCategorias = null;
@@ -14548,7 +14566,7 @@
                                 // que los pesos no sumarían cien.
                                 const totalValor = datos.reduce((acc, d) => acc + (d.real !== undefined ? d.real : d.monto), 0);
                                 const buscarDato = (raw) => {
-                                    if (!raw) return null;
+                                    if (!raw || esBarraSector(raw)) return null;
                                     const etiqueta = raw.g || (raw._data && raw._data.nombre);
                                     return datos.find(d => d.nombre === etiqueta) || null;
                                 };
@@ -14876,6 +14894,7 @@
                                 // la ficha de la categoría—, así que los dos estados se pintan igual.
                                 const fondoRecuadro = (context) => {
                                     if (context.type !== 'data') return 'transparent';
+                                    if (esBarraSector(context.raw)) return COLOR_BARRA_SECTOR_INVERSION;
                                     const d = buscarDato(context.raw);
                                     if (!d) return '#444444';
                                     if (!d.cat) return '#3a3a3a';
@@ -15007,6 +15026,7 @@
                                         lienzo.save();
                                         meta.data.forEach((el, i) => {
                                             if (!(el.width > 0 && el.height > 0)) return;
+                                            if (esBarraSector(chart.data.datasets[0].data[i])) return;
                                             const d = buscarDato(chart.data.datasets[0].data[i]);
                                             const marcado = d ? seleccionTreemapInversiones.find(s => s.id === String(d.id)) : null;
                                             if (marcado) {
@@ -15055,7 +15075,15 @@
                                         datasets: [{
                                             tree: datos,
                                             key: 'monto',
-                                            groups: ['nombre'],
+                                            groups: conSectores ? ['sectorMapa', 'nombre'] : ['nombre'],
+                                            captions: {
+                                                display: conSectores,
+                                                align: 'center',
+                                                color: '#ffffff',
+                                                font: { size: 11, weight: 'bold' },
+                                                padding: 3,
+                                                formatter: (context) => context.raw && context.raw.g ? context.raw.g : ''
+                                            },
                                             // En la capa de las compras los recuadros se colocan en el orden en
                                             // que llegan —de la más vieja a la más nueva— y no de mayor a menor.
                                             // Ahí cada recuadro es una fecha, y ordenarlos por tamaño repartía
