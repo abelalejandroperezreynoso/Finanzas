@@ -13092,9 +13092,8 @@
                             // recuadro lleno de un solo color, del rojo al verde según cuánto se movió, con el
                             // gris en medio para lo que está plano. Recuadros pegados, casi sin redondeo, y
                             // texto blanco. Los mapas de finanzas siguen con sus tarjetas.
-                            const HUECO_RECUADROS_INVERSION = 1;
-                            const COLOR_BARRA_SECTOR_INVERSION = '#2c2e35';
-                            const COLOR_BARRA_INDUSTRIA_INVERSION = '#1f2025';
+                            const COLOR_BARRA_SECTOR_INVERSION = '#2b2d33';
+                            const COLOR_BARRA_INDUSTRIA_INVERSION = '#25272c';
 
                             // Finnhub da sólo la industria de cada empresa. El sector de arriba sale de juntar esas
                             // industrias en los once sectores estándar (GICS).
@@ -13145,7 +13144,6 @@
                                 'Real Estate': 'Real Estate',
                                 'Utilities': 'Utilities'
                             };
-                            const RADIO_RECUADROS_INVERSION = 2;
                             const ESCALA_RENDIMIENTO_INVERSION = [
                                 [-1, [246, 53, 56]],
                                 [-2 / 3, [191, 64, 69]],
@@ -15384,7 +15382,37 @@
                                 // pantalla): un anillo del color de su línea separado del contenido por un hueco negro,
                                 // y en la esquina el círculo con la palomita. Los demás se apagan, para ver de un
                                 // vistazo qué está en la curva.
-                                const radioRecuadros = esPortafolio ? RADIO_RECUADROS_INVERSION : RADIO_RECUADROS_TREEMAP;
+                                const radioRecuadros = esPortafolio ? 0 : RADIO_RECUADROS_TREEMAP;
+                                // La letra de las barras de título. La librería mide la altura de las barras con
+                                // las propiedades de la función (size, lineHeight) y al dibujar la llama: en una
+                                // barra chica la letra se encoge hasta caber (se lee con zoom).
+                                const PADDING_TITULO_TREEMAP = 2;
+                                const fuenteTituloTreemap = (context) => {
+                                    const r = context && context.raw;
+                                    const tope = r && r.l === 0 ? 12 : 10.5;
+                                    const cabe = r ? (r.h - 2 * PADDING_TITULO_TREEMAP) / 1.2 : tope;
+                                    return { size: Math.max(0.3, Math.min(tope, cabe)), weight: 'bold' };
+                                };
+                                Object.assign(fuenteTituloTreemap, { size: 11, weight: 'bold', lineHeight: 1.2 });
+
+                                // Las líneas negras entre recuadros del portafolio. Van trazadas y no como hueco para que
+                                // con zoom sigan igual de finas: su grosor se divide entre el zoom.
+                                const pluginLineasTreemap = {
+                                    id: 'lineasTreemap',
+                                    afterDatasetsDraw(chart) {
+                                        const meta = chart.getDatasetMeta(0);
+                                        if (!meta || !meta.data) return;
+                                        const lienzo = chart.ctx;
+                                        lienzo.save();
+                                        lienzo.strokeStyle = '#000000';
+                                        lienzo.lineWidth = 1.5 / zoomTreemap;
+                                        meta.data.forEach(el => {
+                                            if (el.width > 0 && el.height > 0) lienzo.strokeRect(el.x, el.y, el.width, el.height);
+                                        });
+                                        lienzo.restore();
+                                    }
+                                };
+
                                 const ANILLO_SELECCION_TREEMAP = 2.5;
                                 const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
@@ -15463,12 +15491,16 @@
                                             tree: datos,
                                             key: 'monto',
                                             groups: conSectores ? ['sectorMapa', 'industriaMapa', 'nombre'] : ['nombre'],
+                                            // Como en los mapas de bolsa: cada sector e industria es sólo su barra de
+                                            // título y las empresas van pegadas debajo, sin caja ni márgenes. En un
+                                            // grupo chico la barra se encoge y su letra con ella (se lee con zoom).
+                                            displayMode: conSectores ? 'headerBoxes' : 'containerBoxes',
                                             captions: {
                                                 display: conSectores,
                                                 align: 'center',
                                                 color: '#ffffff',
-                                                font: { size: 11, weight: 'bold' },
-                                                padding: 3,
+                                                font: fuenteTituloTreemap,
+                                                padding: PADDING_TITULO_TREEMAP,
                                                 formatter: (context) => context.raw && context.raw.g ? context.raw.g : ''
                                             },
                                             // En la capa de las compras los recuadros se colocan en el orden en
@@ -15488,7 +15520,9 @@
                                             unsorted: !!empresaAbierta,
                                             // Cada recuadro va suelto, con un hueco y las esquinas redondeadas,
                                             // como las tarjetas de iOS
-                                            spacing: esPortafolio ? HUECO_RECUADROS_INVERSION : HUECO_RECUADROS_TREEMAP,
+                                            // En el portafolio los recuadros van pegados y los separa una línea negra
+                                            // (pluginLineasTreemap)
+                                            spacing: esPortafolio ? 0 : HUECO_RECUADROS_TREEMAP,
                                             borderRadius: radioRecuadros,
                                             borderWidth: 0,
                                             backgroundColor: fondoRecuadro,
@@ -15558,7 +15592,7 @@
                                             if (d && d.id) verDetallesCategoria(d.id);
                                         }
                                     },
-                                    plugins: [pluginJuntaTreemap, pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
+                                    plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap] : []), pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
                                 });
                                 // Tras girar el teléfono, el desplazamiento se vuelve a acomodar al nuevo tamaño
                                 if (esPortafolio) limitarZoomTreemap(miTreemapCategorias);
