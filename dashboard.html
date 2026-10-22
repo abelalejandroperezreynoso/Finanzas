@@ -1351,8 +1351,7 @@
                    de pestañas, la tarjeta entera (título, mapa y pie) cabe entre la barra de estado y la
                    de pestañas: 155 = 5 de aire bajo la barra de estado + 64 del título y el pie + 78 de
                    la barra (16 de aire + 62) + 8 de aire sobre ella. */
-                #contenedorTreemapCategorias { height: 290px; overflow: hidden; scrollbar-width: none; }
-                #contenedorTreemapCategorias::-webkit-scrollbar { display: none; }
+                #contenedorTreemapCategorias { height: 290px; overflow: hidden; }
                 @media (orientation: portrait) {
                     #contenedorTreemapCategorias.treemap-alto {
                         height: max(290px, calc(100vh - 95px));
@@ -12812,7 +12811,10 @@
                                 // treemap resuelve un clic. Por cercanía no valdría: un rectángulo grande de al
                                 // lado puede tener el centro más próximo que el pequeño que se tocó.
                                 const recuadroEn = (e) => {
-                                    const encontrados = grafica.getElementsAtEventForMode(e, 'point', { intersect: true, includeInvisible: true }, false);
+                                    // Con zoom, el punto del dedo se pasa al mapa sin zoom
+                                    const r = canvas.getBoundingClientRect();
+                                    const p = puntoMapaTreemap(e.clientX - r.left, e.clientY - r.top);
+                                    const encontrados = grafica.getElementsAtEventForMode({ native: e, x: p.x, y: p.y }, 'point', { intersect: true, includeInvisible: true }, false);
                                     // Con sectores, el punto cae en las barras del sector y la industria y en la
                                     // empresa que tienen dentro; la empresa va después de sus barras: manda el último.
                                     return (encontrados && encontrados.length) ? encontrados[encontrados.length - 1].index : null;
@@ -12884,84 +12886,136 @@
                             }
 
                             // ---- Zoom del mapa de inversiones ----
-                            // Con dos dedos se acerca, como en los mapas de bolsa: los recuadros chicos crecen hasta
-                            // que su nombre cabe. Mientras se pellizca sólo se escala la imagen (rápido); al soltar se
-                            // vuelve a dibujar a ese tamaño, nítida y con las etiquetas que ya caben, y con un dedo se
-                            // recorre. Se queda al refrescar precios y vuelve a 1 al cambiar de capa o de vista.
-                            const ZOOM_MAX_TREEMAP = 5;
-                            // iOS deja de dibujar lienzos más grandes: al acercar se baja la densidad de píxeles
-                            const PIXELES_MAX_LIENZO_TREEMAP = 12e6;
+                            // Como acercar una imagen: el mapa se calcula una vez y el zoom sólo cambia cómo se ve. En cada
+                            // cuadro del gesto se vuelve a dibujar el mismo mapa escalado y movido, así que siempre se ve
+                            // nítido y no hay tope práctico. Dos dedos acercan, uno recorre (con inercia). Se queda al
+                            // refrescar precios y vuelve al mapa entero al cambiar de capa o de vista.
+                            // Pantalla = mapa × zoomTreemap + desplazamiento.
+                            const ZOOM_MAX_TREEMAP = 80;
                             let zoomTreemap = 1;
+                            let desplazaXTreemap = 0;
+                            let desplazaYTreemap = 0;
                             let llaveZoomTreemap = '';
                             let zoomPermitidoTreemap = false;
 
-                            function densidadLienzoTreemap(contenedor) {
-                                const dpr = window.devicePixelRatio || 1;
-                                const area = contenedor.clientWidth * contenedor.clientHeight * zoomTreemap * zoomTreemap;
-                                return area > 0 ? Math.max(1, Math.min(dpr, Math.sqrt(PIXELES_MAX_LIENZO_TREEMAP / area))) : dpr;
+                            function reiniciarZoomTreemap() {
+                                zoomTreemap = 1;
+                                desplazaXTreemap = 0;
+                                desplazaYTreemap = 0;
                             }
 
-                            // Tamaño de la capa para el zoom actual; se llama al dibujar
-                            function fijarZoomTreemap(contenedor) {
-                                const capa = document.getElementById('zoomTreemap');
-                                contenedor.style.overflow = zoomTreemap > 1 ? 'auto' : 'hidden';
-                                if (!capa) return;
-                                capa.style.transform = '';
-                                capa.style.width = `${zoomTreemap * 100}%`;
-                                capa.style.height = `${zoomTreemap * 100}%`;
-                                if (zoomTreemap === 1) { contenedor.scrollLeft = 0; contenedor.scrollTop = 0; }
+                            // El mapa siempre cubre el recuadro: no se puede sacar por un lado
+                            function limitarZoomTreemap(chart) {
+                                const w = chart ? chart.width : 0, h = chart ? chart.height : 0;
+                                desplazaXTreemap = Math.min(0, Math.max(w * (1 - zoomTreemap), desplazaXTreemap));
+                                desplazaYTreemap = Math.min(0, Math.max(h * (1 - zoomTreemap), desplazaYTreemap));
                             }
 
-                            // Al soltar el pellizco: el mapa se redibuja a `zoom` (letras, barras y huecos crecen con
-                            // él) y el punto (fx, fy) del mapa sin zoom queda bajo el punto (cx, cy) del contenedor.
-                            function soltarZoomTreemap(contenedor, zoom, fx, fy, cx, cy) {
-                                zoomTreemap = zoom;
-                                renderizarTreemapCategorias(contextoTreemapCategorias.meses, contextoTreemapCategorias.indice);
-                                if (zoom > 1) {
-                                    contenedor.scrollLeft = fx * zoom - cx;
-                                    contenedor.scrollTop = fy * zoom - cy;
-                                }
+                            // Del punto del lienzo (en píxeles de pantalla) al punto del mapa sin zoom
+                            function puntoMapaTreemap(x, y) {
+                                return { x: (x - desplazaXTreemap) / zoomTreemap, y: (y - desplazaYTreemap) / zoomTreemap };
+                            }
+
+                            const pluginZoomTreemap = {
+                                id: 'zoomTreemap',
+                                beforeDraw(chart) {
+                                    const c = chart.ctx;
+                                    c.save();
+                                    c.translate(desplazaXTreemap, desplazaYTreemap);
+                                    c.scale(zoomTreemap, zoomTreemap);
+                                },
+                                afterDraw(chart) { chart.ctx.restore(); }
+                            };
+
+                            let cuadroZoomTreemap = null;
+                            function redibujarZoomTreemap() {
+                                if (cuadroZoomTreemap) return;
+                                cuadroZoomTreemap = requestAnimationFrame(() => {
+                                    cuadroZoomTreemap = null;
+                                    if (miTreemapCategorias) miTreemapCategorias.draw();
+                                });
                             }
 
                             function conectarZoomTreemap(contenedor) {
                                 if (contenedor._zoomTreemap) return;
                                 contenedor._zoomTreemap = true;
-                                // El navegador no hace su propio zoom ni su pellizco: el desplazamiento con un dedo sí
-                                contenedor.style.touchAction = 'pan-x pan-y';
                                 let gesto = null;
-                                const distancia = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-                                const centro = (t) => {
+                                let inercia = null;
+                                const pararInercia = () => { if (inercia) cancelAnimationFrame(inercia); inercia = null; };
+                                // Sin zoom, un dedo mueve la página; con zoom, el mapa. El pellizco nunca es del navegador.
+                                const ajustarTactil = () => { contenedor.style.touchAction = zoomTreemap > 1 ? 'none' : 'pan-y'; };
+                                ajustarTactil();
+                                const punto = (t) => {
                                     const r = contenedor.getBoundingClientRect();
-                                    return { x: (t[0].clientX + t[1].clientX) / 2 - r.left, y: (t[0].clientY + t[1].clientY) / 2 - r.top };
+                                    return { x: t.clientX - r.left, y: t.clientY - r.top };
+                                };
+                                const distancia = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+                                const centro = (t) => { const a = punto(t[0]), b = punto(t[1]); return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+                                const empezar = (toques) => {
+                                    pararInercia();
+                                    if (toques.length >= 2) {
+                                        const c = centro(toques);
+                                        gesto = { tipo: 'pellizco', d: distancia(toques) || 1, z: zoomTreemap, mapa: puntoMapaTreemap(c.x, c.y) };
+                                    } else if (toques.length === 1 && zoomTreemap > 1) {
+                                        const c = punto(toques[0]);
+                                        gesto = { tipo: 'recorrido', x: c.x, y: c.y, dx: desplazaXTreemap, dy: desplazaYTreemap, vx: 0, vy: 0, t: performance.now(), ux: c.x, uy: c.y };
+                                    } else {
+                                        gesto = null;
+                                    }
                                 };
                                 contenedor.addEventListener('touchstart', (e) => {
-                                    if (!zoomPermitidoTreemap || e.touches.length !== 2) return;
-                                    const lienzo = document.getElementById('graficoTreemapCategorias');
-                                    if (lienzo && lienzo._cancelarToqueTreemap) lienzo._cancelarToqueTreemap();
-                                    const c = centro(e.touches);
-                                    gesto = { d: distancia(e.touches) || 1, c, zoom: zoomTreemap, sx: contenedor.scrollLeft, sy: contenedor.scrollTop, z: zoomTreemap, ultimo: c };
+                                    if (!zoomPermitidoTreemap) return;
+                                    if (e.touches.length >= 2) {
+                                        const lienzo = document.getElementById('graficoTreemapCategorias');
+                                        if (lienzo && lienzo._cancelarToqueTreemap) lienzo._cancelarToqueTreemap();
+                                    }
+                                    empezar(e.touches);
                                 }, { passive: true });
                                 contenedor.addEventListener('touchmove', (e) => {
-                                    if (!gesto || e.touches.length !== 2) return;
+                                    if (!gesto || !miTreemapCategorias) return;
                                     e.preventDefault();
-                                    const capa = document.getElementById('zoomTreemap');
-                                    if (!capa) return;
-                                    const c = centro(e.touches);
-                                    gesto.z = Math.max(1, Math.min(ZOOM_MAX_TREEMAP, gesto.zoom * distancia(e.touches) / gesto.d));
-                                    gesto.ultimo = c;
-                                    // La imagen se escala alrededor de donde empezó el pellizco y sigue a los dedos
-                                    capa.style.transformOrigin = `${gesto.sx + gesto.c.x}px ${gesto.sy + gesto.c.y}px`;
-                                    capa.style.transform = `translate(${c.x - gesto.c.x}px, ${c.y - gesto.c.y}px) scale(${gesto.z / gesto.zoom})`;
+                                    if (gesto.tipo === 'pellizco' && e.touches.length >= 2) {
+                                        const c = centro(e.touches);
+                                        zoomTreemap = Math.max(1, Math.min(ZOOM_MAX_TREEMAP, gesto.z * distancia(e.touches) / gesto.d));
+                                        // El punto del mapa que estaba entre los dedos sigue entre los dedos
+                                        desplazaXTreemap = c.x - gesto.mapa.x * zoomTreemap;
+                                        desplazaYTreemap = c.y - gesto.mapa.y * zoomTreemap;
+                                    } else if (gesto.tipo === 'recorrido' && e.touches.length === 1) {
+                                        const c = punto(e.touches[0]);
+                                        const ahora = performance.now();
+                                        const dt = Math.max(1, ahora - gesto.t);
+                                        gesto.vx = (c.x - gesto.ux) / dt;
+                                        gesto.vy = (c.y - gesto.uy) / dt;
+                                        gesto.t = ahora; gesto.ux = c.x; gesto.uy = c.y;
+                                        desplazaXTreemap = gesto.dx + c.x - gesto.x;
+                                        desplazaYTreemap = gesto.dy + c.y - gesto.y;
+                                    }
+                                    limitarZoomTreemap(miTreemapCategorias);
+                                    redibujarZoomTreemap();
                                 }, { passive: false });
-                                const terminar = () => {
-                                    if (!gesto) return;
+                                const terminar = (e) => {
                                     const g = gesto;
+                                    // Al levantar un dedo del pellizco, el que queda sigue recorriendo
+                                    if (e && e.touches && e.touches.length > 0) { empezar(e.touches); ajustarTactil(); return; }
                                     gesto = null;
-                                    // Casi sin zoom, se vuelve al mapa entero
-                                    const z = g.z < 1.08 ? 1 : g.z;
-                                    soltarZoomTreemap(contenedor, z, (g.sx + g.c.x) / g.zoom, (g.sy + g.c.y) / g.zoom, g.ultimo.x, g.ultimo.y);
+                                    if (zoomTreemap < 1.03) reiniciarZoomTreemap();
+                                    ajustarTactil();
+                                    redibujarZoomTreemap();
+                                    // El recorrido sigue un poco con la velocidad del dedo
+                                    if (g && g.tipo === 'recorrido' && performance.now() - g.t < 80 && Math.hypot(g.vx, g.vy) > 0.2) {
+                                        let vx = g.vx, vy = g.vy, antes = performance.now();
+                                        const paso = (ahora) => {
+                                            const dt = ahora - antes; antes = ahora;
+                                            desplazaXTreemap += vx * dt; desplazaYTreemap += vy * dt;
+                                            vx *= Math.pow(0.95, dt / 16); vy *= Math.pow(0.95, dt / 16);
+                                            limitarZoomTreemap(miTreemapCategorias);
+                                            if (miTreemapCategorias) miTreemapCategorias.draw();
+                                            inercia = Math.hypot(vx, vy) > 0.02 ? requestAnimationFrame(paso) : null;
+                                        };
+                                        inercia = requestAnimationFrame(paso);
+                                    }
                                 };
-                                contenedor.addEventListener('touchend', (e) => { if (e.touches.length < 2) terminar(); });
+                                contenedor.addEventListener('touchend', terminar);
                                 contenedor.addEventListener('touchcancel', terminar);
                                 // Safari tiene además sus propios eventos de pellizco
                                 contenedor.addEventListener('gesturestart', (e) => { if (zoomPermitidoTreemap) e.preventDefault(); });
@@ -13163,8 +13217,7 @@
                             function fuenteTreemap(w, h, renglones = 3) {
                                 const porAlto = (h - PADDING_ETIQUETA_TREEMAP * 2) / (renglones * INTERLINEA_TREEMAP);
                                 const porAncho = (w - PADDING_ETIQUETA_TREEMAP * 2) / 3.2;
-                                // Con zoom la letra crece con el mapa, como al acercar una imagen
-                                return Math.max(MIN_FUENTE_TREEMAP, Math.min(MAX_FUENTE_TREEMAP * zoomTreemap, Math.floor(Math.min(porAlto, porAncho))));
+                                return Math.max(MIN_FUENTE_TREEMAP, Math.min(MAX_FUENTE_TREEMAP, Math.floor(Math.min(porAlto, porAncho))));
                             }
 
                             // Cuántos renglones caben de verdad en un recuadro de este alto. El cuerpo de letra
@@ -14891,13 +14944,41 @@
                                 // intenta antes que nada y se cae solo si el recuadro no da para cuatro renglones.
                                 // Con el portafolio leído en ritmo mensual ese renglón desaparece: el ritmo pasa a
                                 // encabezar el recuadro, en todas las capas, y no hace falta repetirlo abajo.
+                                // En el portafolio hasta el recuadro más chico lleva su nombre, en letra diminuta y
+                                // del tamaño exacto que cabe: no se lee en el mapa entero, pero sí al acercarlo con
+                                // zoom. Con el hueco normal no quedaría espacio para la letra.
+                                const paddingEtiquetaTreemap = (raw) => !esPortafolio || !raw
+                                    ? PADDING_ETIQUETA_TREEMAP
+                                    : Math.min(PADDING_ETIQUETA_TREEMAP, Math.min(raw.w, raw.h) * 0.08);
+                                const etiquetaDiminutaTreemap = (d, w, h) => {
+                                    const p = Math.min(PADDING_ETIQUETA_TREEMAP, Math.min(w, h) * 0.08);
+                                    const ganancia = d.real - d.esperado;
+                                    const cifra = vistaMensual && d.mensual !== undefined
+                                        ? `${d.mensual >= 0 ? '+' : ''}${d.mensual.toFixed(1)}%`
+                                        : d.esperado > 0 && Math.abs(ganancia) >= 0.005
+                                        ? `${ganancia >= 0 ? '+' : '-'}${montoCompactoTreemap(Math.abs(ganancia))}`
+                                        : montoCompactoTreemap(d.real !== undefined ? d.real : d.monto);
+                                    const nombre = String(d.nombre || '');
+                                    // Ancho y alto de la letra con holgura, para que el treemap no la tenga que encoger
+                                    const porAncho = (texto) => (w - 2 * p) / (Math.max(1, texto.length) * 0.75);
+                                    const dos = Math.min((h - 2 * p) / 2.5, porAncho(nombre), porAncho(cifra));
+                                    const uno = Math.min((h - 2 * p) / 1.25, porAncho(nombre));
+                                    if (Math.max(dos, uno) < 0.15) return null;
+                                    return dos >= uno * 0.6
+                                        ? { lineas: [nombre, cifra], fuentes: [{ size: dos, weight: 'bold' }, { size: dos, weight: 'bold' }] }
+                                        : { lineas: [nombre], fuentes: [{ size: uno, weight: 'bold' }] };
+                                };
+
                                 const medidasEtiqueta = (raw) => {
                                     const w = raw.w;
                                     const h = raw.h;
                                     const d = buscarDato(raw);
                                     const vacio = { lineas: [], fuentes: [{ size: 12, weight: 'bold' }] };
 
-                                    if (!d || h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) return vacio;
+                                    if (!d) return vacio;
+                                    if (h < MIN_LADO_ETIQUETA_TREEMAP || w < MIN_LADO_ETIQUETA_TREEMAP) {
+                                        return esPortafolio ? etiquetaDiminutaTreemap(d, w, h) || vacio : vacio;
+                                    }
 
                                     const disponible = w - PADDING_ETIQUETA_TREEMAP * 2;
                                     const cabe = (texto, tam) => anchoTexto(texto, tam) <= disponible;
@@ -15184,11 +15265,10 @@
                                 zoomPermitidoTreemap = esPortafolio;
                                 const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', agrupacionTreemapInversiones, vistaAccesible, vistaMensual].join('|');
-                                if (llaveZoom !== llaveZoomTreemap) {
+                                if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
                                     llaveZoomTreemap = llaveZoom;
-                                    zoomTreemap = 1;
+                                    reiniciarZoomTreemap();
                                 }
-                                fijarZoomTreemap(contenedor);
 
                                 const ctx = document.getElementById('graficoTreemapCategorias').getContext('2d');
 
@@ -15304,7 +15384,7 @@
                                 // pantalla): un anillo del color de su línea separado del contenido por un hueco negro,
                                 // y en la esquina el círculo con la palomita. Los demás se apagan, para ver de un
                                 // vistazo qué está en la curva.
-                                const radioRecuadros = esPortafolio ? RADIO_RECUADROS_INVERSION * zoomTreemap : RADIO_RECUADROS_TREEMAP;
+                                const radioRecuadros = esPortafolio ? RADIO_RECUADROS_INVERSION : RADIO_RECUADROS_TREEMAP;
                                 const ANILLO_SELECCION_TREEMAP = 2.5;
                                 const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
@@ -15387,8 +15467,8 @@
                                                 display: conSectores,
                                                 align: 'center',
                                                 color: '#ffffff',
-                                                font: { size: 11 * zoomTreemap, weight: 'bold' },
-                                                padding: 3 * zoomTreemap,
+                                                font: { size: 11, weight: 'bold' },
+                                                padding: 3,
                                                 formatter: (context) => context.raw && context.raw.g ? context.raw.g : ''
                                             },
                                             // En la capa de las compras los recuadros se colocan en el orden en
@@ -15408,7 +15488,7 @@
                                             unsorted: !!empresaAbierta,
                                             // Cada recuadro va suelto, con un hueco y las esquinas redondeadas,
                                             // como las tarjetas de iOS
-                                            spacing: esPortafolio ? HUECO_RECUADROS_INVERSION * zoomTreemap : HUECO_RECUADROS_TREEMAP,
+                                            spacing: esPortafolio ? HUECO_RECUADROS_INVERSION : HUECO_RECUADROS_TREEMAP,
                                             borderRadius: radioRecuadros,
                                             borderWidth: 0,
                                             backgroundColor: fondoRecuadro,
@@ -15437,7 +15517,7 @@
                                                     // sólo hasta donde esa misma tinta se sigue leyendo.
                                                     return colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas));
                                                 },
-                                                padding: PADDING_ETIQUETA_TREEMAP,
+                                                padding: (context) => paddingEtiquetaTreemap(context.raw),
                                                 font: (context) => {
                                                     if (context.type !== 'data') return { size: 12, weight: 'bold' };
                                                     return medidasEtiqueta(context.raw).fuentes;
@@ -15452,7 +15532,6 @@
                                     options: {
                                         animation: ANIMACION_GRAFICAS,
                                         maintainAspectRatio: false,
-                                        devicePixelRatio: densidadLienzoTreemap(contenedor),
                                         // El relleno de cada recuadro es un degradado en coordenadas del lienzo, así
                                         // que al cambiar de tamaño —girar el teléfono— habría que recalcularlo:
                                         // sin esto los rectángulos cambian de sitio y la línea de llenado no.
@@ -15479,8 +15558,10 @@
                                             if (d && d.id) verDetallesCategoria(d.id);
                                         }
                                     },
-                                    plugins: [pluginJuntaTreemap, pluginSeleccionTreemap]
+                                    plugins: [pluginJuntaTreemap, pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
                                 });
+                                // Tras girar el teléfono, el desplazamiento se vuelve a acomodar al nuevo tamaño
+                                if (esPortafolio) limitarZoomTreemap(miTreemapCategorias);
 
                                 // El portafolio es el único mapa con capas, y por eso el único que necesita separar
                                 // los dos gestos. Un toque baja una capa y, cuando ya no hay nada debajo, abre la
