@@ -12780,15 +12780,17 @@
                             // final sus compras. Una capa que tendría una sola cosa se salta.
                             function abrirCapaGicsTreemap(d, datosCapa) {
                                 const delSector = datosCapa.filter(x => x.sectorMapa === d.sectorMapa);
-                                const deLaIndustria = datosCapa.filter(x => x.sectorMapa === d.sectorMapa && x.industriaGics === d.industriaGics);
-                                if (industriaGicsTreemap || deLaIndustria.length === 1) { abrirEmpresaTreemap(d.id); return; }
+                                const deLaIndustria = delSector.filter(x => x.industriaGics === d.industriaGics);
+                                if (industriaGicsTreemap) { abrirEmpresaTreemap(d.id); return; }
                                 if (!sectorGicsTreemap) {
+                                    // Desde el mapa entero: al sector (y a la industria, si el sector tiene una sola)
                                     if (delSector.length === 1) { abrirEmpresaTreemap(d.id); return; }
                                     sectorGicsTreemap = d.sectorMapa;
-                                    const industrias = new Set(delSector.map(x => x.industriaGics));
-                                    saltoIndustriaGicsTreemap = industrias.size === 1;
+                                    saltoIndustriaGicsTreemap = new Set(delSector.map(x => x.industriaGics)).size === 1;
                                     if (saltoIndustriaGicsTreemap) industriaGicsTreemap = d.industriaGics;
                                 } else {
+                                    // Desde el sector: a la industria, salvo que la empresa sea la única de ella
+                                    if (deLaIndustria.length === 1) { abrirEmpresaTreemap(d.id); return; }
                                     industriaGicsTreemap = d.industriaGics;
                                     saltoIndustriaGicsTreemap = false;
                                 }
