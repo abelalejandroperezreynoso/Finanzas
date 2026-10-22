@@ -15420,6 +15420,8 @@
                                     const base = esPortafolio
                                         ? colorRendimientoInversion(pctInversion, (vistaMensual && d.mensual !== undefined) ? TOPE_RENDIMIENTO_MENSUAL : TOPE_RENDIMIENTO_TOTAL)
                                         : colorTreemapCategoria(d.cat, entradas);
+                                    // En "Sostenido" el tamaño no es dinero: el recuadro va de un solo color, sin franja
+                                    if (vistaSostenida) return base;
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
                                     const { y, h } = context.raw;
