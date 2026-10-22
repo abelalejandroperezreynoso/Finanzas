@@ -12828,6 +12828,13 @@
                             const TOPE_RENDIMIENTO_MENSUAL = 3;
                             const TOPE_RENDIMIENTO_TOTAL = 15;
 
+                            // La franja de lo ganado o perdido: el color del recuadro mezclado con blanco
+                            function aclararColorInversion(rgb) {
+                                const c = (rgb.match(/\d+/g) || [0, 0, 0]).map(Number);
+                                const m = c.map(v => Math.round(v + (255 - v) * 0.35));
+                                return `rgb(${m[0]}, ${m[1]}, ${m[2]})`;
+                            }
+
                             function colorRendimientoInversion(porcentaje, tope) {
                                 const t = Math.max(-1, Math.min(1, (porcentaje || 0) / tope));
                                 let i = 0;
@@ -14873,16 +14880,14 @@
                                     if (!d) return '#444444';
                                     if (!d.cat) return '#3a3a3a';
 
-                                    // Inversiones: un solo color por recuadro, según su rendimiento
-                                    if (esPortafolio) {
-                                        if (vistaMensual && d.mensual !== undefined) {
-                                            return colorRendimientoInversion(d.mensual, TOPE_RENDIMIENTO_MENSUAL);
-                                        }
-                                        const pct = d.esperado > 0 ? ((d.real - d.esperado) / d.esperado) * 100 : 0;
-                                        return colorRendimientoInversion(pct, TOPE_RENDIMIENTO_TOTAL);
-                                    }
-
-                                    const base = colorTreemapCategoria(d.cat, entradas);
+                                    // Inversiones: el color del recuadro sale de su rendimiento, y la franja de
+                                    // lo ganado o perdido va en ese mismo tono, más claro
+                                    const pctInversion = !esPortafolio ? 0
+                                        : (vistaMensual && d.mensual !== undefined) ? d.mensual
+                                        : d.esperado > 0 ? ((d.real - d.esperado) / d.esperado) * 100 : 0;
+                                    const base = esPortafolio
+                                        ? colorRendimientoInversion(pctInversion, (vistaMensual && d.mensual !== undefined) ? TOPE_RENDIMIENTO_MENSUAL : TOPE_RENDIMIENTO_TOTAL)
+                                        : colorTreemapCategoria(d.cat, entradas);
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
                                     const { y, h } = context.raw;
@@ -14901,7 +14906,7 @@
                                     // portafolio es la diferencia contra lo que pusiste, y ahí sí tiene color
                                     // propio: verde si la posición subió, rojo si bajó.
                                     const arriba = esPortafolio
-                                        ? (f < 1 ? ROJO_PERDIDA_TREEMAP : VERDE_GANANCIA_TREEMAP)
+                                        ? aclararColorInversion(base)
                                         : (f < 1 ? colorTenue(base, alphaPendienteTreemap(base)) : base);
 
                                     // Dónde está ese corte: si la posición subió —o el gasto se pasó—, el recuadro
