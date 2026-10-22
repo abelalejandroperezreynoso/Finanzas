@@ -12564,7 +12564,17 @@
                             // no dice lo mismo si tardó tres años que si tardó tres meses. Es el mismo ritmo que
                             // ya trae cada movimiento en gestión de datos, así que las dos pantallas coinciden.
                             // Abre en "Total", que es la lectura que el mapa ha tenido siempre.
-                            let rendimientoTreemapInversiones = localStorage.getItem('rendimientoTreemapInversiones') === 'mensual' ? 'mensual' : 'total';
+                            //
+                            // "Sostenido" cambia además el tamaño de los recuadros: ritmo mensual × meses, en valor
+                            // absoluto (el color dice si es ganancia o pérdida). Así una compra de hoy con +8% queda
+                            // diminuta y una que lleva 12 meses a 4% al mes, grande; una pérdida larga, también grande.
+                            // No pesa cuánto dinero hay en cada una: mide cómo le ha ido en el tiempo.
+                            const RENDIMIENTOS_TREEMAP_INVERSIONES = ['total', 'mensual', 'sostenido'];
+                            const NOMBRES_RENDIMIENTO_TREEMAP = { total: '$ Total', mensual: '% Mensual', sostenido: '% Sostenido' };
+                            let rendimientoTreemapInversiones = (function () {
+                                const guardado = localStorage.getItem('rendimientoTreemapInversiones');
+                                return RENDIMIENTOS_TREEMAP_INVERSIONES.indexOf(guardado) >= 0 ? guardado : 'total';
+                            })();
 
                             // Cómo reparte el portafolio lo que hay dentro de una cuenta: una caja por empresa,
                             // o una por sector con sus empresas dentro. Agrupar por sector responde a otra
@@ -13875,11 +13885,12 @@
                             }
 
                             function alternarRendimientoTreemapInversiones() {
-                                cambiarRendimientoTreemapInversiones(rendimientoTreemapInversiones === 'mensual' ? 'total' : 'mensual');
+                                const i = RENDIMIENTOS_TREEMAP_INVERSIONES.indexOf(rendimientoTreemapInversiones);
+                                cambiarRendimientoTreemapInversiones(RENDIMIENTOS_TREEMAP_INVERSIONES[(i + 1) % RENDIMIENTOS_TREEMAP_INVERSIONES.length]);
                             }
 
                             function cambiarRendimientoTreemapInversiones(modo) {
-                                rendimientoTreemapInversiones = modo === 'mensual' ? 'mensual' : 'total';
+                                rendimientoTreemapInversiones = RENDIMIENTOS_TREEMAP_INVERSIONES.indexOf(modo) >= 0 ? modo : 'total';
                                 localStorage.setItem('rendimientoTreemapInversiones', rendimientoTreemapInversiones);
                                 repintarTreemapCategorias();
                             }
@@ -14610,6 +14621,10 @@
                                 const esPortafolio = !!modoActivo && modoActivo.tipo === 'inversion';
                                 const vistaAccesible = esPortafolio && vistaTreemapInversiones === 'accesible';
                                 const vistaMensual = esPortafolio && rendimientoTreemapInversiones === 'mensual';
+                                const vistaSostenida = esPortafolio && rendimientoTreemapInversiones === 'sostenido';
+                                // Lo que da tamaño a un recuadro en "Sostenido". Con menos de un mes, el ritmo es lo ganado
+                                // (la app cuenta mínimo un mes) y se multiplica por la fracción de mes que lleva.
+                                const sostenidoDe = (d) => d.mensual !== undefined && d.meses !== undefined ? d.mensual * d.meses : 0;
                                 const porSector = esPortafolio && agrupaPorSectorTreemap();
 
                                 // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
@@ -14733,7 +14748,7 @@
                                 const selectorRendimiento = document.getElementById('selectorRendimientoTreemap');
                                 if (selectorRendimiento) {
                                     selectorRendimiento.style.display = esPortafolio ? '' : 'none';
-                                    selectorRendimiento.innerHTML = (rendimientoTreemapInversiones === 'mensual' ? '% Mensual' : '$ Total')
+                                    selectorRendimiento.innerHTML = NOMBRES_RENDIMIENTO_TREEMAP[rendimientoTreemapInversiones]
                                         + '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
                                 }
 
@@ -14929,6 +14944,10 @@
                                     });
                                 }
                                 const totalCategorias = datos.length;
+                                // El tamaño de cada recuadro: lo que vale, o en "Sostenido" el ritmo por los meses. Lo
+                                // que no tiene ritmo, o va plano, queda diminuto en vez de desaparecer (se ve con zoom).
+                                const minimoSostenido = Math.max(0.01, datos.reduce((m, d) => Math.max(m, Math.abs(sostenidoDe(d))), 0) * 0.002);
+                                datos.forEach(d => { d.tamanoMapa = vistaSostenida ? Math.max(Math.abs(sostenidoDe(d)), minimoSostenido) : d.monto; });
                                 // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
                                 // el último nivel.
                                 const nivelHojaMapa = gruposMapa.length - 1;
@@ -15049,7 +15068,7 @@
                                     const dinero = d.esperado > 0 && abs >= 0.005
                                         ? [`${signo}${fMoneda(abs)}`, `${signo}${redondo(abs)}`, `${signo}${montoCompactoTreemap(abs)}`]
                                         : [fMoneda(d.real !== undefined ? d.real : d.monto), montoCompactoTreemap(d.real !== undefined ? d.real : d.monto)];
-                                    const formas = vistaMensual && hayRitmo ? ritmo : dinero;
+                                    const formas = (vistaMensual || vistaSostenida) && hayRitmo ? ritmo : dinero;
 
                                     // Dos renglones: nombre y cifra
                                     let tamNombre = Math.min(Math.min(w, h) * 0.25, ancho / ancho1(nombre, 'bold'));
@@ -15065,7 +15084,7 @@
                                     }
                                     if (tamNombre < 0.15) return null;
                                     // Las compras llevan además su ritmo, si cabe
-                                    if (hayRitmo && d.esLote && !(vistaMensual)) {
+                                    if (hayRitmo && d.esLote && !vistaMensual && !vistaSostenida) {
                                         const extra = ritmo.find(f => ancho1(f, 'normal') * tamCifra * 0.85 <= ancho);
                                         if (extra && 1.2 * (tamNombre + tamCifra * 1.85) <= alto) {
                                             return { lineas: [nombre, cifra, extra],
@@ -15370,7 +15389,7 @@
                                 zoomPermitidoTreemap = esPortafolio;
                                 const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
-                                    agrupacionTreemapInversiones, vistaAccesible, vistaMensual].join('|');
+                                    agrupacionTreemapInversiones, vistaAccesible, rendimientoTreemapInversiones].join('|');
                                 if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
                                     llaveZoomTreemap = llaveZoom;
                                     reiniciarZoomTreemap();
@@ -15396,6 +15415,7 @@
                                     // lo ganado o perdido va en ese mismo tono, más claro
                                     const pctInversion = !esPortafolio ? 0
                                         : (vistaMensual && d.mensual !== undefined) ? d.mensual
+                                        : (vistaSostenida && d.mensual !== undefined) ? sostenidoDe(d)
                                         : d.esperado > 0 ? ((d.real - d.esperado) / d.esperado) * 100 : 0;
                                     const base = esPortafolio
                                         ? colorRendimientoInversion(pctInversion, (vistaMensual && d.mensual !== undefined) ? TOPE_RENDIMIENTO_MENSUAL : TOPE_RENDIMIENTO_TOTAL)
@@ -15599,7 +15619,7 @@
                                     data: {
                                         datasets: [{
                                             tree: datos,
-                                            key: 'monto',
+                                            key: 'tamanoMapa',
                                             groups: gruposMapa,
                                             // Como en los mapas de bolsa: cada sector e industria es sólo su barra de
                                             // título y las empresas van pegadas debajo, sin caja ni márgenes. En un
@@ -15807,7 +15827,7 @@
                                         const mensualPie = costoPie > 0
                                             ? ((valorPie - costoPie) / costoPie) * 100 / divisorMeses(mesesPie)
                                             : 0;
-                                        const resumenPie = (vistaMensual && costoPie > 0)
+                                        const resumenPie = ((vistaMensual || vistaSostenida) && costoPie > 0)
                                             ? `${mensualPie >= 0 ? '+' : ''}${mensualPie.toFixed(2)}% /${mesesPie.toFixed(1)}m`
                                             : `${avance}% ${modoActivo ? modoActivo.avance : 'del mes'}`;
 
