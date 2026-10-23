@@ -1185,22 +1185,23 @@ async function segmentosFmp(ticker: string): Promise<{ seg: Segmentos } | { erro
   let d: Json = cacheReportes.get(clave);
   d = d && Date.now() - d.t < 12 * 3_600_000 ? d.d : null;
   if (!d) {
-    try {
-      const r = await fetch(`https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&apikey=${CLAVE_FMP}`,
-        { signal: AbortSignal.timeout(10000) });
-      if (r.status === 429) return { error: "FMP llegó a su límite de consultas.", limite: true };
-      if (r.status === 401) return { error: "La clave de FMP (secreto FMP_API_KEY) no es válida." };
-      const texto = await r.text();
-      try { d = JSON.parse(texto); } catch (_) { d = null; }
-      const mensaje = d && !Array.isArray(d) ? d["Error Message"] ?? d.error ?? d.message : null;
-      if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|not available/i.test(String(mensaje ?? ""))) {
-        return { error: `El plan de FMP no incluye los segmentos de ${t}.` };
-      }
-      if (!r.ok || mensaje) return { error: `FMP no respondió bien con ${t} (${r.status}).` };
-      cacheReportes.set(clave, { t: Date.now(), d });
-    } catch (_) {
-      return { error: "No se pudo consultar FMP.", limite: true };
+    // Lo que dijo FMP va en el error tal cual (recortado), para saber qué pasó sin adivinar
+    const url = `https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&apikey=${CLAVE_FMP}`;
+    let r: Response | null = null, fallo = "";
+    for (let intento = 0; intento < 2 && !r; intento++) {
+      try { r = await fetch(url, { signal: AbortSignal.timeout(15000) }); } catch (e) { fallo = `${(e as Error)?.name ?? "Error"}: ${(e as Error)?.message ?? ""}`.slice(0, 160); }
     }
+    if (!r) return { error: `No se pudo conectar con FMP (${fallo}).`, limite: true };
+    const texto = await r.text();
+    try { d = JSON.parse(texto); } catch (_) { d = null; }
+    const mensaje = String((d && !Array.isArray(d) ? d["Error Message"] ?? d.error ?? d.message : null) ?? (r.ok ? "" : texto)).replace(/\s+/g, " ").slice(0, 200);
+    if (r.status === 429) return { error: `FMP llegó a su límite de consultas (429: ${mensaje}).`, limite: true };
+    if (r.status === 401) return { error: `La clave de FMP (secreto FMP_API_KEY) no es válida (401: ${mensaje}).` };
+    if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|restricted|not available/i.test(mensaje)) {
+      return { error: `El plan de FMP no incluye los segmentos de ${t} (${r.status}: ${mensaje}).` };
+    }
+    if (!r.ok || mensaje) return { error: `FMP no respondió bien con ${t} (${r.status}: ${mensaje}).` };
+    cacheReportes.set(clave, { t: Date.now(), d });
   }
   const seg = ultimosSegmentos(d);
   return seg ? { seg } : { error: `FMP no tiene las ventas por segmento de ${t}.` };
@@ -2249,7 +2250,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       } else {
         if (!c.ticker) return { texto: "Sin ticker no hay segmentos: propón pesos a mano.", error: true };
         const r = await segmentosFmp(c.ticker);
-        if ("error" in r) return { texto: `${r.error} Si el usuario te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
+        if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
         const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. Sus divisiones: ${divisiones.join(", ")}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
           return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a la división que le toca por lo que vende, o "" si no encaja en ninguna. No le preguntes al usuario: él lo ve en la tarjeta.`, error: true };
