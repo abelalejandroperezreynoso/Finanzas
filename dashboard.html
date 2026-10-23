@@ -3064,6 +3064,7 @@
                         <div id="bloqueSubsectoresCat" style="display:none; margin-top:14px;">
                             <div class="rango-ios-encabezado">Subsectores</div>
                             <div id="filasSubsectoresCat"></div>
+                            <small id="notaPesosCat" style="display:none; color:#666; font-size:0.78em; line-height:1.4;"></small>
                         </div>
                     </div>
 
@@ -4056,7 +4057,7 @@
                                         const pesos = {};
                                         cats.forEach(c => {
                                             const div = donde.sector ? divisionesDeCategoriaTreemap(c) : null;
-                                            pesos[String(c.id)] = div ? div.en(donde.sector) / div.total : 1;
+                                            pesos[String(c.id)] = div ? div.fraccion(donde.sector) : 1;
                                         });
 
                                         const porId = {};
@@ -7328,13 +7329,38 @@
                             });
 
                             bloque.style.display = sectoresEnEdicionCat.length > 0 ? 'block' : 'none';
+                            // Los porcentajes guardados, si cuadran con lo que se está editando
+                            const catEditada = editIdCat ? (datosCategorias || []).find(c => String(c.id) === String(editIdCat)) : null;
+                            const ps = catEditada && catEditada.pesos_subsectores;
+                            const clavesEdicion = [];
+                            sectoresEnEdicionCat.forEach(sec => {
+                                const subs = subsectoresEnEdicionCat[sec] || [];
+                                if (subs.length) subs.forEach(sub => clavesEdicion.push(`${sec} › ${sub}`)); else clavesEdicion.push(sec);
+                            });
+                            const fracciones = ps ? pesosVigentesDeCategoria(catEditada, clavesEdicion) : null;
+                            const pct = (clave) => {
+                                if (!fracciones) return '';
+                                const n = Object.keys(fracciones).filter(k => k === clave || k.indexOf(`${clave} › `) === 0).reduce((t, k) => t + fracciones[k], 0) * 100;
+                                return ` · ${n > 0 && n < 1 ? '<1' : Math.round(n)}%`;
+                            };
+                            const ayudaSectores = document.getElementById('ayudaSectoresCat');
+                            if (ayudaSectores && fracciones) ayudaSectores.textContent = 'En Agrupar → Personalizado su dinero se reparte según sus porcentajes.';
+                            const nota = document.getElementById('notaPesosCat');
+                            if (nota) {
+                                nota.textContent = !ps ? ''
+                                    : !fracciones ? 'Los porcentajes no cuadran con estos subsectores: pídele al asistente que los rehaga.'
+                                    : ps.error ? `Porcentajes de ${ps.anio || 'antes'}: no se pudieron actualizar (${ps.error})`
+                                    : ps.origen === 'segmentos' ? `Porcentajes según ventas ${ps.anio || ''}. Se actualizan solos.`
+                                    : 'Porcentajes puestos a mano.';
+                                nota.style.display = nota.textContent ? 'block' : 'none';
+                            }
                             filas.innerHTML = sectoresEnEdicionCat.map((sec, i) => {
                                 const puestos = subsectoresEnEdicionCat[sec] || [];
                                 const usados = subsectoresPropiosUsados(sec).filter(x => !puestos.some(p => p.toLowerCase() === x.toLowerCase()));
                                 return `<div class="fila-subsectores">` +
-                                    `<div class="fila-subsectores-sector">${escaparHtml(sec)}</div>` +
+                                    `<div class="fila-subsectores-sector">${escaparHtml(sec)}${pct(sec)}</div>` +
                                     `<div style="display:flex; flex-wrap:wrap; gap:6px;${puestos.length ? ' margin-bottom:8px;' : ''}">` +
-                                    puestos.map((x, j) => `<span class="chip-sector">${escaparHtml(x)}` +
+                                    puestos.map((x, j) => `<span class="chip-sector">${escaparHtml(x)}${pct(`${sec} › ${x}`)}` +
                                         `<button type="button" onclick="quitarSubsectorEnEdicion(${i}, ${j})" aria-label="Quitar ${escaparHtml(x)}">&times;</button></span>`).join('') +
                                     `</div>` +
                                     `<input type="text" autocomplete="off" data-sector="${escaparHtml(sec)}" id="catSubsector_${i}" placeholder="Subsector de ${escaparHtml(sec)}"` +
@@ -8089,6 +8115,8 @@
                                                                 // Si se abrió tocando un aviso, ahora que hay datos se va a lo que avisa
                                                                 datosArranqueListos = true;
                                                                 if (typeof atenderDestinoAviso === 'function') atenderDestinoAviso();
+                                                                // Los porcentajes de subsectores con receta se recalculan con cada reporte nuevo
+                                                                recalcularPesosSubsectores();
 
                                                                 // El histórico de precios va detrás del arranque y sin retenerlo: son dos
                                                                 // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
@@ -12862,13 +12890,63 @@
                             // En cuántas partes iguales se reparte una empresa: una por cada subsector y una por cada
                             // sector sin subsectores (Tecnología con Software y Apps, más Compras: tres tercios).
                             // en(sector) dice cuántas de esas partes caen en ese sector.
+                            // Con porcentajes vigentes (pesos_subsectores), cada parte pesa lo suyo en vez de lo mismo.
+                            // fraccion(sector, sub): qué parte de la empresa es; sub undefined = el sector entero,
+                            // null = el sector sin subsectores.
                             function divisionesDeCategoriaTreemap(cat) {
                                 const suyos = sectoresDeCategoriaTreemap(cat);
                                 const conSubs = agrupacionTreemapInversiones === 'personalizado';
-                                const delSector = {};
-                                suyos.forEach(sec => { delSector[sec] = conSubs ? Math.max(1, subsectoresPropiosDeCategoria(cat, sec).length) : 1; });
-                                const total = suyos.reduce((t, sec) => t + delSector[sec], 0) || 1;
-                                return { total, en: (sec) => delSector[sec] || 0 };
+                                const divs = [];
+                                suyos.forEach(sec => {
+                                    const subs = conSubs ? subsectoresPropiosDeCategoria(cat, sec) : [];
+                                    if (subs.length) subs.forEach(sub => divs.push({ sec, sub, clave: `${sec} › ${sub}` }));
+                                    else divs.push({ sec, sub: null, clave: sec });
+                                });
+                                const pesos = conSubs ? pesosVigentesDeCategoria(cat, divs.map(d => d.clave)) : null;
+                                const total = divs.length || 1;
+                                const delSector = (sec) => divs.filter(d => d.sec === sec);
+                                return {
+                                    total,
+                                    conPesos: !!pesos,
+                                    en: (sec) => delSector(sec).length,
+                                    fraccion: (sec, sub) => {
+                                        const elegidas = sub === undefined ? delSector(sec) : delSector(sec).filter(d => d.sub === sub);
+                                        return pesos ? elegidas.reduce((t, d) => t + (pesos[d.clave] || 0), 0) : elegidas.length / total;
+                                    }
+                                };
+                            }
+
+                            // Los porcentajes guardados, como fracciones por división, si cubren exactamente las de hoy
+                            function pesosVigentesDeCategoria(cat, claves) {
+                                const ps = cat && cat.pesos_subsectores;
+                                const pesos = ps && ps.pesos && typeof ps.pesos === 'object' ? ps.pesos : null;
+                                if (!pesos || claves.length < 2) return null;
+                                const llave = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                                const porLlave = {};
+                                Object.keys(pesos).forEach(k => { porLlave[llave(k)] = Math.max(0, Number(pesos[k]) || 0); });
+                                if (Object.keys(porLlave).length !== claves.length || !claves.every(c => llave(c) in porLlave)) return null;
+                                const suma = claves.reduce((t, c) => t + porLlave[llave(c)], 0);
+                                if (!(suma > 0)) return null;
+                                const fracciones = {};
+                                claves.forEach(c => { fracciones[c] = porLlave[llave(c)] / suma; });
+                                return fracciones;
+                            }
+
+                            // La pieza de una empresa que cae en un sector o subsector: con porcentajes, su parte y su
+                            // porcentaje en el nombre; sin ellos, partes iguales con su fracción (½, ⅓). Nada si es 0.
+                            function piezaDeDivisionTreemap(d, div, sector, sub) {
+                                if (!div.conPesos) return piezaRepartidaTreemap(d, div.total, sub === undefined ? div.en(sector) : 1);
+                                const peso = div.fraccion(sector, sub);
+                                if (!(peso > 0)) return null;
+                                if (peso >= 0.9995) return d;
+                                const pct = peso * 100;
+                                return Object.assign({}, d, {
+                                    partes: 1 / peso,
+                                    monto: d.monto * peso,
+                                    real: d.real * peso,
+                                    esperado: d.esperado * peso,
+                                    nombre: `${d.nombre} ${pct < 1 ? '<1' : Math.round(pct)}%`
+                                });
                             }
 
                             // Lo que le toca a un sector: las empresas que lo llevan entre los suyos, ya
@@ -12880,8 +12958,8 @@
                                 empresas.forEach(d => {
                                     const suyos = sectoresDeCategoriaTreemap(d.cat);
                                     if (suyos.indexOf(sector) >= 0) {
-                                        const div = divisionesDeCategoriaTreemap(d.cat);
-                                        piezas.push(piezaRepartidaTreemap(d, div.total, div.en(sector)));
+                                        const pieza = piezaDeDivisionTreemap(d, divisionesDeCategoriaTreemap(d.cat), sector);
+                                        if (pieza) piezas.push(pieza);
                                     }
                                 });
 
@@ -12901,8 +12979,11 @@
                                     if (suyos.indexOf(sector) < 0) return;
                                     const subs = agrupacionTreemapInversiones === 'personalizado' ? subsectoresPropiosDeCategoria(d.cat, sector) : [];
                                     if (subs.length) alguno = true;
-                                    const pieza = piezaRepartidaTreemap(d, divisionesDeCategoriaTreemap(d.cat).total);
-                                    (subs.length ? subs : [SUBSECTOR_SIN_PROPIO_TREEMAP]).forEach(sub => piezas.push(Object.assign({}, pieza, { subsectorMapa: sub })));
+                                    const div = divisionesDeCategoriaTreemap(d.cat);
+                                    (subs.length ? subs : [null]).forEach(sub => {
+                                        const pieza = piezaDeDivisionTreemap(d, div, sector, sub);
+                                        if (pieza) piezas.push(Object.assign({}, pieza, { subsectorMapa: sub || SUBSECTOR_SIN_PROPIO_TREEMAP }));
+                                    });
                                 });
 
                                 return alguno ? piezas : null;
@@ -13956,7 +14037,8 @@
                                     // repartiendo exactamente el mismo dinero que había una capa más arriba.
                                     const div = divisionesDeCategoriaTreemap(d.cat);
                                     suyos.forEach(sector => {
-                                        (porSector[sector] = porSector[sector] || []).push(piezaRepartidaTreemap(d, div.total, div.en(sector)));
+                                        const pieza = piezaDeDivisionTreemap(d, div, sector);
+                                        if (pieza) (porSector[sector] = porSector[sector] || []).push(pieza);
                                     });
                                 });
 
@@ -18428,6 +18510,19 @@
                                     const nombres = (p.categorias || []).map(x => x.nombre);
                                     filas.push(`Se vuelve a esperar: <b>${escaparHtml(nombres.join(', '))}</b>`);
                                     filas.push('Entra en el pronóstico, los pendientes y los avisos');
+                                } else if (p.tipo === 'pesos_subsectores') {
+                                    const d = p.datos || {}, antes = p.antes || {};
+                                    filas.push(`Empresa: <b>${escaparHtml(p.nombre || '')}</b>${p.ticker ? ` [${escaparHtml(p.ticker)}]` : ''}`);
+                                    Object.entries(d.pesos || {}).sort((a, b) => b[1] - a[1]).forEach(([div, pct]) => {
+                                        const previo = Object.keys(antes).find(k => k.toLowerCase() === div.toLowerCase());
+                                        filas.push(`${escaparHtml(div)}: ${previo !== undefined ? flecha(`${antes[previo]}%`, `${pct}%`) : `<b>${escaparHtml(String(pct))}%</b>`}`);
+                                    });
+                                    if (d.origen === 'segmentos') {
+                                        filas.push(`Según: ventas por segmento ${escaparHtml(String(d.anio || (d.cierre || '').slice(0, 4)))}; se actualiza con cada reporte anual`);
+                                        Object.entries(d.receta || {}).forEach(([seg, div]) => filas.push(`<span style="opacity:0.75">${escaparHtml(seg)} → ${escaparHtml(div || 'no cuenta')}</span>`));
+                                    } else {
+                                        filas.push('Según: <b>a mano</b> (no se actualiza solo)');
+                                    }
                                 } else if (p.tipo === 'clasificacion') {
                                     (p.cambios || []).forEach(x => filas.push(`${escaparHtml(x.ticker || '')}: ${x.automatica
                                         ? `<b>Automática</b>${x.antes ? ` (quita ${escaparHtml(x.antes)})` : ''}`
@@ -18588,7 +18683,7 @@
                             function propuestaQueCorrige(p) {
                                 const clave = x => x.tipo === 'cambio_movimiento' ? x.registro_id
                                     : x.tipo === 'mover_movimientos' ? x.origen_categoria_id
-                                    : x.tipo === 'cambio_categoria' ? x.categoria_id
+                                    : x.tipo === 'cambio_categoria' || x.tipo === 'pesos_subsectores' ? x.categoria_id
                                     : x.tipo === 'cambio_cuenta' ? x.cuenta_id
                                     // Una sola tarjeta de avisos: la nueva sustituye a la que siga pendiente
                                     : x.tipo === 'avisos' ? 'avisos' : null;
@@ -18671,7 +18766,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, con_clasificacion: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, con_clasificacion: true, con_pesos: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -19434,6 +19529,29 @@
                                         secundario: { texto: 'Ahora no', dias: 7 }
                                     });
                                 }
+                                // 6b. Porcentajes de subsectores que no se pudieron calcular o que ya no cuadran con sus subsectores
+                                cats.filter(c => c.tipo === 'inversion' && c.pesos_subsectores && typeof c.pesos_subsectores === 'object').forEach(c => {
+                                    const ps = c.pesos_subsectores;
+                                    const claves = [];
+                                    sectoresPropiosDeCategoria(c).forEach(sec => {
+                                        const subs = subsectoresPropiosDeCategoria(c, sec);
+                                        if (subs.length) subs.forEach(sub => claves.push(`${sec} › ${sub}`)); else claves.push(sec);
+                                    });
+                                    const noCuadran = claves.length > 1 && !pesosVigentesDeCategoria(c, claves);
+                                    if (!ps.error && !noCuadran) return;
+                                    const nombre = c.ticker || c.nombre;
+                                    const motivo = noCuadran ? 'Ya no cuadran con sus subsectores.' : ps.error;
+                                    const clave = `pesos:${c.id}:${motivo}`;
+                                    if (!vigente(clave)) return;
+                                    avisos.push({
+                                        clave, categoria_id: c.id, etiqueta: 'Inversiones',
+                                        texto: noCuadran ? `Los porcentajes de ${nombre} ya no cuadran.` : `No pude calcular los porcentajes de ${nombre}.`,
+                                        detalle: noCuadran ? 'Ya no cuadran con sus subsectores: en el mapa va en partes iguales.'
+                                            : `${ps.error} En el mapa se queda con los porcentajes de antes.`,
+                                        primario: { texto: 'Arreglarlo', mensaje: `No se pudieron calcular los porcentajes de subsectores de ${nombre}: ${motivo} Revísalo y propónme cómo arreglarlo.` },
+                                        secundario: { texto: 'Ahora no', dias: 7 }
+                                    });
+                                });
                                 // 7. Lo que encontró la revisión diaria con IA
                                 const etiquetasIa = { error: 'Posible error', clasificacion: 'Clasificación', seguimiento: 'Seguimiento', ahorro: 'Ahorro', patrimonio: 'Más dinero', anticipar: 'Anticípate', salud: 'Salud' };
                                 const propios = avisos.slice();
@@ -19465,6 +19583,25 @@
                                     return g && g.dia === diaLocal(new Date()) ? g.hallazgos : null;
                                 } catch (e) { return null; }
                             }
+                            // Una vez al día como mucho: la función decide qué empresas tocan (cada semana, o al día
+                            // siguiente si la última vez falló) y guarda los porcentajes nuevos o el error
+                            async function recalcularPesosSubsectores() {
+                                if (!currentUser) return;
+                                const conReceta = (datosCategorias || []).some(c => c.pesos_subsectores && c.pesos_subsectores.origen === 'segmentos');
+                                if (!conReceta) return;
+                                const clave = `pesosRevisados:${currentUser.id}`;
+                                const hoy = diaLocal(new Date());
+                                try { if (localStorage.getItem(clave) === hoy) return; } catch (e) { /* sin almacenamiento */ }
+                                try {
+                                    const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                        body: { modo: 'pesos', desfase: new Date().getTimezoneOffset() }
+                                    });
+                                    if (error || !data) return;
+                                    try { localStorage.setItem(clave, hoy); } catch (e) { /* sin almacenamiento */ }
+                                    if (data.actualizadas || (data.errores || []).length) await refrescarTodo();
+                                } catch (e) { console.warn('Porcentajes de subsectores', e); }
+                            }
+
                             async function pedirRevisionIa() {
                                 if (revisandoIa || revisionIaDeHoy() || !currentUser) return;
                                 revisandoIa = true;
@@ -20828,6 +20965,8 @@
                                         nota: `${String(nombreNoRec).slice(0, 60)} es esporádica: apagó sus predicciones a propósito.` }]).then(() => {}, () => {});
                                 } else if (p.tipo === 'activar_predicciones') {
                                     res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: false }).in('id', (p.categorias || []).map(x => x.categoria_id));
+                                } else if (p.tipo === 'pesos_subsectores') {
+                                    res = await clienteSupabase.from('categorias').update({ pesos_subsectores: p.datos }).eq('id', p.categoria_id);
                                 } else if (p.tipo === 'clasificacion') {
                                     res = {};
                                     for (const x of (p.cambios || [])) {

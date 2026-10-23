@@ -33,7 +33,11 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   `gics.ts`, más el grupo "ETFs"), y el usuario la cambia a mano en la ficha o con `proponer_clasificacion_empresa`.
   Va en `perfiles_empresas.gics_*` con origen `ia` o `manual`; lo manual manda, luego el índice y al final la IA.
   Es aparte de los sectores propios (`categorias.sectores`), que pueden llevar subsectores propios
-  (`categorias.subsectores`, `{"Sector": ["Sub", ...]}`; en el mapa, dentro de un sector propio). La lista de `gics.ts` está copiada en
+  (`categorias.subsectores`, `{"Sector": ["Sub", ...]}`; en el mapa, dentro de un sector propio). Sin porcentajes,
+  el mapa reparte la empresa en partes iguales (una por subsector y una por sector sin subsectores); con
+  `categorias.pesos_subsectores` usa los suyos. Los propone `proponer_pesos_subsectores` con una receta (segmento de
+  ventas de FMP → división; cálculo puro en `pesos.ts`) o a mano; con receta, el modo `pesos` de la función los
+  recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una

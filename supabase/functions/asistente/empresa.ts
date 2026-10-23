@@ -130,7 +130,7 @@ export function loQueVa(trimestral: Json, ultimoCierreAnual: string | null) {
 
 // FMP (revenue-product-segmentation y revenue-geographic-segmentation). La API "stable" da
 // [{ fiscalYear, date, data: { "Google Cloud": 43229000000, ... } }]; la vieja, [{ "2024-12-31": { ... } }]
-function periodosSegmentos(datos: Json): { anio: number | null; fecha: string; partes: Record<string, number> }[] {
+export function periodosSegmentos(datos: Json): { anio: number | null; fecha: string; partes: Record<string, number> }[] {
   const lista: { anio: number | null; fecha: string; partes: Record<string, number> }[] = [];
   for (const x of Array.isArray(datos) ? datos : []) {
     if (x?.data && typeof x.data === "object") {

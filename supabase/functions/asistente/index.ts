@@ -18,6 +18,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
+import { aCien, calcularPesos, divisionDe, divisionesDe, pesosVigentes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
@@ -553,6 +554,26 @@ const HERRAMIENTAS: Json[] = [
     },
   },
   {
+    name: "proponer_pesos_subsectores",
+    description:
+      "Propone los porcentajes de los sectores y subsectores propios de UNA empresa (cuánto de ella es cada uno; el mapa la reparte así en vez de en partes iguales). " +
+      "Lo normal es con receta: a qué división va cada segmento de sus ventas (FMP, último año fiscal); con ella los porcentajes se recalculan solos con cada reporte anual. " +
+      "Llámala primero sin receta: te devuelve sus segmentos y sus divisiones. Una división es \"Sector › Subsector\" (o sólo \"Sector\" si ese sector no tiene subsectores). " +
+      "Con pesos (en vez de receta) quedan fijos a mano: sólo si no hay segmentos (ETFs, algunas extranjeras) o el usuario los da. NO lo aplica: el usuario lo confirmará.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categoria_id: { type: "string" },
+        receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a una de sus divisiones; \"\" si no encaja en ninguna y no debe contar" },
+        pesos: { type: "object", additionalProperties: { type: "number" }, description: "Sólo a mano: cada división con su porcentaje (se ajustan para sumar 100)" },
+        corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
+        resumen: { type: "string" },
+      },
+      required: ["categoria_id", "resumen"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "proponer_clasificacion_empresa",
     description:
       "Propone cambiar la clasificación oficial GICS (sector y subindustria) de una o varias empresas del portafolio (columna clasificacion): es la que agrupa el mapa " +
@@ -821,14 +842,28 @@ const clasificacionDe = (k: Catalogo, c: Json) => {
   const x = c.tipo === "inversion" && c.ticker ? k.clasificacion?.[String(c.ticker).trim().toUpperCase()] : undefined;
   return x ? `${x.sector} / ${x.subindustria} (${x.origen})` : null;
 };
+// "Tecnología (Publicidad 82.3%, Cloud 17.7%) [según ventas 2025]": sectores, subsectores y, si los tiene, sus porcentajes
+function textoSectoresCategoria(c: Json): string {
+  const ps = c.pesos_subsectores && typeof c.pesos_subsectores === "object" ? c.pesos_subsectores : null;
+  const divisiones = divisionesDe(c);
+  const vigentes = ps && pesosVigentes(ps.pesos, divisiones);
+  const pct = (d: string) => {
+    if (!vigentes) return "";
+    const k = Object.keys(ps.pesos).find((x) => x.toLowerCase() === d.toLowerCase());
+    return k ? ` ${ps.pesos[k]}%` : "";
+  };
+  const texto = c.sectores.map((s: string) => {
+    const subs = c.subsectores && typeof c.subsectores === "object" ? c.subsectores[s] : null;
+    return Array.isArray(subs) && subs.length ? `${s} (${subs.map((x: string) => `${x}${pct(`${s} › ${x}`)}`).join(", ")})` : `${s}${pct(s)}`;
+  }).join(", ");
+  const origen = !ps ? "" : ps.error ? ` [porcentajes: NO SE PUDIERON CALCULAR: ${ps.error}]`
+    : !vigentes ? " [porcentajes: ya no cuadran con sus subsectores; en el mapa va en partes iguales]"
+    : ps.origen === "segmentos" ? ` [porcentajes según ventas ${ps.anio ?? ""}, se actualizan solos]` : " [porcentajes a mano]";
+  return texto + origen;
+}
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "clasificacion", "salud"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, nombrePrioridad(c.prioridad), c.descripcion ?? null, c.ticker ?? null,
-    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length
-      ? c.sectores.map((s: string) => {
-        const subs = c.subsectores && typeof c.subsectores === "object" ? c.subsectores[s] : null;
-        return Array.isArray(subs) && subs.length ? `${s} (${subs.join(", ")})` : s;
-      }).join(", ")
-      : null,
+    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? textoSectoresCategoria(c) : null,
     clasificacionDe(k, c),
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}${c.recordar_diario ? "; aviso diario 9 p.m." : ""}` : null]));
 
@@ -1054,7 +1089,7 @@ const textoVocabulario = (k: Catalogo) => {
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conActivarPredicciones?: boolean; conBorrarTodo?: boolean; conClasificacion?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conActivarPredicciones?: boolean; conBorrarTodo?: boolean; conClasificacion?: boolean; conPesos?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -1140,6 +1175,40 @@ async function nombreDeTicker(ticker: string): Promise<string> {
 const CLAVE_FMP = Deno.env.get("FMP_API_KEY") ?? "";
 // Los reportes cambian una vez por trimestre: se guardan mientras la función siga despierta
 const cacheReportes = new Map<string, { t: number; d: Json }>();
+
+// Las ventas por segmento del último año fiscal de una empresa (FMP), o por qué no se pudieron leer.
+// limite: FMP dijo que se acabaron las consultas (no es un problema de la empresa: se reintenta después)
+async function segmentosFmp(ticker: string): Promise<{ seg: Segmentos } | { error: string; limite?: boolean }> {
+  if (!CLAVE_FMP) return { error: "Falta la clave de FMP en Supabase (secreto FMP_API_KEY)." };
+  const t = String(ticker).trim().toUpperCase();
+  const clave = `productos:${t}`;
+  let d: Json = cacheReportes.get(clave);
+  d = d && Date.now() - d.t < 12 * 3_600_000 ? d.d : null;
+  if (!d) {
+    try {
+      const r = await fetch(`https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&apikey=${CLAVE_FMP}`,
+        { signal: AbortSignal.timeout(10000) });
+      if (r.status === 429) return { error: "FMP llegó a su límite de consultas.", limite: true };
+      if (r.status === 401) return { error: "La clave de FMP (secreto FMP_API_KEY) no es válida." };
+      const texto = await r.text();
+      try { d = JSON.parse(texto); } catch (_) { d = null; }
+      const mensaje = d && !Array.isArray(d) ? d["Error Message"] ?? d.error ?? d.message : null;
+      if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|not available/i.test(String(mensaje ?? ""))) {
+        return { error: `El plan de FMP no incluye los segmentos de ${t}.` };
+      }
+      if (!r.ok || mensaje) return { error: `FMP no respondió bien con ${t} (${r.status}).` };
+      cacheReportes.set(clave, { t: Date.now(), d });
+    } catch (_) {
+      return { error: "No se pudo consultar FMP.", limite: true };
+    }
+  }
+  const seg = ultimosSegmentos(d);
+  return seg ? { seg } : { error: `FMP no tiene las ventas por segmento de ${t}.` };
+}
+const textoSegmentos = (seg: Segmentos) => {
+  const total = seg.partes.reduce((t, [, n]) => t + n, 0);
+  return seg.partes.map(([k, n]) => `"${k}" (${Math.round((n / total) * 1000) / 10}%)`).join(", ");
+};
 // "Visa Inc" → "Visa"; "NVIDIA Corp" → "NVIDIA": el nombre de la categoría sin la razón social
 const nombreCortoEmpresa = (nombre: string) => nombre.replace(/[,.]?\s+(Inc|Corp|Corporation|Co|Company|Ltd|Plc|SA|NV|AG|Holdings?|Group|Class [A-Z])\.?$/i, "").replace(/[,.]?\s+(Inc|Corp|Corporation|Co|Ltd)\.?$/i, "").trim().slice(0, 80);
 
@@ -2154,6 +2223,56 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         tipo: "prioridades", resumen: n === 1 ? `Prioridad de ${cambios[0].nombre}` : `Prioridad de ${n} gastos`, cambios,
       });
       return { texto: `Propuesta registrada con ${n} ${n === 1 ? "gasto" : "gastos"}; todavía NO está aplicada.${avisos.length ? ` No entraron: ${avisos.join(" ")}` : ""} Dile en una línea qué quedó como pago obligatorio y que confirme.` };
+    }
+    case "proponer_pesos_subsectores": {
+      if (!zona.conPesos) return { texto: "Esta versión de la app no guarda porcentajes de subsectores: dile que cierre y abra la app para actualizarla.", error: true };
+      const c = catalogo.categorias.find((k: Json) => String(k.id) === String(entrada.categoria_id));
+      if (!c || c.tipo !== "inversion") return { texto: "No encontré esa empresa (debe ser una categoría de inversión).", error: true };
+      const divisiones = divisionesDe(c);
+      if (!divisiones.length) return { texto: "La empresa no tiene sectores propios: primero propón sus sectores y subsectores.", error: true };
+      if (divisiones.length === 1) return { texto: `Tiene una sola división (${divisiones[0]}): cuenta entera ahí, no hace falta porcentaje.`, error: true };
+      const nombre = catalogo.etiqueta[String(c.id)] ?? c.nombre;
+      const hoyP = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      let datos: Json;
+      let sinVentas: string[] = [];
+      if (entrada.pesos && typeof entrada.pesos === "object") {
+        const crudos: Record<string, number> = Object.fromEntries(divisiones.map((d) => [d, 0]));
+        for (const [k, v] of Object.entries(entrada.pesos as Record<string, unknown>)) {
+          const d = divisionDe(k, divisiones);
+          if (!d) return { texto: `"${k}" no es una de sus divisiones: ${divisiones.join(", ")}.`, error: true };
+          crudos[d] = Math.max(0, Number(v) || 0);
+        }
+        const pesos = aCien(crudos);
+        if (!Object.keys(pesos).length) return { texto: "Los porcentajes suman 0.", error: true };
+        sinVentas = divisiones.filter((d) => !(pesos[d] > 0));
+        datos = { origen: "manual", pesos, actualizado: hoyP };
+      } else {
+        if (!c.ticker) return { texto: "Sin ticker no hay segmentos: propón pesos a mano.", error: true };
+        const r = await segmentosFmp(c.ticker);
+        if ("error" in r) return { texto: `${r.error} Si el usuario te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
+        const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. Sus divisiones: ${divisiones.join(", ")}.`;
+        if (!entrada.receta || typeof entrada.receta !== "object") {
+          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a la división que le toca por lo que vende, o "" si no encaja en ninguna. No le preguntes al usuario: él lo ve en la tarjeta.`, error: true };
+        }
+        const receta: Receta = {};
+        for (const [k, v] of Object.entries(entrada.receta as Record<string, unknown>)) {
+          receta[k] = String(v ?? "").trim() ? (divisionDe(v, divisiones) ?? String(v)) : "";
+        }
+        const res = calcularPesos(r.seg, receta, divisiones);
+        if (!res.ok) return { texto: `${res.error} ${lista}`, error: true };
+        sinVentas = res.sinVentas;
+        datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null };
+      }
+      propuestas.push({
+        ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
+        tipo: "pesos_subsectores", categoria_id: c.id, nombre, ticker: c.ticker ?? null, datos,
+        antes: c.pesos_subsectores && typeof c.pesos_subsectores === "object" ? c.pesos_subsectores.pesos ?? null : null,
+        resumen: String(entrada.resumen).slice(0, 200),
+      });
+      return {
+        texto: "Propuesta registrada; todavía NO está aplicada." +
+          (sinVentas.length ? ` Quedan en 0% (ningún segmento va ahí): ${sinVentas.join(", ")}. Díselo; si no deben estar, propón quitarlas de sus subsectores.` : ""),
+      };
     }
     case "proponer_clasificacion_empresa": {
       if (!zona.conClasificacion) return { texto: "Esta versión de la app no cambia clasificaciones desde el chat: dile que cierre y abra la app para actualizarla.", error: true };
@@ -3750,6 +3869,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta, arma la receta con sus segmentos (cada uno a la división que le toca por lo que vende; "" lo que no encaje) y vuelve a llamarla. Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo: segmentos nuevos = rehaz la receta; una división que ya no existe = rehaz la receta con las de hoy.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
@@ -4320,6 +4440,45 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Recalcula los porcentajes de las empresas con receta: cada semana (cada día si la última vez falló), con
+    // el último año fiscal de FMP. Sin IA. Lo que no se pudo calcular queda con su error y la app lo avisa.
+    if (entrada.modo === "pesos") {
+      const zonaP: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360 };
+      const hoyP = fechaLocal(new Date().toISOString(), zonaP).slice(0, 10);
+      const { data: cats, error: eP } = await sb.from("categorias").select("id, ticker, tipo, sectores, subsectores, pesos_subsectores").eq("tipo", "inversion");
+      if (eP) return responder({ revisadas: 0, actualizadas: 0, errores: [] });
+      const dias = (desde: string) => Math.round((Date.parse(`${hoyP}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86_400_000);
+      const toca = (cats ?? []).filter((c: Json) => {
+        const ps = c.pesos_subsectores;
+        if (!ps || ps.origen !== "segmentos" || !c.ticker || !ps.receta) return false;
+        return !ps.revisado || dias(String(ps.revisado)) >= (ps.error ? 1 : 7);
+      }).slice(0, 15);
+      let actualizadas = 0;
+      const errores: Json[] = [];
+      for (let k = 0; k < toca.length; k += 5) {
+        await Promise.all(toca.slice(k, k + 5).map(async (c: Json) => {
+          const ps = c.pesos_subsectores;
+          const r = await segmentosFmp(c.ticker);
+          if ("error" in r && r.limite) return;
+          const nuevo: Json = { ...ps, revisado: hoyP };
+          if ("error" in r) nuevo.error = r.error;
+          else {
+            const res = calcularPesos(r.seg, ps.receta, divisionesDe(c));
+            if (!res.ok) nuevo.error = res.error;
+            else {
+              const cambio = res.anio !== ps.anio || res.cierre !== ps.cierre || !pesosVigentes(ps.pesos, Object.keys(res.pesos))
+                || Object.keys(res.pesos).some((d) => Math.abs((Number(ps.pesos?.[d]) || 0) - res.pesos[d]) >= 0.1);
+              Object.assign(nuevo, { pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, error: null });
+              if (cambio) { nuevo.actualizado = hoyP; actualizadas++; }
+            }
+          }
+          if (nuevo.error) errores.push({ ticker: c.ticker, error: nuevo.error });
+          await sb.from("categorias").update({ pesos_subsectores: nuevo }).eq("id", c.id);
+        }));
+      }
+      return responder({ revisadas: toca.length, actualizadas, errores });
+    }
+
     if (entrada.modo === "clasificar") {
       const vistos = new Set<string>();
       const empresas = (Array.isArray(entrada.empresas) ? entrada.empresas : []).slice(0, 40)
@@ -4382,7 +4541,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conActivarPredicciones: entrada.con_activar_predicciones === true, conBorrarTodo: entrada.con_borrar_todo === true, conClasificacion: entrada.con_clasificacion === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conActivarPredicciones: entrada.con_activar_predicciones === true, conBorrarTodo: entrada.con_borrar_todo === true, conClasificacion: entrada.con_clasificacion === true, conPesos: entrada.con_pesos === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];
