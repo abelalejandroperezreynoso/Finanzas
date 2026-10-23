@@ -4055,7 +4055,8 @@
                                         // diría que de ese sector sale más de lo que su recuadro enseñaba.
                                         const pesos = {};
                                         cats.forEach(c => {
-                                            pesos[String(c.id)] = donde.sector ? 1 / sectoresDeCategoriaTreemap(c).length : 1;
+                                            const div = donde.sector ? divisionesDeCategoriaTreemap(c) : null;
+                                            pesos[String(c.id)] = div ? div.en(donde.sector) / div.total : 1;
                                         });
 
                                         const porId = {};
@@ -7297,13 +7298,17 @@
                             if (ayuda) {
                                 const campoTicker = document.getElementById('catTicker');
                                 const deFinnhub = sectorDeTicker((campoTicker ? campoTicker.value : '').trim().toUpperCase());
+                                const partes = sectoresEnEdicionCat.reduce((t, sec) => t + Math.max(1, (subsectoresEnEdicionCat[sec] || []).length), 0);
+                                const conSubs = sectoresEnEdicionCat.some(sec => (subsectoresEnEdicionCat[sec] || []).length);
                                 ayuda.textContent = sectoresEnEdicionCat.length === 0
                                     ? (deFinnhub
                                         ? `Sin ninguno, en Agrupar → Personalizado cae en "Sin sector propio". Finnhub la clasifica como ${deFinnhub}.`
                                         : 'Sin ninguno, en Agrupar → Personalizado cae en "Sin sector propio".')
-                                    : sectoresEnEdicionCat.length === 1
+                                    : partes === 1
                                     ? 'En Agrupar → Personalizado esta categoría cuenta entera en ese sector.'
-                                    : `En Agrupar → Personalizado su dinero se reparte en ${sectoresEnEdicionCat.length} partes iguales, una por sector.`;
+                                    : conSubs
+                                    ? `En Agrupar → Personalizado su dinero se reparte en ${partes} partes iguales: una por subsector y una por cada sector sin subsectores.`
+                                    : `En Agrupar → Personalizado su dinero se reparte en ${partes} partes iguales, una por sector.`;
                             }
                             pintarSubsectoresEnEdicion();
                         }
@@ -7355,7 +7360,7 @@
 
                         function elegirSubsectorSugerido(i, nombre) {
                             ponerSubsectorEnEdicion(i, nombre);
-                            pintarSubsectoresEnEdicion();
+                            pintarSectoresEnEdicion();
                         }
 
                         function quitarSubsectorEnEdicion(i, j) {
@@ -7363,7 +7368,7 @@
                             if (!lista) return;
                             lista.splice(j, 1);
                             if (!lista.length) delete subsectoresEnEdicionCat[sectoresEnEdicionCat[i]];
-                            pintarSubsectoresEnEdicion();
+                            pintarSectoresEnEdicion();
                         }
 
                         // Igual que con los sectores: lo escrito sin cerrar también cuenta al guardar
@@ -7382,7 +7387,7 @@
                                 const inp = ev.target;
                                 String(inp.value).split(',').forEach(t => ponerSubsectorEnEdicion(i, t));
                                 inp.value = '';
-                                pintarSubsectoresEnEdicion();
+                                pintarSectoresEnEdicion();
                                 const nuevo = document.getElementById(`catSubsector_${i}`);
                                 if (nuevo) nuevo.focus();
                                 return;
@@ -12830,10 +12835,11 @@
                             //
                             // Lo que no se toca es el porcentaje: repartir multiplica lo que costó y lo que vale
                             // por el mismo número, así que media Apple rinde lo mismo que Apple entera.
-                            function piezaRepartidaTreemap(d, partes) {
-                                if (partes <= 1) return d;
+                            // cuantas: cuántas de esas partes le tocan (un sector con dos subsectores se lleva dos)
+                            function piezaRepartidaTreemap(d, partes, cuantas = 1) {
+                                if (partes <= cuantas) return d;
 
-                                const peso = 1 / partes;
+                                const peso = cuantas / partes;
                                 return Object.assign({}, d, {
                                     partes: partes,
                                     monto: d.monto * peso,
@@ -12841,12 +12847,28 @@
                                     esperado: d.esperado * peso,
                                     // El nombre es lo que identifica al recuadro y lo que se lee dentro de él:
                                     // sin la fracción, media Apple y Apple entera se verían idénticas.
-                                    nombre: `${d.nombre} ${fraccionTreemap(partes)}`
+                                    nombre: `${d.nombre} ${fraccionTreemap(partes, cuantas)}`
                                 });
                             }
 
-                            function fraccionTreemap(partes) {
-                                return ({ 2: '½', 3: '⅓', 4: '¼', 5: '⅕', 6: '⅙', 8: '⅛' })[partes] || `1/${partes}`;
+                            function fraccionTreemap(partes, cuantas = 1) {
+                                const mcd = (a, b) => b ? mcd(b, a % b) : a;
+                                const k = mcd(partes, cuantas);
+                                const n = cuantas / k, m = partes / k;
+                                if (n === 1) return ({ 2: '½', 3: '⅓', 4: '¼', 5: '⅕', 6: '⅙', 8: '⅛' })[m] || `1/${m}`;
+                                return ({ '2/3': '⅔', '3/4': '¾', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘', '5/6': '⅚' })[`${n}/${m}`] || `${n}/${m}`;
+                            }
+
+                            // En cuántas partes iguales se reparte una empresa: una por cada subsector y una por cada
+                            // sector sin subsectores (Tecnología con Software y Apps, más Compras: tres tercios).
+                            // en(sector) dice cuántas de esas partes caen en ese sector.
+                            function divisionesDeCategoriaTreemap(cat) {
+                                const suyos = sectoresDeCategoriaTreemap(cat);
+                                const conSubs = agrupacionTreemapInversiones === 'personalizado';
+                                const delSector = {};
+                                suyos.forEach(sec => { delSector[sec] = conSubs ? Math.max(1, subsectoresPropiosDeCategoria(cat, sec).length) : 1; });
+                                const total = suyos.reduce((t, sec) => t + delSector[sec], 0) || 1;
+                                return { total, en: (sec) => delSector[sec] || 0 };
                             }
 
                             // Lo que le toca a un sector: las empresas que lo llevan entre los suyos, ya
@@ -12857,15 +12879,18 @@
 
                                 empresas.forEach(d => {
                                     const suyos = sectoresDeCategoriaTreemap(d.cat);
-                                    if (suyos.indexOf(sector) >= 0) piezas.push(piezaRepartidaTreemap(d, suyos.length));
+                                    if (suyos.indexOf(sector) >= 0) {
+                                        const div = divisionesDeCategoriaTreemap(d.cat);
+                                        piezas.push(piezaRepartidaTreemap(d, div.total, div.en(sector)));
+                                    }
                                 });
 
                                 return piezas;
                             }
 
-                            // Dentro de un sector propio, las empresas van agrupadas por sus subsectores. Una con
-                            // dos subsectores se reparte otra vez en partes iguales (su parte del sector entre dos);
-                            // la que no tiene ninguno cae en "Sin subsector". Si nadie del sector tiene, no hay grupos.
+                            // Dentro de un sector propio, las empresas van agrupadas por sus subsectores. Cada subsector
+                            // es una de sus partes iguales (divisionesDeCategoriaTreemap); la que no tiene ninguno en
+                            // este sector cae en "Sin subsector". Si nadie del sector tiene, no hay grupos.
                             const SUBSECTOR_SIN_PROPIO_TREEMAP = 'Sin subsector';
                             function piezasDeSubsectorTreemap(empresas, sector) {
                                 const piezas = [];
@@ -12876,7 +12901,7 @@
                                     if (suyos.indexOf(sector) < 0) return;
                                     const subs = agrupacionTreemapInversiones === 'personalizado' ? subsectoresPropiosDeCategoria(d.cat, sector) : [];
                                     if (subs.length) alguno = true;
-                                    const pieza = piezaRepartidaTreemap(d, suyos.length * Math.max(1, subs.length));
+                                    const pieza = piezaRepartidaTreemap(d, divisionesDeCategoriaTreemap(d.cat).total);
                                     (subs.length ? subs : [SUBSECTOR_SIN_PROPIO_TREEMAP]).forEach(sub => piezas.push(Object.assign({}, pieza, { subsectorMapa: sub })));
                                 });
 
@@ -13929,8 +13954,9 @@
                                     // Con varios sectores la empresa entra en todos, cada vez con la parte que le
                                     // toca, y entre todas esas partes suman la empresa entera: el mapa sigue
                                     // repartiendo exactamente el mismo dinero que había una capa más arriba.
+                                    const div = divisionesDeCategoriaTreemap(d.cat);
                                     suyos.forEach(sector => {
-                                        (porSector[sector] = porSector[sector] || []).push(piezaRepartidaTreemap(d, suyos.length));
+                                        (porSector[sector] = porSector[sector] || []).push(piezaRepartidaTreemap(d, div.total, div.en(sector)));
                                     });
                                 });
 
