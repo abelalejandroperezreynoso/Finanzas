@@ -36,6 +36,11 @@ function claveDescripcion(desc: unknown): string {
   return sinAcentos(String(desc ?? "")).toLowerCase().replace(/[0-9]+/g, " ").replace(/[^a-z]+/g, " ").replace(/\s+/g, " ").trim();
 }
 // Descripciones que no dicen de qué se trata: aparecen en cualquier categoría
+// Palabras que salen en descripciones de todo tipo y no dicen de qué se trata
+const PALABRAS_COMUNES = new Set(["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "setiembre",
+  "octubre", "noviembre", "diciembre", "quincena", "semana", "semanal", "mensual", "anual", "dias", "hoy", "ayer", "manana",
+  "pesos", "efectivo", "tarjeta", "credito", "debito", "cuenta", "mitad", "resto", "parte", "total", "otra", "este", "esta", "esto",
+  "pago", "pagar", "pague", "compre", "comprar", "cobro", "cargo", "nuevo", "nueva", "algo", "cosa", "cosas"]);
 const GENERICAS = new Set(["pago", "pagos", "compra", "compras", "varios", "otro", "otros", "gasto", "gastos", "ingreso", "ingresos",
   "abono", "transferencia", "retiro", "deposito", "comision", "sin descripcion", "na", "x"]);
 
@@ -207,6 +212,54 @@ export function revisarOrden(d: DatosOrden) {
   }
   malClasificados.sort((p, q) => q.ids.length - p.ids.length);
 
+  // c) La misma palabra en movimientos de varias categorías de la misma cuenta y tipo ("autolavado" en
+  // Necesidades y en Mantenimientos del Auto). No dice cuál está bien: la IA lo decide leyendo la
+  // descripción de cada movimiento y el nombre y la descripción de cada categoría. Nunca entre cuentas.
+  const yaListados = new Set(malClasificados.flatMap((m) => m.ids.map(String)));
+  const palabrasDe = (t: unknown) => [...new Set(claveDescripcion(t).split(" ")
+    .map((w) => (w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : w))
+    .filter((w) => w.length >= 4 && !PALABRAS_VACIAS.has(w) && !GENERICAS.has(w) && !PALABRAS_COMUNES.has(w)))];
+  const palabrasCat = new Map<string, string[]>();
+  cats.forEach((c: Json) => palabrasCat.set(String(c.id), [...palabrasDe(c.nombre), ...palabrasDe(c.descripcion)]));
+  const porPalabra = new Map<string, Map<string, { ids: unknown[]; ejemplos: string[] }>>();
+  for (const r of ordenados) {
+    const c = porId.get(String(r.categoria_id));
+    if (!c || c.tipo === "inversion" || c.tipo === "salud") continue;
+    const desc = String(r.descripcion ?? "").replace(/\s+/g, " ").trim();
+    for (const w of palabrasDe(desc)) {
+      const k = `${c.cuenta_id}|${c.tipo}|${w}`;
+      const g = porPalabra.get(k) ?? new Map();
+      const e = g.get(String(c.id)) ?? { ids: [], ejemplos: [] };
+      e.ids.push(r.id);
+      if (e.ejemplos.length < 3 && !e.ejemplos.includes(desc)) e.ejemplos.push(desc);
+      g.set(String(c.id), e);
+      porPalabra.set(k, g);
+    }
+  }
+  const repartidos = new Map<string, { palabras: string[]; c0: Json; lista: Json[]; fuera: number; menciona: boolean }>();
+  for (const [k, g] of porPalabra) {
+    // En 2 a 4 categorías: en más, la palabra es de uso general ("tienda")
+    if (g.size < 2 || g.size > 4) continue;
+    const palabra = k.split("|")[2];
+    const lista = [...g.entries()].map(([id, e]) => {
+      const c = porId.get(id);
+      const menciona = (palabrasCat.get(id) ?? []).some((w) => palabra.includes(w) || w.includes(palabra));
+      return { c, menciona, ...e };
+    }).sort((p, q) => q.ids.length - p.ids.length);
+    const total = lista.reduce((t, e) => t + e.ids.length, 0);
+    if (total < 3) continue;
+    const fueraDeLaMayor = lista.slice(1).flatMap((e) => e.ids.map(String));
+    if (fueraDeLaMayor.every((id) => yaListados.has(id))) continue;
+    // Varias palabras con los mismos movimientos ("recarga telcel") van en una sola fila
+    const firma = lista.map((e) => `${e.c.id}:${e.ids.map(String).sort().join(",")}`).sort().join("|");
+    const previo = repartidos.get(firma);
+    if (previo) { previo.palabras.push(palabra); continue; }
+    const menciona = lista.some((e) => e.menciona) && !lista.every((e) => e.menciona);
+    repartidos.set(firma, { palabras: [palabra], c0: lista[0].c, lista, fuera: fueraDeLaMayor.length, menciona });
+  }
+  // Primero donde una categoría nombra la palabra y otra no (la pista más clara), luego los más movimientos
+  const repartidosOrden = [...repartidos.values()].sort((p, q) => Number(q.menciona) - Number(p.menciona) || q.fuera - p.fuera).slice(0, 12);
+
   // Sin uso: nunca, o hace más de DIAS_SIN_USO. No cuentan las inversiones que sí tuvieron
   // movimientos (pueden pasar meses sin tocarse), las deudas o préstamos con saldo pendiente, Salud
   // (meses sin una migraña es buena noticia) ni lo que se paga de año en año (aguinaldo, seguro).
@@ -233,6 +286,11 @@ export function revisarOrden(d: DatosOrden) {
       parecidas.slice(0, 25).map((p) => [p.x.id, etiqueta(p.x), usoDe(p.x).n, p.y.id, etiqueta(p.y), usoDe(p.y).n, cuentaDe(p.x), p.x.tipo, p.motivo])),
     posibles_mal_clasificados: tabla(["descripcion", "id_de", "de", "id_a", "a", "movimientos", "motivo", "registro_ids"],
       malClasificados.slice(0, 15).map((m) => [m.descripcion, m.de.id, etiqueta(m.de), m.a.id, etiqueta(m.a), m.ids.length, m.motivo, m.ids.slice(0, MAX_IDS)])),
+    // Movimientos de lo mismo en varias categorías de la misma cuenta: una fila por categoría; nombra_la_palabra = el
+    // nombre o la descripción de la categoría la mencionan
+    mismos_movimientos_en_varias_categorias: tabla(["palabra", "cuenta", "tipo", "id_categoria", "categoria", "descripcion_categoria", "nombra_la_palabra", "movimientos", "ejemplos", "registro_ids"],
+      repartidosOrden.flatMap((g) => g.lista.map((e) => [g.palabras.join(" "), cuentaDe(g.c0), g.c0.tipo, e.c.id, etiqueta(e.c),
+        String(e.c.descripcion ?? "").trim() || null, e.menciona, e.ids.length, e.ejemplos, e.ids.slice(0, MAX_IDS)]))),
     sin_uso: tabla(["id", "categoria", "tipo", "cuenta", "movimientos", "ultimo_uso"],
       sinUso.slice(0, 30).map((c: Json) => [c.id, etiqueta(c), c.tipo, cuentaDe(c), usoDe(c).n, usoDe(c).ultimo])),
     categorias_sin_descripcion: tabla(["id", "categoria", "movimientos"],
@@ -253,5 +311,7 @@ export function resumenOrden(d: DatosOrden) {
   // En la revisión no hacen falta los ids de cada movimiento: basta con cuántos son
   resto.posibles_mal_clasificados = tabla(resto.posibles_mal_clasificados.columnas.slice(0, -1),
     resto.posibles_mal_clasificados.filas.map((f) => f.slice(0, -1)));
+  resto.mismos_movimientos_en_varias_categorias = tabla(resto.mismos_movimientos_en_varias_categorias.columnas.slice(0, -1),
+    resto.mismos_movimientos_en_varias_categorias.filas.map((f) => f.slice(0, -1)));
   return resto;
 }

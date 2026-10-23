@@ -16,7 +16,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   mes; si algo se sale de control, soluciones claras y directas, sin análisis de más; datos
   correctos como base), revisión diaria proactiva con seguimiento, topes con IA, lectura del saldo desde una captura
   y la pregunta final de Registrar. Para tener todo ordenado, `revisar_orden` (cálculo puro en `orden.ts`) busca
-  categorías duplicadas, sin uso, sin descripción y movimientos mal clasificados; `proponer_mover_movimientos` mueve
+  categorías duplicadas, sin uso, sin descripción, movimientos mal clasificados y lo mismo repartido en varias categorías
+  de una cuenta (decide la IA por las descripciones, nunca entre cuentas); `proponer_mover_movimientos` mueve
   varios en una sola tarjeta. Con `proponer_borrar_categoria_o_cuenta` propone borrar una categoría o una
   cuenta completa (sólo si el usuario lo pide o acepta).
   En salud, `resumen_salud` trae un panorama (qué enfermedades están activas, qué hábitos se
