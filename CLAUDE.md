@@ -32,7 +32,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (S&P 500, 400 y 600); lo que no está ahí lo clasifica la IA con el modo `clasificar` (sólo nombres de
   `gics.ts`, más el grupo "ETFs"), y el usuario la cambia a mano en la ficha o con `proponer_clasificacion_empresa`.
   Va en `perfiles_empresas.gics_*` con origen `ia` o `manual`; lo manual manda, luego el índice y al final la IA.
-  Es aparte de los sectores propios (`categorias.sectores`). La lista de `gics.ts` está copiada en
+  Es aparte de los sectores propios (`categorias.sectores`), que pueden llevar subsectores propios
+  (`categorias.subsectores`, `{"Sector": ["Sub", ...]}`; en el mapa, dentro de un sector propio). La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una

@@ -1307,6 +1307,11 @@
                     padding: 4px 6px 4px 10px;
                     border-radius: 14px;
                 }
+                .fila-subsectores-sector {
+                    font-size: 0.82em;
+                    color: #9aa7b8;
+                    margin-bottom: 6px;
+                }
                 .chip-sector button {
                     all: unset;
                     cursor: pointer;
@@ -3055,6 +3060,11 @@
                             <div id="chipsSugerenciasCat" style="display:flex; flex-wrap:wrap; gap:6px; max-height:96px; overflow-y:auto;"></div>
                         </div>
                         <small id="ayudaSectoresCat" style="display:block; color:#666; font-size:0.78em; line-height:1.4;"></small>
+                        <!-- Subsectores de cada sector puesto: una fila por sector -->
+                        <div id="bloqueSubsectoresCat" style="display:none; margin-top:14px;">
+                            <div class="rango-ios-encabezado">Subsectores</div>
+                            <div id="filasSubsectoresCat"></div>
+                        </div>
                     </div>
 
                     <!-- Antes vivía detrás de "Mostrar ajustes avanzados"; en la hoja cabe a la vista -->
@@ -4839,6 +4849,34 @@
                                         return limpios;
                                     }
 
+                                    // Los subsectores que le pusiste dentro de uno de sus sectores propios, limpios y
+                                    // sin repetir. Viven en `subsectores` ({"Sector": ["Sub", ...]}); la llave se busca
+                                    // sin importar mayúsculas, como el sector mismo.
+                                    function subsectoresPropiosDeCategoria(cat, sector) {
+                                        const mapa = (cat && cat.subsectores && typeof cat.subsectores === 'object' && !Array.isArray(cat.subsectores)) ? cat.subsectores : null;
+                                        if (!mapa || !sector) return [];
+                                        const clave = Object.keys(mapa).find(k => normalizarNombreSector(k).toLowerCase() === String(sector).toLowerCase());
+                                        const crudos = clave && Array.isArray(mapa[clave]) ? mapa[clave] : [];
+                                        const vistos = {};
+                                        const limpios = [];
+                                        crudos.forEach(s => {
+                                            const nombre = normalizarNombreSector(s);
+                                            if (!nombre || vistos[nombre.toLowerCase()]) return;
+                                            vistos[nombre.toLowerCase()] = true;
+                                            limpios.push(nombre);
+                                        });
+                                        return limpios;
+                                    }
+
+                                    // Los subsectores que ya usaste en ese sector en otras categorías, para ofrecerlos
+                                    function subsectoresPropiosUsados(sector) {
+                                        const vistos = {};
+                                        (datosCategorias || []).forEach(c => subsectoresPropiosDeCategoria(c, sector).forEach(s => {
+                                            vistos[s.toLowerCase()] = s;
+                                        }));
+                                        return Object.keys(vistos).map(k => vistos[k]).sort((a, b) => a.localeCompare(b, 'es'));
+                                    }
+
                                     // Los sectores de una categoría, con quién manda ya resuelto. La lista vacía
                                     // significa que no se sabe de qué industria es —un ETF, algo de otra bolsa—,
                                     // que no es lo mismo que no tener ninguna.
@@ -4874,7 +4912,10 @@
                                     // menos que la ausencia.
                                     function sectorBadgeHtml(cat) {
                                         return sectoresDeCategoria(cat)
-                                            .map(s => `<span class="badge-sector">${escaparHtml(s)}</span>`)
+                                            .map(s => {
+                                                const subs = subsectoresPropiosDeCategoria(cat, s);
+                                                return `<span class="badge-sector">${escaparHtml(subs.length ? `${s} › ${subs.join(', ')}` : s)}</span>`;
+                                            })
                                             .join('');
                                     }
 
@@ -7185,6 +7226,7 @@
                                                         document.getElementById('catTicker').value = '';
                                                         document.getElementById('catSectorNuevo').value = '';
                                                         sectoresEnEdicionCat = [];
+                                                        subsectoresEnEdicionCat = {};
                                                         pintarSectoresEnEdicion();
                                                         document.getElementById('desactivarPrediccionCat').checked = false;
                                                         document.getElementById('catPrioridad').value = '';
@@ -7206,6 +7248,8 @@
                         // se llevan aparte mientras tanto: Cancelar tiene que dejarlo todo como estaba,
                         // y esto también.
                         let sectoresEnEdicionCat = [];
+                        // Los subsectores de cada sector, con el nombre del sector como llave
+                        let subsectoresEnEdicionCat = {};
 
                         // Las sugerencias que se están enseñando, en el mismo orden que sus pastillas: al
                         // tocar una llega su posición y no su nombre, que con comillas o acentos dentro de
@@ -7260,6 +7304,94 @@
                                     : sectoresEnEdicionCat.length === 1
                                     ? 'En Agrupar → Personalizado esta categoría cuenta entera en ese sector.'
                                     : `En Agrupar → Personalizado su dinero se reparte en ${sectoresEnEdicionCat.length} partes iguales, una por sector.`;
+                            }
+                            pintarSubsectoresEnEdicion();
+                        }
+
+                        // Una fila por sector puesto, con sus subsectores, un campo para añadir y los que ya
+                        // usaste en ese sector. Lo escrito en cada campo sobrevive al repintar.
+                        function pintarSubsectoresEnEdicion() {
+                            const bloque = document.getElementById('bloqueSubsectoresCat');
+                            const filas = document.getElementById('filasSubsectoresCat');
+                            if (!bloque || !filas) return;
+
+                            const escritos = {};
+                            filas.querySelectorAll('input[data-sector]').forEach(inp => { escritos[inp.dataset.sector] = inp.value; });
+                            // Un sector que se quitó se lleva sus subsectores
+                            Object.keys(subsectoresEnEdicionCat).forEach(k => {
+                                if (sectoresEnEdicionCat.indexOf(k) < 0) delete subsectoresEnEdicionCat[k];
+                            });
+
+                            bloque.style.display = sectoresEnEdicionCat.length > 0 ? 'block' : 'none';
+                            filas.innerHTML = sectoresEnEdicionCat.map((sec, i) => {
+                                const puestos = subsectoresEnEdicionCat[sec] || [];
+                                const usados = subsectoresPropiosUsados(sec).filter(x => !puestos.some(p => p.toLowerCase() === x.toLowerCase()));
+                                return `<div class="fila-subsectores">` +
+                                    `<div class="fila-subsectores-sector">${escaparHtml(sec)}</div>` +
+                                    `<div style="display:flex; flex-wrap:wrap; gap:6px;${puestos.length ? ' margin-bottom:8px;' : ''}">` +
+                                    puestos.map((x, j) => `<span class="chip-sector">${escaparHtml(x)}` +
+                                        `<button type="button" onclick="quitarSubsectorEnEdicion(${i}, ${j})" aria-label="Quitar ${escaparHtml(x)}">&times;</button></span>`).join('') +
+                                    `</div>` +
+                                    `<input type="text" autocomplete="off" data-sector="${escaparHtml(sec)}" id="catSubsector_${i}" placeholder="Subsector de ${escaparHtml(sec)}"` +
+                                    ` onkeydown="teclaSubsectorCat(event, ${i})">` +
+                                    (usados.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:-8px; margin-bottom:6px;">` +
+                                        usados.map(x => `<button type="button" class="chip-sugerido" onmousedown="event.preventDefault()"` +
+                                            ` onclick="elegirSubsectorSugerido(${i}, this.dataset.nombre)" data-nombre="${escaparHtml(x)}">+ ${escaparHtml(x)}</button>`).join('') +
+                                        `</div>` : '') +
+                                    `</div>`;
+                            }).join('');
+                            filas.querySelectorAll('input[data-sector]').forEach(inp => {
+                                if (escritos[inp.dataset.sector]) inp.value = escritos[inp.dataset.sector];
+                            });
+                        }
+
+                        function ponerSubsectorEnEdicion(i, texto) {
+                            const sec = sectoresEnEdicionCat[i];
+                            const nombre = normalizarNombreSector(texto);
+                            if (!sec || !nombre) return;
+                            const lista = subsectoresEnEdicionCat[sec] || (subsectoresEnEdicionCat[sec] = []);
+                            if (!lista.some(x => x.toLowerCase() === nombre.toLowerCase())) lista.push(nombre);
+                        }
+
+                        function elegirSubsectorSugerido(i, nombre) {
+                            ponerSubsectorEnEdicion(i, nombre);
+                            pintarSubsectoresEnEdicion();
+                        }
+
+                        function quitarSubsectorEnEdicion(i, j) {
+                            const lista = subsectoresEnEdicionCat[sectoresEnEdicionCat[i]];
+                            if (!lista) return;
+                            lista.splice(j, 1);
+                            if (!lista.length) delete subsectoresEnEdicionCat[sectoresEnEdicionCat[i]];
+                            pintarSubsectoresEnEdicion();
+                        }
+
+                        // Igual que con los sectores: lo escrito sin cerrar también cuenta al guardar
+                        function agregarSubsectoresEscritos() {
+                            document.querySelectorAll('#filasSubsectoresCat input[data-sector]').forEach(inp => {
+                                const i = sectoresEnEdicionCat.indexOf(inp.dataset.sector);
+                                if (i < 0 || !inp.value.trim()) return;
+                                String(inp.value).split(',').forEach(t => ponerSubsectorEnEdicion(i, t));
+                                inp.value = '';
+                            });
+                        }
+
+                        function teclaSubsectorCat(ev, i) {
+                            if (ev.key === 'Enter' || ev.key === ',') {
+                                ev.preventDefault();
+                                const inp = ev.target;
+                                String(inp.value).split(',').forEach(t => ponerSubsectorEnEdicion(i, t));
+                                inp.value = '';
+                                pintarSubsectoresEnEdicion();
+                                const nuevo = document.getElementById(`catSubsector_${i}`);
+                                if (nuevo) nuevo.focus();
+                                return;
+                            }
+                            const lista = subsectoresEnEdicionCat[sectoresEnEdicionCat[i]];
+                            if (ev.key === 'Backspace' && !ev.target.value && lista && lista.length) {
+                                quitarSubsectorEnEdicion(i, lista.length - 1);
+                                const nuevo = document.getElementById(`catSubsector_${i}`);
+                                if (nuevo) nuevo.focus();
                             }
                         }
 
@@ -10530,6 +10662,7 @@
 
                                     // Lo que quedara a medio escribir en el campo de sectores cuenta también
                                     agregarSectorEscrito();
+                                    agregarSubsectoresEscritos();
                                     // Sin ninguno se guarda nulo y no una lista vacía: son la misma idea —"no le
                                     // pusiste sectores"— y con dos formas de decirla habría que comprobar las dos
                                     // cada vez que se leen.
@@ -10537,12 +10670,26 @@
                                         ? sectoresEnEdicionCat.slice()
                                         : null;
 
+                                    // Subsectores sólo de los sectores que quedan; sin ninguno, nulo
+                                    const subsectoresValor = (() => {
+                                        if (!sectoresValor) return null;
+                                        const mapa = {};
+                                        sectoresValor.forEach(sec => {
+                                            const subs = subsectoresEnEdicionCat[sec] || [];
+                                            if (subs.length) mapa[sec] = subs.slice();
+                                        });
+                                        return Object.keys(mapa).length ? mapa : null;
+                                    })();
+                                    const catAntes = editIdCat ? (datosCategorias.find(c => String(c.id) === String(editIdCat)) || {}) : {};
+
                                     const body = {
                                         cuenta_id: c_id,
                                         nombre: nombre,
                                         tipo: tipo,
                                         ticker: tickerValor,
                                         sectores: sectoresValor,
+                                        // Sólo viaja si hay algo que guardar o quitar: así una base sin la columna sigue guardando
+                                        ...(subsectoresValor || catAntes.subsectores ? { subsectores: subsectoresValor } : {}),
                                         // La prioridad sólo tiene sentido en un gasto; en lo demás se guarda nula
                                         prioridad: tipo === 'gasto' ? (document.getElementById('catPrioridad').value || null) : null,
                                         // Salud: grupo y medida; en los demás tipos no significan nada y van nulos
@@ -10596,10 +10743,11 @@
                                             // dice qué falta, en lugar de tragarse el fallo en silencio.
                                             // Lo mismo con `prioridad`, que también viene de su propia migración.
                                             let faltaMigracionSectores = false;
+                                            let faltaMigracionSubsectores = false;
                                             let faltaMigracionPrioridad = false;
                                             let faltaMigracionDescripcion = false;
                                             let cuerpoSinFaltantes = body;
-                                            for (let intento = 0; intento < 3 && res.error; intento++) {
+                                            for (let intento = 0; intento < 4 && res.error; intento++) {
                                                 const mensaje = res.error.message || '';
                                                 if (/medida_salud|grupo_salud|unidad_salud|recordar_diario/i.test(mensaje) && 'medida_salud' in cuerpoSinFaltantes) {
                                                     // La migración de Salud aún no corre: se guarda lo demás
@@ -10608,6 +10756,10 @@
                                                 } else if (/descripcion/i.test(mensaje) && 'descripcion' in cuerpoSinFaltantes) {
                                                     faltaMigracionDescripcion = true;
                                                     const { descripcion, ...resto } = cuerpoSinFaltantes;
+                                                    cuerpoSinFaltantes = resto;
+                                                } else if (/subsectores/i.test(mensaje) && 'subsectores' in cuerpoSinFaltantes) {
+                                                    faltaMigracionSubsectores = true;
+                                                    const { subsectores, ...resto } = cuerpoSinFaltantes;
                                                     cuerpoSinFaltantes = resto;
                                                 } else if (/sectores/i.test(mensaje) && 'sectores' in cuerpoSinFaltantes) {
                                                     faltaMigracionSectores = true;
@@ -10642,6 +10794,7 @@
                                                                 document.getElementById('catTicker').value = '';
                                                                 document.getElementById('catSectorNuevo').value = '';
                                                                 sectoresEnEdicionCat = [];
+                                                                subsectoresEnEdicionCat = {};
                                                                 pintarSectoresEnEdicion();
                                                                 editIdCat = null;
                                                                 document.getElementById('tituloCat').textContent = 'Nueva Categoría';
@@ -10668,6 +10821,9 @@
                                                                         'Falta la columna donde vive: abre Supabase → SQL Editor y ejecuta ' +
                                                                         'migracion_topes_ia.sql del repositorio. Después vuelve a escribirla.');
                                                                 }
+                                                                if (faltaMigracionSubsectores && subsectoresValor) {
+                                                                    alert('La categoría se guardó, pero sus subsectores no: falta preparar la base. Vuelve a intentarlo en unos minutos.');
+                                                                }
                                                                 if (faltaMigracionSectores && sectoresValor) {
                                                                     alert('La categoría se guardó, pero sus sectores no.\n\n' +
                                                                         'Falta la columna donde viven: abre Supabase → SQL Editor y ejecuta ' +
@@ -10687,6 +10843,11 @@
                                                                     document.getElementById('catTicker').value = cat.ticker || '';
                                                                     document.getElementById('catSectorNuevo').value = '';
                                                                     sectoresEnEdicionCat = sectoresPropiosDeCategoria(cat);
+                                                                    subsectoresEnEdicionCat = {};
+                                                                    sectoresEnEdicionCat.forEach(sec => {
+                                                                        const subs = subsectoresPropiosDeCategoria(cat, sec);
+                                                                        if (subs.length) subsectoresEnEdicionCat[sec] = subs;
+                                                                    });
                                                                     pintarSectoresEnEdicion();
                                                                     document.getElementById('desactivarPrediccionCat').checked = (cat.desactivar_prediccion === true);
                                                                     document.getElementById('catPrioridad').value = cat.prioridad || '';
@@ -12700,6 +12861,26 @@
                                 });
 
                                 return piezas;
+                            }
+
+                            // Dentro de un sector propio, las empresas van agrupadas por sus subsectores. Una con
+                            // dos subsectores se reparte otra vez en partes iguales (su parte del sector entre dos);
+                            // la que no tiene ninguno cae en "Sin subsector". Si nadie del sector tiene, no hay grupos.
+                            const SUBSECTOR_SIN_PROPIO_TREEMAP = 'Sin subsector';
+                            function piezasDeSubsectorTreemap(empresas, sector) {
+                                const piezas = [];
+                                let alguno = false;
+
+                                empresas.forEach(d => {
+                                    const suyos = sectoresDeCategoriaTreemap(d.cat);
+                                    if (suyos.indexOf(sector) < 0) return;
+                                    const subs = agrupacionTreemapInversiones === 'personalizado' ? subsectoresPropiosDeCategoria(d.cat, sector) : [];
+                                    if (subs.length) alguno = true;
+                                    const pieza = piezaRepartidaTreemap(d, suyos.length * Math.max(1, subs.length));
+                                    (subs.length ? subs : [SUBSECTOR_SIN_PROPIO_TREEMAP]).forEach(sub => piezas.push(Object.assign({}, pieza, { subsectorMapa: sub })));
+                                });
+
+                                return alguno ? piezas : null;
                             }
 
                             // Cuánto hay que sostener el dedo para que el toque cuente como pulsación larga.
@@ -14880,7 +15061,7 @@
                                         ? datosAccesiblesEmpresaTreemap(empresaAbierta)
                                         : datosMovimientosEmpresaTreemap(empresaAbierta);
                                 } else if (sectorAbierto) {
-                                    datos = piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
+                                    datos = piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) || piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
                                 } else if (cuentaAbierta) {
                                     datos = porSector ? sectoresPortafolio : empresasDelNivel;
                                 } else if (esPortafolio) {
@@ -14910,10 +15091,12 @@
 
                                 // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
                                 // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
+                                // (La misma empresa en dos subsectores no se repite: cada pieza va en su grupo.)
+                                const claveRepeticion = (d) => `${d.subsectorMapa || ''}|${d.nombre}`;
                                 const repeticiones = {};
-                                datos.forEach(d => { repeticiones[d.nombre] = (repeticiones[d.nombre] || 0) + 1; });
+                                datos.forEach(d => { repeticiones[claveRepeticion(d)] = (repeticiones[claveRepeticion(d)] || 0) + 1; });
                                 datos.forEach(d => {
-                                    if (repeticiones[d.nombre] > 1) {
+                                    if (repeticiones[claveRepeticion(d)] > 1) {
                                         const cuenta = datosCuentas.find(c => String(c.id) === String(d.cat.cuenta_id));
                                         if (cuenta) d.nombre = `${d.nombre} · ${cuenta.nombre}`;
                                     }
@@ -14927,7 +15110,10 @@
                                 const conSectores = esPortafolio && !empresaAbierta && !sectorAbierto && !porSector
                                     && (!!cuentaAbierta || !hayCapaCuentas);
                                 // Dentro de un sector sólo van sus industrias y dentro de una industria sólo sus empresas.
-                                const gruposMapa = !conSectores ? ['nombre']
+                                // Dentro de un sector propio con subsectores, cada subsector lleva su barra
+                                const conSubsectores = esPortafolio && !empresaAbierta && !!sectorAbierto && datos.some(d => d.subsectorMapa);
+                                const gruposMapa = conSubsectores ? ['subsectorMapa', 'nombre']
+                                    : !conSectores ? ['nombre']
                                     : industriaGicsAbierta ? ['nombre']
                                     : sectorGicsAbierto ? ['industriaMapa', 'nombre']
                                     : ['sectorMapa', 'industriaMapa', 'nombre'];
@@ -14950,7 +15136,8 @@
                                         if (porSectorMapa[d.sectorMapa] === 1 || d.industriaMapa === d.sectorMapa) d.industriaMapa = null;
                                     });
                                 }
-                                const totalCategorias = datos.length;
+                                // La misma empresa en dos subsectores es una sola
+                                const totalCategorias = conSubsectores ? new Set(datos.map(d => String(d.id))).size : datos.length;
                                 // El tamaño de cada recuadro: lo que vale, o en "Sostenido" el ritmo por los meses. Lo
                                 // que no tiene ritmo, o va plano, queda diminuto en vez de desaparecer (se ve con zoom).
                                 const medidaTamano = vistaSostenida ? sostenidoDe : vistaPlusvalia ? plusvaliaDe : null;
@@ -14960,7 +15147,7 @@
                                 // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
                                 // el último nivel.
                                 const nivelHojaMapa = gruposMapa.length - 1;
-                                const esBarraSector = (raw) => conSectores && !!raw && raw.l < nivelHojaMapa;
+                                const esBarraSector = (raw) => (conSectores || conSubsectores) && !!raw && raw.l < nivelHojaMapa;
 
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
@@ -15021,6 +15208,9 @@
                                 const totalValor = datos.reduce((acc, d) => acc + (d.real !== undefined ? d.real : d.monto), 0);
                                 const buscarDato = (raw) => {
                                     if (!raw || esBarraSector(raw)) return null;
+                                    // Con grupos, el recuadro trae su dato original: la misma empresa puede ir en dos subsectores
+                                    const hijo = raw._data && Array.isArray(raw._data.children) && raw._data.children.length === 1 ? raw._data.children[0] : null;
+                                    if (hijo && datos.indexOf(hijo) >= 0) return hijo;
                                     const etiqueta = raw.g || (raw._data && raw._data.nombre);
                                     return datos.find(d => d.nombre === etiqueta) || null;
                                 };
@@ -15414,7 +15604,7 @@
                                 const fondoRecuadro = (context) => {
                                     if (context.type !== 'data') return 'transparent';
                                     if (esBarraSector(context.raw)) {
-                                        return gruposMapa[context.raw.l] === 'sectorMapa' ? COLOR_BARRA_SECTOR_INVERSION : COLOR_BARRA_INDUSTRIA_INVERSION;
+                                        return gruposMapa[context.raw.l] === 'industriaMapa' ? COLOR_BARRA_INDUSTRIA_INVERSION : COLOR_BARRA_SECTOR_INVERSION;
                                     }
                                     const d = buscarDato(context.raw);
                                     if (!d) return '#444444';

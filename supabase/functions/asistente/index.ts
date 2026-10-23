@@ -820,7 +820,12 @@ const clasificacionDe = (k: Catalogo, c: Json) => {
 };
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "clasificacion", "salud"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, nombrePrioridad(c.prioridad), c.descripcion ?? null, c.ticker ?? null,
-    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? c.sectores.join(", ") : null,
+    c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length
+      ? c.sectores.map((s: string) => {
+        const subs = c.subsectores && typeof c.subsectores === "object" ? c.subsectores[s] : null;
+        return Array.isArray(subs) && subs.length ? `${s} (${subs.join(", ")})` : s;
+      }).join(", ")
+      : null,
     clasificacionDe(k, c),
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}${c.recordar_diario ? "; aviso diario 9 p.m." : ""}` : null]));
 
