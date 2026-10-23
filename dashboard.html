@@ -18584,6 +18584,7 @@
 
                             // La propuesta pendiente más reciente sobre lo mismo: el mismo movimiento,
                             // categoría o cuenta; en un registro nuevo, sólo si la IA dice que lo corrige.
+                            // Con clave, corrige_anterior no basta: tachaba la tarjeta de otra empresa.
                             function propuestaQueCorrige(p) {
                                 const clave = x => x.tipo === 'cambio_movimiento' ? x.registro_id
                                     : x.tipo === 'mover_movimientos' ? x.origen_categoria_id
@@ -18594,7 +18595,7 @@
                                 for (let k = chatUi.length - 1; k >= 0; k--) {
                                     const m = chatUi[k];
                                     if (m.rol !== 'propuesta' || m.estado !== 'pendiente' || !m.propuesta || m.propuesta.tipo !== p.tipo) continue;
-                                    if (p.corrige_anterior || (clave(p) && String(clave(p)) === String(clave(m.propuesta)))) return m;
+                                    if (clave(p) ? String(clave(p)) === String(clave(m.propuesta)) : p.corrige_anterior) return m;
                                 }
                                 return null;
                             }
