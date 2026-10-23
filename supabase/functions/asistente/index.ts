@@ -336,7 +336,7 @@ const HERRAMIENTAS: Json[] = [
         },
         fecha: { type: "string", description: "AAAA-MM-DD" },
         hora: { type: "string", description: "Hora local HH:MM (24 h) si la dijo, o \"ahora\" si acaba de pasar (\"acabo de\", \"ahorita\"). Omítela si no se sabe." },
-        descripcion: { type: "string", description: "Qué fue, con el detalle que dio el usuario (por ejemplo \"Sushi\"); nunca vacía" },
+        descripcion: { type: "string", description: "Qué fue y de qué o de quién, con el detalle que dio el usuario y las mismas palabras de sus registros anteriores de lo mismo (por ejemplo \"Sushi\", \"Autolavado Hyundai\"); nunca vacía" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
         resumen: { type: "string" },
       },
@@ -3607,11 +3607,12 @@ Cuando cuenta un gasto o ingreso, deduce todo y llama de inmediato a proponer_nu
 - Fecha: "acabo de", "ahorita", "hoy" o sin fecha = hoy; "ayer" = ayer; "el lunes", "el 3" = esa fecha. Nunca la preguntes.
 - Hora: "acabo de" o "ahorita" = "ahora"; si dice la hora, en HH:MM; si lo cuenta después sin decirla, omítela. Nunca la preguntes.
 - Dólares: conviértelos a pesos con el tipo de cambio de hoy y deja el monto original en la descripción ("Créditos IA (5 USD)").
-- Descripción: con sus palabras, corta y con la ortografía corregida.
+- Descripción: con sus palabras, corta y con la ortografía corregida, y que sirva después para saber qué fue sin abrir nada: qué fue y de qué o de quién ("Autolavado Hyundai", "Aceite Audi", "Comida con Judith"). Usa las mismas palabras que en sus registros anteriores de lo mismo (si antes puso "Autolavado", no "Lavado de coche"), para que se puedan juntar. Si en sus registros anteriores o en su memoria eso suele llevar un detalle que aquí no dijo (cuál coche, para quién, de qué tienda) y cambia la descripción, la categoría o la cuenta, pregúntalo una sola vez con preguntar_al_usuario antes de proponer, con las opciones que ya usa (por ejemplo "Hyundai", "Audi") y, si da igual, "Así está bien". Si no hay nada que preguntar, regístralo de inmediato. Nunca preguntes lo que no cambia nada.
 - Categoría: la que le queda por nombre, descripción o por dónde registró antes cosas parecidas (también por dónde está ahora, si la app lo dice). Si dos son igual de probables, pregunta.
 - Si ninguna le queda de verdad, no la metas en la más parecida ni en la única que haya (un limpiador facial no es Ropa; un Uber no es Comida): en el mismo turno, primero proponer_nueva_categoria (nombre general como "Cuidado personal", descripción, prioridad, en la cuenta de sus demás gastos; si no es obvia la cuenta, pregunta) y luego proponer_nuevo_movimiento con categoria_nueva. Dile que confirme primero la categoría.
 - Para pasar movimientos que ya existen a una categoría nueva: proponer_nueva_categoria y, en el mismo turno, proponer_mover_movimientos con categoria_nueva (todos en una tarjeta; proponer_cambio_movimiento si es uno). Nunca se mueven solos.
-- Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento de hoy, 360, categoría del Hyundai, descripción "Aceite"; luego: "Te dejé el registro para confirmar."
+- Ejemplo: "Acabo de gastar 360 en el aceite de mi Hyundai" → proponer_nuevo_movimiento de hoy, 360, categoría del Hyundai, descripción "Aceite Hyundai"; luego: "Te dejé el registro para confirmar."
+- Ejemplo: "Hoy gasté 140 en el autolavado" y tiene dos coches → pregunta "¿De cuál coche?" con "Hyundai" y "Audi"; con la respuesta, proponer_nuevo_movimiento de hoy, 140, descripción "Autolavado Hyundai", en la categoría del auto de la cuenta de ese coche.
 - Si te explica qué fue un movimiento que ya existe (porque le preguntaste o porque lo cuenta), no lo dejes sólo en la conversación: en ese mismo turno búscalo (consultar_movimientos, si no tienes su id) y propón agregar el detalle a su descripción con proponer_cambio_movimiento, conservando lo que ya dice ("Judith" → "Judith: regalo de cumpleaños de mi novia"); si eso cambia su categoría, propónla en la misma tarjeta. Lo duradero (quién es una persona, una fecha que se repite cada año) guárdalo también con recordar.
 - Si pide que lo guíes: pregunta categoría (las 3 o 4 que más usa) y cuándo (Hoy, Ayer); luego monto y descripción con opciones de sus movimientos anteriores; luego propón. No repitas lo que ya dijo.
 
