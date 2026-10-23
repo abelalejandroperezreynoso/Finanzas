@@ -18282,6 +18282,9 @@
                             function detallePropuestaHtml(p) {
                                 const flecha = (antes, despues) => `${escaparHtml(String(antes ?? '—'))} → <b>${escaparHtml(String(despues ?? '—'))}</b>`;
                                 const filas = [];
+                                // Subsectores {"Sector": ["Sub", ...]} en una línea: "Tecnología: Hardware, Software · Salud: Farma"
+                                const textoSubsectores = (m) => Object.entries(m || {}).filter(([, l]) => Array.isArray(l) && l.length)
+                                    .map(([sec, l]) => `${sec}: ${l.join(', ')}`).join(' · ');
                                 // A qué cuenta pertenece una categoría: con el mismo nombre en dos cuentas, sin esto no se sabe cuál es
                                 const cuentaDe = (idCategoria) => {
                                     const cat = (datosCategorias || []).find(c => String(c.id) === String(idCategoria));
@@ -18323,6 +18326,7 @@
                                     }
                                     if ('prioridad' in c && c.prioridad) filas.push(`Prioridad: ${flecha(NOMBRES_PRIORIDAD[a.prioridad] || 'sin asignar', NOMBRES_PRIORIDAD[c.prioridad] || c.prioridad)}`);
                                     if ('sectores' in c) filas.push(`Sectores: ${flecha((a.sectores || []).join(' · ') || 'ninguno', (c.sectores || []).join(' · ') || 'ninguno')}`);
+                                    if ('subsectores' in c) filas.push(`Subsectores: ${flecha(textoSubsectores(a.subsectores) || 'ninguno', textoSubsectores(c.subsectores) || 'ninguno')}`);
                                     const nombreGrupo = g => g === 'habito' ? 'Hábito' : g === 'enfermedad' ? 'Enfermedad' : 'sin definir';
                                     if ('grupo_salud' in c) filas.push(`Grupo: ${flecha(nombreGrupo(a.grupo_salud), nombreGrupo(c.grupo_salud))}`);
                                     if ('recordar_diario' in c) filas.push(`Aviso 9 p.m.: ${flecha(a.recordar_diario ? 'Sí' : 'No', c.recordar_diario ? 'Sí' : 'No')}`);
@@ -18353,6 +18357,7 @@
                                     filas.push(`Cuenta: <b>${escaparHtml(p.cuenta || '')}</b>`);
                                     filas.push(`Tipo: <b>${escaparHtml(nombresTipoCat[d.tipo] || d.tipo || '')}</b>`);
                                     if ((d.sectores || []).length) filas.push(`Sectores: <b>${escaparHtml(d.sectores.join(' · '))}</b>`);
+                                    if (textoSubsectores(d.subsectores)) filas.push(`Subsectores: <b>${escaparHtml(textoSubsectores(d.subsectores))}</b>`);
                                     if (d.grupo_salud) filas.push(`Grupo: <b>${escaparHtml(d.grupo_salud === 'habito' ? 'Hábito' : 'Enfermedad')}</b>`);
                                     if (MEDIDAS_SALUD[d.medida_salud]) filas.push(`Mide: <b>${escaparHtml(nombreMedidaSalud(d))}</b>`);
                                     if (d.recordar_diario) filas.push('Aviso: <b>a las 9 p.m. si no lo registré</b>');
