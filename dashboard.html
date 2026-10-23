@@ -2783,6 +2783,17 @@
             </a>
             <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiHistorico" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
         </div>
+        <div class="aj-grupo">
+            <a class="aj-fila" href="https://site.financialmodelingprep.com/developer/docs" target="_blank" rel="noopener">
+                <img class="aj-logo" src="proveedores/fmp.png" alt="">
+                <span class="aj-texto">FMP<small>Ventas por segmento</small></span>
+                <span class="aj-valor" id="estadoClaveFmp">Sin clave</span>
+                <svg class="aj-chevron" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6"/></svg>
+            </a>
+            <label class="aj-fila"><span class="aj-etiqueta">Clave</span><input type="text" class="aj-campo" id="claveApiFmp" placeholder="Pégala aquí" autocomplete="off" spellcheck="false" oninput="guardarClaveProveedor(this)"></label>
+        </div>
+        <div class="aj-nota">Con ella el asistente calcula los porcentajes de tus subsectores y los actualiza con cada reporte anual.</div>
+
         <div class="aj-nota">Si Finnhub no contesta, el precio se pide a Yahoo Finance, luego a Twelve Data y al final a Alpha Vantage. El tipo de cambio sale de ExchangeRate-API, Frankfurter o Yahoo; si ninguno contesta, se usa el último guardado.</div>
         <div class="aj-nota">Los ETF y lo de fuera de EE. UU. quedan sin sector. Tus sectores propios se ponen en cada empresa.</div>
     </div>
@@ -3332,6 +3343,8 @@
                                     // —hasta cinco mil por petición— y el tipo de cambio. Es la fuente que
                                     // llega a tu primera compra; Alpha Vantage gratis se queda en cien.
                                     const CLAVE_API_TWELVE = 'claveApiTwelveData';
+                                    // FMP no la usa el teléfono: la lee la función asistente de claves_proveedores
+                                    const CLAVE_API_FMP = 'claveApiFmp';
 
                                     // El mismo token con el que la app pregunta el precio de hoy. Vive aquí
                                     // arriba y no dentro de una función porque ahora lo usan dos: la cotización
@@ -4380,6 +4393,8 @@
                                         if (campoTwelve) campoTwelve.value = localStorage.getItem(CLAVE_API_TWELVE) || '';
                                         const campoFinnhub = document.getElementById('claveApiFinnhub');
                                         if (campoFinnhub) campoFinnhub.value = localStorage.getItem(CLAVE_API_FINNHUB) || '';
+                                        const campoFmp = document.getElementById('claveApiFmp');
+                                        if (campoFmp) campoFmp.value = localStorage.getItem(CLAVE_API_FMP) || '';
                                         pintarEstadoClaves();
                                     }
 
@@ -4391,7 +4406,8 @@
                                     const PROVEEDORES_CLAVE = [
                                         { proveedor: 'finnhub', local: CLAVE_API_FINNHUB, campo: 'claveApiFinnhub' },
                                         { proveedor: 'twelvedata', local: CLAVE_API_TWELVE, campo: 'claveApiTwelve' },
-                                        { proveedor: 'alphavantage', local: CLAVE_API_HISTORICO, campo: 'claveApiHistorico' }
+                                        { proveedor: 'alphavantage', local: CLAVE_API_HISTORICO, campo: 'claveApiHistorico' },
+                                        { proveedor: 'fmp', local: CLAVE_API_FMP, campo: 'claveApiFmp' }
                                     ];
                                     const leerLocal = nombre => { try { return (localStorage.getItem(nombre) || '').trim(); } catch (e) { return ''; } };
                                     const escribirLocal = (nombre, clave) => {
@@ -4454,6 +4470,7 @@
                                         };
                                         pintar('estadoClaveTwelve', CLAVE_API_TWELVE);
                                         pintar('estadoClaveAlpha', CLAVE_API_HISTORICO);
+                                        pintar('estadoClaveFmp', CLAVE_API_FMP);
                                     }
 
                                     // =========================================================

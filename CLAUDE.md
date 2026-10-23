@@ -104,8 +104,10 @@ Reglas para el SQL:
 - La clave de Anthropic vive solo en el secreto `ANTHROPIC_API_KEY` de las Edge
   Functions de Supabase. Nunca se pide, escribe ni guarda en el chat, el código o
   la app. Lo mismo con el token de Supabase.
-- La clave de Financial Modeling Prep (segmentos) va en el secreto `FMP_API_KEY` de las Edge Functions; sin
-  ella `finanzas_empresa` sigue con lo de Finnhub y avisa que faltan los segmentos.
+- La clave de Financial Modeling Prep (segmentos) la pone cada usuario en Ajustes → Proveedores → FMP
+  (`claves_proveedores`, proveedor `fmp`); la función la lee con el JWT del usuario. Si existe el secreto
+  `FMP_API_KEY` de las Edge Functions, manda ése. Sin clave, `finanzas_empresa` sigue con lo de Finnhub y avisa
+  que faltan los segmentos.
 - Las tablas usan RLS; la función `asistente` usa el JWT del usuario, no la
   service role.
 - El asistente de IA solo propone cambios: la app los aplica cuando el usuario

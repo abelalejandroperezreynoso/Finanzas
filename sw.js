@@ -2,7 +2,7 @@
 // worker, rellena la caché con los archivos frescos y tira la anterior. Súbela cada vez que cambies
 // alguno de los archivos de abajo; si no, los teléfonos que ya tengan la app instalada seguirán
 // arrancando con la copia guardada hasta que algo más los obligue a mirar la red.
-const CACHE_NAME = 'gastos-app-v366';
+const CACHE_NAME = 'gastos-app-v367';
 
 // Los logos de las empresas viven en su propia caché, que no se borra al subir de versión: no
 // cambian y no tiene sentido volver a bajarlos cada vez que se publica un cambio de la app.
@@ -24,6 +24,7 @@ const ASSETS_TO_CACHE = [
     './proveedores/twelvedata.png',
     './proveedores/alphavantage.png',
     './proveedores/yahoo.png',
+    './proveedores/fmp.png',
     // Las librerías viven en el repo, no en un CDN: así se pueden guardar en caché como cualquier
     // otro archivo propio y la app abre aunque no haya internet. Un CDN es de otro origen y sus
     // respuestas no se pueden inspeccionar ni cachear con garantías, de modo que sin red la app se

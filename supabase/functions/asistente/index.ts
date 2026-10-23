@@ -1173,20 +1173,35 @@ async function nombreDeTicker(ticker: string): Promise<string> {
 // Financial Modeling Prep: sólo para las ventas por segmento y por región, que Finnhub gratis no da. La clave va
 // en el secreto FMP_API_KEY de las Edge Functions; sin ella la herramienta lo dice y sigue con lo de Finnhub
 const CLAVE_FMP = Deno.env.get("FMP_API_KEY") ?? "";
+// La clave de FMP: la del secreto si existe; si no, la que el usuario puso en Ajustes → Proveedores
+// (claves_proveedores, sólo la suya por RLS). Se lee una vez por petición.
+const clavesFmp = new WeakMap<object, Promise<string>>();
+function claveFmp(sb: SupabaseClient): Promise<string> {
+  if (CLAVE_FMP) return Promise.resolve(CLAVE_FMP);
+  let p = clavesFmp.get(sb);
+  if (!p) {
+    p = Promise.resolve(sb.from("claves_proveedores").select("clave").eq("proveedor", "fmp").maybeSingle())
+      .then(({ data }) => String(data?.clave ?? "").trim(), () => "");
+    clavesFmp.set(sb, p);
+  }
+  return p;
+}
+const FALTA_CLAVE_FMP = "Falta la clave de FMP: ponla en Ajustes → Proveedores → FMP.";
 // Los reportes cambian una vez por trimestre: se guardan mientras la función siga despierta
 const cacheReportes = new Map<string, { t: number; d: Json }>();
 
 // Las ventas por segmento del último año fiscal de una empresa (FMP), o por qué no se pudieron leer.
 // limite: FMP dijo que se acabaron las consultas (no es un problema de la empresa: se reintenta después)
-async function segmentosFmp(ticker: string): Promise<{ seg: Segmentos } | { error: string; limite?: boolean }> {
-  if (!CLAVE_FMP) return { error: "Falta la clave de FMP en Supabase (secreto FMP_API_KEY)." };
+async function segmentosFmp(sb: SupabaseClient, ticker: string): Promise<{ seg: Segmentos } | { error: string; limite?: boolean }> {
+  const clave_fmp = await claveFmp(sb);
+  if (!clave_fmp) return { error: FALTA_CLAVE_FMP };
   const t = String(ticker).trim().toUpperCase();
   const clave = `productos:${t}`;
   let d: Json = cacheReportes.get(clave);
   d = d && Date.now() - d.t < 12 * 3_600_000 ? d.d : null;
   if (!d) {
     // Lo que dijo FMP va en el error tal cual (recortado), para saber qué pasó sin adivinar
-    const url = `https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&apikey=${CLAVE_FMP}`;
+    const url = `https://financialmodelingprep.com/stable/revenue-product-segmentation?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&apikey=${encodeURIComponent(clave_fmp)}`;
     let r: Response | null = null, fallo = "";
     for (let intento = 0; intento < 2 && !r; intento++) {
       try { r = await fetch(url, { signal: AbortSignal.timeout(15000) }); } catch (e) { fallo = `${(e as Error)?.name ?? "Error"}: ${(e as Error)?.message ?? ""}`.slice(0, 160); }
@@ -1196,7 +1211,7 @@ async function segmentosFmp(ticker: string): Promise<{ seg: Segmentos } | { erro
     try { d = JSON.parse(texto); } catch (_) { d = null; }
     const mensaje = String((d && !Array.isArray(d) ? d["Error Message"] ?? d.error ?? d.message : null) ?? (r.ok ? "" : texto)).replace(/\s+/g, " ").slice(0, 200);
     if (r.status === 429) return { error: `FMP llegó a su límite de consultas (429: ${mensaje}).`, limite: true };
-    if (r.status === 401) return { error: `La clave de FMP (secreto FMP_API_KEY) no es válida (401: ${mensaje}).` };
+    if (r.status === 401) return { error: `La clave de FMP no es válida; revísala en Ajustes → Proveedores → FMP (401: ${mensaje}).` };
     if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|restricted|not available/i.test(mensaje)) {
       return { error: `El plan de FMP no incluye los segmentos de ${t} (${r.status}: ${mensaje}).` };
     }
@@ -1728,6 +1743,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const pedidos = [...new Set((Array.isArray(entrada.tickers) ? entrada.tickers : []).map(limpio).filter((t: string) => /^[A-Z0-9.\-]{1,10}$/.test(t)))] as string[];
       if (!pedidos.length) return { texto: "Falta el ticker de la empresa (p. ej. GOOGL).", error: true };
       const tickers = pedidos.slice(0, 3);
+      const CLAVE_FMP = await claveFmp(sb);
       const avisos: string[] = [];
       if (pedidos.length > 3) avisos.push(`Sólo se revisan 3 a la vez; faltaron ${pedidos.slice(3).join(", ")}.`);
       let limitado = false;
@@ -1775,7 +1791,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           if (porRegion) empresa.ventas_por_region = { ...porRegion, ...tabla(["region", "ventas", "parte", "crecimiento"], porRegion.filas) };
           if (!porProducto && !porRegion) {
             avisos.push(productos?.error === 401 || regiones?.error === 401
-              ? "La clave de FMP (secreto FMP_API_KEY en Supabase) no es válida: no hay ventas por segmento ni por región."
+              ? "La clave de FMP no es válida (Ajustes → Proveedores → FMP): no hay ventas por segmento ni por región."
               : sinPlan(productos) || sinPlan(regiones)
               ? `${t}: el plan gratis de FMP no incluye los segmentos de esta empresa.`
               : `${t}: FMP no tiene sus ventas por segmento.`);
@@ -1783,7 +1799,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }
         empresas.push(empresa);
       }
-      if (!CLAVE_FMP) avisos.push("Las ventas por segmento y por región no están disponibles: falta la clave de FMP en Supabase (secreto FMP_API_KEY). Si las pide, díselo así.");
+      if (!CLAVE_FMP) avisos.push(`Las ventas por segmento y por región no están disponibles. ${FALTA_CLAVE_FMP} Si las pide, díselo así.`);
       if (limitado) avisos.push("Se llegó al límite de consultas: faltan datos. No los inventes; dile que lo vuelva a pedir en un minuto.");
       return {
         texto: recortar({
@@ -2249,7 +2265,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         datos = { origen: "manual", pesos, actualizado: hoyP };
       } else {
         if (!c.ticker) return { texto: "Sin ticker no hay segmentos: propón pesos a mano.", error: true };
-        const r = await segmentosFmp(c.ticker);
+        const r = await segmentosFmp(sb, c.ticker);
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
         const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. Sus divisiones: ${divisiones.join(", ")}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
@@ -4459,7 +4475,7 @@ Deno.serve(async (req) => {
       for (let k = 0; k < toca.length; k += 5) {
         await Promise.all(toca.slice(k, k + 5).map(async (c: Json) => {
           const ps = c.pesos_subsectores;
-          const r = await segmentosFmp(c.ticker);
+          const r = await segmentosFmp(sb, c.ticker);
           if ("error" in r && r.limite) return;
           const nuevo: Json = { ...ps, revisado: hoyP };
           if ("error" in r) nuevo.error = r.error;
