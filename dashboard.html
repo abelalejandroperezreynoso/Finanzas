@@ -18451,11 +18451,13 @@
                                 return filas.join('<br>');
                             }
 
+                            // sinDesplazar: baja al final sin animación; 'quieto': no mueve la vista (al decidir una tarjeta)
                             function pintarChatAsistente(sinDesplazar) {
                                 guardarChatAsistente();
                                 actualizarBotonNuevaAsistente();
                                 const caja = document.getElementById('chatMensajes');
                                 if (!caja) return;
+                                const posicion = caja.scrollTop;
                                 pintarPreguntasAsistente();
                                 const chips = document.getElementById('chatChips');
                                 if (chips) chips.innerHTML = '';
@@ -18549,7 +18551,8 @@
                                     }
                                     return '';
                                 }).join('') + (chatEnviando ? '<div class="chat-escribiendo"><span></span><span></span><span></span></div>' : '');
-                                if (sinDesplazar) caja.scrollTop = caja.scrollHeight;
+                                if (sinDesplazar === 'quieto') caja.scrollTop = posicion;
+                                else if (sinDesplazar) caja.scrollTop = caja.scrollHeight;
                                 else requestAnimationFrame(() => caja.scrollTo({ top: caja.scrollHeight, behavior: 'smooth' }));
                             }
 
@@ -20663,11 +20666,11 @@
                                         clienteSupabase.from('memoria_ia').insert([{ user_id: currentUser.id, tema: 'preferencia',
                                             nota: `No quiere que la app espere ${p.categorias.map(x => String(x.nombre).slice(0, 40)).join(', ')}: canceló encender sus predicciones.` }]).then(() => {}, () => {});
                                     }
-                                    pintarChatAsistente();
+                                    pintarChatAsistente('quieto');
                                     return;
                                 }
                                 m.estado = 'aplicando';
-                                pintarChatAsistente();
+                                pintarChatAsistente('quieto');
                                 let res;
                                 if (p.tipo === 'cambio_movimiento') {
                                     const cambios = { ...p.cambios };
@@ -20774,7 +20777,7 @@
                                     const cuantos = plural(count || 0, 'movimiento', 'movimientos');
                                     // Mientras decide, la tarjeta no dice "Guardando…"
                                     m.estado = 'pendiente';
-                                    pintarChatAsistente();
+                                    pintarChatAsistente('quieto');
                                     const eleccion = await alertaIos({
                                         titulo: esCuenta ? `¿Borrar la cuenta ${p.nombre}?` : `¿Borrar la categoría ${p.nombre}?`,
                                         mensaje: esCuenta ? `Se borran ${plural(catIds.length, 'categoría', 'categorías')} y ${cuantos}. No se puede deshacer.` : `Se borran ${cuantos}. No se puede deshacer.`,
@@ -20782,7 +20785,7 @@
                                     });
                                     if (eleccion !== 1) return;
                                     m.estado = 'aplicando';
-                                    pintarChatAsistente();
+                                    pintarChatAsistente('quieto');
                                     res = await clienteSupabase.from(esCuenta ? 'cuentas' : 'categorias').delete().eq('id', idBorrar).select('id');
                                     if (!res.error && !(res.data || []).length) res = { error: { message: 'Ya no existía.' } };
                                     if (!res.error) olvidarRegistrosRecienGuardados(esCuenta ? 'cuentas' : 'categorias', idBorrar);
@@ -20876,7 +20879,7 @@
                                         }
                                         if (!seguir) {
                                             m.estado = 'pendiente';
-                                            pintarChatAsistente();
+                                            pintarChatAsistente('quieto');
                                             return;
                                         }
                                         const idCat = esCaja ? await obtenerCategoriaCajaGbm(cuenta_id) : categoria_id;
@@ -20900,7 +20903,7 @@
                                 // Depende de otra propuesta aún sin confirmar: la tarjeta sigue esperando
                                 if (res.falta) {
                                     m.estado = 'pendiente';
-                                    pintarChatAsistente();
+                                    pintarChatAsistente('quieto');
                                     await alertaIos({ titulo: 'Falta un paso', mensaje: res.falta });
                                     return;
                                 }
@@ -20913,7 +20916,8 @@
                                     chatApi.push({ role: 'user', content: contenidoConPendientes([{ type: 'text', text: `(Confirmé y se aplicó: ${p.resumen})` }]) });
                                     refrescarTodo().catch(e => console.warn('Refrescar tras el asistente', e));
                                 }
-                                pintarChatAsistente();
+                                // Si falló, baja al aviso del error; si no, se queda donde estaba
+                                pintarChatAsistente(res.error ? undefined : 'quieto');
                             }
 
                             // Versión instalada: el número de la caché del service worker. Si hay dos (una
