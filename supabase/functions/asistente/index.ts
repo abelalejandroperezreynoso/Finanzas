@@ -2340,7 +2340,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return {
         texto: `Propuesta registrada; todavía NO está aplicada. Porcentajes: ${cifras}. Si los dices, usa estas cifras tal cual (no las recalcules ni redondees distinto).` +
           (datos.origen === "segmentos" ? " Revisa tu receta: si algún segmento quedó en un subsector que no describe lo que vende, corrígelo ahora (dale el suyo y vuelve a llamar con corrige_anterior)." : "") +
-          (estructura ? ` La misma tarjeta cambia sus subsectores: ${textoSubsectoresMapa(estructura.antes.subsectores, estructura.antes.sectores)} → ${textoSubsectoresMapa(estructura.subsectores, estructura.sectores)}. Díselo en una línea (qué entra y qué sale).` : "") +
+          (estructura ? ` La misma tarjeta cambia sus subsectores: ${textoSubsectoresMapa(estructura.antes.subsectores, estructura.antes.sectores)} → ${textoSubsectoresMapa(estructura.subsectores, estructura.sectores)}. Díselo en una línea (qué entra y qué sale).`
+            : datos.origen === "segmentos" ? " Sus sectores y subsectores no cambian (ya eran éstos): no digas que se agrega o se quita alguno." : "") +
           (cambioPendiente && datos.origen === "manual" ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +
           (sinVentas.length ? ` Quedan en 0% (ningún segmento va ahí): ${sinVentas.join(", ")}. Díselo; si no deben estar, propón quitarlas de sus subsectores.` : ""),
       };
