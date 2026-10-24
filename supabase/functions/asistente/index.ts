@@ -1243,6 +1243,30 @@ async function segmentosFmp(sb: SupabaseClient, ticker: string): Promise<{ seg: 
   const seg = ultimosSegmentos(d);
   return seg ? { seg } : { error: `FMP no tiene las ventas por segmento de ${t}.` };
 }
+// Las ventas totales del mismo año fiscal (estado de resultados de FMP), para ver qué parte cubren los segmentos.
+// null si no se pudieron leer: entonces no se avisa nada.
+async function ventasTotalesFmp(sb: SupabaseClient, ticker: string, seg: Segmentos): Promise<number | null> {
+  const clave_fmp = await claveFmp(sb);
+  if (!clave_fmp) return null;
+  const t = String(ticker).trim().toUpperCase();
+  const clave = `ingresos:${t}`;
+  let d: Json = cacheReportes.get(clave);
+  d = d && Date.now() - d.t < 12 * 3_600_000 ? d.d : null;
+  if (!d) {
+    try {
+      const r = await fetch(`https://financialmodelingprep.com/stable/income-statement?symbol=${encodeURIComponent(t.replace(".", "-"))}&period=annual&limit=5&apikey=${encodeURIComponent(clave_fmp)}`,
+        { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) return null;
+      d = await r.json();
+      if (!Array.isArray(d)) return null;
+      cacheReportes.set(clave, { t: Date.now(), d });
+    } catch (_) { return null; }
+  }
+  const fila = (d as Json[]).find((x) => String(x?.date ?? "").slice(0, 10) === seg.cierre)
+    ?? (d as Json[]).find((x) => seg.anio && Number(x?.fiscalYear) === seg.anio);
+  const n = Number(fila?.revenue);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 const textoSegmentos = (seg: Segmentos) => {
   const total = seg.partes.reduce((t, [, n]) => t + n, 0);
   return seg.partes.map(([k, n]) => `"${k}" (${Math.round((n / total) * 1000) / 10}%)`).join(", ");
@@ -2338,6 +2362,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (fueraGrandes.length) {
           return { texto: `Se quedarían fuera ${fueraGrandes.join(", ")}: dale su "Sector › Subsector" (uno nuevo si ninguno lo describe) y vuelve a llamar. Sólo si él ya dijo que lo deja fuera, usa dejar_fuera. ${lista}`, error: true };
         }
+        // Qué parte de sus ventas cubren los segmentos: FMP a veces no trae alguno (los intereses de Robinhood)
+        const ventas = await ventasTotalesFmp(sb, c.ticker, r.seg);
+        const cobertura = ventas ? Math.round((totalSeg / ventas) * 100) : null;
         // La estructura nueva: sus sectores de antes que siguen, luego los nuevos; en cada uno, sus subsectores de mayor a menor
         const porPeso = [...orden].sort((x, y) => (res.pesos[y] ?? 0) - (res.pesos[x] ?? 0));
         const antesSectores: string[] = Array.isArray(c0.sectores) ? c0.sectores.map(limpiarNombreSector).filter(Boolean) : [];
@@ -2351,7 +2378,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const cambiaEstructura = sectoresN.length !== antesSectores.length || sectoresN.some((x) => !antesSectores.includes(x)) || !mismosSubsectores(subsAntes, subsN);
         if (cambiaEstructura) estructura = { sectores: sectoresN, subsectores: subsN, antes: { sectores: antesSectores, subsectores: subsAntes } };
         sinVentas = res.sinVentas;
-        datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null };
+        datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null,
+          ...(cobertura !== null && cobertura < 90 ? { cobertura } : {}) };
       }
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
@@ -2359,12 +2387,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         antes: c0.pesos_subsectores && typeof c0.pesos_subsectores === "object" ? c0.pesos_subsectores.pesos ?? null : null,
         ...(cambioPendiente && datos.origen === "manual" ? { tras_subsectores: true } : {}),
         ...(estructura ? { estructura } : {}),
-        resumen: String(entrada.resumen).slice(0, 200),
+        // El título lo arma la función con las cifras calculadas: el modelo las escribía distintas a la tarjeta
+        resumen: `${nombre}${c.ticker ? ` [${c.ticker}]` : ""}: ${Object.entries(datos.pesos as Record<string, number>).sort((a, b) => b[1] - a[1])
+          .map(([d, n]) => `${d.split(" › ").pop()} ${n}%`).join(", ")}`.slice(0, 200),
       });
       const cifras = Object.entries(datos.pesos as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${d} ${n}%`).join(", ");
       return {
         texto: `Propuesta registrada; todavía NO está aplicada. Porcentajes: ${cifras}. Si los dices, usa estas cifras tal cual (no las recalcules ni redondees distinto).` +
           (datos.origen === "segmentos" ? " Revisa tu receta: si algún segmento quedó en un subsector que no describe lo que vende, corrígelo ahora (dale el suyo y vuelve a llamar con corrige_anterior)." : "") +
+          (datos.cobertura ? ` OJO: sus segmentos suman sólo ${datos.cobertura}% de sus ventas del año: FMP no trae el resto (p. ej. intereses), así que los porcentajes reparten sólo lo reportado por segmento. Díselo en una línea; si sabe de qué es lo que falta, puede darte los porcentajes a mano.` : "") +
           (estructura ? ` La misma tarjeta cambia sus subsectores: ${textoSubsectoresMapa(estructura.antes.subsectores, estructura.antes.sectores)} → ${textoSubsectoresMapa(estructura.subsectores, estructura.sectores)}. Díselo en una línea (qué entra y qué sale).`
             : datos.origen === "segmentos" ? " Sus sectores y subsectores no cambian (ya eran éstos): no digas que se agrega o se quita alguno." : "") +
           (cambioPendiente && datos.origen === "manual" ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +

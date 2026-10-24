@@ -18540,6 +18540,7 @@
                                         const previo = Object.keys(antes).find(k => k.toLowerCase() === div.toLowerCase());
                                         filas.push(`${escaparHtml(div)}: ${previo !== undefined ? flecha(`${antes[previo]}%`, `${pct}%`) : `<b>${escaparHtml(String(pct))}%</b>`}`);
                                     });
+                                    if (d.cobertura) filas.push(`<b>Sus segmentos cubren sólo ${escaparHtml(String(d.cobertura))}% de sus ventas</b>`);
                                     if (d.origen === 'segmentos') {
                                         filas.push(`Según: ventas por segmento ${escaparHtml(String(d.anio || (d.cierre || '').slice(0, 4)))}; se actualiza con cada reporte anual`);
                                         Object.entries(d.receta || {}).forEach(([seg, div]) => filas.push(`<span style="opacity:0.75">${escaparHtml(seg)} → ${escaparHtml(div || 'no cuenta')}</span>`));
@@ -19561,6 +19562,22 @@
                                         if (subs.length) subs.forEach(sub => claves.push(`${sec} › ${sub}`)); else claves.push(sec);
                                     });
                                     const noCuadran = claves.length > 1 && !pesosVigentesDeCategoria(c, claves);
+                                    // Los puestos a mano no se actualizan solos: una vez al año se piden revisar
+                                    const diasMano = ps.origen === 'manual' && ps.actualizado
+                                        ? Math.round((Date.parse(`${diaLocal(new Date())}T12:00:00`) - Date.parse(`${ps.actualizado}T12:00:00`)) / 864e5) : 0;
+                                    if (!ps.error && !noCuadran && diasMano >= 365) {
+                                        const claveAnual = `pesos-anual:${c.id}:${ps.actualizado}`;
+                                        if (!vigente(claveAnual)) return;
+                                        const nombreA = c.ticker || c.nombre;
+                                        avisos.push({
+                                            clave: claveAnual, categoria_id: c.id, etiqueta: 'Inversiones',
+                                            texto: `Revisa los porcentajes de ${nombreA}.`,
+                                            detalle: 'Los pusiste a mano hace más de un año.',
+                                            primario: { texto: 'Revisarlos', mensaje: `Los porcentajes de subsectores de ${nombreA} los puse a mano hace más de un año. Revísalos con sus segmentos de ventas y propónme cómo quedan.` },
+                                            secundario: { texto: 'Siguen bien', dias: 365 }
+                                        });
+                                        return;
+                                    }
                                     if (!ps.error && !noCuadran) return;
                                     const nombre = c.ticker || c.nombre;
                                     const motivo = noCuadran ? 'Ya no cuadran con sus subsectores.' : ps.error;
