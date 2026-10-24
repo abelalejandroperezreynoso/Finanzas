@@ -564,7 +564,7 @@ const HERRAMIENTAS: Json[] = [
       type: "object",
       properties: {
         categoria_id: { type: "string" },
-        receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a una de sus divisiones; \"\" si no encaja en ninguna y no debe contar" },
+        receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a la división que describe lo que vende; \"\" si ninguna lo describe. Nunca a la \"más cercana\" sólo para que no quede fuera (suscripciones o dispositivos no son Publicidad): si queda fuera, la herramienta te dice qué hacer" },
         pesos: { type: "object", additionalProperties: { type: "number" }, description: "Sólo a mano: cada división con su porcentaje (se ajustan para sumar 100)" },
         dejar_fuera: { type: "array", items: { type: "string" }, description: "Segmentos que el usuario ya dijo que se quedan fuera aunque pesen (nombre exacto); sin esto, uno de 3% o más que quede fuera se avisa primero" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
@@ -2279,7 +2279,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
         const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. Sus divisiones: ${divisiones.join(", ")}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
-          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a la división que le toca por lo que vende, o "" si no encaja en ninguna. No le preguntes al usuario: él lo ve en la tarjeta.`, error: true };
+          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a la división que describe lo que vende, o "" si ninguna lo describe. ` +
+            "No metas un segmento en la división \"más cercana\" para que no quede fuera (suscripciones, dispositivos o hardware no son Publicidad; pagos no son E-commerce): déjalo en \"\" y la herramienta te dirá si hay que proponerle su subsector. No le preguntes al usuario: él lo ve en la tarjeta.", error: true };
         }
         const receta: Receta = {};
         for (const [k, v] of Object.entries(entrada.receta as Record<string, unknown>)) {
@@ -2312,8 +2313,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...(cambioPendiente ? { tras_subsectores: true } : {}),
         resumen: String(entrada.resumen).slice(0, 200),
       });
+      const cifras = Object.entries(datos.pesos as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${d} ${n}%`).join(", ");
       return {
-        texto: "Propuesta registrada; todavía NO está aplicada." +
+        texto: `Propuesta registrada; todavía NO está aplicada. Porcentajes: ${cifras}. Si los dices, usa estas cifras tal cual (no las recalcules ni redondees distinto).` +
+          (datos.origen === "segmentos" ? " Revisa tu receta: si algún segmento quedó en una división que no describe lo que vende, sólo para que no quedara fuera, corrígelo ahora (déjalo en \"\" y vuelve a llamar con corrige_anterior)." : "") +
           (cambioPendiente ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +
           (sinVentas.length ? ` Quedan en 0% (ningún segmento va ahí): ${sinVentas.join(", ")}. Díselo; si no deben estar, propón quitarlas de sus subsectores.` : ""),
       };
