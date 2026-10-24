@@ -5117,7 +5117,7 @@
                                         };
                                     }
 
-                                    // La raya de puntos que marca el día que se está leyendo. Sin dedo encima se
+                                    // La raya que marca el día que se está leyendo. Sin dedo encima se
                                     // queda en el día que cada gráfica tenga por suyo —hoy en el balance, el
                                     // último dibujado en la curva—, que es el que sus cifras están contando.
                                     //
@@ -5203,7 +5203,6 @@
                                                 lienzo.lineTo(posicionX, chart.scales.y.bottom);
                                                 lienzo.lineWidth = 1.5;
                                                 lienzo.strokeStyle = color;
-                                                lienzo.setLineDash([5, 5]);
                                                 lienzo.stroke();
                                                 lienzo.restore();
                                             }
@@ -5583,8 +5582,10 @@
                                         }
                                     };
 
-                                    // Las dos rayas y el tramo sombreado entre ellas, con el punto de cada línea en
-                                    // los dos extremos (del color de su línea cuando hay varias).
+                                    // Con dos dedos, como en Bolsa de Apple: el tramo entre ellos se pinta verde si subió
+                                    // o rojo si bajó —la línea, su relleno, las dos rayas y los puntos de los extremos—
+                                    // y lo de fuera se apaga. Comparando varias líneas, cada una conserva su color: el
+                                    // tramo se aclara y sus puntos van del color de su línea.
                                     const pluginTramoDosDedos = {
                                         id: 'tramoDosDedos',
                                         afterDraw: chart => {
@@ -5593,30 +5594,74 @@
                                             const meta = chart.getDatasetMeta(0);
                                             const pa = meta.data[tramo[0]], pb = meta.data[tramo[1]];
                                             if (!pa || !pb) return;
-                                            const { top, bottom } = chart.scales.y;
+                                            const { left, right, top, bottom } = chart.chartArea;
                                             const c = chart.ctx;
+                                            const varias = chart.data.datasets.length > 1;
+                                            const datos = chart.data.datasets[0].data;
+                                            const va = datos[tramo[0]], vb = datos[tramo[1]];
+                                            const color = varias ? 'rgba(255, 255, 255, 0.7)'
+                                                : (isFinite(va) && isFinite(vb) && vb - va < -0.005) ? '#ff5c5c' : '#3ecf8e';
                                             c.save();
-                                            c.fillStyle = 'rgba(255, 255, 255, 0.08)';
-                                            c.fillRect(pa.x, top, pb.x - pa.x, bottom - top);
+
+                                            // Lo de fuera del tramo, apagado
+                                            c.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                                            c.fillRect(left, top, Math.max(0, pa.x - left), bottom - top);
+                                            c.fillRect(pb.x, top, Math.max(0, right - pb.x), bottom - top);
+
+                                            if (!varias) {
+                                                // La línea del tramo, por los mismos puntos de control que usó Chart.js
+                                                const puntos = meta.data.slice(tramo[0], tramo[1] + 1).filter(p => p && !p.skip && isFinite(p.y));
+                                                const trazar = () => {
+                                                    puntos.forEach((p, k) => {
+                                                        if (k === 0) { c.moveTo(p.x, p.y); return; }
+                                                        const q = puntos[k - 1];
+                                                        if ([q.cp2x, q.cp2y, p.cp1x, p.cp1y].every(isFinite)) c.bezierCurveTo(q.cp2x, q.cp2y, p.cp1x, p.cp1y, p.x, p.y);
+                                                        else c.lineTo(p.x, p.y);
+                                                    });
+                                                };
+                                                if (puntos.length > 1) {
+                                                    // Lo de debajo se tapa con el fondo de la tarjeta: el relleno verde
+                                                    // mezclado con el rojo del tramo salía café
+                                                    c.fillStyle = '#000000';
+                                                    c.fillRect(pa.x, top, pb.x - pa.x, bottom - top);
+                                                    const cero = Math.min(bottom, Math.max(top, chart.scales.y.getPixelForValue(0)));
+                                                    const suelo = isFinite(cero) ? cero : bottom;
+                                                    const ultimoP = puntos[puntos.length - 1];
+                                                    c.beginPath();
+                                                    trazar();
+                                                    c.lineTo(ultimoP.x, suelo);
+                                                    c.lineTo(puntos[0].x, suelo);
+                                                    c.closePath();
+                                                    c.fillStyle = colorTenue(color, 0.18);
+                                                    c.fill();
+                                                    c.beginPath();
+                                                    trazar();
+                                                    c.lineWidth = 2;
+                                                    c.strokeStyle = color;
+                                                    c.lineJoin = 'round';
+                                                    c.stroke();
+                                                }
+                                            }
+
                                             c.lineWidth = 1.5;
-                                            c.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-                                            c.setLineDash([5, 5]);
+                                            c.strokeStyle = color;
                                             [pa, pb].forEach(p => {
                                                 c.beginPath();
                                                 c.moveTo(p.x, top);
                                                 c.lineTo(p.x, bottom);
                                                 c.stroke();
                                             });
-                                            c.setLineDash([]);
-                                            const varias = chart.data.datasets.length > 1;
                                             chart.data.datasets.forEach((ds, k) => {
                                                 const puntos = chart.getDatasetMeta(k).data;
-                                                c.fillStyle = (varias && typeof ds.borderColor === 'string') ? ds.borderColor : '#ffffff';
+                                                c.fillStyle = varias ? (typeof ds.borderColor === 'string' ? ds.borderColor : '#ffffff') : color;
                                                 [puntos[tramo[0]], puntos[tramo[1]]].forEach(p => {
                                                     if (!p || p.skip || !isFinite(p.y)) return;
                                                     c.beginPath();
-                                                    c.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                                                    c.arc(p.x, p.y, 5, 0, Math.PI * 2);
                                                     c.fill();
+                                                    c.lineWidth = 1.5;
+                                                    c.strokeStyle = '#000000';
+                                                    c.stroke();
                                                 });
                                             });
                                             c.restore();
@@ -6018,7 +6063,7 @@
                                         const marcasCompraVenta = (conMarcas && !esDolar && serie.marcas) ? serie.marcas : [];
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
-                                        // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
+                                        // con el relleno que se apaga hacia abajo y la raya marcando el
                                         // día. Las dos ocupan el mismo hueco de la misma tarjeta, así que una que
                                         // trajera sus propios ejes se leería como si fuera de otra app.
                                         destino.chart = new Chart(lienzo.getContext('2d'), {
@@ -12562,7 +12607,6 @@
                                             chartCtx.lineTo(posicionX, chart.scales.y.bottom);
                                             chartCtx.lineWidth = 1.5;
                                             chartCtx.strokeStyle = 'rgba(62, 207, 142, 0.7)';
-                                            chartCtx.setLineDash([5, 5]);
                                             chartCtx.stroke();
                                             chartCtx.restore();
                                         }
