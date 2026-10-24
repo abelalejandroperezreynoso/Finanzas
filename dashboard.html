@@ -19689,7 +19689,7 @@
                                 return `
                                     <div class="cp-cabecera">
                                         <div class="cp-nav"></div>
-                                        <button type="button" class="cp-cerrar" aria-label="Cerrar" onclick="algoMasAsistente('nada')">
+                                        <button type="button" class="cp-cerrar" aria-label="Cerrar" onclick="algoMasAsistente('cerrar')">
                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                                         </button>
                                     </div>
@@ -19714,6 +19714,8 @@
                                 if (accion === 'registrar') return abrirRegistroAsistente();
                                 if (accion === 'pendientes') { pendienteEnCurso = true; return abrirPendientesAsistente(null); }
                                 if (accion === 'escribir') return enviarMensajeAsistente(texto);
+                                // La X sólo quita la tarjeta: la conversación sigue
+                                if (accion === 'cerrar') return pintarChatAsistente('quieto');
                                 // "Es todo, gracias": la próxima vez empieza de cero
                                 nuevaConversacionAsistente(true);
                             }
