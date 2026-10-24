@@ -12933,12 +12933,16 @@
                                 };
                             }
 
+                            // "Tecnología › Cloud" sin acentos, espacios ni mayúsculas: el mismo nombre escrito de otra forma
+                            // (los acentos pueden venir compuestos o separados) es la misma división
+                            const llaveDivision = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s*(›|>)\s*/g, ' › ').replace(/\s+/g, ' ').trim().toLowerCase();
+
                             // Los porcentajes guardados, como fracciones por división, si cubren exactamente las de hoy
                             function pesosVigentesDeCategoria(cat, claves) {
                                 const ps = cat && cat.pesos_subsectores;
                                 const pesos = ps && ps.pesos && typeof ps.pesos === 'object' ? ps.pesos : null;
                                 if (!pesos || claves.length < 2) return null;
-                                const llave = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                                const llave = llaveDivision;
                                 const porLlave = {};
                                 Object.keys(pesos).forEach(k => { porLlave[llave(k)] = Math.max(0, Number(pesos[k]) || 0); });
                                 if (Object.keys(porLlave).length !== claves.length || !claves.every(c => llave(c) in porLlave)) return null;
@@ -21044,7 +21048,7 @@
                                         : catHoy && (pesosVigentesDeCategoria({ pesos_subsectores: p.datos }, claves)
                                             // Con un solo subsector no hay reparto: basta con que sea ése (Netflix → Suscripciones 100%)
                                             || (claves.length === 1 && Object.keys((p.datos && p.datos.pesos) || {}).length === 1
-                                                && Object.keys(p.datos.pesos)[0].toLowerCase() === claves[0].toLowerCase()))
+                                                && llaveDivision(Object.keys(p.datos.pesos)[0]) === llaveDivision(claves[0])))
                                         ? await clienteSupabase.from('categorias').update({ pesos_subsectores: p.datos }).eq('id', p.categoria_id)
                                         : { falta: `Primero confirma los subsectores de ${p.nombre || 'la empresa'}.` };
                                 } else if (p.tipo === 'clasificacion') {
