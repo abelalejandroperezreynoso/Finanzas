@@ -21027,7 +21027,10 @@
                                     // Con estructura, los sectores y subsectores salen de sus segmentos y se guardan junto con los porcentajes
                                     res = p.estructura
                                         ? await clienteSupabase.from('categorias').update({ sectores: p.estructura.sectores, subsectores: p.estructura.subsectores, pesos_subsectores: p.datos }).eq('id', p.categoria_id)
-                                        : catHoy && pesosVigentesDeCategoria({ pesos_subsectores: p.datos }, claves)
+                                        : catHoy && (pesosVigentesDeCategoria({ pesos_subsectores: p.datos }, claves)
+                                            // Con un solo subsector no hay reparto: basta con que sea ése (Netflix → Suscripciones 100%)
+                                            || (claves.length === 1 && Object.keys((p.datos && p.datos.pesos) || {}).length === 1
+                                                && Object.keys(p.datos.pesos)[0].toLowerCase() === claves[0].toLowerCase()))
                                         ? await clienteSupabase.from('categorias').update({ pesos_subsectores: p.datos }).eq('id', p.categoria_id)
                                         : { falta: `Primero confirma los subsectores de ${p.nombre || 'la empresa'}.` };
                                 } else if (p.tipo === 'clasificacion') {
