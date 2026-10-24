@@ -101,7 +101,6 @@ export function segmentosDeXbrl(xml: string): SegmentosSec | null {
     if (k.e !== cierre || k.s !== inicio || k.tipado || !k.dims.length) continue;
     const dims = k.dims.filter(([eje, m]) => !(NEUTROS[eje] && NEUTROS[eje].test(m)));
     if (!dims.length || dims.some(([eje]) => DESCARTADOS.test(eje))) continue;
-    if (dims.every(([, m]) => GENERICOS.test(m))) continue;
     const orden = (eje: string) => { const i = ORDEN_EJES.indexOf(eje); return i < 0 ? 99 : i; };
     dims.sort((a, b) => orden(a[0]) - orden(b[0]));
     const combinacion = dims.map(([eje]) => eje).join("|");
