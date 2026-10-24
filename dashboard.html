@@ -18744,7 +18744,7 @@
                                 const delSaludo = saludo
                                     ? `[Nota de la app: antes de que escribiera, la pantalla de inicio le dijo "${saludo.texto}"${saludo.aviso ? ` (pendiente: ${saludo.aviso.texto}${saludo.aviso.detalle ? ' ' + saludo.aviso.detalle : ''})` : ''}. Su mensaje contesta a eso${catSaludo ? `: habla de ${catSaludo.nombre} y de nada más` : ''}. No lo confundas con otras categorías ni vuelvas a preguntar de qué habla.]`
                                     : '';
-                                const notas = [delSaludo, contextoApi, aqui].filter(Boolean).join('\n');
+                                const notas = [delSaludo, contextoApi, aqui, notaHoraAsistente()].filter(Boolean).join('\n');
                                 bloques.push({ type: 'text', text: (texto || 'Revisa lo que te adjunto.') + (notas ? `\n\n${notas}` : '') });
                                 const mensaje = { role: 'user', content: contenidoConPendientes(bloques) };
                                 const burbuja = { rol: 'usuario', texto, adjuntos: adjuntos.map(a => {
@@ -20452,6 +20452,13 @@
                             }
 
                             // Con `pre` ({ categoria_id, dia }) llega ya elegida la categoría y, si se puede, el día
+                            // La hora del teléfono en cada mensaje: sin ella el asistente no sabía si "ayer" o "anoche" ya pasó
+                            function notaHoraAsistente() {
+                                const ahora = new Date();
+                                const hh = ahora.getHours(), mm = String(ahora.getMinutes()).padStart(2, '0');
+                                return `[Nota de la app: son las ${hh % 12 || 12}:${mm} ${hh < 12 ? 'a.m.' : 'p.m.'} del ${diaLocal(ahora)} (hora del teléfono).]`;
+                            }
+
                             function abrirRegistroAsistente(pre) {
                                 if (chatEnviando) return;
                                 let cats = categoriasParaRegistro();
@@ -20582,6 +20589,8 @@
                             // Las dos preguntas del sueño, con las horas de siempre de esa persona si ya hay registros
                             function prepararRegistroSueno(item, c) {
                                 item.sueno = true;
+                                // El sueño va con el día en que se despertó: la noche del 23 al 24 es del 24
+                                item.preguntas[1] = { ...item.preguntas[1], pregunta: '¿Qué día despertaste?' };
                                 item.preguntas[2] = { pregunta: '¿A qué hora te acostaste?', opciones: ['10:00 p.m.', '11:00 p.m.', '12:00 a.m.'], ejemplo: 'Ej. 11:30 p.m.' };
                                 item.preguntas[3] = { pregunta: '¿A qué hora despertaste?', opciones: ['6:00 a.m.', '7:00 a.m.', '8:00 a.m.'], ejemplo: 'Ej. 7:15 a.m.' };
                                 item.respuestas[2] = item.respuestas[2] || { opcion: null, texto: '' };
@@ -20647,6 +20656,7 @@
                                 // Dejó de ser sueño: vuelve a ser una sola pregunta final
                                 if (item.sueno) {
                                     item.sueno = false;
+                                    item.preguntas[1] = { ...item.preguntas[1], pregunta: '¿Cuándo fue?' };
                                     item.preguntas.splice(3);
                                     item.respuestas.splice(3);
                                     item.respuestas[2] = { opcion: null, texto: '' };
@@ -20795,8 +20805,8 @@
                                             : `\n- Tomó: ${resp(3)} (va en la descripción del registro, junto con lo demás; nunca en la cantidad).`) : '');
                                 const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
-                                    + `- Cuándo: ${cuando}${dia ? ` (${dia})` : ''}\n`
-                                    + detalle;
+                                    + `- ${item.sueno ? 'Día en que despertó (la fecha del registro)' : 'Cuándo'}: ${cuando}${dia ? ` (${dia})` : ''}\n`
+                                    + detalle + `\n${notaHoraAsistente()}`;
                                 item.estado = 'respondida';
                                 const resumen = item.medicamento ? `${resp(2)}\nTomó: ${resp(3)}` : item.sueno ? (sueno ? `${sueno.texto} (${Math.floor(sueno.horas)} h${Math.round((sueno.horas % 1) * 60) ? ` ${Math.round((sueno.horas % 1) * 60)} min` : ''})` : `${resp(2)} a ${resp(3)}`) : resp(2);
                                 const burbuja = { rol: 'usuario', texto: `Registrar: ${resp(0)} · ${cuando}\n${resumen}` };
