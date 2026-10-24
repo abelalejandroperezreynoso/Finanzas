@@ -4264,7 +4264,7 @@
                                         if (dias.length === 0) return { fueraDePeriodo: true };
 
                                         // Los días en que se compró o se vendió, para marcarlos sobre la curva
-                                        // de una empresa. Un día con las dos cosas lleva las dos marcas.
+                                        // de una empresa, un sector o un subsector. Un día con las dos cosas lleva las dos marcas.
                                         const marcas = [];
                                         const indiceDia = {};
                                         dias.forEach((d, i) => { indiceDia[d] = i; });
@@ -6010,9 +6010,10 @@
                                         // Vista Hoy: la raya punteada del cierre anterior, que es el cero de la curva
                                         const pluginCierreAnterior = crearPluginLineaCero(!!serie.relativo);
 
-                                        // Dentro de una empresa, un punto pequeño en cada día que se compró
-                                        // (blanco) o se vendió (azul cielo), encima de la línea.
-                                        const marcasCompraVenta = (ambito && ambito.categoria && !esDolar && serie.marcas) ? serie.marcas : [];
+                                        // Dentro de una empresa, un sector o un subsector, un punto pequeño en cada
+                                        // día que se compró (blanco) o se vendió (azul cielo), encima de la línea.
+                                        const conMarcas = !!ambito && !!(ambito.categoria || ambito.sector || ambito.gicsSector);
+                                        const marcasCompraVenta = (conMarcas && !esDolar && serie.marcas) ? serie.marcas : [];
 
                                         // Misma gráfica que el balance y con el mismo dibujo: sin ejes ni globo,
                                         // con el relleno que se apaga hacia abajo y la raya de puntos marcando el
