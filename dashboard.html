@@ -5567,12 +5567,12 @@
                                                     if (!p || p.skip || !isFinite(p.y)) return;
                                                     // Si el mismo día hubo compra y venta, se separan un poco.
                                                     const doble = marcas.some(o => o.indice === m.indice && o.tipo !== m.tipo);
-                                                    const dx = doble ? (m.tipo === 'compra' ? -3 : 3) : 0;
+                                                    const dx = doble ? (m.tipo === 'compra' ? -2 : 2) : 0;
                                                     c.beginPath();
-                                                    c.arc(p.x + dx, p.y, 3.5, 0, Math.PI * 2);
+                                                    c.arc(p.x + dx, p.y, 2.5, 0, Math.PI * 2);
                                                     c.fillStyle = m.tipo === 'compra' ? '#ffffff' : '#5ac8fa';
                                                     c.fill();
-                                                    c.lineWidth = 1.5;
+                                                    c.lineWidth = 1;
                                                     c.strokeStyle = '#000000';
                                                     c.stroke();
                                                 });
