@@ -4049,7 +4049,15 @@
                                         return (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                             && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
                                             && (!donde.categoria || String(c.id) === String(donde.categoria))
-                                            && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0));
+                                            && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0)
+                                            && (!donde.gicsSector || deLaClaseGics(c, donde)));
+                                    }
+
+                                    // El sector y la industria GICS de la vista "Empresas", con la misma
+                                    // clasificación con la que el mapa acomoda sus recuadros
+                                    function deLaClaseGics(cat, donde) {
+                                        const k = sectorIndustriaTreemap({ cat });
+                                        return k.sector === donde.gicsSector && (!donde.gicsIndustria || k.industria === donde.gicsIndustria);
                                     }
 
                                     function serieHistoricaAccesible(ambito, periodo, momento) {
@@ -4948,6 +4956,8 @@
                                         return {
                                             cuenta: donde.cuenta || null,
                                             sector: donde.sector || null,
+                                            gicsSector: donde.gicsSector || null,
+                                            gicsIndustria: donde.gicsIndustria || null,
                                             // Dos varas pueden tener un sector que se llame igual y no ser el
                                             // mismo grupo de empresas: cambiar de vara tiene que rehacer la curva.
                                             agrupacion: agrupacionTreemapInversiones,
@@ -15040,9 +15050,13 @@
                                     tolerancia: vistaAccesible ? toleranciaTreemapInversiones : 0,
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     sector: sectorAbierto || null,
+                                    gicsSector: sectorGicsAbierto || null,
+                                    gicsIndustria: industriaGicsAbierta || null,
                                     categoria: empresaAbierta ? String(empresaAbierta.id) : null,
                                     nombre: empresaAbierta ? (empresaAbierta.ticker || empresaAbierta.nombre)
                                         : sectorAbierto ? sectorAbierto
+                                        : industriaGicsAbierta ? industriaGicsAbierta
+                                        : sectorGicsAbierto ? sectorGicsAbierto
                                         : cuentaAbierta ? cuentaAbierta.nombre
                                         : '',
                                     comparar: comparando ? seleccionTreemapInversiones.map(s => ({ ...s })) : null
