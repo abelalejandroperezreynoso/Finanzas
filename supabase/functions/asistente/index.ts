@@ -1058,12 +1058,15 @@ const mismosSubsectores = (a: MapaSubsectores, b: MapaSubsectores) => {
     return !!otra && a[x].length === b[otra].length && a[x].every((s) => b[otra].some((t) => t.toLowerCase() === s.toLowerCase()));
   });
 };
-const textoVocabulario = (k: Catalogo) => {
+// "Apps" es por dónde llega la empresa a la gente, no de qué vive: no sirve como subsector de un segmento
+// (suscripciones, tiendas de apps o dispositivos acababan ahí). Con sinCanales no se ofrece.
+const ES_CANAL = /^(apps?|applications?|aplicaci[oó]n(es)?( m[oó]vil(es)?)?|app m[oó]vil|mobile)$/i;
+const textoVocabulario = (k: Catalogo, sinCanales = false) => {
   const subs = vocabularioSubsectores(k);
   return [...vocabularioSectores(k).values()]
     .sort((a, b) => b.empresas.length - a.empresas.length)
     .map((e) => {
-      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])].map((x) => x.nombre);
+      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])].map((x) => x.nombre).filter((x) => !sinCanales || !ES_CANAL.test(x));
       return `${e.nombre} (${e.empresas.slice(0, 4).join(", ")}${e.empresas.length > 4 ? "…" : ""}${delSector.length ? `; subsectores: ${delSector.join(", ")}` : ""})`;
     }).join("; ");
 };
@@ -2281,11 +2284,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const r = await segmentosFmp(sb, c.ticker);
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
         const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
-          `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sectores y subsectores que ya usa en sus empresas: ${textoVocabulario(catalogo) || "ninguno"}.`;
+          `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sectores y subsectores que ya usa en sus empresas: ${textoVocabulario(catalogo, true) || "ninguno"}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
           return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
             "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad); si un nombre que ya usa describe lo mismo, usa ése " +
             "(Google Cloud y AWS → Cloud) para que se junten en el mapa; si no, uno corto en español. Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
+            "Nunca \"Apps\": es un canal, no un negocio (suscripciones van en \"Suscripciones\"). " +
             "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes: él lo ve en la tarjeta.", error: true };
         }
         // Los destinos de la receta son la estructura nueva de la empresa; los nombres se escriben como ya los usa
@@ -2297,6 +2301,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const partes = String(v).split(/\s*(?:›|>)\s*/).map(limpiarNombreSector).filter(Boolean);
           if (partes.length !== 2) return { texto: `"${k}" va a "${v}": escríbelo como "Sector › Subsector". ${lista}`, error: true };
           let [sec, sub] = partes;
+          if (ES_CANAL.test(sub)) {
+            return { texto: `"${k}" va a "${v}": "${sub}" no describe lo que vende, sólo por dónde llega. Ponlo en el subsector de su negocio ` +
+              `(suscripciones → "Suscripciones"; una tienda de apps o de contenido → "Suscripciones" o "Media"; dispositivos → "Hardware"; anuncios → "Publicidad"; juegos → "Games"). ${lista}`, error: true };
+          }
           sec = (Array.isArray(c0.sectores) ? c0.sectores.map(limpiarNombreSector) : []).find((x: string) => x.toLowerCase() === sec.toLowerCase()) ?? vocabS.get(sec.toLowerCase())?.nombre ?? sec;
           sub = vocabSub.get(sec.toLowerCase())?.get(sub.toLowerCase())?.nombre ?? sub;
           receta[k] = `${sec} › ${sub}`;
