@@ -566,6 +566,7 @@ const HERRAMIENTAS: Json[] = [
         categoria_id: { type: "string" },
         receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a una de sus divisiones; \"\" si no encaja en ninguna y no debe contar" },
         pesos: { type: "object", additionalProperties: { type: "number" }, description: "Sólo a mano: cada división con su porcentaje (se ajustan para sumar 100)" },
+        dejar_fuera: { type: "array", items: { type: "string" }, description: "Segmentos que el usuario ya dijo que se quedan fuera aunque pesen (nombre exacto); sin esto, uno de 3% o más que quede fuera se avisa primero" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
         resumen: { type: "string" },
       },
@@ -2243,8 +2244,17 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
     }
     case "proponer_pesos_subsectores": {
       if (!zona.conPesos) return { texto: "Esta versión de la app no guarda porcentajes de subsectores: dile que cierre y abra la app para actualizarla.", error: true };
-      const c = catalogo.categorias.find((k: Json) => String(k.id) === String(entrada.categoria_id));
-      if (!c || c.tipo !== "inversion") return { texto: "No encontré esa empresa (debe ser una categoría de inversión).", error: true };
+      const c0 = catalogo.categorias.find((k: Json) => String(k.id) === String(entrada.categoria_id));
+      if (!c0 || c0.tipo !== "inversion") return { texto: "No encontré esa empresa (debe ser una categoría de inversión).", error: true };
+      // Con los sectores y subsectores que se propusieron para ella en este mismo turno (p. ej. el subsector
+      // nuevo para un segmento que se quedaba fuera): la app pide confirmar ésos primero
+      const cambioPendiente = [...propuestas].reverse().find((p: Json) => p.tipo === "cambio_categoria" && String(p.categoria_id) === String(c0.id)
+        && p.cambios && ("sectores" in p.cambios || "subsectores" in p.cambios));
+      const c: Json = cambioPendiente ? {
+        ...c0,
+        ...("sectores" in cambioPendiente.cambios ? { sectores: cambioPendiente.cambios.sectores ?? [] } : {}),
+        ...("subsectores" in cambioPendiente.cambios ? { subsectores: cambioPendiente.cambios.subsectores } : {}),
+      } : c0;
       const divisiones = divisionesDe(c);
       if (!divisiones.length) return { texto: "La empresa no tiene sectores propios: primero propón sus sectores y subsectores.", error: true };
       if (divisiones.length === 1) return { texto: `Tiene una sola división (${divisiones[0]}): cuenta entera ahí, no hace falta porcentaje.`, error: true };
@@ -2277,17 +2287,34 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }
         const res = calcularPesos(r.seg, receta, divisiones);
         if (!res.ok) return { texto: `${res.error} ${lista}`, error: true };
+        // Un segmento que pesa y se queda fuera no se propone así nomás: primero se avisa y se ofrece su subsector
+        const totalSeg = r.seg.partes.reduce((t, [, n]) => t + n, 0);
+        const dejados = (Array.isArray(entrada.dejar_fuera) ? entrada.dejar_fuera : []).map((x: unknown) => String(x).trim().toLowerCase());
+        const fueraGrandes = r.seg.partes.filter(([k, n]) => res.ignorados.includes(k) && n / totalSeg >= 0.03 && !dejados.includes(k.toLowerCase()))
+          .map(([k, n]) => `"${k}" (${Math.round((n / totalSeg) * 1000) / 10}%)`);
+        if (fueraGrandes.length) {
+          return {
+            texto: `Se quedarían fuera ${fueraGrandes.join(", ")}: no lo propongas así. Avísale en una frase qué es cada uno y, en este mismo turno, ` +
+              "propón con proponer_cambio_categoria el subsector que le falta para que entre (nombre corto en español, en el sector que le toque; " +
+              "si ya usa uno que encaje, en ésta u otras empresas, usa ése). En subsectores va la lista completa de ese sector (los que ya tiene más el nuevo). " +
+              "Luego vuelve a llamar aquí con la receta que lo incluya: la app pide confirmar primero los subsectores. " +
+              "Si él ya te dijo que lo deja fuera, vuelve a llamar con dejar_fuera y esos segmentos. " + lista,
+            error: true,
+          };
+        }
         sinVentas = res.sinVentas;
         datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null };
       }
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "pesos_subsectores", categoria_id: c.id, nombre, ticker: c.ticker ?? null, datos,
-        antes: c.pesos_subsectores && typeof c.pesos_subsectores === "object" ? c.pesos_subsectores.pesos ?? null : null,
+        antes: c0.pesos_subsectores && typeof c0.pesos_subsectores === "object" ? c0.pesos_subsectores.pesos ?? null : null,
+        ...(cambioPendiente ? { tras_subsectores: true } : {}),
         resumen: String(entrada.resumen).slice(0, 200),
       });
       return {
         texto: "Propuesta registrada; todavía NO está aplicada." +
+          (cambioPendiente ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +
           (sinVentas.length ? ` Quedan en 0% (ningún segmento va ahí): ${sinVentas.join(", ")}. Díselo; si no deben estar, propón quitarlas de sus subsectores.` : ""),
       };
     }
@@ -3886,7 +3913,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
-- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta, arma la receta con sus segmentos (cada uno a la división que le toca por lo que vende; "" lo que no encaje) y vuelve a llamarla. Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo: segmentos nuevos = rehaz la receta; una división que ya no existe = rehaz la receta con las de hoy.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta, arma la receta con sus segmentos (cada uno a la división que le toca por lo que vende; "" lo que no encaje) y vuelve a llamarla. Con receta se actualizan solos con cada reporte anual. Si un segmento que pesa (3% o más) se quedaría fuera, la herramienta te lo dice: avísale qué es y propónle el subsector para que entre, como te indique. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo: segmentos nuevos = rehaz la receta; una división que ya no existe = rehaz la receta con las de hoy.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.

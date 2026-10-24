@@ -18530,6 +18530,7 @@
                                 } else if (p.tipo === 'pesos_subsectores') {
                                     const d = p.datos || {}, antes = p.antes || {};
                                     filas.push(`Empresa: <b>${escaparHtml(p.nombre || '')}</b>${p.ticker ? ` [${escaparHtml(p.ticker)}]` : ''}`);
+                                    if (p.tras_subsectores) filas.push('<b>Confirma primero sus subsectores</b>');
                                     Object.entries(d.pesos || {}).sort((a, b) => b[1] - a[1]).forEach(([div, pct]) => {
                                         const previo = Object.keys(antes).find(k => k.toLowerCase() === div.toLowerCase());
                                         filas.push(`${escaparHtml(div)}: ${previo !== undefined ? flecha(`${antes[previo]}%`, `${pct}%`) : `<b>${escaparHtml(String(pct))}%</b>`}`);
@@ -20983,7 +20984,17 @@
                                 } else if (p.tipo === 'activar_predicciones') {
                                     res = await clienteSupabase.from('categorias').update({ desactivar_prediccion: false }).in('id', (p.categorias || []).map(x => x.categoria_id));
                                 } else if (p.tipo === 'pesos_subsectores') {
-                                    res = await clienteSupabase.from('categorias').update({ pesos_subsectores: p.datos }).eq('id', p.categoria_id);
+                                    // Sólo si cuadran con los subsectores que tiene hoy: si venían con un subsector nuevo,
+                                    // primero se confirma ése
+                                    const { data: catHoy } = await clienteSupabase.from('categorias').select('sectores, subsectores').eq('id', p.categoria_id).maybeSingle();
+                                    const claves = [];
+                                    sectoresPropiosDeCategoria(catHoy || {}).forEach(sec => {
+                                        const subs = subsectoresPropiosDeCategoria(catHoy || {}, sec);
+                                        if (subs.length) subs.forEach(sub => claves.push(`${sec} › ${sub}`)); else claves.push(sec);
+                                    });
+                                    res = catHoy && pesosVigentesDeCategoria({ pesos_subsectores: p.datos }, claves)
+                                        ? await clienteSupabase.from('categorias').update({ pesos_subsectores: p.datos }).eq('id', p.categoria_id)
+                                        : { falta: `Primero confirma los subsectores de ${p.nombre || 'la empresa'}.` };
                                 } else if (p.tipo === 'clasificacion') {
                                     res = {};
                                     for (const x of (p.cambios || [])) {
