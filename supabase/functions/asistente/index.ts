@@ -45,7 +45,7 @@ const MODELOS_CHAT = new Set(["claude-sonnet-5-5", "claude-opus-5-5", HAIKU]);
 // Modelos que aceptan el reintento automático del servidor (Haiku 5.5 no: con él no hay respaldo)
 const CON_FALLBACK = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
-const MAX_VUELTAS = 8; // herramientas por mensaje, para que una pregunta no se alargue sin fin
+const MAX_VUELTAS = 10; // herramientas por mensaje, para que una pregunta no se alargue sin fin
 const MAX_FILAS = 300;
 const MAX_TEXTO_HERRAMIENTA = 40_000;
 
@@ -2396,14 +2396,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const lista = `Segmentos de ${c.ticker} (${r.fuente === "sec" ? "de su reporte anual a la SEC" : "de FMP"}) en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
           `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sus sectores y subsectores, con las otras empresas que ya están en cada uno: ${textoVocabulario({ ...catalogo, categorias: catalogo.categorias.filter((x: Json) => String(x.id) !== String(c0.id)) }, true) || "ninguno"}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
-          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
+          // Queda pendiente: si el turno termina sin su tarjeta, la función le pide terminarla
+          (extras.pesosPendientes ??= new Map()).set(String(c0.id), nombre);
+          return { texto: `${lista} Ahora, en esta misma respuesta (si son varias empresas, todas juntas), vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
             "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad). " +
             "Compara con las empresas que ya están en cada subsector: si un segmento vende lo mismo que alguna de ellas, va en ese mismo subsector aunque la empresa hoy tenga otro " +
             "(Google Cloud y AWS → Cloud; el streaming por suscripción de Netflix y el Premium de Spotify → el mismo). Si ninguno lo describe, uno corto en español. " +
             "Ojo con los segmentos que no son productos: por tipo de cliente (Government y Commercial, Consumer y Enterprise) o por región no dicen qué vende, así que todos van al subsector de lo que vende (Palantir: todo Software). " +
             "Y con los nombres que esconden otra cosa: ve lo que más pesa del segmento (\"Windows and Devices\" es sobre todo licencias de Windows → Software; LinkedIn es sobre todo suscripciones y reclutamiento, no publicidad). Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
             `${REGLA_SUBSECTOR} Si un nombre que ya usa es así de general, no lo reuses. ` +
-            "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes: él lo ve en la tarjeta.", error: true };
+            "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes ni le escribas antes de dejar las tarjetas: él las ve y decide." };
         }
         // Los destinos de la receta son la estructura nueva de la empresa; los nombres se escriben como ya los usa
         const vocabS = vocabularioSectores(catalogo), vocabSub = vocabularioSubsectores(catalogo);
@@ -2461,8 +2463,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const mismaReceta = (a: Json, b: Json) => JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
       if (!estructura && previo && previo.origen === datos.origen && mismosPesos(previo.pesos, datos.pesos)
         && (datos.origen !== "segmentos" || mismaReceta(previo.receta, datos.receta))) {
+        extras.pesosPendientes?.delete(String(c0.id));
         return { texto: `${nombre} ya tiene exactamente estos porcentajes${datos.cobertura ? ` (sus segmentos cubren sólo ${datos.cobertura}% de sus ventas)` : ""}: no hay tarjeta que dejar. Dile en una frase que sigue igual.` };
       }
+      extras.pesosPendientes?.delete(String(c0.id));
       propuestas.push({
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "pesos_subsectores", categoria_id: c.id, nombre, ticker: c.ticker ?? null, datos,
@@ -4080,7 +4084,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
-- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; hasta 12 por mensaje (si son más, haz las primeras 12 y dile que escriba "sigue"). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
@@ -4842,6 +4846,14 @@ Deno.serve(async (req) => {
       }
       nuevos.push({ role: "assistant", content: r.content });
       if (r.stop_reason === "pause_turn") continue;
+      // Pidió los segmentos de unas empresas y terminó sin dejar sus tarjetas (con muchas a la vez se
+      // detenía con un "propongo cambios" y nada): se le pide terminarlas, hasta dos veces por mensaje
+      const faltan = r.stop_reason === "end_turn" && extras.pesosPendientes?.size ? [...extras.pesosPendientes.values()] : [];
+      if (faltan.length && (extras.empujones ?? 0) < 2 && vuelta < MAX_VUELTAS - 1) {
+        extras.empujones = (extras.empujones ?? 0) + 1;
+        nuevos.push({ role: "user", content: [{ type: "text", text: `[Nota de la app: faltan las tarjetas de ${faltan.join(", ")}. Llama ahora proponer_pesos_subsectores con la receta de cada una, todas juntas; si alguna está bien como está, la herramienta te lo dirá. Después contesta.]` }] });
+        continue;
+      }
       if (r.stop_reason !== "tool_use") break;
 
       // Si pide preguntar, el turno se detiene ahí: las preguntas van a la app y su respuesta
