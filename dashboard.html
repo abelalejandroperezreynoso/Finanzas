@@ -15873,6 +15873,82 @@
                                     }
                                 };
 
+                                // Los textos del portafolio van aquí y no en la librería. Ella los mide con el recuadro
+                                // sin zoom: al acercar, un título recortado ("Pro…") sólo crecía, recortado igual, y
+                                // la letra que encogía para caber se iba a cero y desaparecía. Aquí se miden con lo que
+                                // el recuadro ocupa en la pantalla y se centran en la parte que se ve: con zoom el
+                                // título sale entero y a tamaño de leer, y un recuadro cortado por el borde lleva su
+                                // texto dentro de la pantalla.
+                                const pluginTextosTreemap = {
+                                    id: 'textosTreemap',
+                                    afterDatasetsDraw(chart) {
+                                        const meta = chart.getDatasetMeta(0);
+                                        if (!meta || !meta.data) return;
+                                        const z = zoomTreemap;
+                                        const ini = puntoMapaTreemap(0, 0), fin = puntoMapaTreemap(chart.width, chart.height);
+                                        const familia = Chart.defaults.font.family;
+                                        const lienzo = chart.ctx;
+                                        // Las medidas van en píxeles de pantalla; se dibujan en los del mapa
+                                        const escribir = (lineas, fuentes, x0, y0, x1, y1) => {
+                                            const alto = fuentes.reduce((a, f) => a + 1.2 * f.size, 0);
+                                            let y = (y0 + y1) / 2 - alto / z / 2;
+                                            lineas.forEach((texto, n) => {
+                                                const f = fuentes[Math.min(n, fuentes.length - 1)];
+                                                lienzo.font = `${f.weight} ${f.size / z}px ${familia}`;
+                                                lienzo.fillText(texto, (x0 + x1) / 2, y + 0.6 * f.size / z);
+                                                y += 1.2 * f.size / z;
+                                            });
+                                        };
+                                        lienzo.save();
+                                        lienzo.textAlign = 'center';
+                                        lienzo.textBaseline = 'middle';
+                                        lienzo.fillStyle = '#ffffff';
+                                        meta.data.forEach((el, i) => {
+                                            const raw = chart.data.datasets[0].data[i];
+                                            if (!raw) return;
+                                            // Lo que se ve del recuadro, en coordenadas del mapa
+                                            const x0 = Math.max(el.x, ini.x), y0 = Math.max(el.y, ini.y);
+                                            const x1 = Math.min(el.x + el.width, fin.x), y1 = Math.min(el.y + el.height, fin.y);
+                                            if (!(x1 > x0 && y1 > y0)) return;
+                                            const ancho = (x1 - x0) * z, alto = (y1 - y0) * z;
+                                            let lineas, fuentes;
+                                            if (raw.l === undefined || raw.isLeaf) {
+                                                const d = buscarDato(raw);
+                                                const e = d ? etiquetaInversionTreemap(d, ancho, alto) : null;
+                                                if (!e) return;
+                                                ({ lineas, fuentes } = e);
+                                            } else {
+                                                if (gruposMapa.length < 2 || !raw.g) return;
+                                                // Sin zoom, la letra de siempre; al acercar crece un poco y se queda ahí
+                                                const tope = Math.min((raw.l === 0 ? 11.5 : 7.5) * z, raw.l === 0 ? 15 : 13);
+                                                const size = Math.min(tope, (alto - 2 * PADDING_TITULO_TREEMAP) / 1.2);
+                                                if (size < 0.3) return;
+                                                const cabe = ancho - 2 * PADDING_TITULO_TREEMAP;
+                                                const mide = (t) => anchoTextoMedidoTreemap(t, 'bold') * size;
+                                                let texto = String(raw.g);
+                                                if (mide(texto) > cabe) {
+                                                    let lo = 0, hi = texto.length - 1;
+                                                    while (lo < hi) {
+                                                        const m = Math.ceil((lo + hi) / 2);
+                                                        if (mide(texto.slice(0, m).trimEnd() + '…') <= cabe) lo = m; else hi = m - 1;
+                                                    }
+                                                    if (lo === 0) return;
+                                                    texto = texto.slice(0, lo).trimEnd() + '…';
+                                                }
+                                                lineas = [texto];
+                                                fuentes = [{ size, weight: 'bold' }];
+                                            }
+                                            lienzo.save();
+                                            lienzo.beginPath();
+                                            lienzo.rect(x0, y0, x1 - x0, y1 - y0);
+                                            lienzo.clip();
+                                            escribir(lineas, fuentes, x0, y0, x1, y1);
+                                            lienzo.restore();
+                                        });
+                                        lienzo.restore();
+                                    }
+                                };
+
                                 const ANILLO_SELECCION_TREEMAP = 2.5;
                                 const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
@@ -15958,7 +16034,9 @@
                                             captions: {
                                                 display: gruposMapa.length > 1,
                                                 align: 'center',
-                                                color: '#ffffff',
+                                                // En el portafolio los escribe pluginTextosTreemap; la librería sólo
+                                                // usa la letra para medir la barra
+                                                color: esPortafolio ? 'rgba(0, 0, 0, 0)' : '#ffffff',
                                                 font: fuenteTituloTreemap,
                                                 padding: PADDING_TITULO_TREEMAP,
                                                 formatter: (context) => context.raw && context.raw.g ? context.raw.g : ''
@@ -15989,7 +16067,7 @@
                                             hoverBackgroundColor: fondoRecuadro,
                                             hoverBorderWidth: 0,
                                             labels: {
-                                                display: true,
+                                                display: !esPortafolio,
                                                 align: 'center',
                                                 position: 'middle',
                                                 // Si aun recortado el texto no cabe, el propio treemap lo encoge
@@ -16052,7 +16130,7 @@
                                             if (d && d.id) verDetallesCategoria(d.id);
                                         }
                                     },
-                                    plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap] : []), pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
+                                    plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap, pluginTextosTreemap] : []), pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
                                 });
                                 // Tras girar el teléfono, el desplazamiento se vuelve a acomodar al nuevo tamaño
                                 if (esPortafolio) limitarZoomTreemap(miTreemapCategorias);
