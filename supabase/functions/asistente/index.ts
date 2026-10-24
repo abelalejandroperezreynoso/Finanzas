@@ -863,7 +863,7 @@ function textoSectoresCategoria(c: Json): string {
   }).join(", ");
   const origen = !ps ? "" : ps.error ? ` [porcentajes: NO SE PUDIERON CALCULAR: ${ps.error}]`
     : !vigentes ? " [porcentajes: ya no cuadran con sus subsectores; en el mapa va en partes iguales]"
-    : ps.origen === "segmentos" ? ` [porcentajes según ventas ${ps.anio ?? ""}, se actualizan solos]` : " [porcentajes a mano]";
+    : ps.origen === "segmentos" ? ` [porcentajes según ventas ${ps.anio ?? ""}, se actualizan solos${ps.cobertura ? `; OJO: sus segmentos cubren sólo ${ps.cobertura}% de sus ventas, los porcentajes dejan fuera el resto: sugiérele ponerlos a mano` : ""}]` : " [porcentajes a mano]";
   return texto + origen;
 }
 const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "clasificacion", "salud"],
@@ -4667,7 +4667,8 @@ Deno.serve(async (req) => {
       const toca = (cats ?? []).filter((c: Json) => {
         const ps = c.pesos_subsectores;
         if (!ps || ps.origen !== "segmentos" || !c.ticker || !ps.receta) return false;
-        return !ps.revisado || dias(String(ps.revisado)) >= (ps.error ? 1 : 7);
+        // Las de antes de que se guardara la fuente (y la cobertura) se revisan ya, sin esperar la semana
+        return !ps.fuente || !ps.revisado || dias(String(ps.revisado)) >= (ps.error ? 1 : 7);
       }).slice(0, 15);
       let actualizadas = 0;
       const errores: Json[] = [];
@@ -4691,7 +4692,7 @@ Deno.serve(async (req) => {
                 || Object.keys(res.pesos).some((d) => Math.abs((Number(ps.pesos?.[d]) || 0) - res.pesos[d]) >= 0.1);
               const sumaSeg = r.seg.partes.reduce((t, [, n]) => t + n, 0);
               const cobertura = r.total ? Math.round((sumaSeg / r.total) * 100) : null;
-              Object.assign(nuevo, { pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, error: null });
+              Object.assign(nuevo, { pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, fuente: r.fuente, error: null });
               if (cobertura !== null && cobertura < 90) nuevo.cobertura = cobertura; else delete nuevo.cobertura;
               if (cambio) { nuevo.actualizado = hoyP; actualizadas++; }
             }

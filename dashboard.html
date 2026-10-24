@@ -19578,6 +19578,20 @@
                                         });
                                         return;
                                     }
+                                    // Sus segmentos no cubren todas sus ventas (a Robinhood no le traen los intereses): mejor a mano
+                                    if (!ps.error && !noCuadran && ps.origen === 'segmentos' && Number(ps.cobertura) > 0 && Number(ps.cobertura) < 90) {
+                                        const claveCob = `pesos-cobertura:${c.id}:${ps.anio || ''}`;
+                                        if (!vigente(claveCob)) return;
+                                        const nombreC = c.ticker || c.nombre;
+                                        avisos.push({
+                                            clave: claveCob, categoria_id: c.id, etiqueta: 'Inversiones',
+                                            texto: `Los porcentajes de ${nombreC} dejan fuera ${100 - Number(ps.cobertura)}% de sus ventas.`,
+                                            detalle: 'Sus segmentos no traen todo lo que vende. Conviene ponerlos a mano.',
+                                            primario: { texto: 'Corregirlos', mensaje: `Los porcentajes de subsectores de ${nombreC} dejan fuera ${100 - Number(ps.cobertura)}% de sus ventas porque sus segmentos no lo traen. Dime qué es lo que falta y propónme sus porcentajes a mano con sus subsectores.` },
+                                            secundario: { texto: 'Así está bien', dias: 365 }
+                                        });
+                                        return;
+                                    }
                                     if (!ps.error && !noCuadran) return;
                                     const nombre = c.ticker || c.nombre;
                                     const motivo = noCuadran ? 'Ya no cuadran con sus subsectores.' : ps.error;
@@ -19629,7 +19643,7 @@
                                 if (!currentUser) return;
                                 const conReceta = (datosCategorias || []).some(c => c.pesos_subsectores && c.pesos_subsectores.origen === 'segmentos');
                                 if (!conReceta) return;
-                                const clave = `pesosRevisados:${currentUser.id}`;
+                                const clave = `pesosRevisados2:${currentUser.id}`;
                                 const hoy = diaLocal(new Date());
                                 try { if (localStorage.getItem(clave) === hoy) return; } catch (e) { /* sin almacenamiento */ }
                                 try {
