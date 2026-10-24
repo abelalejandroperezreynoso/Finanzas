@@ -39,10 +39,11 @@ export function nombreMiembro(miembro: string): string {
 const dias = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
 
 // Quita las partes que son la suma de otras (p. ej. "Transaction Based Revenues" = opciones + cripto + acciones),
-// sólo mientras sumen más que las ventas: de la más chica a la más grande, para no confundir una parte real
-// con una suma que coincide por casualidad. null si no se pudo deshacer el traslape.
+// sólo mientras sumen más que las ventas: de la más grande a la más chica (un subtotal es más grande que sus
+// partes) y parando en cuanto cuadra, para no confundir una parte real con una suma que coincide por casualidad
+// (en ASML, cuatro productos sumaban lo mismo que NXE). null si no se pudo deshacer el traslape.
 function sinSubtotales(partes: [string, number][], total: number): [string, number][] | null {
-  let lista = [...partes].sort((a, b) => a[1] - b[1]);
+  let lista = [...partes].sort((a, b) => b[1] - a[1]);
   const suma = () => lista.reduce((t, [, n]) => t + n, 0);
   while (suma() > total * 1.02) {
     if (lista.length > 16) return null;
@@ -58,7 +59,9 @@ function sinSubtotales(partes: [string, number][], total: number): [string, numb
         if (Math.abs(s - v) <= Math.max(1, v * 0.0005)) { lista = lista.filter((_, j) => j !== i); quitado = true; }
       }
     }
-    if (!quitado) return null;
+    // Sin más subtotales: los segmentos pueden sumar algo más que las ventas por las ventas entre ellos
+    // (Caterpillar: 110%); eso se acepta, porque los porcentajes se sacan sobre su propia suma
+    if (!quitado) return suma() <= total * 1.2 ? lista : null;
   }
   return lista;
 }
@@ -104,7 +107,8 @@ export function segmentosDeXbrl(xml: string): SegmentosSec | null {
     const orden = (eje: string) => { const i = ORDEN_EJES.indexOf(eje); return i < 0 ? 99 : i; };
     dims.sort((a, b) => orden(a[0]) - orden(b[0]));
     const combinacion = dims.map(([eje]) => eje).join("|");
-    const nombre = dims.map(([, m]) => nombreMiembro(m)).join(" · ");
+    // El eje de consolidación ("sin eliminaciones entre segmentos") separa combinaciones pero no va en el nombre
+    const nombre = dims.filter(([eje]) => eje !== "srt:ConsolidationItemsAxis").map(([, m]) => nombreMiembro(m)).join(" · ") || nombreMiembro(dims[0][1]);
     if (dims.some(([, m]) => GENERICOS.test(m))) genericas.add(nombre);
     const delCombo = porCombinacion.get(combinacion) ?? new Map();
     const porConcepto = delCombo.get(nombre) ?? new Map();
@@ -131,7 +135,7 @@ export function segmentosDeXbrl(xml: string): SegmentosSec | null {
     candidatas.push(limpias);
   }
   const suma = (p: [string, number][]) => p.reduce((t, [, n]) => t + n, 0);
-  const validas = candidatas.filter((p) => suma(p) <= total * 1.02 && suma(p) >= total * 0.5 && p.length <= 12);
+  const validas = candidatas.filter((p) => suma(p) <= total * 1.2 && suma(p) >= total * 0.5 && p.length <= 12);
   // Primero las que cubren casi todo; luego las que no parten por región ni por "bien o servicio"; entre ellas,
   // la de más partes; si ninguna cubre 90%, la que más cubra
   const castigo = (p: [string, number][]) => (p.some(([n]) => REGIONES.test(n)) ? 2 : 0) + (p.some(([n]) => genericas.has(n)) ? 1 : 0);

@@ -1318,10 +1318,12 @@ async function segmentosEmpresa(sb: SupabaseClient, ticker: string, fuente?: str
   if (fuente !== "sec") {
     const f = await segmentosFmp(sb, ticker);
     if (!("error" in f)) return { seg: f.seg, fuente: "fmp", total: await ventasTotalesFmp(sb, ticker, f.seg) };
-    if (fuente === "fmp" || f.limite) return f;
+    // Al recalcular una receta de FMP se espera a FMP (sus nombres de segmento son otros); para una nueva, la SEC
+    // también cubre cuando FMP llegó a su límite del día
+    if (fuente === "fmp") return f;
     const s = await segmentosSec(ticker);
     if (!("error" in s)) return { seg: s.seg, fuente: "sec", total: s.seg.total };
-    return { error: `${f.error} Tampoco en la SEC: ${s.error}` };
+    return { error: `${f.error} Tampoco en la SEC: ${s.error}`, ...(f.limite ? { limite: true } : {}) };
   }
   const s = await segmentosSec(ticker);
   return "error" in s ? s : { seg: s.seg, fuente: "sec", total: s.seg.total };
@@ -2403,6 +2405,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "Compara con las empresas que ya están en cada subsector: si un segmento vende lo mismo que alguna de ellas, va en ese mismo subsector aunque la empresa hoy tenga otro " +
             "(Google Cloud y AWS → Cloud; el streaming por suscripción de Netflix y el Premium de Spotify → el mismo). Si ninguno lo describe, uno corto en español. " +
             "Ojo con los segmentos que no son productos: por tipo de cliente (Government y Commercial, Consumer y Enterprise) o por región no dicen qué vende, así que todos van al subsector de lo que vende (Palantir: todo Software). " +
+            "Un subsector que describe a la empresa entera (Conglomerados, Holding diversificado) no sirve para un segmento: nómbralo por lo que vende ese segmento (3M Safety and Industrial → \"Seguridad industrial\"). " +
             "Y con los nombres que esconden otra cosa: ve lo que más pesa del segmento (\"Windows and Devices\" es sobre todo licencias de Windows → Software; LinkedIn es sobre todo suscripciones y reclutamiento, no publicidad). Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
             `${REGLA_SUBSECTOR} Si un nombre que ya usa es así de general, no lo reuses. ` +
             "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes ni le escribas antes de dejar las tarjetas: él las ve y decide." };
@@ -2461,6 +2464,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const mismosPesos = (a: Json, b: Json) => !!a && !!b && Object.keys(a).length === Object.keys(b).length
         && Object.keys(a).every((k) => Math.abs((Number(a[k]) || 0) - (Number(b[k]) || 0)) < 0.05);
       const mismaReceta = (a: Json, b: Json) => JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
+      // Una sola división que ya tenía: cuenta entera ahí, no hace falta tarjeta
+      if (!estructura && Object.keys(datos.pesos).length === 1) {
+        extras.pesosPendientes?.delete(String(c0.id));
+        return { texto: `${nombre} sigue con un solo subsector (${Object.keys(datos.pesos)[0]}): cuenta entera ahí, no hay tarjeta que dejar.` };
+      }
       if (!estructura && previo && previo.origen === datos.origen && mismosPesos(previo.pesos, datos.pesos)
         && (datos.origen !== "segmentos" || mismaReceta(previo.receta, datos.receta))) {
         extras.pesosPendientes?.delete(String(c0.id));
