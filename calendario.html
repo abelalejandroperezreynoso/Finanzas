@@ -33,12 +33,12 @@
         #calendar { flex: 1; width: 100%; background: #2a2a2a; padding: 10px; border-radius: 12px; box-sizing: border-box; min-height: 0; margin-top: 15px; }
         .fc-theme-standard td, .fc-theme-standard th, .fc-theme-standard .fc-scrollgrid { border-color: #444 !important; }
         .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: #ccc !important; text-decoration: none; }
-        .fc .fc-button-primary { background-color: #76d571 !important; border-color: #76d571 !important; color: #000 !important; font-weight: bold; text-transform: capitalize; }
+        .fc .fc-button-primary { background-color: #4dd763 !important; border-color: #4dd763 !important; color: #000 !important; font-weight: bold; text-transform: capitalize; }
         .fc .fc-button-primary:not(:disabled):active, .fc .fc-button-primary:not(:disabled).fc-button-active { background-color: #2eb87c !important; border-color: #2eb87c !important; }
         .fc-toolbar-title { font-size: 1.2em !important; color: #fff; }
         .fc-event { cursor: pointer; border: none; padding: 2px 4px; border-radius: 4px; }
         
-        .fab { position: fixed; bottom: 30px; right: 30px; width: 56px; height: 56px; background: #76d571; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 12px rgba(118, 213, 113,0.4); cursor: pointer; z-index: 1000; border: none; color: #000; font-size: 28px; transition: transform 0.2s; }
+        .fab { position: fixed; bottom: 30px; right: 30px; width: 56px; height: 56px; background: #4dd763; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 12px rgba(77, 215, 99,0.4); cursor: pointer; z-index: 1000; border: none; color: #000; font-size: 28px; transition: transform 0.2s; }
         .fab:active { transform: scale(0.9); }
 
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); display: none; justify-content: center; align-items: center; z-index: 2000; opacity: 0; transition: opacity 0.3s; }
@@ -48,15 +48,15 @@
         label { font-size: 0.85em; color: #ccc; margin-bottom: 4px; display: block; margin-top: 10px; }
         input, select, textarea { width: 100%; padding: 12px; margin-bottom: 8px; border: 1px solid #444; border-radius: 6px; background: #333; color: white; box-sizing: border-box; font-size: 1em; }
         textarea { resize: vertical; min-height: 60px; font-family: inherit; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: #76d571; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #4dd763; }
         input[type="date"]::-webkit-calendar-picker-indicator, input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); }
         
-        button.btn-primary { width: 100%; padding: 12px; background-color: #76d571; color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; }
+        button.btn-primary { width: 100%; padding: 12px; background-color: #4dd763; color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; }
         button.btn-danger { width: 100%; padding: 12px; background-color: #ff453a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; }
         button.btn-cancel { width: 100%; padding: 12px; background-color: #444; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 10px; }
 
         .detalle-item { margin-bottom: 12px; }
-        .detalle-label { font-size: 0.85em; color: #76d571; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
+        .detalle-label { font-size: 0.85em; color: #4dd763; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
         .detalle-valor { font-size: 1.05em; color: #fff; }
     </style>
 </head>
@@ -170,7 +170,7 @@
                 <img id="qrImage" src="" alt="Código QR" style="width: 200px; height: 200px; display: block;">
             </div>
 
-            <input type="text" id="linkCompartir" readonly style="text-align: center; background: #1a1a1a; color: #76d571; margin-bottom: 15px; cursor: pointer;" onclick="this.select()">
+            <input type="text" id="linkCompartir" readonly style="text-align: center; background: #1a1a1a; color: #4dd763; margin-bottom: 15px; cursor: pointer;" onclick="this.select()">
 
             <button type="button" class="btn-cancel" onclick="document.getElementById('modalCompartir').classList.remove('activa')">Cerrar</button>
         </div>
@@ -388,7 +388,7 @@
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                             <span style="color: #ccc;">Anticipo:</span>
-                            <span style="font-weight: bold; color: #76d571;">$${anticipo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span style="font-weight: bold; color: #4dd763;">$${anticipo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; border-top: 1px solid #444; padding-top: 5px; margin-top: 5px;">
                             <span style="color: #ccc;">Resta Cobrar:</span>
