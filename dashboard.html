@@ -5104,7 +5104,7 @@
                                         const colorPunto = c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e';
                                         return {
                                             borderColor: lineaCurvaDesdeCero,
-                                            borderWidth: 1.5,
+                                            borderWidth: 1,
                                             pointRadius: 0,
                                             pointBackgroundColor: colorPunto,
                                             pointBorderColor: colorPunto,
@@ -5201,7 +5201,7 @@
                                                 lienzo.beginPath();
                                                 lienzo.moveTo(posicionX, chart.scales.y.top);
                                                 lienzo.lineTo(posicionX, chart.scales.y.bottom);
-                                                lienzo.lineWidth = 1.5;
+                                                lienzo.lineWidth = 0.75;
                                                 lienzo.strokeStyle = color;
                                                 lienzo.stroke();
                                                 lienzo.restore();
@@ -5649,14 +5649,14 @@
                                                     c.fill();
                                                     c.beginPath();
                                                     trazar();
-                                                    c.lineWidth = 1.5;
+                                                    c.lineWidth = 1;
                                                     c.strokeStyle = color;
                                                     c.lineJoin = 'round';
                                                     c.stroke();
                                                 }
                                             }
 
-                                            c.lineWidth = 1;
+                                            c.lineWidth = 0.75;
                                             c.strokeStyle = color;
                                             [pa, pb].forEach(p => {
                                                 c.beginPath();
