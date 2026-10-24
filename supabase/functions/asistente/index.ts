@@ -241,6 +241,7 @@ const HERRAMIENTAS: Json[] = [
         tipo: { type: "string", enum: ["gasto", "ingreso", "prestamo", "deuda", "salud"] },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: la lista completa de sus sectores propios para la empresa (reemplaza los que tenga)" },
         subsectores: { type: "object", additionalProperties: { type: "array", items: { type: "string" } }, description: "Sólo inversión: subsectores propios dentro de sus sectores propios, como {\"Tecnología\": [\"Hardware\", \"Software\"]}. Cada llave es uno de sus sectores (los que tiene o los de sectores en esta misma llamada). Sólo cambian los sectores que pongas (su lista completa de subsectores); una lista vacía le quita los de ese sector" },
+        pedido_por_el_usuario: { type: "boolean", description: "true sólo si el usuario pidió ese nombre exacto de subsector aunque sea muy general (Apps, Otros, Servicios)" },
         grupo_salud: { type: "string", enum: ["enfermedad", "habito"], description: "Sólo salud: enfermedad o hábito" },
         medida_salud: { type: "string", enum: ["intensidad", "veces", "horas", "valor"], description: "Sólo salud: qué cuenta la cantidad (cambiarla no convierte los registros que ya tiene)" },
         unidad_salud: { type: "string", description: "Sólo con medida valor: la unidad (\"°C\", \"mg/dL\", \"kg\")" },
@@ -307,6 +308,7 @@ const HERRAMIENTAS: Json[] = [
         ticker: { type: "string", description: "Sólo inversión: el símbolo tal como lo muestra GBM (\"V\", \"AAPL\", \"BRK.B\")" },
         sectores: { type: "array", items: { type: "string" }, description: "Sólo inversión: sus sectores propios que le quedan a la empresa (1 a 3), tomados de los que ya usa en sus otras empresas (columna sectores); uno nuevo sólo si ninguno le queda" },
         subsectores: { type: "object", additionalProperties: { type: "array", items: { type: "string" } }, description: "Sólo inversión: subsectores propios dentro de sus sectores propios, como {\"Tecnología\": [\"Hardware\", \"Software\"]}. Cada llave es uno de sus sectores (los que tiene o los de sectores en esta misma llamada). Si ya usa subsectores en ese sector, toma de los suyos; uno nuevo sólo si ninguno le queda" },
+        pedido_por_el_usuario: { type: "boolean", description: "true sólo si el usuario pidió ese nombre exacto de subsector aunque sea muy general (Apps, Otros, Servicios)" },
         grupo_salud: { type: "string", enum: ["enfermedad", "habito"], description: "Sólo salud (obligatorio): enfermedad = un síntoma o padecimiento (migraña, dolor); habito = algo que hace (dormir, agua, ejercicio)" },
         medida_salud: { type: "string", enum: ["intensidad", "veces", "horas", "valor"], description: "Sólo salud (obligatorio): qué cuenta la cantidad. intensidad = qué tan fuerte, de 1 a 10; veces = cuántas veces pasó; horas = cuántas horas; valor = una medición con su unidad (fiebre °C, glucosa mg/dL, peso kg, oxigenación %, pulso lpm)" },
         unidad_salud: { type: "string", description: "Sólo con medida valor (obligatoria): la unidad, corta (\"°C\", \"mg/dL\", \"kg\", \"%\", \"lpm\")" },
@@ -373,6 +375,7 @@ const HERRAMIENTAS: Json[] = [
         acciones: { type: "number", description: "Compra/venta: número de acciones (positivo, puede tener decimales)" },
         sectores: { type: "array", items: { type: "string" }, description: "Compra de una empresa que todavía no tiene categoría: sus sectores propios (ver proponer_nueva_categoria)" },
         subsectores: { type: "object", additionalProperties: { type: "array", items: { type: "string" } }, description: "Compra de una empresa que todavía no tiene categoría: sus subsectores propios (ver proponer_nueva_categoria)" },
+        pedido_por_el_usuario: { type: "boolean", description: "true sólo si el usuario pidió ese nombre exacto de subsector aunque sea muy general (Apps, Otros, Servicios)" },
         precio_usd: { type: "number", description: "Compra/venta: precio por acción en USD" },
         comision_usd: { type: "number", description: "Compra/venta: la comisión que cobró GBM en USD (en el comprobante); se registra aparte" },
         descripcion: { type: "string" },
@@ -1027,7 +1030,8 @@ function vocabularioSubsectores(k: Catalogo): Map<string, Map<string, { nombre: 
   return vocab;
 }
 // Lo que propone el modelo, contra los sectores que tendrá la empresa. Error si nombra un sector que no tiene.
-function limpiarSubsectores(entrada: unknown, sectores: string[], k: Catalogo): { mapa: MapaSubsectores; error?: string } {
+// actuales: los que la empresa ya tiene; uno muy general que ya tenía no frena otro cambio (sólo los nuevos se revisan)
+function limpiarSubsectores(entrada: unknown, sectores: string[], k: Catalogo, permitirAmbiguos = false, actuales: MapaSubsectores = {}): { mapa: MapaSubsectores; error?: string } {
   if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) return { mapa: {}, error: "subsectores va como {\"Sector\": [\"Subsector\", ...]}." };
   const vocab = vocabularioSubsectores(k);
   const mapa: MapaSubsectores = {};
@@ -1044,6 +1048,9 @@ function limpiarSubsectores(entrada: unknown, sectores: string[], k: Catalogo): 
       vistos.add(nombre.toLowerCase());
       subs.push(nombre);
     });
+    const yaTenia = (x: string) => Object.entries(actuales).some(([sec, l]) => sec.toLowerCase() === sector.toLowerCase() && l.some((y) => y.toLowerCase() === x.toLowerCase()));
+    const ambiguo = permitirAmbiguos ? null : subs.filter((x) => !yaTenia(x)).map((x) => subsectorAmbiguo(x, sector)).find(Boolean);
+    if (ambiguo) return { mapa: {}, error: `${ambiguo}. ${REGLA_SUBSECTOR} Cámbialo por lo que vende ahí. Sólo si el usuario pidió ese nombre exacto, vuelve a llamar con pedido_por_el_usuario: true.` };
     if (subs.length > MAXIMO_SECTORES) return { mapa: {}, error: `Son ${subs.length} subsectores en ${sector}; el máximo es ${MAXIMO_SECTORES}.` };
     mapa[sector] = subs;
   }
@@ -1058,15 +1065,24 @@ const mismosSubsectores = (a: MapaSubsectores, b: MapaSubsectores) => {
     return !!otra && a[x].length === b[otra].length && a[x].every((s) => b[otra].some((t) => t.toLowerCase() === s.toLowerCase()));
   });
 };
-// "Apps" es por dónde llega la empresa a la gente, no de qué vive: no sirve como subsector de un segmento
-// (suscripciones, tiendas de apps o dispositivos acababan ahí). Con sinCanales no se ofrece.
-const ES_CANAL = /^(apps?|applications?|aplicaci[oó]n(es)?( m[oó]vil(es)?)?|app m[oó]vil|mobile)$/i;
-const textoVocabulario = (k: Catalogo, sinCanales = false) => {
+// Un subsector tiene que decir qué vende la empresa ahí (Publicidad, Cloud, Seguros, Suscripciones). Se rechazan
+// los ambiguos: por dónde vende (Apps, Online), una forma de negocio (Plataformas, Soluciones, Servicios), un
+// cajón (Otros, Varios) o el sector repetido. "Apps" juntaba suscripciones, tiendas de apps y dispositivos.
+const AMBIGUOS = /^(apps?|applications?|aplicaci[oó]n(es)?( m[oó]vil(es)?)?|app m[oó]vil|m[oó]vil(es)?|mobile|web|online|en l[ií]nea|internet|digital(es)?|e-?business|plataformas?|platforms?|ecosistemas?|soluciones|solutions?|servicios?|services?|productos?|products?|negocios?|business(es)?|operaciones|segmento|otros?|others?|other|varios|diversos|miscel[aá]neos?|general(es)?|resto|core|principal(es)?|consumo|tecnolog[ií]as?|tech|innovaci[oó]n|nuevos negocios|emergentes?)$/i;
+function subsectorAmbiguo(sub: string, sector: string): string | null {
+  const t = limpiarNombreSector(sub);
+  if (t.toLowerCase() === limpiarNombreSector(sector).toLowerCase()) return `"${t}" repite el sector`;
+  if (AMBIGUOS.test(t)) return `"${t}" es muy general: no dice qué vende`;
+  return null;
+}
+const REGLA_SUBSECTOR = "Un subsector dice qué vende la empresa ahí, en concreto (Publicidad, Cloud, Semiconductores, Seguros, Suscripciones, Pagos digitales, Viajes), " +
+  "no por dónde lo vende (Apps, Online, Móvil), ni la forma del negocio (Plataformas, Soluciones, Servicios, Productos), ni un cajón (Otros, Varios), ni el sector repetido.";
+const textoVocabulario = (k: Catalogo, sinAmbiguos = false) => {
   const subs = vocabularioSubsectores(k);
   return [...vocabularioSectores(k).values()]
     .sort((a, b) => b.empresas.length - a.empresas.length)
     .map((e) => {
-      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])].map((x) => x.nombre).filter((x) => !sinCanales || !ES_CANAL.test(x));
+      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])].map((x) => x.nombre).filter((x) => !sinAmbiguos || !subsectorAmbiguo(x, e.nombre));
       return `${e.nombre} (${e.empresas.slice(0, 4).join(", ")}${e.empresas.length > 4 ? "…" : ""}${delSector.length ? `; subsectores: ${delSector.join(", ")}` : ""})`;
     }).join("; ");
 };
@@ -1469,7 +1485,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             const cuentasInv = [...new Set(catalogo.categorias.filter((c: Json) => c.tipo === "inversion").map((c: Json) => String(c.cuenta_id)))];
             const cuentaGbm = entrada.cuenta_id ? String(entrada.cuenta_id) : (cuentasInv.length === 1 ? cuentasInv[0] : null);
             if (!cuentaGbm) return { texto: `No tiene categoría para ${tk} y tiene varias cuentas con inversiones: pregúntale en cuál va con preguntar_al_usuario y vuelve a llamar con cuenta_id.`, error: true };
-            const alta = await ejecutarHerramienta(sb, userId, zona, catalogo, "proponer_nueva_categoria", { tipo: "inversion", ticker: tk, cuenta_id: cuentaGbm, sectores: entrada.sectores, subsectores: entrada.subsectores, resumen: `Nueva categoría de inversión [${tk}]` }, propuestas, memoria);
+            const alta = await ejecutarHerramienta(sb, userId, zona, catalogo, "proponer_nueva_categoria", { tipo: "inversion", ticker: tk, cuenta_id: cuentaGbm, sectores: entrada.sectores, subsectores: entrada.subsectores, pedido_por_el_usuario: entrada.pedido_por_el_usuario, resumen: `Nueva categoría de inversión [${tk}]` }, propuestas, memoria);
             if (alta.error) return alta;
             propuesta = propuestas.find((p: Json) => p.tipo === "nueva_categoria" && String(p.datos?.ticker ?? "") === tk);
             if (!propuesta) return { texto: `No pude proponer la categoría de ${tk}.`, error: true };
@@ -2289,7 +2305,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
             "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad); si un nombre que ya usa describe lo mismo, usa ése " +
             "(Google Cloud y AWS → Cloud) para que se junten en el mapa; si no, uno corto en español. Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
-            "Nunca \"Apps\": es un canal, no un negocio (suscripciones van en \"Suscripciones\"). " +
+            `${REGLA_SUBSECTOR} Si un nombre que ya usa es así de general, no lo reuses. ` +
             "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes: él lo ve en la tarjeta.", error: true };
         }
         // Los destinos de la receta son la estructura nueva de la empresa; los nombres se escriben como ya los usa
@@ -2301,9 +2317,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           const partes = String(v).split(/\s*(?:›|>)\s*/).map(limpiarNombreSector).filter(Boolean);
           if (partes.length !== 2) return { texto: `"${k}" va a "${v}": escríbelo como "Sector › Subsector". ${lista}`, error: true };
           let [sec, sub] = partes;
-          if (ES_CANAL.test(sub)) {
-            return { texto: `"${k}" va a "${v}": "${sub}" no describe lo que vende, sólo por dónde llega. Ponlo en el subsector de su negocio ` +
-              `(suscripciones → "Suscripciones"; una tienda de apps o de contenido → "Suscripciones" o "Media"; dispositivos → "Hardware"; anuncios → "Publicidad"; juegos → "Games"). ${lista}`, error: true };
+          const ambiguo = subsectorAmbiguo(sub, sec);
+          if (ambiguo) {
+            return { texto: `"${k}" va a "${v}": ${ambiguo}. ${REGLA_SUBSECTOR} Si el segmento junta cosas distintas, nómbralo por las que pesan ` +
+              `(p. ej. "Suscripciones y dispositivos"). ${lista}`, error: true };
           }
           sec = (Array.isArray(c0.sectores) ? c0.sectores.map(limpiarNombreSector) : []).find((x: string) => x.toLowerCase() === sec.toLowerCase()) ?? vocabS.get(sec.toLowerCase())?.nombre ?? sec;
           sub = vocabSub.get(sec.toLowerCase())?.get(sub.toLowerCase())?.nombre ?? sub;
@@ -3581,7 +3598,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const antes = subsectoresDe(c, Array.isArray((c as Json).sectores) ? (c as Json).sectores.map(limpiarNombreSector) : []);
         const despues = subsectoresDe(c, sectoresFinales);
         if (entrada.subsectores !== undefined) {
-          const { mapa, error } = limpiarSubsectores(entrada.subsectores, sectoresFinales, catalogo);
+          const { mapa, error } = limpiarSubsectores(entrada.subsectores, sectoresFinales, catalogo, entrada.pedido_por_el_usuario === true, antes);
           if (error) return { texto: error, error: true };
           for (const [sector, subs] of Object.entries(mapa)) {
             if (subs.length) despues[sector] = subs; else delete despues[sector];
@@ -3700,7 +3717,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const deMas = sectoresDeMas(sectores.length);
         if (deMas) return deMas;
         if (entrada.subsectores !== undefined) {
-          const { mapa, error } = limpiarSubsectores(entrada.subsectores, sectores, catalogo);
+          const { mapa, error } = limpiarSubsectores(entrada.subsectores, sectores, catalogo, entrada.pedido_por_el_usuario === true);
           if (error) return { texto: error, error: true };
           subsectores = Object.fromEntries(Object.entries(mapa).filter(([, v]) => v.length));
         }
@@ -3949,7 +3966,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
-- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa. Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
