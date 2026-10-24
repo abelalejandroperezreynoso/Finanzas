@@ -18542,7 +18542,7 @@
                                     });
                                     if (d.cobertura) filas.push(`<b>Sus segmentos cubren sólo ${escaparHtml(String(d.cobertura))}% de sus ventas</b>`);
                                     if (d.origen === 'segmentos') {
-                                        filas.push(`Según: ventas por segmento ${escaparHtml(String(d.anio || (d.cierre || '').slice(0, 4)))}; se actualiza con cada reporte anual`);
+                                        filas.push(`Según: ventas por segmento ${escaparHtml(String(d.anio || (d.cierre || '').slice(0, 4)))} (${d.fuente === 'sec' ? 'reporte a la SEC' : 'FMP'}); se actualiza con cada reporte anual`);
                                         Object.entries(d.receta || {}).forEach(([seg, div]) => filas.push(`<span style="opacity:0.75">${escaparHtml(seg)} → ${escaparHtml(div || 'no cuenta')}</span>`));
                                     } else {
                                         filas.push('Según: <b>a mano</b> (no se actualiza solo)');

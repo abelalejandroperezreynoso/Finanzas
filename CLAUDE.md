@@ -36,7 +36,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`categorias.subsectores`, `{"Sector": ["Sub", ...]}`; en el mapa, dentro de un sector propio). Sin porcentajes,
   el mapa reparte la empresa en partes iguales (una por subsector y una por sector sin subsectores); con
   `categorias.pesos_subsectores` usa los suyos. Los propone `proponer_pesos_subsectores` con una receta (segmento de
-  ventas de FMP → "Sector › Subsector"; cálculo puro en `pesos.ts`): los subsectores salen de los segmentos de la
+  ventas → "Sector › Subsector"; cálculo puro en `pesos.ts`). Los segmentos salen de FMP y, si su plan no los trae, del
+  reporte anual a la SEC en XBRL (`sec.ts`, cálculo puro; EDGAR pide un User-Agent con contacto); cada receta guarda su
+  `fuente` y se recalcula con ésa. Se avisa si los segmentos cubren menos de 90% de las ventas: los subsectores salen de los segmentos de la
   empresa (los que falten se crean y los sin ventas se quitan, en la misma tarjeta), o a mano; con receta, el modo `pesos` de la función los
   recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.

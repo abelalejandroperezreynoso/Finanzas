@@ -18,6 +18,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
+import { segmentosDeXbrl } from "./sec.ts";
 import { aCien, calcularPesos, divisionDe, divisionesDe, pesosVigentes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
@@ -1267,6 +1268,58 @@ async function ventasTotalesFmp(sb: SupabaseClient, ticker: string, seg: Segment
   const n = Number(fila?.revenue);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+// Respaldo gratis de FMP: el reporte anual (10-K o 20-F) que la empresa entrega a la SEC, en XBRL. La SEC pide
+// identificarse con un contacto en el User-Agent.
+const AGENTE_SEC = "FinanzasApp/1.0 finanzas.app@example.com";
+async function leerSec(url: string, json: boolean): Promise<Json> {
+  const r = await fetch(url, { headers: { "User-Agent": AGENTE_SEC }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`SEC respondió ${r.status}`);
+  return json ? r.json() : r.text();
+}
+async function segmentosSec(ticker: string): Promise<{ seg: Segmentos & { total: number } } | { error: string }> {
+  const t = String(ticker).trim().toUpperCase();
+  const guardado = cacheReportes.get(`sec:${t}`);
+  if (guardado && Date.now() - guardado.t < 12 * 3_600_000) return guardado.d;
+  try {
+    let mapa = cacheReportes.get("sec:tickers");
+    if (!mapa || Date.now() - mapa.t > 24 * 3_600_000) {
+      const d = await leerSec("https://www.sec.gov/files/company_tickers.json", true);
+      mapa = { t: Date.now(), d: Object.fromEntries(Object.values(d as Json).map((x: Json) => [String(x.ticker).toUpperCase(), Number(x.cik_str)])) };
+      cacheReportes.set("sec:tickers", mapa);
+    }
+    const cik = mapa.d[t] ?? mapa.d[t.replace(".", "-")] ?? mapa.d[t.replace("-", ".")];
+    if (!cik) return { error: `La SEC no tiene a ${t} (no reporta en EE. UU.).` };
+    const sub = await leerSec(`https://data.sec.gov/submissions/CIK${String(cik).padStart(10, "0")}.json`, true);
+    const rec = sub?.filings?.recent ?? {};
+    const i = (rec.form ?? []).findIndex((f: string) => f === "10-K" || f === "20-F" || f === "40-F");
+    if (i < 0) return { error: `La SEC no tiene un reporte anual de ${t}.` };
+    if (!rec.isInlineXBRL?.[i]) return { error: `El reporte anual de ${t} en la SEC no trae datos XBRL.` };
+    const carpeta = String(rec.accessionNumber[i]).replace(/-/g, "");
+    const base = String(rec.primaryDocument[i]).replace(/\.htm$/i, "");
+    const xml = await leerSec(`https://www.sec.gov/Archives/edgar/data/${cik}/${carpeta}/${base}_htm.xml`, false);
+    const seg = segmentosDeXbrl(xml);
+    const res = seg ? { seg } : { error: `No encontré las ventas de ${t} en su reporte a la SEC.` };
+    cacheReportes.set(`sec:${t}`, { t: Date.now(), d: res });
+    return res;
+  } catch (e) {
+    return { error: `No se pudo leer su reporte en la SEC (${String((e as Error)?.message ?? e).slice(0, 120)}).` };
+  }
+}
+// Las ventas por segmento de una empresa: FMP y, si no las tiene, la SEC. Con fuente, sólo ésa (al recalcular, la
+// receta usa los nombres de segmento de su fuente). total: las ventas del año, para ver qué parte cubren.
+async function segmentosEmpresa(sb: SupabaseClient, ticker: string, fuente?: string):
+  Promise<{ seg: Segmentos; fuente: "fmp" | "sec"; total: number | null } | { error: string; limite?: boolean }> {
+  if (fuente !== "sec") {
+    const f = await segmentosFmp(sb, ticker);
+    if (!("error" in f)) return { seg: f.seg, fuente: "fmp", total: await ventasTotalesFmp(sb, ticker, f.seg) };
+    if (fuente === "fmp" || f.limite) return f;
+    const s = await segmentosSec(ticker);
+    if (!("error" in s)) return { seg: s.seg, fuente: "sec", total: s.seg.total };
+    return { error: `${f.error} Tampoco en la SEC: ${s.error}` };
+  }
+  const s = await segmentosSec(ticker);
+  return "error" in s ? s : { seg: s.seg, fuente: "sec", total: s.seg.total };
+}
 const textoSegmentos = (seg: Segmentos) => {
   const total = seg.partes.reduce((t, [, n]) => t + n, 0);
   return seg.partes.map(([k, n]) => `"${k}" (${Math.round((n / total) * 1000) / 10}%)`).join(", ");
@@ -1831,11 +1884,22 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         } else {
           avisos.push(`${t}: Finnhub no tiene sus reportes a la SEC (puede ser un ETF, una empresa de fuera de EE. UU. o un ticker de otra clase de acción).`);
         }
+        const porProducto = CLAVE_FMP ? resumenSegmentos(productos) : null;
+        if (porProducto) empresa.ventas_por_segmento = { ...porProducto, ...tabla(["segmento", "ventas", "parte", "crecimiento"], porProducto.filas) };
+        else {
+          // FMP no los tiene (o no hay clave): los del reporte anual a la SEC (sólo qué parte es cada uno)
+          const s = await segmentosSec(t);
+          if (!("error" in s) && s.seg.partes.length > 1) {
+            const suma = s.seg.partes.reduce((a, [, n]) => a + n, 0);
+            empresa.ventas_por_segmento = { fuente: "reporte anual a la SEC", año_fiscal: s.seg.anio, cierre: s.seg.cierre,
+              ...(suma / s.seg.total < 0.9 ? { cubre: `${Math.round((suma / s.seg.total) * 100)}% de sus ventas` } : {}),
+              ...tabla(["segmento", "parte"], s.seg.partes.map(([n, v]) => [n, `${Math.round((v / suma) * 1000) / 10}%`])) };
+          }
+        }
         if (CLAVE_FMP) {
-          const porProducto = resumenSegmentos(productos), porRegion = resumenSegmentos(regiones);
-          if (porProducto) empresa.ventas_por_segmento = { ...porProducto, ...tabla(["segmento", "ventas", "parte", "crecimiento"], porProducto.filas) };
+          const porRegion = resumenSegmentos(regiones);
           if (porRegion) empresa.ventas_por_region = { ...porRegion, ...tabla(["region", "ventas", "parte", "crecimiento"], porRegion.filas) };
-          if (!porProducto && !porRegion) {
+          if (!porProducto && !porRegion && !empresa.ventas_por_segmento) {
             avisos.push(productos?.error === 401 || regiones?.error === 401
               ? "La clave de FMP no es válida (Ajustes → Proveedores → FMP): no hay ventas por segmento ni por región."
               : sinPlan(productos) || sinPlan(regiones)
@@ -1845,7 +1909,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }
         empresas.push(empresa);
       }
-      if (!CLAVE_FMP) avisos.push(`Las ventas por segmento y por región no están disponibles. ${FALTA_CLAVE_FMP} Si las pide, díselo así.`);
+      if (!CLAVE_FMP) avisos.push(`Las ventas por región no están disponibles (y por segmento sólo las de la SEC). ${FALTA_CLAVE_FMP} Si las pide, díselo así.`);
       if (limitado) avisos.push("Se llegó al límite de consultas: faltan datos. No los inventes; dile que lo vuelva a pedir en un minuto.");
       return {
         texto: recortar({
@@ -2321,9 +2385,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         datos = { origen: "manual", pesos, actualizado: hoyP };
       } else {
         if (!c.ticker) return { texto: "Sin ticker no hay segmentos: propón pesos a mano.", error: true };
-        const r = await segmentosFmp(sb, c.ticker);
+        const r = await segmentosEmpresa(sb, c.ticker);
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
-        const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
+        const lista = `Segmentos de ${c.ticker} (${r.fuente === "sec" ? "de su reporte anual a la SEC" : "de FMP"}) en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
           `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sectores y subsectores que ya usa en sus empresas: ${textoVocabulario(catalogo, true) || "ninguno"}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
           return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
@@ -2363,7 +2427,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           return { texto: `Se quedarían fuera ${fueraGrandes.join(", ")}: dale su "Sector › Subsector" (uno nuevo si ninguno lo describe) y vuelve a llamar. Sólo si él ya dijo que lo deja fuera, usa dejar_fuera. ${lista}`, error: true };
         }
         // Qué parte de sus ventas cubren los segmentos: FMP a veces no trae alguno (los intereses de Robinhood)
-        const ventas = await ventasTotalesFmp(sb, c.ticker, r.seg);
+        const ventas = r.total;
         const cobertura = ventas ? Math.round((totalSeg / ventas) * 100) : null;
         // La estructura nueva: sus sectores de antes que siguen, luego los nuevos; en cada uno, sus subsectores de mayor a menor
         const porPeso = [...orden].sort((x, y) => (res.pesos[y] ?? 0) - (res.pesos[x] ?? 0));
@@ -2378,7 +2442,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const cambiaEstructura = sectoresN.length !== antesSectores.length || sectoresN.some((x) => !antesSectores.includes(x)) || !mismosSubsectores(subsAntes, subsN);
         if (cambiaEstructura) estructura = { sectores: sectoresN, subsectores: subsN, antes: { sectores: antesSectores, subsectores: subsAntes } };
         sinVentas = res.sinVentas;
-        datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null,
+        datos = { origen: "segmentos", fuente: r.fuente, receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null,
           ...(cobertura !== null && cobertura < 90 ? { cobertura } : {}) };
       }
       propuestas.push({
@@ -4587,7 +4651,7 @@ Deno.serve(async (req) => {
       for (let k = 0; k < toca.length; k += 5) {
         await Promise.all(toca.slice(k, k + 5).map(async (c: Json) => {
           const ps = c.pesos_subsectores;
-          const r = await segmentosFmp(sb, c.ticker);
+          const r = await segmentosEmpresa(sb, c.ticker, ps.fuente ?? "fmp");
           if ("error" in r && r.limite) return;
           const nuevo: Json = { ...ps, revisado: hoyP };
           if ("error" in r) nuevo.error = r.error;
@@ -4597,7 +4661,10 @@ Deno.serve(async (req) => {
             else {
               const cambio = res.anio !== ps.anio || res.cierre !== ps.cierre || !pesosVigentes(ps.pesos, Object.keys(res.pesos))
                 || Object.keys(res.pesos).some((d) => Math.abs((Number(ps.pesos?.[d]) || 0) - res.pesos[d]) >= 0.1);
+              const sumaSeg = r.seg.partes.reduce((t, [, n]) => t + n, 0);
+              const cobertura = r.total ? Math.round((sumaSeg / r.total) * 100) : null;
               Object.assign(nuevo, { pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, error: null });
+              if (cobertura !== null && cobertura < 90) nuevo.cobertura = cobertura; else delete nuevo.cobertura;
               if (cambio) { nuevo.actualizado = hoyP; actualizadas++; }
             }
           }
