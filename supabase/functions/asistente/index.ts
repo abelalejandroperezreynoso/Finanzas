@@ -4658,6 +4658,11 @@ Deno.serve(async (req) => {
       for (let k = 0; k < toca.length; k += 5) {
         await Promise.all(toca.slice(k, k + 5).map(async (c: Json) => {
           const ps = c.pesos_subsectores;
+          // Con una sola división la empresa cuenta entera ahí: no hay porcentaje que calcular (ni error que avisar)
+          if (divisionesDe(c).length <= 1) {
+            await sb.from("categorias").update({ pesos_subsectores: { ...ps, revisado: hoyP, error: null } }).eq("id", c.id);
+            return;
+          }
           const r = await segmentosEmpresa(sb, c.ticker, ps.fuente ?? "fmp");
           if ("error" in r && r.limite) return;
           const nuevo: Json = { ...ps, revisado: hoyP };
