@@ -7849,19 +7849,26 @@
                                         return true;
                                     }
 
+                                    // "Contar hacia atrás desde hoy" es una preferencia: ni quitar el filtro ni volver
+                                    // al mes la apagan. Con ella puesta, el mes son los últimos 30 días.
                                     function aplicarRangoDeArranque() {
-                                        const porDefecto = rangoPorDefecto();
-                                        filtroPorDefectoPuesto = true;
                                         // El estado va aparte de las fechas a propósito: sin tipoFiltroActual en 'mes' el
                                         // título saldría como un rango suelto y el atajo "Mes" no aparecería marcado.
                                         tipoFiltroActual = 'mes';
                                         offsetFiltroActual = 0;
+                                        if (document.getElementById('checkDesdeHoy')?.checked) {
+                                            // Igual que al restaurar el periodo guardado: el mes contado desde hoy lo
+                                            // eligió el usuario, no la app
+                                            procesarDesplazamiento(true);
+                                            cambiosPanelPendientes = false;
+                                            return;
+                                        }
+                                        const porDefecto = rangoPorDefecto();
+                                        filtroPorDefectoPuesto = true;
                                         const inputInicio = document.getElementById('filtroInicio');
                                         const inputFin = document.getElementById('filtroFin');
                                         if (inputInicio) inputInicio.value = porDefecto.inicio;
                                         if (inputFin) inputFin.value = porDefecto.fin;
-                                        const checkDesdeHoy = document.getElementById('checkDesdeHoy');
-                                        if (checkDesdeHoy) checkDesdeHoy.checked = false;
                                     }
 
                                     // La ✕ quita el recorte de tiempo entero, igual que deja las cuentas y las
@@ -7876,8 +7883,6 @@
                                         const inputFin = document.getElementById('filtroFin');
                                         if (inputInicio) inputInicio.value = '';
                                         if (inputFin) inputFin.value = '';
-                                        const checkDesdeHoy = document.getElementById('checkDesdeHoy');
-                                        if (checkDesdeHoy) checkDesdeHoy.checked = false;
                                     }
 
                                     // El hueco de arriba tiene dos mandos que nunca se ven a la vez: con algo filtrado,
