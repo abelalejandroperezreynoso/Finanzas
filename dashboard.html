@@ -2230,13 +2230,15 @@
     <!-- La cara de siempre: el balance día a día, o los meses en barras. Se va entera —título,
          lienzo y desglose— cuando el mapa de abajo se pone en Inversiones. -->
     <div id="caraTendencia">
+    <!-- Las dos gráficas llevan touch-action: none: arrastrar uno o dos dedos encima recorre los días
+         o marca un tramo, y no mueve la página -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem;">
     <h3 id="tituloTendencia" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left;">Tendencia de Balance</h3>
     <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; flex: 1;"></span>
     </div>
 
     <div class="contenedor-grafico" style="position: relative; height: 140px !important; min-height: 140px !important; max-height: 140px !important; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
-    <canvas id="graficoResumen" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
+    <canvas id="graficoResumen" style="width: 100% !important; height: 100% !important; display: block; touch-action: none;"></canvas>
     </div>
 
     <div id="detallesGrafico" style="padding: 12px 1rem 5px 1rem; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;">
@@ -2259,7 +2261,7 @@
     </div>
 
     <div id="cajaCurvaPrincipal" style="position: relative; height: 140px; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
-    <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block;"></canvas>
+    <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block; touch-action: none;"></canvas>
     </div>
 
     <!-- Con empresas o sectores marcados en el mapa (pulsación larga), qué es cada línea y cuánto
