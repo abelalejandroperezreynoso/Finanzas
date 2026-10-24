@@ -2822,14 +2822,11 @@
          con un separador debajo: es de la gráfica, no del periodo. -->
     <div id="seccionCurvaInversiones" style="display: none;">
     <div class="rango-ios-grupo">
-        <label class="rango-ios-fila">
+        <!-- Son sólo dos: un toque cambia de una a la otra, sin menú -->
+        <div class="rango-ios-fila" role="button" onclick="cambiarCurvaInversiones(curvaInversiones === 'dolar' ? 'acciones' : 'dolar'); actualizarRangoFiltroIos();">
             <span>Gráfica</span>
             <span class="rango-ios-pastilla" id="textoCurvaInversiones">—</span>
-            <select id="selectCurvaInversiones" onchange="cambiarCurvaInversiones(this.value); actualizarRangoFiltroIos();">
-                <option value="acciones">Acciones</option>
-                <option value="dolar">USD/MXN</option>
-            </select>
-        </label>
+        </div>
         <!-- Encendido, la curva de cualquier periodo cuenta sólo lo ganado en él (contra el cierre del día
              anterior a que empiece); apagado, la plusvalía total desde la primera compra -->
         <label class="rango-ios-fila" id="filaPlusvaliaPeriodo">
@@ -7040,12 +7037,8 @@
                             function actualizarRangoFiltroIos() {
                                 // El renglón de Periodo dice qué atajo está puesto; un rango hecho a mano sale
                                 // como "Personalizado", que no se puede elegir en la rueda.
-                                const selectCurva = document.getElementById('selectCurvaInversiones');
                                 const textoCurva = document.getElementById('textoCurvaInversiones');
-                                if (selectCurva && textoCurva) {
-                                    selectCurva.value = curvaInversiones;
-                                    textoCurva.textContent = selectCurva.options[selectCurva.selectedIndex].textContent;
-                                }
+                                if (textoCurva) textoCurva.textContent = curvaInversiones === 'dolar' ? 'USD/MXN' : 'Acciones';
                                 // El de la plusvalía sólo es de la curva de acciones
                                 const filaPlusvalia = document.getElementById('filaPlusvaliaPeriodo');
                                 if (filaPlusvalia) filaPlusvalia.style.display = curvaInversiones === 'dolar' ? 'none' : '';
