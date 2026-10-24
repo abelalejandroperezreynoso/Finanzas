@@ -4050,6 +4050,7 @@
                                             && (!donde.cuenta || String(c.cuenta_id) === String(donde.cuenta))
                                             && (!donde.categoria || String(c.id) === String(donde.categoria))
                                             && (!donde.sector || sectoresDeCategoriaTreemap(c).indexOf(donde.sector) >= 0)
+                                            && (!donde.sector || !donde.subsector || enSubsectorTreemap(c, donde.sector, donde.subsector))
                                             && (!donde.gicsSector || deLaClaseGics(c, donde)));
                                     }
 
@@ -4078,7 +4079,9 @@
                                         const pesos = {};
                                         cats.forEach(c => {
                                             const div = donde.sector ? divisionesDeCategoriaTreemap(c) : null;
-                                            pesos[String(c.id)] = div ? div.fraccion(donde.sector) : 1;
+                                            // En un subsector, la parte de ese subsector ("Sin subsector" es la del sector sin ninguno)
+                                            const sub = !donde.subsector ? undefined : donde.subsector === SUBSECTOR_SIN_PROPIO_TREEMAP ? null : donde.subsector;
+                                            pesos[String(c.id)] = div ? div.fraccion(donde.sector, sub) : 1;
                                         });
 
                                         const porId = {};
@@ -4956,6 +4959,7 @@
                                         return {
                                             cuenta: donde.cuenta || null,
                                             sector: donde.sector || null,
+                                            subsector: donde.subsector || null,
                                             gicsSector: donde.gicsSector || null,
                                             gicsIndustria: donde.gicsIndustria || null,
                                             // Dos varas pueden tener un sector que se llame igual y no ser el
@@ -12837,6 +12841,8 @@
                             // sitios a los que se entra, no ajustes.
                             let cuentaTreemapInversiones = null;
                             let sectorTreemapInversiones = null;
+                            // El subsector propio abierto dentro del sector (por su nombre)
+                            let subsectorTreemapInversiones = null;
                             let empresaTreemapInversiones = null;
                             // En "Empresas", antes de las compras de una empresa se pasa por su sector y su industria
                             // (GICS). Si al abrir el sector se saltó la industria (había una sola), al subir se salta igual.
@@ -13020,6 +13026,12 @@
                                 return alguno ? piezas : null;
                             }
 
+                            // Si una empresa cae en ese subsector propio del sector ("Sin subsector": no tiene ninguno ahí)
+                            function enSubsectorTreemap(cat, sector, sub) {
+                                const subs = subsectoresPropiosDeCategoria(cat, sector);
+                                return sub === SUBSECTOR_SIN_PROPIO_TREEMAP ? subs.length === 0 : subs.indexOf(sub) >= 0;
+                            }
+
                             // Cuánto hay que sostener el dedo para que el toque cuente como pulsación larga.
                             // Medio segundo se siente deliberado sin llegar a parecer que la app se colgó.
                             const MS_PULSACION_LARGA_TREEMAP = 450;
@@ -13088,6 +13100,7 @@
                             // tienen en común las empresas que caen dentro.
                             function abrirSectorTreemap(sector) {
                                 sectorTreemapInversiones = String(sector);
+                                subsectorTreemapInversiones = null;
                                 empresaTreemapInversiones = null;
                                 repintarTreemapCategorias();
                             }
@@ -13127,10 +13140,21 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // Un toque en una empresa de un sector propio con subsectores: abre su subsector y luego
+                            // sus compras. Si el subsector sería lo mismo que el sector, o sólo la tiene a ella, se salta.
+                            function abrirSubsectorTreemap(d, datosCapa) {
+                                const grupos = new Set(datosCapa.map(x => x.subsectorMapa));
+                                const delGrupo = datosCapa.filter(x => x.subsectorMapa === d.subsectorMapa);
+                                if (subsectorTreemapInversiones || grupos.size === 1 || delGrupo.length === 1) { abrirEmpresaTreemap(d.id); return; }
+                                subsectorTreemapInversiones = d.subsectorMapa;
+                                repintarTreemapCategorias();
+                            }
+
                             // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
                             // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
+                                else if (subsectorTreemapInversiones) subsectorTreemapInversiones = null;
                                 else if (industriaGicsTreemap) {
                                     industriaGicsTreemap = null;
                                     if (saltoIndustriaGicsTreemap) sectorGicsTreemap = null;
@@ -14994,6 +15018,13 @@
                                     : null;
                                 if (!sectorAbierto) sectorTreemapInversiones = null;
 
+                                // El subsector propio abierto, con las piezas que le tocan; si ya no queda nada en él, se sube
+                                const piezasSubsectores = sectorAbierto && subsectorTreemapInversiones
+                                    ? piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) : null;
+                                const subsectorAbierto = piezasSubsectores && piezasSubsectores.some(d => d.subsectorMapa === subsectorTreemapInversiones)
+                                    ? subsectorTreemapInversiones : null;
+                                if (!subsectorAbierto) subsectorTreemapInversiones = null;
+
                                 // Se puede estar dentro de una empresa sin sector abierto aunque los sectores
                                 // estén puestos: es lo que pasa al entrar en una empresa repartida, que suelta el
                                 // sector para poder enseñar sus compras enteras.
@@ -15020,7 +15051,7 @@
                                 // dejó fuera) se quita.
                                 const capaConSeleccion = esPortafolio && !empresaAbierta && (!!cuentaAbierta || !hayCapaCuentas);
                                 const claveCapa = capaConSeleccion
-                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', porSector ? 'sectores' : 'empresas'].join('|')
+                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', porSector ? 'sectores' : 'empresas'].join('|')
                                     : null;
                                 if (claveCapa !== capaSeleccionTreemap) {
                                     seleccionTreemapInversiones = [];
@@ -15050,10 +15081,12 @@
                                     tolerancia: vistaAccesible ? toleranciaTreemapInversiones : 0,
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     sector: sectorAbierto || null,
+                                    subsector: subsectorAbierto || null,
                                     gicsSector: sectorGicsAbierto || null,
                                     gicsIndustria: industriaGicsAbierta || null,
                                     categoria: empresaAbierta ? String(empresaAbierta.id) : null,
                                     nombre: empresaAbierta ? (empresaAbierta.ticker || empresaAbierta.nombre)
+                                        : subsectorAbierto ? subsectorAbierto
                                         : sectorAbierto ? sectorAbierto
                                         : industriaGicsAbierta ? industriaGicsAbierta
                                         : sectorGicsAbierto ? sectorGicsAbierto
@@ -15144,6 +15177,7 @@
                                             const catsDelNivel = (datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker
                                                 && (!cuentaAbierta || String(c.cuenta_id) === String(cuentaAbierta.id))
                                                 && (!sectorAbierto || sectoresDeCategoriaTreemap(c).indexOf(sectorAbierto) >= 0)
+                                                && (empresaAbierta || !subsectorAbierto || enSubsectorTreemap(c, sectorAbierto, subsectorAbierto))
                                                 && (!empresaAbierta || String(c.id) === String(empresaAbierta.id))
                                                 && (empresaAbierta || !sectorGicsAbierto || (() => {
                                                     const k = sectorIndustriaTreemap({ cat: c });
@@ -15173,7 +15207,7 @@
                                             [trozoVista]);
                                     } else if (sectorAbierto) {
                                         // Dentro de un sector lo que se ve son sus empresas, sin más: no hace falta decirlo
-                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${sectorAbierto}`, () => subirNivelTreemap(),
+                                        pintarTituloTreemapInversiones(tituloEl, `‹ ${subsectorAbierto || sectorAbierto}`, () => subirNivelTreemap(),
                                             [trozoVista]);
                                     } else if (cuentaAbierta) {
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaAbierta.nombre}`, () => subirNivelTreemap(),
@@ -15203,6 +15237,8 @@
                                     datos = vistaAccesible
                                         ? datosAccesiblesEmpresaTreemap(empresaAbierta)
                                         : datosMovimientosEmpresaTreemap(empresaAbierta);
+                                } else if (subsectorAbierto) {
+                                    datos = piezasSubsectores.filter(d => d.subsectorMapa === subsectorAbierto);
                                 } else if (sectorAbierto) {
                                     datos = piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) || piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
                                 } else if (cuentaAbierta) {
@@ -15254,7 +15290,7 @@
                                     && (!!cuentaAbierta || !hayCapaCuentas);
                                 // Dentro de un sector sólo van sus industrias y dentro de una industria sólo sus empresas.
                                 // Dentro de un sector propio con subsectores, cada subsector lleva su barra
-                                const conSubsectores = esPortafolio && !empresaAbierta && !!sectorAbierto && datos.some(d => d.subsectorMapa);
+                                const conSubsectores = esPortafolio && !empresaAbierta && !!sectorAbierto && !subsectorAbierto && datos.some(d => d.subsectorMapa);
                                 const gruposMapa = conSubsectores ? ['subsectorMapa', 'nombre']
                                     : !conSectores ? ['nombre']
                                     : industriaGicsAbierta ? ['nombre']
@@ -15729,7 +15765,7 @@
                                 // El zoom sólo en el portafolio, y se reinicia al cambiar de capa o de vista
                                 conectarZoomTreemap(contenedor);
                                 zoomPermitidoTreemap = esPortafolio;
-                                const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '',
+                                const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
                                     agrupacionTreemapInversiones, vistaAccesible, rendimientoTreemapInversiones].join('|');
                                 if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
@@ -16181,6 +16217,7 @@
                                         else if (d.esCaja) verDetallesCategoria(d.id);
                                         else if (d.esSector) abrirSectorTreemap(d.id);
                                         else if (conSectores) abrirCapaGicsTreemap(d, datos);
+                                        else if (conSubsectores) abrirSubsectorTreemap(d, datos);
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {
