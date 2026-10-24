@@ -36,7 +36,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   (`categorias.subsectores`, `{"Sector": ["Sub", ...]}`; en el mapa, dentro de un sector propio). Sin porcentajes,
   el mapa reparte la empresa en partes iguales (una por subsector y una por sector sin subsectores); con
   `categorias.pesos_subsectores` usa los suyos. Los propone `proponer_pesos_subsectores` con una receta (segmento de
-  ventas de FMP → división; cálculo puro en `pesos.ts`) o a mano; con receta, el modo `pesos` de la función los
+  ventas de FMP → "Sector › Subsector"; cálculo puro en `pesos.ts`): los subsectores salen de los segmentos de la
+  empresa (los que falten se crean y los sin ventas se quitan, en la misma tarjeta), o a mano; con receta, el modo `pesos` de la función los
   recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o

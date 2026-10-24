@@ -556,17 +556,17 @@ const HERRAMIENTAS: Json[] = [
   {
     name: "proponer_pesos_subsectores",
     description:
-      "Propone los porcentajes de los sectores y subsectores propios de UNA empresa (cuánto de ella es cada uno; el mapa la reparte así en vez de en partes iguales). " +
-      "Lo normal es con receta: a qué división va cada segmento de sus ventas (FMP, último año fiscal); con ella los porcentajes se recalculan solos con cada reporte anual. " +
-      "Llámala primero sin receta: te devuelve sus segmentos y sus divisiones. Una división es \"Sector › Subsector\" (o sólo \"Sector\" si ese sector no tiene subsectores). " +
-      "Con pesos (en vez de receta) quedan fijos a mano: sólo si no hay segmentos (ETFs, algunas extranjeras) o el usuario los da. NO lo aplica: el usuario lo confirmará.",
+      "Propone los sectores, subsectores y porcentajes de UNA empresa según sus segmentos de ventas (FMP, último año fiscal), en una sola tarjeta. " +
+      "Con receta (cada segmento a \"Sector › Subsector\") los subsectores quedan como los de la empresa: se crean los que falten y se quitan los que el usuario tenía sin ventas; " +
+      "los porcentajes se recalculan solos con cada reporte anual. Llámala primero sin receta: te devuelve sus segmentos y los nombres que ya usa. " +
+      "Con pesos (en vez de receta) se reparten sus divisiones de hoy, fijos a mano: sólo si no hay segmentos (ETFs, algunas extranjeras) o el usuario los da. NO lo aplica: el usuario lo confirmará.",
     input_schema: {
       type: "object",
       properties: {
         categoria_id: { type: "string" },
-        receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a la división que describe lo que vende; \"\" si ninguna lo describe. Nunca a la \"más cercana\" sólo para que no quede fuera (suscripciones o dispositivos no son Publicidad): si queda fuera, la herramienta te dice qué hacer" },
+        receta: { type: "object", additionalProperties: { type: "string" }, description: "Cada segmento, con su nombre exacto, a \"Sector › Subsector\" según lo que vende. Varios segmentos del mismo negocio pueden ir al mismo (Search, YouTube ads y Network → Publicidad). \"\" sólo para segmentos de menos de 3% que no sean negocio propio (Other Bets)" },
         pesos: { type: "object", additionalProperties: { type: "number" }, description: "Sólo a mano: cada división con su porcentaje (se ajustan para sumar 100)" },
-        dejar_fuera: { type: "array", items: { type: "string" }, description: "Segmentos que el usuario ya dijo que se quedan fuera aunque pesen (nombre exacto); sin esto, uno de 3% o más que quede fuera se avisa primero" },
+        dejar_fuera: { type: "array", items: { type: "string" }, description: "Segmentos que el usuario ya dijo que se quedan fuera aunque pesen 3% o más (nombre exacto)" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó" },
         resumen: { type: "string" },
       },
@@ -1049,6 +1049,8 @@ function limpiarSubsectores(entrada: unknown, sectores: string[], k: Catalogo): 
   }
   return { mapa };
 }
+const textoSubsectoresMapa = (m: MapaSubsectores, sectores: string[]) =>
+  sectores.map((s) => (m[s]?.length ? `${s} (${m[s].join(", ")})` : s)).join(", ") || "ninguno";
 const mismosSubsectores = (a: MapaSubsectores, b: MapaSubsectores) => {
   const ka = Object.keys(a), kb = Object.keys(b);
   return ka.length === kb.length && ka.every((x) => {
@@ -2256,13 +2258,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...("subsectores" in cambioPendiente.cambios ? { subsectores: cambioPendiente.cambios.subsectores } : {}),
       } : c0;
       const divisiones = divisionesDe(c);
-      if (!divisiones.length) return { texto: "La empresa no tiene sectores propios: primero propón sus sectores y subsectores.", error: true };
-      if (divisiones.length === 1) return { texto: `Tiene una sola división (${divisiones[0]}): cuenta entera ahí, no hace falta porcentaje.`, error: true };
       const nombre = catalogo.etiqueta[String(c.id)] ?? c.nombre;
       const hoyP = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
       let datos: Json;
       let sinVentas: string[] = [];
+      let estructura: Json = null;
       if (entrada.pesos && typeof entrada.pesos === "object") {
+        if (!divisiones.length) return { texto: "La empresa no tiene sectores propios: usa receta, o propón antes sus sectores y subsectores.", error: true };
+        if (divisiones.length === 1) return { texto: `Tiene una sola división (${divisiones[0]}): cuenta entera ahí, no hace falta porcentaje.`, error: true };
         const crudos: Record<string, number> = Object.fromEntries(divisiones.map((d) => [d, 0]));
         for (const [k, v] of Object.entries(entrada.pesos as Record<string, unknown>)) {
           const d = divisionDe(k, divisiones);
@@ -2277,32 +2280,51 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         if (!c.ticker) return { texto: "Sin ticker no hay segmentos: propón pesos a mano.", error: true };
         const r = await segmentosFmp(sb, c.ticker);
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
-        const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. Sus divisiones: ${divisiones.join(", ")}.`;
+        const lista = `Segmentos de ${c.ticker} en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
+          `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sectores y subsectores que ya usa en sus empresas: ${textoVocabulario(catalogo) || "ninguno"}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
-          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a la división que describe lo que vende, o "" si ninguna lo describe. ` +
-            "No metas un segmento en la división \"más cercana\" para que no quede fuera (suscripciones, dispositivos o hardware no son Publicidad; pagos no son E-commerce): déjalo en \"\" y la herramienta te dirá si hay que proponerle su subsector. No le preguntes al usuario: él lo ve en la tarjeta.", error: true };
+          return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
+            "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad); si un nombre que ya usa describe lo mismo, usa ése " +
+            "(Google Cloud y AWS → Cloud) para que se junten en el mapa; si no, uno corto en español. Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
+            "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes: él lo ve en la tarjeta.", error: true };
         }
+        // Los destinos de la receta son la estructura nueva de la empresa; los nombres se escriben como ya los usa
+        const vocabS = vocabularioSectores(catalogo), vocabSub = vocabularioSubsectores(catalogo);
         const receta: Receta = {};
+        const orden: string[] = [];
         for (const [k, v] of Object.entries(entrada.receta as Record<string, unknown>)) {
-          receta[k] = String(v ?? "").trim() ? (divisionDe(v, divisiones) ?? String(v)) : "";
+          if (!String(v ?? "").trim()) { receta[k] = ""; continue; }
+          const partes = String(v).split(/\s*(?:›|>)\s*/).map(limpiarNombreSector).filter(Boolean);
+          if (partes.length !== 2) return { texto: `"${k}" va a "${v}": escríbelo como "Sector › Subsector". ${lista}`, error: true };
+          let [sec, sub] = partes;
+          sec = (Array.isArray(c0.sectores) ? c0.sectores.map(limpiarNombreSector) : []).find((x: string) => x.toLowerCase() === sec.toLowerCase()) ?? vocabS.get(sec.toLowerCase())?.nombre ?? sec;
+          sub = vocabSub.get(sec.toLowerCase())?.get(sub.toLowerCase())?.nombre ?? sub;
+          receta[k] = `${sec} › ${sub}`;
+          if (!orden.includes(receta[k])) orden.push(receta[k]);
         }
-        const res = calcularPesos(r.seg, receta, divisiones);
+        if (!orden.length) return { texto: `Ningún segmento tiene destino. ${lista}`, error: true };
+        const res = calcularPesos(r.seg, receta, orden);
         if (!res.ok) return { texto: `${res.error} ${lista}`, error: true };
-        // Un segmento que pesa y se queda fuera no se propone así nomás: primero se avisa y se ofrece su subsector
+        // Un segmento que pesa no se queda fuera sin que el usuario lo diga
         const totalSeg = r.seg.partes.reduce((t, [, n]) => t + n, 0);
         const dejados = (Array.isArray(entrada.dejar_fuera) ? entrada.dejar_fuera : []).map((x: unknown) => String(x).trim().toLowerCase());
         const fueraGrandes = r.seg.partes.filter(([k, n]) => res.ignorados.includes(k) && n / totalSeg >= 0.03 && !dejados.includes(k.toLowerCase()))
           .map(([k, n]) => `"${k}" (${Math.round((n / totalSeg) * 1000) / 10}%)`);
         if (fueraGrandes.length) {
-          return {
-            texto: `Se quedarían fuera ${fueraGrandes.join(", ")}: no lo propongas así. Avísale en una frase qué es cada uno y, en este mismo turno, ` +
-              "propón con proponer_cambio_categoria el subsector que le falta para que entre (nombre corto en español, en el sector que le toque; " +
-              "si ya usa uno que encaje, en ésta u otras empresas, usa ése). En subsectores va la lista completa de ese sector (los que ya tiene más el nuevo). " +
-              "Luego vuelve a llamar aquí con la receta que lo incluya: la app pide confirmar primero los subsectores. " +
-              "Si él ya te dijo que lo deja fuera, vuelve a llamar con dejar_fuera y esos segmentos. " + lista,
-            error: true,
-          };
+          return { texto: `Se quedarían fuera ${fueraGrandes.join(", ")}: dale su "Sector › Subsector" (uno nuevo si ninguno lo describe) y vuelve a llamar. Sólo si él ya dijo que lo deja fuera, usa dejar_fuera. ${lista}`, error: true };
         }
+        // La estructura nueva: sus sectores de antes que siguen, luego los nuevos; en cada uno, sus subsectores de mayor a menor
+        const porPeso = [...orden].sort((x, y) => (res.pesos[y] ?? 0) - (res.pesos[x] ?? 0));
+        const antesSectores: string[] = Array.isArray(c0.sectores) ? c0.sectores.map(limpiarNombreSector).filter(Boolean) : [];
+        const secNuevos = [...new Set(porPeso.map((d) => d.split(" › ")[0]))];
+        const sectoresN = [...antesSectores.filter((x) => secNuevos.includes(x)), ...secNuevos.filter((x) => !antesSectores.includes(x))];
+        const mal = sectoresDeMas(sectoresN.length);
+        if (mal) return mal;
+        const subsN: MapaSubsectores = {};
+        porPeso.forEach((d) => { const [sec, sub] = d.split(" › "); (subsN[sec] = subsN[sec] ?? []).push(sub); });
+        const subsAntes = subsectoresDe(c0);
+        const cambiaEstructura = sectoresN.length !== antesSectores.length || sectoresN.some((x) => !antesSectores.includes(x)) || !mismosSubsectores(subsAntes, subsN);
+        if (cambiaEstructura) estructura = { sectores: sectoresN, subsectores: subsN, antes: { sectores: antesSectores, subsectores: subsAntes } };
         sinVentas = res.sinVentas;
         datos = { origen: "segmentos", receta, pesos: res.pesos, anio: res.anio, cierre: res.cierre, ignorados: res.ignorados, actualizado: hoyP, revisado: hoyP, error: null };
       }
@@ -2310,14 +2332,16 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...(entrada.corrige_anterior ? { corrige_anterior: true } : {}),
         tipo: "pesos_subsectores", categoria_id: c.id, nombre, ticker: c.ticker ?? null, datos,
         antes: c0.pesos_subsectores && typeof c0.pesos_subsectores === "object" ? c0.pesos_subsectores.pesos ?? null : null,
-        ...(cambioPendiente ? { tras_subsectores: true } : {}),
+        ...(cambioPendiente && datos.origen === "manual" ? { tras_subsectores: true } : {}),
+        ...(estructura ? { estructura } : {}),
         resumen: String(entrada.resumen).slice(0, 200),
       });
       const cifras = Object.entries(datos.pesos as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([d, n]) => `${d} ${n}%`).join(", ");
       return {
         texto: `Propuesta registrada; todavía NO está aplicada. Porcentajes: ${cifras}. Si los dices, usa estas cifras tal cual (no las recalcules ni redondees distinto).` +
-          (datos.origen === "segmentos" ? " Revisa tu receta: si algún segmento quedó en una división que no describe lo que vende, sólo para que no quedara fuera, corrígelo ahora (déjalo en \"\" y vuelve a llamar con corrige_anterior)." : "") +
-          (cambioPendiente ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +
+          (datos.origen === "segmentos" ? " Revisa tu receta: si algún segmento quedó en un subsector que no describe lo que vende, corrígelo ahora (dale el suyo y vuelve a llamar con corrige_anterior)." : "") +
+          (estructura ? ` La misma tarjeta cambia sus subsectores: ${textoSubsectoresMapa(estructura.antes.subsectores, estructura.antes.sectores)} → ${textoSubsectoresMapa(estructura.subsectores, estructura.sectores)}. Díselo en una línea (qué entra y qué sale).` : "") +
+          (cambioPendiente && datos.origen === "manual" ? " Dile que confirme primero la tarjeta de sus subsectores y luego ésta." : "") +
           (sinVentas.length ? ` Quedan en 0% (ningún segmento va ahí): ${sinVentas.join(", ")}. Díselo; si no deben estar, propón quitarlas de sus subsectores.` : ""),
       };
     }
@@ -3916,7 +3940,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
-- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta, arma la receta con sus segmentos (cada uno a la división que le toca por lo que vende; "" lo que no encaje) y vuelve a llamarla. Con receta se actualizan solos con cada reporte anual. Si un segmento que pesa (3% o más) se quedaría fuera, la herramienta te lo dice: avísale qué es y propónle el subsector para que entre, como te indique. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo: segmentos nuevos = rehaz la receta; una división que ya no existe = rehaz la receta con las de hoy.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa. Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
