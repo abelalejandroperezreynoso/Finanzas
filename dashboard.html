@@ -5049,9 +5049,12 @@
                                     // su lado —el máximo el verde, el mínimo el rojo— y no en el borde del
                                     // recuadro: si no, unas pérdidas poco hondas junto a una subida grande
                                     // quedaban con un rojo que apenas se veía.
+                                    // El verde de las curvas, el de Bolsa de Apple (rgba(124, 206, 120) en los rellenos)
+                                    const VERDE_CURVA = '#7cce78';
+
                                     function rellenoCurvaDesdeCero(context) {
                                         const { ctx, chartArea, scales } = context.chart;
-                                        const transparente = 'rgba(62, 207, 142, 0)';
+                                        const transparente = 'rgba(124, 206, 120, 0)';
                                         if (!chartArea || !scales.y) return transparente;
                                         const datos = (context.chart.data.datasets[context.datasetIndex || 0] || {}).data || [];
                                         if (datos.length === 0) return transparente;
@@ -5064,8 +5067,8 @@
                                         if (!(abajo - arriba > 0)) return transparente;
                                         const cero = Math.min(1, Math.max(0, (pxCero - arriba) / (abajo - arriba)));
                                         const grad = ctx.createLinearGradient(0, arriba, 0, abajo);
-                                        grad.addColorStop(0, 'rgba(62, 207, 142, 0.95)');
-                                        grad.addColorStop(cero, 'rgba(62, 207, 142, 0)');
+                                        grad.addColorStop(0, 'rgba(124, 206, 120, 0.95)');
+                                        grad.addColorStop(cero, 'rgba(124, 206, 120, 0)');
                                         grad.addColorStop(cero, 'rgba(255, 92, 92, 0)');
                                         grad.addColorStop(1, 'rgba(255, 92, 92, 0.95)');
                                         return grad;
@@ -5075,13 +5078,13 @@
                                     // va por debajo, con el cambio justo donde lo cruza.
                                     function lineaCurvaDesdeCero(context) {
                                         const { ctx, chartArea, scales } = context.chart;
-                                        if (!chartArea || !scales.y) return '#3ecf8e';
+                                        if (!chartArea || !scales.y) return VERDE_CURVA;
                                         const alto = chartArea.bottom - chartArea.top;
-                                        if (!(alto > 0)) return '#3ecf8e';
+                                        if (!(alto > 0)) return VERDE_CURVA;
                                         const cero = Math.min(1, Math.max(0, (scales.y.getPixelForValue(0) - chartArea.top) / alto));
                                         const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                                        grad.addColorStop(0, '#3ecf8e');
-                                        grad.addColorStop(cero, '#3ecf8e');
+                                        grad.addColorStop(0, VERDE_CURVA);
+                                        grad.addColorStop(cero, VERDE_CURVA);
                                         grad.addColorStop(cero, '#ff5c5c');
                                         grad.addColorStop(1, '#ff5c5c');
                                         return grad;
@@ -5101,7 +5104,7 @@
                                     function estiloCurva() {
                                         // El punto del día que se lee va del color del lado del cero en que
                                         // está ese día.
-                                        const colorPunto = c => c.raw < -0.005 ? '#ff5c5c' : '#3ecf8e';
+                                        const colorPunto = c => c.raw < -0.005 ? '#ff5c5c' : VERDE_CURVA;
                                         return {
                                             borderColor: lineaCurvaDesdeCero,
                                             borderWidth: 1,
@@ -5178,7 +5181,7 @@
                                         return reducida;
                                     }
 
-                                    function crearPluginLineaVertical(indicePorDefecto, color = 'rgba(62, 207, 142, 0.7)') {
+                                    function crearPluginLineaVertical(indicePorDefecto, color = 'rgba(124, 206, 120, 0.7)') {
                                         return {
                                             id: 'lineaVertical',
                                             afterDraw: chart => {
@@ -5600,7 +5603,7 @@
                                             const datos = chart.data.datasets[0].data;
                                             const va = datos[tramo[0]], vb = datos[tramo[1]];
                                             const color = varias ? 'rgba(255, 255, 255, 0.7)'
-                                                : (isFinite(va) && isFinite(vb) && vb - va < -0.005) ? '#ff5c5c' : '#3ecf8e';
+                                                : (isFinite(va) && isFinite(vb) && vb - va < -0.005) ? '#ff5c5c' : VERDE_CURVA;
                                             c.save();
 
                                             // Lo de fuera del tramo, apagado
@@ -5829,7 +5832,7 @@
                                         });
 
                                         const textoPct = (v) => `${v < 0 ? '' : '+'}${v.toFixed(2)}%`;
-                                        const colorDe = (v) => v > 0.005 ? '#3ecf8e' : v < -0.005 ? '#ff5c5c' : '#888';
+                                        const colorDe = (v) => v > 0.005 ? VERDE_CURVA : v < -0.005 ? '#ff5c5c' : '#888';
                                         const fila = (sel, pct, monto) => `<span class="item"><span class="punto" style="background:${sel.color};"></span>`
                                             + `<span class="nombre">${escaparHtml(sel.nombre)}</span>`
                                             + (pct === null ? '<span class="monto">—</span>'
@@ -6020,7 +6023,7 @@
                                             const ganancia = valores[i];
                                             // En gris cuando no hay nada que contar; en rojo cuando va en pérdida,
                                             // que en lo accesible sólo pasa si una venta ya realizó una.
-                                            const color = ganancia > 0.005 ? '#3ecf8e' : ganancia < -0.005 ? '#ff5c5c' : '#777';
+                                            const color = ganancia > 0.005 ? VERDE_CURVA : ganancia < -0.005 ? '#ff5c5c' : '#777';
 
                                             if (cifraEl) {
                                                 cifraEl.style.color = color;
@@ -6057,7 +6060,7 @@
                                                 const cambio = valores[b] - valores[a];
                                                 const base = serie.costos[b];
                                                 const pct = base > 0.005 ? (cambio / base) * 100 : null;
-                                                cifraEl.style.color = cambio > 0.005 ? '#3ecf8e' : cambio < -0.005 ? '#ff5c5c' : '#777';
+                                                cifraEl.style.color = cambio > 0.005 ? VERDE_CURVA : cambio < -0.005 ? '#ff5c5c' : '#777';
                                                 cifraEl.textContent = `${cambio < -0.005 ? '' : '+'}${fMoneda(cambio)}${pct !== null ? ` (${textoPct(pct)})` : ''}`;
                                             }
                                             if (tituloEl && serie.intradia) { tituloEl.textContent = `${serie.dias[a]} – ${serie.dias[b]}`; return; }
