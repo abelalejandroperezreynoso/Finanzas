@@ -1022,7 +1022,7 @@ function vocabularioSubsectores(k: Catalogo): Map<string, Map<string, { nombre: 
       const delSector = vocab.get(sector.toLowerCase()) ?? new Map();
       subs.forEach((x) => {
         const e = delSector.get(x.toLowerCase()) ?? { nombre: x, empresas: [] };
-        e.empresas.push(String(k.etiqueta[String(c.id)] ?? c.nombre));
+        e.empresas.push(String(c.ticker || k.etiqueta[String(c.id)] || c.nombre));
         delSector.set(x.toLowerCase(), e);
       });
       vocab.set(sector.toLowerCase(), delSector);
@@ -1078,13 +1078,19 @@ function subsectorAmbiguo(sub: string, sector: string): string | null {
 }
 const REGLA_SUBSECTOR = "Un subsector dice qué vende la empresa ahí, en concreto (Publicidad, Cloud, Semiconductores, Seguros, Suscripciones, Pagos digitales, Viajes), " +
   "no por dónde lo vende (Apps, Online, Móvil), ni la forma del negocio (Plataformas, Soluciones, Servicios, Productos), ni un cajón (Otros, Varios), ni el sector repetido.";
-const textoVocabulario = (k: Catalogo, sinAmbiguos = false) => {
+// paraReceta: sin los subsectores ambiguos y con qué empresas hay en cada uno, para que una empresa que vende
+// lo mismo que otra ya clasificada caiga en el mismo (Netflix quedó en Media y Spotify en Suscripciones)
+const textoVocabulario = (k: Catalogo, paraReceta = false) => {
   const subs = vocabularioSubsectores(k);
   return [...vocabularioSectores(k).values()]
     .sort((a, b) => b.empresas.length - a.empresas.length)
     .map((e) => {
-      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])].map((x) => x.nombre).filter((x) => !sinAmbiguos || !subsectorAmbiguo(x, e.nombre));
-      return `${e.nombre} (${e.empresas.slice(0, 4).join(", ")}${e.empresas.length > 4 ? "…" : ""}${delSector.length ? `; subsectores: ${delSector.join(", ")}` : ""})`;
+      const delSector = [...(subs.get(e.nombre.toLowerCase())?.values() ?? [])]
+        .filter((x) => !paraReceta || !subsectorAmbiguo(x.nombre, e.nombre))
+        .map((x) => paraReceta ? `${x.nombre} [${x.empresas.join(", ")}]` : x.nombre);
+      return paraReceta
+        ? `${e.nombre}${delSector.length ? `: ${delSector.join(", ")}` : ` (${e.empresas.join(", ")}; sin subsectores)`}`
+        : `${e.nombre} (${e.empresas.slice(0, 4).join(", ")}${e.empresas.length > 4 ? "…" : ""}${delSector.length ? `; subsectores: ${delSector.join(", ")}` : ""})`;
     }).join("; ");
 };
 
@@ -2388,11 +2394,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         const r = await segmentosEmpresa(sb, c.ticker);
         if ("error" in r) return { texto: `${r.error} Dile este motivo tal cual, entre comillas, sin cambiarlo por otras palabras. Si te da los porcentajes (o son obvios, como un ETF), propónlos con pesos.`, error: true };
         const lista = `Segmentos de ${c.ticker} (${r.fuente === "sec" ? "de su reporte anual a la SEC" : "de FMP"}) en su año fiscal ${r.seg.anio ?? r.seg.cierre.slice(0, 4)} (cierre ${r.seg.cierre}): ${textoSegmentos(r.seg)}. ` +
-          `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sectores y subsectores que ya usa en sus empresas: ${textoVocabulario(catalogo, true) || "ninguno"}.`;
+          `Hoy tiene: ${divisiones.join(", ") || "nada"}. Sus sectores y subsectores, con las otras empresas que ya están en cada uno: ${textoVocabulario({ ...catalogo, categorias: catalogo.categorias.filter((x: Json) => String(x.id) !== String(c0.id)) }, true) || "ninguno"}.`;
         if (!entrada.receta || typeof entrada.receta !== "object") {
           return { texto: `${lista} Vuelve a llamar con receta: cada segmento (nombre exacto) a "Sector › Subsector" según lo que vende. Los subsectores salen de los segmentos de la empresa, ` +
-            "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad); si un nombre que ya usa describe lo mismo, usa ése " +
-            "(Google Cloud y AWS → Cloud) para que se junten en el mapa; si no, uno corto en español. Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
+            "no de los que tiene hoy (pueden estar mal): varios segmentos del mismo negocio van juntos (Search, YouTube ads y Network → Publicidad). " +
+            "Compara con las empresas que ya están en cada subsector: si un segmento vende lo mismo que alguna de ellas, va en ese mismo subsector aunque la empresa hoy tenga otro " +
+            "(Google Cloud y AWS → Cloud; el streaming por suscripción de Netflix y el Premium de Spotify → el mismo). Si ninguno lo describe, uno corto en español. Sector: uno de los suyos que le quede; uno nuevo sólo si ninguno encaja. " +
             `${REGLA_SUBSECTOR} Si un nombre que ya usa es así de general, no lo reuses. ` +
             "\"\" sólo para segmentos de menos de 3% que no sean negocio propio. No le preguntes: él lo ve en la tarjeta.", error: true };
         }
