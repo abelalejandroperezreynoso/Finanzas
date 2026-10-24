@@ -59,7 +59,7 @@
                 
                 label { font-size: 0.85em; color: #ccc; margin-bottom: 4px; display: block; }
         input, select { width: 100%; padding: 12px; margin-bottom: 16px; border: 1px solid #444; border-radius: 6px; background: #333; color: white; box-sizing: border-box; font-size: 1em; }
-        input:focus, select:focus { outline: none; border-color: #3ecf8e; }
+        input:focus, select:focus { outline: none; border-color: #7cce78; }
                 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
                 input[type="datetime-local"] {
                     display: block;
@@ -68,7 +68,7 @@
                     appearance: none;
                 }
         
-        button { width: 100%; padding: 12px; background-color: #3ecf8e; color: #000000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; transition: background-color 0.2s; }
+        button { width: 100%; padding: 12px; background-color: #7cce78; color: #000000; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px; transition: background-color 0.2s; }
         /* Sólo con ratón: en el iPhone el :hover se queda pegado después de tocar y teñía de verde
            botones como "Recurrentes", con el texto gris encima. */
         @media (hover: hover) { button:hover { background-color: #2eb87c; } }
@@ -116,7 +116,7 @@
         
         .mensaje { font-size: 0.9em; text-align: center; min-height: 20px; margin-bottom: 10px; }
         .error { color: #ff5c5c; }
-        .exito { color: #3ecf8e; }
+        .exito { color: #7cce78; }
         
         .lista-items { list-style: none; padding: 0; margin: 0; }
         .lista-items li {
@@ -490,9 +490,9 @@
             100% { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes resaltarMovimientoNuevo {
-            0%   { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0.30); }
-            55%  { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0.16); }
-            100% { box-shadow: inset 0 0 0 2000px rgba(62, 207, 142, 0); }
+            0%   { box-shadow: inset 0 0 0 2000px rgba(124, 206, 120, 0.30); }
+            55%  { box-shadow: inset 0 0 0 2000px rgba(124, 206, 120, 0.16); }
+            100% { box-shadow: inset 0 0 0 2000px rgba(124, 206, 120, 0); }
         }
         /* 'backwards' y no 'both': mientras corre el retraso el renglón ya está en su estado
            inicial (no parpadea a la vista), y al terminar no deja pegado ningún transform. */
@@ -535,9 +535,9 @@
             font-size: 1.8em;
         }
         .menu-btn.activa {
-            background: rgba(62, 207, 142, 0.15);
+            background: rgba(124, 206, 120, 0.15);
             color: #ffffff;
-            border-color: #3ecf8e;
+            border-color: #7cce78;
         }
         .menu-btn:hover {
             background: #333;
@@ -691,9 +691,9 @@
                     background-color: #444;
                 }
         .btn-toggle.active-entrada {
-            background-color: rgba(62, 207, 142, 0.15);
+            background-color: rgba(124, 206, 120, 0.15);
             color: #ffffff;
-            border-color: #3ecf8e;
+            border-color: #7cce78;
         }
         .btn-toggle.active-salida {
                             background-color: rgba(255, 92, 92, 0.15);
@@ -1025,7 +1025,7 @@
                         #registroForm .dia-chip.en-lote {
                             background-color: #48484a;
                             color: #ffffff;
-                            box-shadow: inset 0 0 0 2px #3ecf8e;
+                            box-shadow: inset 0 0 0 2px #7cce78;
                         }
 
                         #registroForm .dia-chip.en-lote::after { background: #ffffff; }
@@ -1041,14 +1041,14 @@
                             padding-top: 10px;
                             padding-bottom: 10px;
                             font-size: 0.82em;
-                            color: #3ecf8e;
+                            color: #7cce78;
                             line-height: 1.35;
                         }
 
                         /* Hoy va con el número en verde mientras no esté elegido. Al elegirlo se le
                            quita: ahí ya lo marca el relleno, y dos señales sobre el mismo botón compiten
                            en vez de sumar. Es lo que hace el calendario del teléfono. */
-                        #registroForm .dia-chip.hoy:not(.activo) .dia-numero { color: #3ecf8e; }
+                        #registroForm .dia-chip.hoy:not(.activo) .dia-numero { color: #7cce78; }
 
                         /* El botón del calendario cierra la tira, y se distingue de los días: sin
                            relleno y sólo con su contorno, para que no parezca uno más. */
@@ -1068,7 +1068,7 @@
                         }
 
                         #registroForm .btn-toggle.active-entrada {
-                            background-color: #3ecf8e;
+                            background-color: #7cce78;
                             color: #000000;
                         }
 
@@ -2234,7 +2234,7 @@
          o marca un tramo, y no mueve la página -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem;">
     <h3 id="tituloTendencia" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left;">Tendencia de Balance</h3>
-    <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; flex: 1;"></span>
+    <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #7cce78; text-align: right; flex: 1;"></span>
     </div>
 
     <div class="contenedor-grafico" style="position: relative; height: 140px !important; min-height: 140px !important; max-height: 140px !important; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
@@ -2257,7 +2257,7 @@
     <div id="caraCurvaInversiones" style="display: none;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem; gap: 10px;">
     <h3 id="tituloCurvaPrincipal" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Lo que sale sin pérdida</h3>
-    <span id="cifraCurvaPrincipal" style="font-size: 0.9em; font-weight: bold; color: #3ecf8e; text-align: right; white-space: nowrap;"></span>
+    <span id="cifraCurvaPrincipal" style="font-size: 0.9em; font-weight: bold; color: #7cce78; text-align: right; white-space: nowrap;"></span>
     </div>
 
     <div id="cajaCurvaPrincipal" style="position: relative; height: 140px; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
@@ -2281,7 +2281,7 @@
             <h3 id="tituloTreemapCategorias" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Categorías</h3>
             <!-- El rendimiento del portafolio (Total ↔ Mensual), a la derecha del título: se toca para
                  alternarlo, igual que la agrupación. Sólo se ve con el portafolio puesto. -->
-            <h3 id="selectorRendimientoTreemap" onclick="alternarRendimientoTreemapInversiones()" style="display: none; font-size: 0.9em; color: #3ecf8e; margin: 0 0 0 auto; padding-left: 12px; white-space: nowrap; flex-shrink: 0; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;"></h3>
+            <h3 id="selectorRendimientoTreemap" onclick="alternarRendimientoTreemapInversiones()" style="display: none; font-size: 0.9em; color: #7cce78; margin: 0 0 0 auto; padding-left: 12px; white-space: nowrap; flex-shrink: 0; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;"></h3>
         </div>
 
         <!-- Todos los filtros del mapa en un solo renglón que se arrastra de lado. El de tipo se
@@ -2813,8 +2813,8 @@
     </div>
     <div class="hoja-ios-cuerpo">
 
-    <div id="indicadorFiltroContexto" style="display: none; background: rgba(62, 207, 142, 0.15); border: 1px solid #3ecf8e; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
-        <span id="textoFiltroContexto" style="color: #3ecf8e; font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 0;"></span>
+    <div id="indicadorFiltroContexto" style="display: none; background: rgba(124, 206, 120, 0.15); border: 1px solid #7cce78; padding: 10px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
+        <span id="textoFiltroContexto" style="color: #7cce78; font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 0;"></span>
         </div>
 
     <!-- Qué cuenta la curva del modo Inversiones: tus acciones, o lo que el tipo de cambio le ha hecho
@@ -3134,7 +3134,7 @@
                         </div>
                         <div id="contenidoDetallesMovimiento" style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: left; border: 1px solid #333; font-size: 0.95em; line-height: 1.5; color: #ccc;">
                         </div>
-                        <button id="btnEditarMovimiento" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #3ecf8e; color: #000000; font-weight: bold; font-size: 1em; margin-bottom: 20px;">Editar</button>
+                        <button id="btnEditarMovimiento" style="width: 100%; padding: 14px; border-radius: 10px; background-color: #7cce78; color: #000000; font-weight: bold; font-size: 1em; margin-bottom: 20px;">Editar</button>
                                                 </div>
                                                 </div>
 
@@ -3147,7 +3147,7 @@
                                                         <div id="contenidoDetallesCuenta" style="text-align: left; font-size: 0.95em; line-height: 1.5; color: #ccc; margin-bottom: 20px;">
                                                         </div>
                                                         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                                                            <button id="btnEditarCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #3ecf8e; color: #000000; font-weight: bold; font-size: 1em;">Editar</button>
+                                                            <button id="btnEditarCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #7cce78; color: #000000; font-weight: bold; font-size: 1em;">Editar</button>
                                                             <button id="btnVerMovsCuentaModal" style="flex: 2; padding: 14px; border-radius: 10px; background-color: #333; color: #ffffff; font-weight: bold; font-size: 1em; border: 1px solid #555;">Ver movimientos</button>
                                                         </div>
                                                         <div style="margin-bottom: 20px;">
@@ -4390,7 +4390,7 @@
 
                                         const copiado = await copiarTextoAlPortapapeles(JSON.stringify(exportacion));
                                         if (copiado) {
-                                            restaurar(`✅ ${Object.keys(series).length} series copiadas`, '#3ecf8e');
+                                            restaurar(`✅ ${Object.keys(series).length} series copiadas`, '#7cce78');
                                         } else {
                                             restaurar('⚠️ No se pudo copiar', '#ff5c5c');
                                             alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo.');
@@ -5049,7 +5049,7 @@
                                     // su lado —el máximo el verde, el mínimo el rojo— y no en el borde del
                                     // recuadro: si no, unas pérdidas poco hondas junto a una subida grande
                                     // quedaban con un rojo que apenas se veía.
-                                    // El verde de las curvas, el de Bolsa de Apple (rgba(124, 206, 120) en los rellenos)
+                                    // El verde de la app, el de Bolsa de Apple (rgba(124, 206, 120) en los rellenos)
                                     const VERDE_CURVA = '#7cce78';
 
                                     function rellenoCurvaDesdeCero(context) {
@@ -6520,7 +6520,7 @@
 
                             function obtenerColorCategoria(tipo) {
                             switch (tipo) {
-                            case 'ingreso': return '#3ecf8e'; /* Cambiado a verde */
+                            case 'ingreso': return '#7cce78'; /* Cambiado a verde */
                             case 'gasto': return '#ff5c5c';
                             case 'prestamo': return '#3abff8';
                             case 'deuda': return '#f39c12';
@@ -6915,7 +6915,7 @@
 
                         // Definimos el texto y el color del indicador de exactitud
                         const exactitudTexto = cat.esExactoRecurrencia ? "Exacto" : "Aproximado";
-                        const exactitudColor = cat.esExactoRecurrencia ? "#3ecf8e" : "#f39c12"; // Verde o Naranja
+                        const exactitudColor = cat.esExactoRecurrencia ? "#7cce78" : "#f39c12"; // Verde o Naranja
 
                         // NUEVO: Calculamos si hay atraso para mostrar una alerta visual
                         let alertaAtraso = "";
@@ -6934,7 +6934,7 @@
                         if (diffDays < 0) {
                         alertaAtraso = `<span style="color: #ff5c5c; font-size: 0.7em; font-weight: bold; margin-left: 8px; background: rgba(255, 92, 92, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">⚠️ Vencido</span>`;
                         } else if (diffDays === 0) {
-                        alertaAtraso = `<span style="color: #3ecf8e; font-size: 0.7em; font-weight: bold; margin-left: 8px; background: rgba(62, 207, 142, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">⚡ Hoy</span>`;
+                        alertaAtraso = `<span style="color: #7cce78; font-size: 0.7em; font-weight: bold; margin-left: 8px; background: rgba(124, 206, 120, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">⚡ Hoy</span>`;
                         }
 
                         // NUEVO: Formateamos el texto de forma relativa al día actual
@@ -7668,7 +7668,7 @@
                             const { frecuencia: frecuenciaTexto, racha: rachaTextoModal } = describirRecurrencia(cat);
 
                             const exactitudTexto = cat.esExactoRecurrencia ? "Exacto" : "Aproximado";
-                            const exactitudColor = cat.esExactoRecurrencia ? "#3ecf8e" : "#f39c12";
+                            const exactitudColor = cat.esExactoRecurrencia ? "#7cce78" : "#f39c12";
 
                             // Llenamos el modal
                             document.getElementById('infoRecNombre').textContent = cat.nombre;
@@ -7727,7 +7727,7 @@
                                             document.getElementById('infoRecProxFecha').textContent = `${fechaFormateada} (${infoDias})`;
                                             
                                             // Si está vencido lo pintamos naranja/rojo para alertar, si no, se queda verde Supabase
-                                            document.getElementById('infoRecProxFecha').style.color = diffDays < 0 ? '#ff5c5c' : '#3ecf8e';
+                                            document.getElementById('infoRecProxFecha').style.color = diffDays < 0 ? '#ff5c5c' : '#7cce78';
                                         } else {
                                             document.getElementById('infoRecProxFecha').textContent = 'No disponible';
                                             document.getElementById('infoRecProxFecha').style.color = '#888';
@@ -8460,7 +8460,7 @@
                             <small style="color:#aaa;">Saldo inicial: ${fMoneda(c.saldo_inicial || 0)}</small>
                             </div>
                             <div style="text-align: right;">
-                            <small style="font-weight:bold; color:${c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${fMoneda(c.balanceReal)}</small>
+                            <small style="font-weight:bold; color:${c.balanceReal >= 0 ? '#7cce78' : '#ff5c5c'};">${fMoneda(c.balanceReal)}</small>
                             <div id="valor-actual-cuenta-${c.id}"></div>
                             </div>
                             </div>
@@ -10422,14 +10422,14 @@
                                                                                                                                         const rendimientoMxn = (valorActualMxn - totalInvertido) + realizadaCatMxn;
                                                                                                                                         const baseRendimientoMxn = totalInvertido + costoVendidoCatMxn;
                                                                                                                                         const porcentajeMxn = baseRendimientoMxn > 0 ? (rendimientoMxn / baseRendimientoMxn) * 100 : 0;
-                                                                                                                                        const colorMxn = rendimientoMxn >= 0 ? '#2ac555' : '#ff5c5c';
+                                                                                                                                        const colorMxn = rendimientoMxn >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                         const signoMxn = rendimientoMxn >= 0 ? '+' : '';
                                                                                                                                         
                                                                                                                                         const realizadaCatUsd = cat.gananciaRealizadaUsd || 0;
                                                                                                                                         const rendimientoUsd = (valorActualUsd - invertidoUsdMostrar) + realizadaCatUsd;
                                                                                                                                         const baseRendimientoUsd = invertidoUsdMostrar + (cat.costoVendidoUsd || 0);
                                                                                                                                         const porcentajeUsd = baseRendimientoUsd > 0 ? (rendimientoUsd / baseRendimientoUsd) * 100 : 0;
-                                                                                                                                        const colorUsd = rendimientoUsd >= 0 ? '#2ac555' : '#ff5c5c';
+                                                                                                                                        const colorUsd = rendimientoUsd >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                         const signoUsd = rendimientoUsd >= 0 ? '+' : '';
 
                                                                                                                                         divValorActualMxn = `<strong style="color: #ffffff; white-space: nowrap; display: block; min-height: 24px; margin-bottom: 2px; margin-top: 0;">${fMoneda(valorActualMxn)}</strong>`;
@@ -10493,11 +10493,11 @@
                                                                                                                                             // En dólares: el rendimiento de la empresa no lleva dentro el tipo de
                                                                                                                                             // cambio, que es cosa de la cuenta y tiene su renglón en el detalle
                                                                                                                                             textoMostrar = `${signoUsd}${fMoneda(rendimientoUsd)} (${signoUsd}${porcentajeUsd.toFixed(2)}%) USD${marcaRealizadaCat}`;
-                                                                                                                                            colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
+                                                                                                                                            colorFondoDin = rendimientoUsd >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                             colorTextoDin = rendimientoUsd >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else if (window.estadoBotonCategoria === 1) {
                                                                                                                                         textoMostrar = `${signoUsd}${(porcentajeUsd / divisorMeses(mesesPromedioExacto)).toFixed(2)}% /${mesesPromedioExacto.toFixed(1)}m${marcaRealizadaCat}`;
-                                                                                                                                        colorFondoDin = rendimientoUsd >= 0 ? '#22c55e' : '#ff5c5c';
+                                                                                                                                        colorFondoDin = rendimientoUsd >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                         colorTextoDin = rendimientoMxn >= 0 ? '#000000' : '#ffffff';
                                                                                                                                         } else {
                                                                                                                                         const signoAcc = plusvaliaAccesibleCat >= 0 ? '+' : '';
@@ -10513,7 +10513,7 @@
                                                                                                                                         colorFondoDin = '#a3e635';
                                                                                                                                         colorTextoDin = '#000000';
                                                                                                                                         } else if (pctMensualAccesibleCat <= 1.5) {
-                                                                                                                                        colorFondoDin = '#22c55e';
+                                                                                                                                        colorFondoDin = '#7cce78';
                                                                                                                                         colorTextoDin = '#000000';
                                                                                                                                         } else {
                                                                                                                                         colorFondoDin = '#00ff88';
@@ -10566,7 +10566,7 @@
                                                                                                                                 <button class="btn-swipe-act" onclick="verDetallesCategoria('${cat.id}')" style="display:flex; align-items:center; justify-content:center; background:#007aff; border-radius:50px;">
                                                                                                                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
                                                                                                                                 </button>
-                                                                                                                                                                                                                                                                                                                                                            <button class="btn-swipe-act" onclick="registrarDesdeCategoria('${cat.id}')" style="display:flex; align-items:center; justify-content:center; background:#3ecf8e; border-radius:50px;">
+                                                                                                                                                                                                                                                                                                                                                            <button class="btn-swipe-act" onclick="registrarDesdeCategoria('${cat.id}')" style="display:flex; align-items:center; justify-content:center; background:#7cce78; border-radius:50px;">
                                                                                                                                                                                                                                                                                                                                                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                                                                                                                                                                                                                                                                                                                                                             </button>
                                                                                                                                 </div>
@@ -10592,7 +10592,7 @@
                                                                                                                                                                                 </small>
                                                                                                                                                                             ` : `
                                                                                                                                                                                 ${pendienteDeCategoria(cat.tipo, cat.totalSuma) ? `<small style="font-weight:bold; color:${pendienteDeCategoria(cat.tipo, cat.totalSuma).color};">
-                                                                                                                                                                                ${pendienteDeCategoria(cat.tipo, cat.totalSuma).etiqueta}${pendienteDeCategoria(cat.tipo, cat.totalSuma).monto ? ' ' + fMoneda(pendienteDeCategoria(cat.tipo, cat.totalSuma).monto) : ''}` : `<small style="font-weight:bold; color:${cat.esPositivo ? '#3ecf8e' : '#ff5c5c'};">
+                                                                                                                                                                                ${pendienteDeCategoria(cat.tipo, cat.totalSuma).etiqueta}${pendienteDeCategoria(cat.tipo, cat.totalSuma).monto ? ' ' + fMoneda(pendienteDeCategoria(cat.tipo, cat.totalSuma).monto) : ''}` : `<small style="font-weight:bold; color:${cat.esPositivo ? '#7cce78' : '#ff5c5c'};">
                                                                                                                                                                                 Total histórico: ${cat.esPositivo ? '+' : '-'}${fMoneda(Math.abs(cat.totalSuma))}`}
                                                                                                                                                                                 </small>
                                                                                                                                                                             `}
@@ -11138,12 +11138,12 @@
         const s = Number(saldo) || 0;
         if (tipo === 'deuda') {
             if (s > 0.005) return { etiqueta: 'Debes', monto: s, color: '#ff9f0a' };
-            if (s < -0.005) return { etiqueta: 'Pagaste de más', monto: -s, color: '#3ecf8e' };
+            if (s < -0.005) return { etiqueta: 'Pagaste de más', monto: -s, color: '#7cce78' };
             return { etiqueta: 'Saldada', monto: 0, color: '#8e8e93' };
         }
         if (tipo === 'prestamo') {
             if (s < -0.005) return { etiqueta: 'Te debe', monto: -s, color: '#3abff8' };
-            if (s > 0.005) return { etiqueta: 'Te pagó de más', monto: s, color: '#3ecf8e' };
+            if (s > 0.005) return { etiqueta: 'Te pagó de más', monto: s, color: '#7cce78' };
             return { etiqueta: 'Saldado', monto: 0, color: '#8e8e93' };
         }
         return null;
@@ -11970,7 +11970,7 @@
                                                         if (window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
                                                             gananciaRetiro = window.gananciaRealizadaMap[r.id];
                                                         }
-                                                        const colorGananciaRetiro = gananciaRetiro >= 0 ? '#2ac555' : '#ff5c5c';
+                                                        const colorGananciaRetiro = gananciaRetiro >= 0 ? '#7cce78' : '#ff5c5c';
                                                         const signoGananciaRetiro = gananciaRetiro >= 0 ? '+' : '';
                                                         const costoRetiro = montoAbsoluto - gananciaRetiro;
                                                         const pctGananciaRetiro = costoRetiro > 0 ? (gananciaRetiro / costoRetiro) * 100 : 0;
@@ -12034,7 +12034,7 @@
                                                                                                                                         const rendimientoMxn = valorActualMxn - costoInvertidoVivoMxn;
                                                                                                                                         const porcentajeMxn = costoInvertidoVivoMxn > 0 ? (rendimientoMxn / costoInvertidoVivoMxn) * 100 : 0;
 
-                                                                                                                                        const colorMxn = rendimientoMxn >= 0 ? '#2ac555' : '#ff5c5c';
+                                                                                                                                        const colorMxn = rendimientoMxn >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                         const signoMxn = rendimientoMxn >= 0 ? '+' : '';
 
                                                                                                                                         // --- 2. Cálculos de rendimiento puros en Dólares (USD) ---
@@ -12042,7 +12042,7 @@
                                                                                                                                         const rendimientoUsd = valorActualUsd - invertidoUsd;
                                                                                                                                         const porcentajeUsd = invertidoUsd > 0 ? (rendimientoUsd / invertidoUsd) * 100 : 0;
 
-                                                                                                                                        const colorUsd = rendimientoUsd >= 0 ? '#2ac555' : '#ff5c5c';
+                                                                                                                                        const colorUsd = rendimientoUsd >= 0 ? '#7cce78' : '#ff5c5c';
                                                                     const signoUsd = rendimientoUsd >= 0 ? '+' : '';
 
                                                                     badgePlusvalia = ""; // Eliminamos el badge del título
@@ -12101,7 +12101,7 @@
                                                         if (window.gananciaRealizadaUsdMap && window.gananciaRealizadaUsdMap[r.id] !== undefined) {
                                                             gananciaUsd = window.gananciaRealizadaUsdMap[r.id];
                                                         }
-                                                        const colorGananciaUsd = gananciaUsd >= 0 ? '#2ac555' : '#ff5c5c';
+                                                        const colorGananciaUsd = gananciaUsd >= 0 ? '#7cce78' : '#ff5c5c';
                                                         const signoGananciaUsd = gananciaUsd >= 0 ? '+' : '';
                                                         const costoUsdOriginal = ventaUsd - gananciaUsd;
                                                         const pctGananciaUsd = costoUsdOriginal > 0 ? (gananciaUsd / costoUsdOriginal) * 100 : 0;
@@ -12128,7 +12128,7 @@
                                                                                                                     ganancia = window.gananciaRealizadaMap[r.id];
                                                                                                                 }
 
-                                                                                                                const colorGanancia = ganancia >= 0 ? '#2ac555' : '#ff5c5c';
+                                                                                                                const colorGanancia = ganancia >= 0 ? '#7cce78' : '#ff5c5c';
                                                         const signoGanancia = ganancia >= 0 ? '+' : '';
                                                         const costoOriginal = montoAbsoluto - ganancia;
                                                         const porcentajeGanancia = costoOriginal > 0 ? (ganancia / costoOriginal) * 100 : 0;
@@ -12151,7 +12151,7 @@
                                                                                                 } else if (esEntrada && window.gananciaRealizadaMap && window.gananciaRealizadaMap[r.id] !== undefined) {
                                                                                                                                                     // Fallback para entradas que no tienen costo_accion configurado pero sí calcularon ganancia
                                                                                                                                                     const ganancia = window.gananciaRealizadaMap[r.id];
-                                                                                                                                                    const colorGanancia = ganancia >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                                                                                                                                    const colorGanancia = ganancia >= 0 ? '#7cce78' : '#ff5c5c';
                                                                                                                                                     const signoGanancia = ganancia >= 0 ? '+' : '';
                                                                                                                                                     const costoOriginal = montoAbsoluto - ganancia;
                                                                                                                                                     const porcentajeGanancia = costoOriginal > 0 ? (ganancia / costoOriginal) * 100 : 0;
@@ -12182,7 +12182,7 @@
                                                                                                                                                 const retrasoNuevo = esNuevo ? cuantosNuevosPintados++ * RETRASO_ENTRE_MOVS_NUEVOS : 0;
 
                                                                                                                                                 htmlAcumulado += `
-                                                                                                                                                <li data-id="${r.id}"${esNuevo ? ' class="mov-nuevo"' : ''} style="border-color:${esEntrada ? '#3ecf8e' : '#ff5c5c'}${esNuevo ? `; animation-delay:${retrasoNuevo}ms` : ''}">
+                                                                                                                                                <li data-id="${r.id}"${esNuevo ? ' class="mov-nuevo"' : ''} style="border-color:${esEntrada ? '#7cce78' : '#ff5c5c'}${esNuevo ? `; animation-delay:${retrasoNuevo}ms` : ''}">
                                                                                                                                                             <div class="swipe-actions">
                                                                                                                                                             <button class="btn-swipe-act" onclick="verDetallesMovimiento('${r.id}')" style="display:flex; align-items:center; justify-content:center; background:#007aff; border-radius:50px;">
                                                                                                                                                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -12527,7 +12527,7 @@
                                         tituloTendenciaEl.textContent = `${NOMBRES_MESES[parseInt(mm, 10) - 1]} ${a}${m.esFuturo ? ' (Proyección)' : ''}`;
                                     }
                                     const flujo = m.ingresosVisibles - m.gastosVisibles;
-                                    const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                    const colorFlujo = flujo >= 0 ? '#7cce78' : '#ff5c5c';
                                     // El signo va antes del símbolo de moneda, nunca "$-1,234.00"
                                     const flujoTexto = `${flujo > 0 ? '+' : (flujo < 0 ? '-' : '')}${fMoneda(Math.abs(flujo))}`;
 
@@ -12557,7 +12557,7 @@
                                     // Cada lado abre todos sus componentes, de modo que las subfilas
                                     // siempre suman exactamente el total de arriba.
                                     const filasEntradas =
-                                        filaDetalle('Corrientes', m.corrienteIngreso, '#3ecf8e', tiposVisiblesGrafica.has('ingreso'), '+') +
+                                        filaDetalle('Corrientes', m.corrienteIngreso, '#7cce78', tiposVisiblesGrafica.has('ingreso'), '+') +
                                         TIPOS_DESTACADOS_GRAFICA
                                             .map(t => filaDestacada(t.etiquetaEntrada, m.destacados[t.tipo].entradas, '+', t.tipo)).join('');
 
@@ -12580,7 +12580,7 @@
                                             ${avisoFiltro}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
                                                 <span style="color: #aaa;">• Ingresos</span>
-                                                <strong style="color: #3ecf8e; opacity: ${opacidad};">+${fMoneda(m.ingresosVisibles)}</strong>
+                                                <strong style="color: #7cce78; opacity: ${opacidad};">+${fMoneda(m.ingresosVisibles)}</strong>
                                             </li>
                                             ${filasEntradas}
                                             <li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2d2d2d;">
@@ -12627,7 +12627,7 @@
                                             chartCtx.moveTo(posicionX, chart.scales.y.top);
                                             chartCtx.lineTo(posicionX, chart.scales.y.bottom);
                                             chartCtx.lineWidth = 1.5;
-                                            chartCtx.strokeStyle = 'rgba(62, 207, 142, 0.7)';
+                                            chartCtx.strokeStyle = 'rgba(124, 206, 120, 0.7)';
                                             chartCtx.stroke();
                                             chartCtx.restore();
                                         }
@@ -12645,8 +12645,8 @@
                                 });
 
                                 const datasetsGrafico = [
-                                    segmento('Ingresos', serieIngresos, '#3ecf8e', 'entradas'),
-                                    segmento('Ingresos', serieIngresosProyectados, '#3ecf8e', 'entradas', true),
+                                    segmento('Ingresos', serieIngresos, '#7cce78', 'entradas'),
+                                    segmento('Ingresos', serieIngresosProyectados, '#7cce78', 'entradas', true),
                                     // Los recurrentes van abajo: son la base fija sobre la que se apila lo variable
                                     segmento('Gastos recurrentes', serieGastosRecurrentes, COLOR_GASTO_RECURRENTE, 'salidas'),
                                     segmento('Gastos recurrentes', serieGastosRecurrentesProyectados, COLOR_GASTO_RECURRENTE, 'salidas', true),
@@ -13541,7 +13541,7 @@
 
                             // En el portafolio la franja que sobra no es "lo que falta por gastar" sino lo que la
                             // posición ha ganado o perdido desde que se compró, y por eso se pinta y no se insinúa.
-                            const VERDE_GANANCIA_TREEMAP = '#3ecf8e';
+                            const VERDE_GANANCIA_TREEMAP = '#7cce78';
                             const ROJO_PERDIDA_TREEMAP = '#ff5c5c';
 
                             // El mapa de inversiones tiene su propio estilo, el de los mapas de bolsa: cada
@@ -13719,7 +13719,7 @@
                             function colorTreemapCategoria(cat, entradas) {
                                 if (!cat) return '#555555';
                                 if (cat.tipo === 'gasto' || cat.tipo === 'ingreso') {
-                                    if (entradas) return '#3ecf8e';
+                                    if (entradas) return '#7cce78';
                                     return (cat.tipo === 'gasto' && cat.diasRecurrencia > 0) ? COLOR_GASTO_RECURRENTE : '#ff5c5c';
                                 }
                                 return obtenerColorCategoria(cat.tipo);
@@ -14353,7 +14353,7 @@
                                     el.textContent = trozo.texto;
                                     if (trozo.alTocar || trozo.opciones) {
                                         el.style.cursor = 'pointer';
-                                        el.style.color = '#3ecf8e';
+                                        el.style.color = '#7cce78';
                                         el.insertAdjacentHTML('beforeend', ICONO_ALTERNAR_TREEMAP);
                                     }
                                     if (trozo.alTocar) el.onclick = trozo.alTocar;
@@ -16311,7 +16311,7 @@
                                 }
 
                                 if (totalEl) {
-                                    const color = modoActivo ? obtenerColorCategoria(modoActivo.tipo) : (entradas ? '#3ecf8e' : '#ff5c5c');
+                                    const color = modoActivo ? obtenerColorCategoria(modoActivo.tipo) : (entradas ? '#7cce78' : '#ff5c5c');
                                     // Cada capa cuenta lo suyo: cuentas arriba, empresas dentro de una y compras
                                     // dentro de una empresa.
                                     const unidadNivel = empresaAbierta ? ['compra', 'compras']
@@ -16368,7 +16368,7 @@
                                         // contrario que dentro de un recuadro, donde el texto es de una pieza.
                                         const gananciaPie = llevaObjetivo - metaObjetivo;
                                         const gananciaPieHtml = (esPortafolio && Math.abs(gananciaPie) >= 0.005)
-                                            ? ` <span style="color: ${gananciaPie >= 0 ? '#3ecf8e' : '#ff5c5c'}; font-weight: bold;">${gananciaPie >= 0 ? '+' : '-'}${fMoneda(Math.abs(gananciaPie))}</span>`
+                                            ? ` <span style="color: ${gananciaPie >= 0 ? '#7cce78' : '#ff5c5c'}; font-weight: bold;">${gananciaPie >= 0 ? '+' : '-'}${fMoneda(Math.abs(gananciaPie))}</span>`
                                             : '';
 
                                         totalEl.innerHTML = `
@@ -16471,9 +16471,9 @@
                 datosLinea.push(balanceAcumulado);
                 
                 if (dia.esFuturo) {
-                    coloresBarras.push(flujoDiario >= 0 ? 'rgba(62, 207, 142, 0.45)' : 'rgba(255, 92, 92, 0.45)');
+                    coloresBarras.push(flujoDiario >= 0 ? 'rgba(124, 206, 120, 0.45)' : 'rgba(255, 92, 92, 0.45)');
                 } else {
-                    coloresBarras.push(flujoDiario >= 0 ? '#3ecf8e' : '#ff5c5c');
+                    coloresBarras.push(flujoDiario >= 0 ? '#7cce78' : '#ff5c5c');
                 }
             });
             
@@ -16518,7 +16518,7 @@
                 const el = document.getElementById('balanceAlCierreDinamico');
                 if (el) {
                     el.textContent = fMoneda(balanceInicial);
-                    el.style.color = balanceInicial >= 0 ? '#3ecf8e' : '#ff5c5c';
+                    el.style.color = balanceInicial >= 0 ? '#7cce78' : '#ff5c5c';
                     el.style.opacity = '1';
                 }
             }
@@ -16540,7 +16540,7 @@
                 try {
                     const fin = usarLinea ? datosLinea[index] : datosFlotantes[index][1];
                                     el.textContent = `${fMoneda(fin)}`;
-                                    el.style.color = fin >= 0 ? '#3ecf8e' : '#ff5c5c';
+                                    el.style.color = fin >= 0 ? '#7cce78' : '#ff5c5c';
 
                                     const diaData = datosGraf[index];
                                     el.style.opacity = diaData.esFuturo ? '0.5' : '1';
@@ -16562,7 +16562,7 @@
 
                     const flujo = parseFloat(diaData.ingresos) - parseFloat(diaData.gastos);
                     const signo = flujo > 0 ? '+' : '';
-                    const colorFlujo = flujo >= 0 ? '#3ecf8e' : '#ff5c5c';
+                    const colorFlujo = flujo >= 0 ? '#7cce78' : '#ff5c5c';
                     
                     const tagTipo = diaData.esFuturo
                                             ? '<span style="color: #ffffff; background: #444; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.85em; opacity: 0.5;">Proyección</span>'
@@ -16599,7 +16599,7 @@
                             // La proyección, apagada y del color de su lado del cero; lo demás toma
                             // el de la línea.
                             borderColor: ctxSegment => datosGraf[ctxSegment.p1DataIndex]?.esFuturo
-                                ? (ctxSegment.p1.parsed.y < 0 ? 'rgba(255, 92, 92, 0.4)' : 'rgba(62, 207, 142, 0.4)')
+                                ? (ctxSegment.p1.parsed.y < 0 ? 'rgba(255, 92, 92, 0.4)' : 'rgba(124, 206, 120, 0.4)')
                                 : undefined,
                             borderDash: ctxSegment => datosGraf[ctxSegment.p1DataIndex]?.esFuturo ? [5, 5] : undefined
                         } : undefined
@@ -16729,7 +16729,7 @@
                                                     // que lo más pequeño siga siendo algo y no un hueco en la cuadrícula.
                                                     function colorCuadricula(bueno, fuerzaCruda) {
                                                         const fuerza = (0.25 + 0.75 * Math.min(1, fuerzaCruda)).toFixed(3);
-                                                        return bueno ? `rgba(62, 207, 142, ${fuerza})` : `rgba(255, 92, 92, ${fuerza})`;
+                                                        return bueno ? `rgba(124, 206, 120, ${fuerza})` : `rgba(255, 92, 92, ${fuerza})`;
                                                     }
 
                                                     // Las compras de acciones de la cuenta, cada una con lo que ha dado.
@@ -16800,7 +16800,7 @@
                                                                 : c.sinPrecio
                                                                     ? `<span style="color:#888;">${c.nombre} no tiene precio de mercado: no se puede saber qué vale hoy</span>`
                                                                     : c.medible
-                                                                        ? `<strong style="color:${c.plusvalia >= 0 ? '#3ecf8e' : '#ff5c5c'};">${signo}${fMoneda(Math.abs(c.plusvalia))} (${signo}${Math.abs(c.pct).toFixed(1)}%)</strong>
+                                                                        ? `<strong style="color:${c.plusvalia >= 0 ? '#7cce78' : '#ff5c5c'};">${signo}${fMoneda(Math.abs(c.plusvalia))} (${signo}${Math.abs(c.pct).toFixed(1)}%)</strong>
                                                                            <span style="color:#666;">sobre ${fMoneda(c.costoVivo)}${trozo}</span>`
                                                                         : `<span style="color:#888;">Sin costo apuntado, no hay contra qué medirla</span>`;
 
@@ -16839,7 +16839,7 @@
                                                             bueno: m.entra,
                                                             color: colorCuadricula(m.entra, m.monto / referencia),
                                                             titulo: m.cat ? m.cat.nombre : 'Sin categoría',
-                                                            detalle: `<strong style="color:${m.entra ? '#3ecf8e' : '#ff5c5c'};">${m.entra ? '+' : '-'}${fMoneda(m.monto)}</strong>`
+                                                            detalle: `<strong style="color:${m.entra ? '#7cce78' : '#ff5c5c'};">${m.entra ? '+' : '-'}${fMoneda(m.monto)}</strong>`
                                                                 + (m.enUsd > 0.005 ? ` <span style="color:#666;">(${fMoneda(m.enUsd)} USD)</span>` : '')
                                                         }));
                                                     }
@@ -16968,7 +16968,7 @@
                                                     }
 
                                                     function pasoFlujoGbm(numero, titulo, valor, detalle, activo, extra) {
-                                                        const colorNumero = activo ? '#3ecf8e' : '#3a3a3a';
+                                                        const colorNumero = activo ? '#7cce78' : '#3a3a3a';
                                                         return `
                                                         <div class="flujo-gbm-paso">
                                                             <span style="display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: ${colorNumero}; color: ${activo ? '#000' : '#888'}; font-size: 0.7em; font-weight: bold; align-items: center; justify-content: center;">${numero}</span>
@@ -17347,7 +17347,7 @@
 
                                                     const r = calcularResumenInversionCuenta(id);
                                                     const signo = n => n >= 0 ? '+' : '';
-                                                    const colorGan = n => n >= 0 ? '#2ac555' : '#ff5c5c';
+                                                    const colorGan = n => n >= 0 ? '#7cce78' : '#ff5c5c';
                                                     let html = '';
 
                                                     // --- Resumen en pesos, desglosando de dónde sale el neto ---
@@ -17362,7 +17362,7 @@
                                                     let filasResumen =
                                                         (saldoBase !== 0 ? filaDetalleCuenta('Saldo base', `${fMoneda(saldoBase)}`) : '') +
                                                         filaDetalleCuenta('Balance en pesos', `${fMoneda(c.balanceReal)}`,
-                                                            c.balanceReal >= 0 ? '#3ecf8e' : '#ff5c5c',
+                                                            c.balanceReal >= 0 ? '#7cce78' : '#ff5c5c',
                                                             c.balanceReal < 0 && r.tieneInversion ? 'Capital que has aportado' : '');
 
                                                     if (r.tieneInversion) {
@@ -17390,7 +17390,7 @@
 
                                                         filasResumen += `<div style="border-top: 1px dashed #333; margin: 10px 0 8px 0;"></div>`;
                                                         filasResumen += filaDetalleCuenta('Neto total', `${fMoneda(netoTotal)}`,
-                                                            netoTotal >= 0 ? '#2ac555' : '#ff5c5c',
+                                                            netoTotal >= 0 ? '#7cce78' : '#ff5c5c',
                                                             c.balanceReal < 0 ? (netoTotal >= 0 ? 'Ganancia sobre lo aportado' : 'Aún por debajo de lo aportado') : '');
 
                                                         // Cuánto de lo de arriba lo puso el tipo de cambio y no las empresas. Tus dólares
@@ -17550,12 +17550,12 @@
                                                                 `${signo(r.pctMensualAccesible)}${r.pctMensualAccesible.toFixed(2)}% / ${r.avgMesesAccesible.toFixed(1)}m`,
                                                                 colorGan(r.pctMensualAccesible)) +
                                                             `<div style="width: 100%; background: #333; border-radius: 6px; height: 20px; overflow: hidden; position: relative; margin-top: 10px;">
-                                                                <div style="width: ${pctBarra}%; background: #3ecf8e; height: 100%; transition: width 0.3s;"></div>
+                                                                <div style="width: ${pctBarra}%; background: #7cce78; height: 100%; transition: width 0.3s;"></div>
                                                                 <span style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.75em; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px #000;">
                                                                     ${pctBarra.toFixed(2)}% de tu saldo es ganancia
                                                                 </span>
                                                             </div>`;
-                                                        html += bloqueDetalleCuenta('💚 Plusvalía accesible', filasAcc, '#3ecf8e');
+                                                        html += bloqueDetalleCuenta('💚 Plusvalía accesible', filasAcc, '#7cce78');
 
                                                     }
 
@@ -17659,7 +17659,7 @@
                             if (porcentajePlusvalia > 100) porcentajePlusvalia = 100;
                             if (porcentajePlusvalia < 0) porcentajePlusvalia = 0;
 
-                            const colorRend = rendimientoUsd >= 0 ? '#3ecf8e' : '#ff5c5c';
+                            const colorRend = rendimientoUsd >= 0 ? '#7cce78' : '#ff5c5c';
                             detallesInversion = `
                             <div class="rango-ios-encabezado">Inversión · ${escaparHtml(cat.ticker)}</div>
                             <div class="rango-ios-grupo">
@@ -17673,12 +17673,12 @@
 
                             <div class="rango-ios-encabezado">Accesible</div>
                             <div class="rango-ios-grupo">
-                                ${filaDetalleIos('Total accesible', `<span style="color: #3ecf8e;">${fMoneda(totalAccesible)} MXN</span>`, true)}
-                                ${filaDetalleIos('Plusvalía accesible', `<span style="color: #3ecf8e;">+${fMoneda(plusvaliaAccesible)} MXN</span>`)}
-                                ${filaDetalleIos('Plusvalía mensual', `<span style="color: #3ecf8e;">${signoAccesible}${pctMensualAccesible.toFixed(2)}% / ${avgMesesAccesible.toFixed(1)}m</span>`)}
+                                ${filaDetalleIos('Total accesible', `<span style="color: #7cce78;">${fMoneda(totalAccesible)} MXN</span>`, true)}
+                                ${filaDetalleIos('Plusvalía accesible', `<span style="color: #7cce78;">+${fMoneda(plusvaliaAccesible)} MXN</span>`)}
+                                ${filaDetalleIos('Plusvalía mensual', `<span style="color: #7cce78;">${signoAccesible}${pctMensualAccesible.toFixed(2)}% / ${avgMesesAccesible.toFixed(1)}m</span>`)}
                                 <div class="rango-ios-fila" style="flex-direction: column; align-items: stretch; gap: 6px; padding-top: 12px; padding-bottom: 12px;">
                                     <div style="width: 100%; background: #3a3a3c; border-radius: 6px; height: 8px; overflow: hidden;">
-                                        <div style="width: ${porcentajePlusvalia}%; background: #3ecf8e; height: 100%;"></div>
+                                        <div style="width: ${porcentajePlusvalia}%; background: #7cce78; height: 100%;"></div>
                                     </div>
                                     <span style="font-size: 0.85em; color: #98989d;">${porcentajePlusvalia.toFixed(2)}% del saldo es plusvalía</span>
                                 </div>
@@ -18239,7 +18239,7 @@
                                     // 2. Ingresos
                                     diapositivas.push(`<section class="diapositiva" style="${fondo('#155e3c', '#000')}">
                                         <div class="etiqueta">Entró</div>
-                                        <div class="cifra" style="color:#3ecf8e;">${fMoneda(r.ingresos)}</div>
+                                        <div class="cifra" style="color:#7cce78;">${fMoneda(r.ingresos)}</div>
                                         <div class="nota">de ingresos. ${frasePct(cambio(r.ingresos, rp.ingresos), 'más', 'menos')}</div>
                                     </section>`);
 
@@ -18305,7 +18305,7 @@
                                     if (r.gastos > 0.005) {
                                         const niveles = [
                                             ['operativa', NOMBRES_PRIORIDAD.operativa, '#4da6ff'],
-                                            ['vital', NOMBRES_PRIORIDAD.vital, '#3ecf8e'],
+                                            ['vital', NOMBRES_PRIORIDAD.vital, '#7cce78'],
                                             ['util', NOMBRES_PRIORIDAD.util, '#f5a623'],
                                             ['prescindible', NOMBRES_PRIORIDAD.prescindible, '#ff5c5c'],
                                             ['sin', 'Sin asignar', '#636366']
@@ -18346,7 +18346,7 @@
                                             ${filas}
                                         </section>`);
                                     };
-                                    diapositivaCambios('Gastaste menos en', cambiosCat.filter(x => x.dif < 0).sort((x, y) => x.dif - y.dif), '#3ecf8e', '#155e3c');
+                                    diapositivaCambios('Gastaste menos en', cambiosCat.filter(x => x.dif < 0).sort((x, y) => x.dif - y.dif), '#7cce78', '#155e3c');
                                     diapositivaCambios('Gastaste más en', cambiosCat.filter(x => x.dif > 0).sort((x, y) => y.dif - x.dif), '#ff5c5c', '#6b1d1d');
 
                                     // 8. Plan para el mes siguiente
@@ -21471,7 +21471,7 @@
                                 const repetida = document.getElementById('contrasenaRepetida');
                                 const boton = document.getElementById('btnCambiarContrasena');
                                 const aviso = document.getElementById('avisoContrasena');
-                                const avisar = (texto, ok) => { aviso.textContent = texto; aviso.style.color = ok ? '#3ecf8e' : '#ff5c5c'; };
+                                const avisar = (texto, ok) => { aviso.textContent = texto; aviso.style.color = ok ? '#7cce78' : '#ff5c5c'; };
                                 if (nueva.value.length < 6) return avisar('La nueva necesita al menos 6 caracteres.');
                                 if (nueva.value !== repetida.value) return avisar('Las nuevas no coinciden.');
                                 if (nueva.value === actual.value) return avisar('La nueva es igual a la actual.');
@@ -21889,7 +21889,7 @@
                                 const larga = topes.length > 6;
                                 return `<section class="diapositiva${larga ? ' diapositiva-larga' : ''}" style="${fondo('#1f6f4a', '#1b3a6b')}${larga ? ' gap:10px;' : ''}">
                                     <div class="etiqueta">Topes para ${nombreSig}</div>
-                                    <div class="cifra" style="color:${ahorroTotal >= 0 ? '#3ecf8e' : '#ff5c5c'};">${ahorroTotal < 0 ? '-' : ''}${redondo(ahorroTotal)}</div>
+                                    <div class="cifra" style="color:${ahorroTotal >= 0 ? '#7cce78' : '#ff5c5c'};">${ahorroTotal < 0 ? '-' : ''}${redondo(ahorroTotal)}</div>
                                     <div class="nota" style="margin-top:-8px;">podrías ahorrar si los respetas${conIa ? ' · IA' : ''}</div>
                                     ${topes.map(x => {
                                         // Siempre el tope arriba a la derecha. Debajo, el ahorro en verde o, si ya se
@@ -21898,7 +21898,7 @@
                                         const izquierda = `gastaste ${redondo(x.gasto)}${hayAvance && !x.fallado ? ` · ${llevaTexto} ${redondo(x.llevas)}` : ''}`;
                                         const derecha = `<strong style="font-size:1.15em;">${redondo(x.tope)}</strong>` + (x.fallado
                                             ? `<div style="font-size:0.8em; font-weight:600; color:#ff5c5c;">${redondo(x.llevas)}</div>`
-                                            : `<div style="font-size:0.8em; font-weight:600; color:#3ecf8e;">-${redondo(x.ahorro)}</div>`);
+                                            : `<div style="font-size:0.8em; font-weight:600; color:#7cce78;">-${redondo(x.ahorro)}</div>`);
                                         return `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
                                         <div style="min-width:0;"><div style="font-size:1.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escaparHtml(x.cat.nombre)}</div>
                                             <div class="nota" style="font-size:0.8em;">${izquierda}</div>
@@ -22013,7 +22013,7 @@
 
                             function diapositivasInversion(r, nombreMes, a, fondo) {
                                 const d = [];
-                                const verde = '#3ecf8e', rojo = '#ff5c5c';
+                                const verde = '#7cce78', rojo = '#ff5c5c';
                                 const signo = n => n >= 0 ? '+' : '-';
 
                                 // Valor del portafolio hoy y ganancia total
@@ -22336,7 +22336,7 @@
                                 const copiado = await copiarTextoAlPortapapeles(json);
 
                                 if (copiado) {
-                                    restaurarBoton(`✅ ${cuantos} registros copiados`, '#3ecf8e', '#000000');
+                                    restaurarBoton(`✅ ${cuantos} registros copiados`, '#7cce78', '#000000');
                                 } else {
                                     restaurarBoton('⚠️ No se pudo copiar', '#ff5c5c');
                                     alert('Tu navegador bloqueó el acceso al portapapeles. Intenta de nuevo o copia manualmente desde la consola.');
@@ -23649,7 +23649,7 @@
 
                             // --- Presentación del reporte --------------------------------------------
 
-                            const AUD_VERDE = '#3ecf8e', AUD_ROJO = '#ff5c5c', AUD_AMBAR = '#f39c12';
+                            const AUD_VERDE = '#7cce78', AUD_ROJO = '#ff5c5c', AUD_AMBAR = '#f39c12';
 
                             function bloqueAuditoria(titulo, contenido, color) {
                                 return `<div style="background:#161616; border:1px solid ${color || '#2a2a2a'}; border-radius:10px; padding:14px; margin-bottom:14px;">
@@ -24641,8 +24641,8 @@
                                 return cobertura.map(c => {
                                     const ok = c[campo];
                                     return `<span style="display:inline-block; margin:2px 4px 2px 0; padding:3px 9px; border-radius:20px; font-size:0.72em;
-                                        background:${ok ? 'rgba(62,207,142,0.15)' : '#242424'}; color:${ok ? AUD_VERDE : '#999'};
-                                        border:1px solid ${ok ? 'rgba(62,207,142,0.4)' : '#333'};">${ok ? '✓' : '·'} ${nombreMesClave(c.mes)}</span>`;
+                                        background:${ok ? 'rgba(124, 206, 120,0.15)' : '#242424'}; color:${ok ? AUD_VERDE : '#999'};
+                                        border:1px solid ${ok ? 'rgba(124, 206, 120,0.4)' : '#333'};">${ok ? '✓' : '·'} ${nombreMesClave(c.mes)}</span>`;
                                 }).join('');
                             }
 
@@ -24698,7 +24698,7 @@
                                     const completo = p.total > 0 && p.auditados === p.total;
                                     const activo = elegidos.includes(m);
                                     return `<button onclick="alternarMesAuditoria('${m}')" style="width:auto; margin:3px 5px 3px 0; padding:7px 12px; border-radius:20px; font-size:0.76em; text-align:left; line-height:1.3;
-                                        background:${activo ? 'rgba(62,207,142,0.16)' : '#1c1c1c'};
+                                        background:${activo ? 'rgba(124, 206, 120,0.16)' : '#1c1c1c'};
                                         color:${activo ? '#fff' : '#999'};
                                         border:1px solid ${activo ? AUD_VERDE : '#333'};">
                                         ${completo ? '✅' : activo ? '◉' : '○'} ${nombreMesClave(m)}
@@ -25041,7 +25041,7 @@
                     
                     const signoMxn = rendimientoMxn >= 0 ? '+' : '';
                     
-                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#3ecf8e;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><div style="text-align: right;"><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong><br><span style="color:#666; font-size:0.75em;">Precio título</span></div></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 8 })}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
+                    detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}<br>Disponibles: ${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Meses Transcurridos: ${mesesEfectivosHistorial.toFixed(1)}<br><br><strong style="color:#7cce78;">🇲🇽 MONEDA MEXICANA (MXN)</strong><br>Monto Invertido: ${fMoneda(costoInvertidoVivoMxn)} MXN<br>Monto Actual: ${fMoneda(valorActualMxn)} MXN<br>Plusvalía: ${signoMxn}${porcentajeMxn.toFixed(2)}%<br>Plusvalía Mensual: ${signoMxn}${(porcentajeMxn / divMeses).toFixed(2)}%/m<div style="background: #ffffff; color: #111111; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><strong style="color:#000000; font-size: 1.3em;">Tu posición (USD)</strong><div style="text-align: right;"><strong style="font-size: 1.1em;">${fMoneda(precioMercadoUsd)}</strong><br><span style="color:#666; font-size:0.75em;">Precio título</span></div></div><div style="margin-bottom: 12px;"><strong style="color:#9b59b6; font-size: 1.1em;">${accionesVivas.toLocaleString('en-US', { maximumFractionDigits: 8 })}</strong> <span style="color:#888; font-size:0.8em;">Titulos</span><br><strong style="font-size: 1.1em;">${fMoneda(valorActualUsd)}</strong><br><span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${porcentajeUsdComision.toFixed(2)}%</span> &nbsp; <span style="color: ${colorUsdComision}; font-weight: bold;">${signoUsdComision}${fMoneda(Math.abs(rendimientoUsdComision))}</span><br><span style="color: ${colorUsdComision}; font-size: 0.9em;">Mensual: ${signoUsdComision}${(porcentajeUsdComision / divMeses).toFixed(2)}%/m</span></div><div style="display: flex; justify-content: space-between; align-items: flex-start;"><div><strong style="font-size: 1em; color: #111111;">${fMoneda(r.costo_accion * 1.0025)}</strong><br><span style="color:#666; font-size:0.8em;">Costo Titulo c/com</span></div><div style="text-align: right;"><strong style="font-size: 1em; color: #111111;">${fMoneda(invertidoUsdConComision)}</strong><br><span style="color:#666; font-size:0.8em;">Total Inv c/com</span></div></div></div>`;
                 } else if (window.cacheErroresMercado && window.cacheErroresMercado[cat.ticker] && accionesVivas > 0.00001) {
                     detallesInversion = `<br><br><strong style="color:#fff;">📈 DETALLES DE LOTE (${cat.ticker})</strong><br>Acciones: ${numAccionesOriginal.toLocaleString('en-US', { maximumFractionDigits: 4 })}${estadoAcciones}<br>Precio Compra: ${fMoneda(r.costo_accion)} USD<br>Invertido (Vivo): ${fMoneda(invertidoUsd)} USD<br><br>Mercado: ⚠️ ${window.cacheErroresMercado[cat.ticker]}`;
                 } else {
@@ -25573,7 +25573,7 @@
                                 else etiquetaTiempo = `Hace ${Math.abs(diffDays)} d`;
 
                                 // Color dinámico según el estado de vencimiento del ciclo
-                                const badgeColor = diffDays < 0 ? '#ff5c5c' : (diffDays === 0 ? '#3ecf8e' : '#444');
+                                const badgeColor = diffDays < 0 ? '#ff5c5c' : (diffDays === 0 ? '#7cce78' : '#444');
 
                                 lista.innerHTML += `
                                     <li style="border-color:${colorTipo}; margin: 6px 0;">
@@ -26309,11 +26309,11 @@
 
                             if (window.estadoBotonCuenta === 0) {
                             textoBadge = `Neto: ${fMoneda(totalCombinado)}`;
-                            colorFondoDin = totalCombinado >= 0 ? '#22c55e' : '#ff5c5c';
+                            colorFondoDin = totalCombinado >= 0 ? '#7cce78' : '#ff5c5c';
                             colorTextoDin = totalCombinado >= 0 ? '#000000' : '#ffffff';
                             } else if (window.estadoBotonCuenta === 1) {
                             textoBadge = `${signoMxn}${pctMensual.toFixed(2)}% / ${avgMeses.toFixed(1)}m${Math.abs(totalRealizadaCuenta) > 0.005 ? ' ✓' : ''}`;
-                            colorFondoDin = rendimientoInversionMxn >= 0 ? '#22c55e' : '#ff5c5c';
+                            colorFondoDin = rendimientoInversionMxn >= 0 ? '#7cce78' : '#ff5c5c';
                             colorTextoDin = rendimientoInversionMxn >= 0 ? '#000000' : '#ffffff';
                             } else {
                             textoBadge = `${pctMensualAccesible.toFixed(2)}% / ${avgMesesAccesible.toFixed(1)}m | Acc: ${signoAccMonto}${fMoneda(totalPlusvaliaAccesibleCuenta)}`;
@@ -26324,13 +26324,13 @@
                             } else if (pctMensualAccesible <= 1.0) {
                             colorFondoDin = '#a3e635'; colorTextoDin = '#000000';
                             } else if (pctMensualAccesible <= 1.5) {
-                            colorFondoDin = '#22c55e'; colorTextoDin = '#000000';
+                            colorFondoDin = '#7cce78'; colorTextoDin = '#000000';
                             } else {
                             colorFondoDin = '#00ff88'; colorTextoDin = '#000000'; sombraDin = '0 0 14px rgba(0, 255, 136, 0.9)';
                             }
                             }
 
-                            const colorReal = totalCombinado >= 0 ? '#3ecf8e' : '#ff5c5c';
+                            const colorReal = totalCombinado >= 0 ? '#7cce78' : '#ff5c5c';
 
                             const lineaCajaGbm = cajaUsdCuenta > 0.005
                             ? `<small style="color:#4da6ff; font-weight:bold; display:block; margin-top:2px;">Caja GBM: ${fMoneda(cajaUsdCuenta)} USD (~${fMoneda(cajaUsdCuenta * globalUsdToMxn)})</small>`
