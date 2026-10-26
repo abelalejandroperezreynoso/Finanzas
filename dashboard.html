@@ -21034,9 +21034,10 @@
                                         + (item.medicamento ? (resp(3) === 'Nada'
                                             ? '\n- No tomó nada: anótalo en la descripción ("sin medicamento").'
                                             : `\n- Tomó: ${resp(3)} (va en la descripción del registro, junto con lo demás; nunca en la cantidad).`) : '');
-                                const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta o no cuadra algo, pregúntame con una tarjeta.\n'
+                                // El día lo eligió en la tarjeta: la IA lo preguntaba otra vez si la descripción no decía "ayer"
+                                const textoApi = 'Quiero registrar un movimiento con estos datos. Si tienes todo, propónmelo con proponer_nuevo_movimiento sin preguntar más; si falta algo, pregúntame con una tarjeta.\n'
                                     + `- Categoría: ${resp(0)}${cat && cat.id !== null ? ` (id ${cat.id})` : ''}\n`
-                                    + `- ${item.sueno ? 'Día en que despertó (la fecha del registro)' : 'Cuándo'}: ${cuando}${dia ? ` (${dia})` : ''}\n`
+                                    + `- ${item.sueno ? 'Día en que despertó (la fecha del registro)' : 'Cuándo'}: ${cuando}${dia ? ` (${dia})` : ''}${item.sueno ? '' : ' (lo elegí yo: úsalo tal cual, no me lo preguntes)'}\n`
                                     + detalle + `\n${notaHoraAsistente()}`;
                                 item.estado = 'respondida';
                                 const resumen = item.medicamento ? `${resp(2)}\nTomó: ${resp(3)}` : item.sueno ? (sueno ? `${sueno.texto} (${Math.floor(sueno.horas)} h${Math.round((sueno.horas % 1) * 60) ? ` ${Math.round((sueno.horas % 1) * 60)} min` : ''})` : `${resp(2)} a ${resp(3)}`) : resp(2);
