@@ -1856,7 +1856,10 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }))));
       }
       const valorDe = (x: { t: string; d: Json }) => (acciones[x.t] ?? 0) * (Number(x.d.q?.c) || ultimoGuardado(x.t));
-      const totalPropio = datos.reduce((t, x) => t + valorDe(x), 0);
+      // El peso es sobre todo lo que tiene, no sólo sobre las que se pidieron: pidiendo de 10 en 10, cada tanda sumaba
+      // 100 % por su cuenta (Google salía con 23.9 % y Caterpillar con 18.1 %, 172 % entre las dos tandas)
+      const precioHoy: Record<string, number> = Object.fromEntries(datos.map((x) => [x.t, Number(x.d.q?.c) || 0]));
+      const totalPropio = tenidas.reduce((t, x) => t + acciones[x] * (precioHoy[x] || ultimoGuardado(x)), 0);
       const filas: Json[][] = [];
       for (const { t, d, nombre } of datos) {
         const precio = Number(d.q?.c) > 0 ? Number(d.q.c) : null;
