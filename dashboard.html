@@ -4567,6 +4567,34 @@
                                         cachePerfilesEmpresa = {};
                                         (data || []).forEach(p => { cachePerfilesEmpresa[p.ticker] = p; });
                                         perfilesEmpresasListo = true;
+                                        await cargarReportesEmpresas();
+                                    }
+
+                                    // Cuándo reporta cada empresa (lo guarda la función una vez al día). Aparte de los
+                                    // perfiles: sin la columna todavía, los logos se cargan igual
+                                    async function cargarReportesEmpresas() {
+                                        if (!clienteSupabase || !currentUser) return;
+                                        const { data, error } = await clienteSupabase.from('perfiles_empresas').select('ticker, proximos_reportes').not('proximos_reportes', 'is', null);
+                                        if (error) return;
+                                        (data || []).forEach(p => { if (cachePerfilesEmpresa[p.ticker]) cachePerfilesEmpresa[p.ticker].proximos_reportes = p.proximos_reportes; });
+                                    }
+
+                                    // { proximo: "28 oct · T1", anual: "~jul 2027" }: el siguiente reporte y, si es otro, el anual
+                                    function reportesDeTicker(ticker) {
+                                        const pr = (perfilDeTicker(ticker) || {}).proximos_reportes;
+                                        const hoy = diaLocal(new Date());
+                                        const prox = pr && Array.isArray(pr.lista) ? pr.lista.find(r => r.fecha >= hoy) : null;
+                                        if (!prox) return null;
+                                        const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+                                        const corta = (f, soloMes) => {
+                                            const [a, m, d] = f.split('-').map(Number);
+                                            return `${soloMes ? '' : `${d} `}${meses[m - 1]}${String(a) !== hoy.slice(0, 4) ? ` ${a}` : ''}`;
+                                        };
+                                        const esAnual = prox.trimestre === 4;
+                                        return {
+                                            proximo: `${corta(prox.fecha)} · ${esAnual ? 'anual' : prox.trimestre ? `T${prox.trimestre}` : 'trimestral'}`,
+                                            anual: !esAnual && pr.anual && pr.anual.fecha >= hoy ? (pr.anual.estimado ? `~${corta(pr.anual.fecha, true)}` : corta(pr.anual.fecha)) : null
+                                        };
                                     }
 
                                     // Un viaje a Finnhub. Devuelve siempre un perfil: el objeto vacío de un ETF
@@ -17718,6 +17746,9 @@
                                     <span style="color: #fff; line-height: 1.4; text-align: left;">${clasifCat ? `${escaparHtml(clasifCat.sector)} · ${escaparHtml(clasifCat.subindustria)}` : 'Sin clasificar'}</span>
                                     ${selectorClasificacionHtml(cat.ticker)}
                                 </div>` : '';
+                            const reportesCat = cat.tipo === 'inversion' && cat.ticker && !esCategoriaCajaGbm(cat) ? reportesDeTicker(cat.ticker) : null;
+                            const htmlReportes = reportesCat ? filaDetalleIos('Próximo reporte', escaparHtml(reportesCat.proximo))
+                                + (reportesCat.anual ? filaDetalleIos('Reporte anual', escaparHtml(reportesCat.anual)) : '') : '';
                             const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
                             const cuentaCat = (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
                             const htmlContenido = `
@@ -17726,6 +17757,7 @@
                                 ${filaDetalleIos('Cuenta', cuentaCat ? escaparHtml(cuentaCat.nombre) : '—')}
                                 ${filaDetalleIos('Tipo', nombresTipo[cat.tipo] || escaparHtml(cat.tipo))}
                                 ${htmlClasificacion}
+                                ${htmlReportes}
                                 ${cat.descripcion ? `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 12px; padding-bottom: 12px;">
                                     <span style="font-size: 0.85em; color: #98989d;">Descripción</span>
                                     <span style="color: #fff; line-height: 1.4; text-align: left;">${escaparHtml(cat.descripcion)}</span>
@@ -19862,8 +19894,9 @@
                             // siguiente si la última vez falló) y guarda los porcentajes nuevos o el error
                             async function recalcularPesosSubsectores() {
                                 if (!currentUser) return;
-                                const conReceta = (datosCategorias || []).some(c => c.pesos_subsectores && c.pesos_subsectores.origen === 'segmentos');
-                                if (!conReceta) return;
+                                // También sin recetas: la misma llamada guarda cuándo reporta cada empresa
+                                const conEmpresas = (datosCategorias || []).some(c => c.tipo === 'inversion' && c.ticker);
+                                if (!conEmpresas) return;
                                 const clave = `pesosRevisados2:${currentUser.id}`;
                                 const hoy = diaLocal(new Date());
                                 try { if (localStorage.getItem(clave) === hoy) return; } catch (e) { /* sin almacenamiento */ }
@@ -19874,6 +19907,7 @@
                                     if (error || !data) return;
                                     try { localStorage.setItem(clave, hoy); } catch (e) { /* sin almacenamiento */ }
                                     if (data.actualizadas || (data.errores || []).length) await refrescarTodo();
+                                    else if (data.reportes) await cargarReportesEmpresas();
                                 } catch (e) { console.warn('Porcentajes de subsectores', e); }
                             }
 

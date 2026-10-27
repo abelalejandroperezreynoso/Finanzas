@@ -118,7 +118,9 @@ export const CORRECCIONES_SECTORES = "Correcciones del listado de sectores";
 export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una dime si los sectores, subsectores y porcentajes coinciden con sus " +
   "ventas por segmento del último reporte anual. Si algo está mal o desactualizado, explícame por qué en una o dos líneas.\n\n" +
   "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal 2025\" = de sus ventas por segmento " +
-  "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector). Abajo va una línea por subsector: Sector - Subsector y su " +
+  "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector) y, si la hay, la fecha de su próximo reporte (T1 a T4 = trimestre de " +
+  "su año fiscal; \"anual\" = el que trae sus ventas por segmento del año; ~ = aproximada): si su reporte anual ya salió y es más nuevo que el año " +
+  "fiscal que tengo, revisa con ése. Abajo va una línea por subsector: Sector - Subsector y su " +
   "porcentaje de las ventas. Los sectores y subsectores son míos, no la clasificación GICS.\n\n" +
   "Además de los porcentajes, revisa mis nombres de sectores y subsectores: si dos subsectores son lo mismo, únelos con un solo nombre; " +
   "si uno agrupa negocios distintos, sepáralo; y si un nombre no describe bien lo que contiene, cámbialo. No cambies nombres sólo por " +
@@ -130,10 +132,12 @@ export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una
 // El listado para copiar y pasárselo a otra IA, que lo revisa empresa por empresa:
 //   Google (GOOGL) · año fiscal 2025
 //   Tecnología - Publicidad 73.4%
-export function listadoSectores(empresas: Json[], conPrompt = false): string {
+export function listadoSectores(empresas: Json[], conPrompt = false, reportes: Record<string, Json> = {}, hoy = ""): string {
   return (conPrompt ? PROMPT_REVISION + "\n\n" : "") + empresas.map((c) => {
     const { pesos, fuente } = estadoPesos(c);
-    const titulo = `${limpio(c?.nombre)}${c?.ticker ? ` (${limpio(c.ticker).toUpperCase()})` : ""}${fuente ? ` · ${fuente}` : ""}`;
+    const ticker = c?.ticker ? limpio(c.ticker).toUpperCase() : "";
+    const reporte = ticker && hoy ? textoReportes(reportes[ticker], hoy) : "";
+    const titulo = `${limpio(c?.nombre)}${ticker ? ` (${ticker})` : ""}${fuente ? ` · ${fuente}` : ""}${reporte ? ` · ${reporte}` : ""}`;
     const lineas = Object.keys(pesos).sort((a, b) => pesos[b] - pesos[a]).map((d) => `${d.split(SEPARADOR).join(" - ")} ${pesos[d]}%`);
     return [titulo, ...lineas].join("\n");
   }).join("\n\n");
@@ -142,4 +146,46 @@ export function listadoSectores(empresas: Json[], conPrompt = false): string {
 // Lo que hay que arreglar en el listado ("Space X: sin porcentajes"); vacío si nada
 export function revisarListado(empresas: Json[]): string[] {
   return empresas.map((c) => [limpio(c?.nombre), estadoPesos(c).revisar]).filter(([, r]) => r).map(([n, r]) => `${n}: ${r}`);
+}
+
+// Cuándo reporta cada empresa, de la agenda de Finnhub (calendar/earnings, unos tres trimestres por delante). El anual
+// es el del 4º trimestre de su año fiscal (el que trae los segmentos nuevos); si todavía no sale en la agenda, se calcula
+// a 91 días por trimestre desde el último que sí sale (aproximado). Se guarda en perfiles_empresas.proximos_reportes.
+export type Reporte = { fecha: string; trimestre: number | null; anio: number | null };
+export type ProximosReportes = { revisado: string; lista: Reporte[]; anual: { fecha: string; estimado: boolean } | null };
+
+export function proximosReportes(agenda: Json, hoy: string): ProximosReportes {
+  const vistas = new Set<string>();
+  const lista: Reporte[] = (Array.isArray(agenda) ? agenda : [])
+    .filter((x: Json) => /^\d{4}-\d{2}-\d{2}$/.test(String(x?.date ?? "")) && String(x.date) >= hoy)
+    .map((x: Json) => ({ fecha: String(x.date), trimestre: Number(x.quarter) || null, anio: Number(x.year) || null }))
+    .sort((a: Reporte, b: Reporte) => a.fecha.localeCompare(b.fecha))
+    .filter((r: Reporte) => !vistas.has(r.fecha) && !!vistas.add(r.fecha))
+    .slice(0, 4);
+  const cuarto = lista.find((r) => r.trimestre === 4);
+  const ultimo = lista[lista.length - 1];
+  let anual: ProximosReportes["anual"] = cuarto ? { fecha: cuarto.fecha, estimado: false } : null;
+  if (!anual && ultimo?.trimestre) {
+    const d = new Date(`${ultimo.fecha}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 91 * (4 - ultimo.trimestre));
+    anual = { fecha: d.toISOString().slice(0, 10), estimado: true };
+  }
+  return { revisado: hoy, lista, anual };
+}
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const fechaCorta = (f: string, hoy: string, soloMes = false) => {
+  const [a, m, d] = f.split("-").map(Number);
+  const anio = String(a) !== hoy.slice(0, 4) ? ` ${a}` : "";
+  return `${soloMes ? "" : `${d} `}${MESES_CORTOS[m - 1]}${anio}`;
+};
+
+// "próximo reporte 28 oct (T1), anual ~jul 2027" o "próximo reporte 2 nov (anual)"; vacío si no hay (ETFs)
+export function textoReportes(pr: Json, hoy: string): string {
+  const prox = (Array.isArray(pr?.lista) ? pr.lista : []).find((r: Reporte) => r.fecha >= hoy);
+  if (!prox) return "";
+  const esAnual = prox.trimestre === 4;
+  const anual = pr.anual && pr.anual.fecha >= hoy && !esAnual
+    ? `, anual ${pr.anual.estimado ? `~${fechaCorta(pr.anual.fecha, hoy, true)}` : fechaCorta(pr.anual.fecha, hoy)}` : "";
+  return `próximo reporte ${fechaCorta(prox.fecha, hoy)} (${esAnual ? "anual" : prox.trimestre ? `T${prox.trimestre}` : "trimestral"})${anual}`;
 }

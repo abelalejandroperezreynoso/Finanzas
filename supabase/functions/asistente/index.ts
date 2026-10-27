@@ -19,7 +19,7 @@ import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
 import { segmentosDeXbrl } from "./sec.ts";
-import { aCien, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, revisarListado, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
+import { aCien, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, proximosReportes, revisarListado, textoReportes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
@@ -816,7 +816,8 @@ const textoMemoria = (notas: Json[]) => notas.length
 // una vuelta en pedirlas; sin saldos, que cambian con cada movimiento y romperían la caché.
 // clasificacion: la GICS de cada ticker del portafolio, con su origen (índice S&P, IA o a mano)
 type Clasificacion = { sector: string; subindustria: string; origen: string };
-type Catalogo = { cuentas: Json[]; categorias: Json[]; etiqueta: Record<string, string>; tipo: Record<string, string>; clasificacion: Record<string, Clasificacion> };
+// reportes: cuándo reporta cada ticker (perfiles_empresas.proximos_reportes)
+type Catalogo = { cuentas: Json[]; categorias: Json[]; etiqueta: Record<string, string>; tipo: Record<string, string>; clasificacion: Record<string, Clasificacion>; reportes?: Record<string, Json> };
 async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
   const [{ data: cuentas, error: e1 }, { data: categorias, error: e2 }] = await Promise.all([
     sb.from("cuentas").select("*").order("nombre"),
@@ -833,7 +834,13 @@ async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
     etiqueta[String(c.id)] = repetidos.has(String(c.nombre)) && c.cuentas?.nombre ? `${c.nombre} (${c.cuentas.nombre})` : String(c.nombre);
     tipo[String(c.id)] = c.tipo;
   });
-  return { cuentas: cuentas ?? [], categorias: categorias ?? [], etiqueta, tipo, clasificacion: await leerClasificacion(sb, categorias ?? []) };
+  const [clasificacion, reportes] = await Promise.all([leerClasificacion(sb, categorias ?? []), leerReportes(sb)]);
+  return { cuentas: cuentas ?? [], categorias: categorias ?? [], etiqueta, tipo, clasificacion, reportes };
+}
+// Sin la columna (antes de su migración) no hay fechas y todo sigue igual
+async function leerReportes(sb: SupabaseClient): Promise<Record<string, Json>> {
+  const { data, error } = await sb.from("perfiles_empresas").select("ticker, proximos_reportes").not("proximos_reportes", "is", null);
+  return error ? {} : Object.fromEntries((data ?? []).map((x: Json) => [String(x.ticker).toUpperCase(), x.proximos_reportes]));
 }
 
 // Lo que se cambió a mano manda; luego el índice S&P y al final lo que puso la IA. Sin las tablas, vacío.
@@ -885,10 +892,11 @@ function textoSectoresCategoria(c: Json): string {
     : ps.origen === "segmentos" ? ` [porcentajes según ventas ${ps.anio ?? ""}, se actualizan solos${ps.cobertura ? `; OJO: sus segmentos cubren sólo ${ps.cobertura}% de sus ventas, los porcentajes dejan fuera el resto: sugiérele ponerlos a mano` : ""}]` : " [porcentajes a mano]";
   return texto + origen;
 }
-const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "clasificacion", "salud"],
+const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta", "prioridad", "descripcion", "ticker", "sectores", "clasificacion", "reportes", "salud"],
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, nombrePrioridad(c.prioridad), c.descripcion ?? null, c.ticker ?? null,
     c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? textoSectoresCategoria(c) : null,
     clasificacionDe(k, c),
+    c.tipo === "inversion" && c.ticker ? textoReportes(k.reportes?.[String(c.ticker).trim().toUpperCase()], new Date().toISOString().slice(0, 10)) || null : null,
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}${c.recordar_diario ? "; aviso diario 9 p.m." : ""}` : null]));
 
 // Una nota de Salud que menciona haber tomado algo ("1 pastilla Actron Plus"); "sin pastilla" o "nada" no cuenta
@@ -2614,7 +2622,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       return {
         texto: "Tu respuesta es exactamente el bloque de abajo, de ``` a ```, copiado tal cual (la app le pone botón Copiar)" +
           (revisar.length ? `, y después del bloque esta línea, tal cual: "Por revisar: ${revisar.join("; ")}."` : "; nada antes ni después.") +
-          " Esta instrucción no va en tu respuesta.\n\n```\n" + listadoSectores(empresas, entrada.con_prompt === true) + "\n```",
+          " Esta instrucción no va en tu respuesta.\n\n```\n" + listadoSectores(empresas, entrada.con_prompt === true, catalogo.reportes ?? {}, fechaLocal(new Date().toISOString(), zona).slice(0, 10)) + "\n```",
       };
     }
     case "resumen_inversiones": {
@@ -4152,6 +4160,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), primero pregunta con preguntar_al_usuario "¿Le agrego el prompt para revisarlo con otra IA?" con "Con prompt" y "Solo el listado" (si ya lo dijo, no preguntes); luego llama a listado_sectores con con_prompt y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Si pega las correcciones de otra IA a ese listado (empiezan con "${CORRECCIONES_SECTORES}") o su revisión completa, deja en ese mismo turno las tarjetas de cada empresa que cambia (de una revisión completa, las opcionales sólo si las pide), sin volver a preguntar, como con varias empresas: primero todas sin receta y luego con receta. Las que tienen segmentos van con receta, siguiendo lo que pide la revisión (un segmento a otro subsector o a uno nuevo, otro segmento que se separa); los porcentajes salen de los segmentos, no de las cifras de la revisión. Los nombres de sector y subsector van tal cual los trae la corrección: si cambió uno, es a propósito (no lo regreses al que tenía ni lo juntes con el de otra empresa). Una empresa con un solo subsector que sólo cambia de nombre va con proponer_cambio_categoria (sectores y subsectores), sin porcentajes. Si los segmentos no dan lo que pide, primero pide los de la otra fuente (fuente); si tampoco (le falta un segmento o una división), dilo en una línea y propónla con pesos a mano con las cifras de la revisión, sin subsectores que la corrección no traiga, igual que las que ya eran a mano o no tienen segmentos (si lleva un subsector nuevo, en el mismo turno primero proponer_cambio_categoria con sus subsectores). Los cambios de nombre que sugiera (Exxon Mobil), sólo si los pide, con proponer_cambio_categoria.
+- Columna reportes de sus empresas: su próximo reporte (T1 a T4 = trimestre de su año fiscal) y el anual, el que trae sus ventas por segmento (~ = fecha aproximada). Si pregunta cuándo reporta una, contesta con eso.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
@@ -4730,11 +4739,36 @@ Deno.serve(async (req) => {
       const { data: cats, error: eP } = await sb.from("categorias").select("id, ticker, tipo, sectores, subsectores, pesos_subsectores").eq("tipo", "inversion");
       if (eP) return responder({ revisadas: 0, actualizadas: 0, errores: [] });
       const dias = (desde: string) => Math.round((Date.parse(`${hoyP}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86_400_000);
+      // Cuándo reporta cada empresa (trimestral y anual), de la agenda de Finnhub: cada semana, o en cuanto pasa el
+      // reporte que venía. Sólo en los perfiles que ya existen (los crea la app con el logo); sin la columna, nada
+      let reportes = 0;
+      const { data: perfiles, error: eR } = await sb.from("perfiles_empresas").select("ticker, proximos_reportes");
+      if (!eR) {
+        const conTicker = new Set((cats ?? []).filter((c: Json) => c.ticker).map((c: Json) => String(c.ticker).trim().toUpperCase()));
+        const masAdelante = new Date(Date.parse(`${hoyP}T12:00:00Z`) + 400 * 86_400_000).toISOString().slice(0, 10);
+        const tocaR = (perfiles ?? []).filter((x: Json) => {
+          const pr = x.proximos_reportes;
+          return conTicker.has(String(x.ticker).toUpperCase()) && (!pr?.revisado || dias(String(pr.revisado)) >= 7 || (pr.lista?.[0]?.fecha && pr.lista[0].fecha < hoyP));
+        }).slice(0, 25);
+        for (let k = 0; k < tocaR.length; k += 5) {
+          await Promise.all(tocaR.slice(k, k + 5).map(async (x: Json) => {
+            try {
+              const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${hoyP}&to=${masAdelante}&symbol=${encodeURIComponent(String(x.ticker).replace("-", "."))}&token=${TOKEN_FINNHUB}`, { signal: AbortSignal.timeout(8000) });
+              if (!r.ok) return;
+              const d = await r.json();
+              await sb.from("perfiles_empresas").update({ proximos_reportes: proximosReportes(d?.earningsCalendar, hoyP) }).eq("ticker", x.ticker);
+              reportes++;
+            } catch (_) { /* sin agenda hoy: se intenta mañana */ }
+          }));
+        }
+      }
       const toca = (cats ?? []).filter((c: Json) => {
         const ps = c.pesos_subsectores;
         if (!ps || ps.origen !== "segmentos" || !c.ticker || !ps.receta) return false;
-        // Las de antes de que se guardara la fuente (y la cobertura) se revisan ya, sin esperar la semana
-        return !ps.fuente || !ps.revisado || dias(String(ps.revisado)) >= (ps.error ? 1 : 7);
+        // Las de antes de que se guardara la fuente (y la cobertura) se revisan ya, sin esperar la semana. Ya cerrado su
+        // siguiente año fiscal (de 20 días a 4 meses después), cada día: así toman su reporte anual en cuanto sale
+        const esperaAnual = ps.cierre && dias(String(ps.cierre)) >= 385 && dias(String(ps.cierre)) <= 485;
+        return !ps.fuente || !ps.revisado || dias(String(ps.revisado)) >= (ps.error || esperaAnual ? 1 : 7);
       }).slice(0, 15);
       let actualizadas = 0;
       const errores: Json[] = [];
@@ -4767,7 +4801,7 @@ Deno.serve(async (req) => {
           await sb.from("categorias").update({ pesos_subsectores: nuevo }).eq("id", c.id);
         }));
       }
-      return responder({ revisadas: toca.length, actualizadas, errores });
+      return responder({ revisadas: toca.length, actualizadas, errores, reportes });
     }
 
     if (entrada.modo === "clasificar") {
