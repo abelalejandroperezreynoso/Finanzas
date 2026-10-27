@@ -831,7 +831,7 @@ const textoMemoria = (notas: Json[]) => notas.length
 // clasificacion: la GICS de cada ticker del portafolio, con su origen (índice S&P, IA o a mano)
 type Clasificacion = { sector: string; subindustria: string; origen: string };
 // reportes: cuándo reporta cada ticker (perfiles_empresas.proximos_reportes)
-type Catalogo = { cuentas: Json[]; categorias: Json[]; etiqueta: Record<string, string>; tipo: Record<string, string>; clasificacion: Record<string, Clasificacion>; reportes?: Record<string, Json> };
+type Catalogo = { cuentas: Json[]; categorias: Json[]; etiqueta: Record<string, string>; tipo: Record<string, string>; clasificacion: Record<string, Clasificacion>; reportes?: Record<string, Json>; hoy?: string };
 async function leerCatalogo(sb: SupabaseClient): Promise<Catalogo> {
   const [{ data: cuentas, error: e1 }, { data: categorias, error: e2 }] = await Promise.all([
     sb.from("cuentas").select("*").order("nombre"),
@@ -910,7 +910,7 @@ const tablaCategorias = (k: Catalogo) => tabla(["id", "nombre", "tipo", "cuenta"
   k.categorias.map((c: Json) => [c.id, k.etiqueta[String(c.id)], c.tipo, c.cuentas?.nombre ?? null, nombrePrioridad(c.prioridad), c.descripcion ?? null, c.ticker ?? null,
     c.tipo === "inversion" && Array.isArray(c.sectores) && c.sectores.length ? textoSectoresCategoria(c) : null,
     clasificacionDe(k, c),
-    c.tipo === "inversion" && c.ticker ? textoReportes(k.reportes?.[String(c.ticker).trim().toUpperCase()], new Date().toISOString().slice(0, 10)) || null : null,
+    c.tipo === "inversion" && c.ticker ? textoReportes(k.reportes?.[String(c.ticker).trim().toUpperCase()], k.hoy ?? new Date().toISOString().slice(0, 10)) || null : null,
     c.tipo === "salud" ? `${c.grupo_salud ?? "grupo sin definir"}; mide ${c.medida_salud ?? "sin definir"}${c.medida_salud === "valor" && c.unidad_salud ? ` (${c.unidad_salud})` : ""}${c.recordar_diario ? "; aviso diario 9 p.m." : ""}` : null]));
 
 // Una nota de Salud que menciona haber tomado algo ("1 pastilla Actron Plus"); "sin pastilla" o "nada" no cuenta
@@ -4921,6 +4921,8 @@ Deno.serve(async (req) => {
     const modeloChat = modeloPedido;
     let modeloUsado = modeloChat;
     const [catalogo, notas, usd, infoAvisos] = await Promise.all([leerCatalogo(sb), leerMemoria(sb), tipoDeCambio(hoy), zona.conAvisos ? leerAvisos(sb, hoy) : Promise.resolve(null)]);
+    // El día del usuario (no el del servidor, que de noche ya va en el siguiente) para las fechas de reporte
+    catalogo.hoy = hoy;
     if (infoAvisos) zona.telefonosConAvisos = infoAvisos.telefonos;
     const cambiosMemoria: Json[] = [];
     const listas: Json[] = [];
