@@ -202,7 +202,7 @@ export function agendaReportes(empresas: { nombre: string; ticker: string; pr: J
   }).filter((x): x is { e: { nombre: string; ticker: string; pr: Json }; r: Reporte; n: number } => !!x && x.n <= dias)
     .sort((a, b) => a.r.fecha.localeCompare(b.r.fecha) || a.e.nombre.localeCompare(b.e.nombre, "es"))
     .map(({ e, r, n }, i) => {
-      const cuando = n === 0 ? "hoy" : n === 1 ? "mañana" : `en ${n} días`;
+      const cuando = n === 0 ? "hoy" : n === 1 ? "mañana" : n === 2 ? "pasado mañana" : `en ${n} días`;
       const dia = `${DIAS_SEMANA[new Date(`${r.fecha}T12:00:00Z`).getUTCDay()]} ${fechaCorta(r.fecha, hoy)}`;
       return `${i + 1}. ${e.nombre} (${e.ticker}): ${cuando}, ${dia}${r.hora ? `, ${HORAS_REPORTE[r.hora]}` : ""} · ${r.trimestre === 4 ? "anual" : r.trimestre ? `T${r.trimestre}` : "trimestral"}`;
     });
