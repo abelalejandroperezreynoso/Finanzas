@@ -19,7 +19,7 @@ import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
 import { segmentosDeXbrl } from "./sec.ts";
-import { aCien, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, proximosReportes, revisarListado, textoReportes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
+import { aCien, agendaReportes, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, proximosReportes, revisarListado, textoReportes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
@@ -419,6 +419,20 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         desde: { type: "string", description: "Inicio del periodo de actividad, AAAA-MM-DD (opcional)" },
         hasta: { type: "string", description: "Fin del periodo de actividad, AAAA-MM-DD (opcional; hoy si se omite)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agenda_reportes",
+    description:
+      "Cuándo reportan resultados sus empresas (trimestral y anual), de la más próxima a la más lejana, ya escrito con el día (hoy, mañana, en N días) " +
+      "y la hora. Úsala para \"¿cuándo reporta X?\" o \"¿cuáles reportan pronto?\" en vez de mercado_acciones.",
+    input_schema: {
+      type: "object",
+      properties: {
+        dias: { type: "number", description: "Cuántos días hacia adelante (60 si se omite)" },
+        tickers: { type: "array", items: { type: "string" }, description: "Sólo estas empresas (todas si se omite)" },
       },
       additionalProperties: false,
     },
@@ -1301,6 +1315,28 @@ async function ventasTotalesFmp(sb: SupabaseClient, ticker: string, seg: Segment
   const n = Number(fila?.revenue);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+// Cuándo reportan unas empresas, de la agenda de Finnhub (unos tres trimestres por delante), de 5 en 5; se guarda en sus
+// perfiles (sólo los que ya existen: los crea la app con el logo). fallidos: los que Finnhub no contestó (límite por minuto)
+async function actualizarReportes(sb: SupabaseClient, tickers: string[], hoy: string): Promise<{ datos: Record<string, Json>; fallidos: string[] }> {
+  const datos: Record<string, Json> = {};
+  const fallidos: string[] = [];
+  const hasta = new Date(Date.parse(`${hoy}T12:00:00Z`) + 400 * 86_400_000).toISOString().slice(0, 10);
+  for (let k = 0; k < tickers.length; k += 5) {
+    await Promise.all(tickers.slice(k, k + 5).map(async (t) => {
+      try {
+        const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${hoy}&to=${hasta}&symbol=${encodeURIComponent(t.replace("-", "."))}&token=${TOKEN_FINNHUB}`, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) { fallidos.push(t); return; }
+        datos[t] = proximosReportes((await r.json())?.earningsCalendar, hoy);
+        await sb.from("perfiles_empresas").update({ proximos_reportes: datos[t] }).eq("ticker", t);
+      } catch (_) { fallidos.push(t); }
+    }));
+  }
+  return { datos, fallidos };
+}
+// Si toca volver a pedir su agenda: nunca pedida, de hace una semana o más, o ya pasó el reporte que venía
+const reportesViejos = (pr: Json, hoy: string) => !pr?.revisado || (Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${pr.revisado}T12:00:00Z`)) >= 7 * 86_400_000
+  || (!!pr.lista?.[0]?.fecha && pr.lista[0].fecha < hoy);
+
 // Respaldo gratis de FMP: el reporte anual (10-K o 20-F) que la empresa entrega a la SEC, en XBRL. La SEC pide
 // identificarse con un contacto en el User-Agent.
 const AGENTE_SEC = "FinanzasApp/1.0 finanzas.app@example.com";
@@ -2604,6 +2640,29 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           nota: "pendiente = prestado menos cobrado (préstamo) o recibido menos abonado (deuda). Negativo: se cobró o abonó de más, o falta registrar el monto original.",
           tabla: tabla(["categoria", "tipo", "cuenta", "prestado_o_recibido", "cobrado_o_abonado", "pendiente", "avance_pct", "movimientos", "primero", "ultimo"], filas),
         }),
+      };
+    }
+    case "agenda_reportes": {
+      const hoyA = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      const pedidos = Array.isArray(entrada.tickers) && entrada.tickers.length ? new Set(entrada.tickers.map((t: unknown) => String(t).trim().toUpperCase())) : null;
+      const empresas = new Map<string, string>();
+      catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && c.ticker).forEach((c: Json) => {
+        const t = String(c.ticker).trim().toUpperCase();
+        if (!pedidos || pedidos.has(t)) empresas.set(t, empresas.get(t) ?? (catalogo.etiqueta[String(c.id)] ?? c.nombre));
+      });
+      if (!empresas.size) return { texto: pedidos ? "No tiene esas empresas." : "No tiene empresas en sus inversiones." };
+      // Lo guardado; lo que falta o ya pasó se pide ahora (sólo la agenda: mercado_acciones gastaba el límite de Finnhub)
+      const guardados = { ...(catalogo.reportes ?? {}) };
+      const { datos, fallidos } = await actualizarReportes(sb, [...empresas.keys()].filter((t) => reportesViejos(guardados[t], hoyA)).slice(0, 40), hoyA);
+      Object.assign(guardados, datos);
+      const dias = Math.min(400, Math.max(1, Number(entrada.dias) || 60));
+      const lista = agendaReportes([...empresas].map(([ticker, nombre]) => ({ nombre, ticker, pr: guardados[ticker] })), hoyA, dias);
+      const sinFecha = [...empresas.keys()].filter((t) => guardados[t] && !fallidos.includes(t) && !(guardados[t].lista ?? []).some((r: Json) => r.fecha >= hoyA));
+      return {
+        texto: `Hoy es ${hoyA}. Contesta con esta lista tal cual, en este orden y con estos días (si pidió sólo unas, las primeras); no la recalcules:\n` +
+          (lista.join("\n") || `Ninguna reporta en los próximos ${dias} días.`) +
+          (sinFecha.length ? `\nSin fecha en la agenda (ETFs o sin reporte programado): ${sinFecha.join(", ")}.` : "") +
+          (fallidos.length ? `\nFinnhub no contestó por ${fallidos.join(", ")} (límite por minuto): díselo y que lo vuelva a pedir en un minuto.` : ""),
       };
     }
     case "listado_sectores": {
@@ -4160,7 +4219,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), primero pregunta con preguntar_al_usuario "¿Le agrego el prompt para revisarlo con otra IA?" con "Con prompt" y "Solo el listado" (si ya lo dijo, no preguntes); luego llama a listado_sectores con con_prompt y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Si pega las correcciones de otra IA a ese listado (empiezan con "${CORRECCIONES_SECTORES}") o su revisión completa, deja en ese mismo turno las tarjetas de cada empresa que cambia (de una revisión completa, las opcionales sólo si las pide), sin volver a preguntar, como con varias empresas: primero todas sin receta y luego con receta. Las que tienen segmentos van con receta, siguiendo lo que pide la revisión (un segmento a otro subsector o a uno nuevo, otro segmento que se separa); los porcentajes salen de los segmentos, no de las cifras de la revisión. Los nombres de sector y subsector van tal cual los trae la corrección: si cambió uno, es a propósito (no lo regreses al que tenía ni lo juntes con el de otra empresa). Una empresa con un solo subsector que sólo cambia de nombre va con proponer_cambio_categoria (sectores y subsectores), sin porcentajes. Si los segmentos no dan lo que pide, primero pide los de la otra fuente (fuente); si tampoco (le falta un segmento o una división), dilo en una línea y propónla con pesos a mano con las cifras de la revisión, sin subsectores que la corrección no traiga, igual que las que ya eran a mano o no tienen segmentos (si lleva un subsector nuevo, en el mismo turno primero proponer_cambio_categoria con sus subsectores). Los cambios de nombre que sugiera (Exxon Mobil), sólo si los pide, con proponer_cambio_categoria.
-- Columna reportes de sus empresas: su próximo reporte (T1 a T4 = trimestre de su año fiscal) y el anual, el que trae sus ventas por segmento (~ = fecha aproximada). Si pregunta cuándo reporta una, contesta con eso.
+- Columna reportes de sus empresas: su próximo reporte (T1 a T4 = trimestre de su año fiscal) y el anual, el que trae sus ventas por segmento (~ = fecha aproximada). Si pregunta cuándo reporta una o cuáles reportan pronto, usa agenda_reportes (ya trae el orden y los días contados).
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
@@ -4745,22 +4804,9 @@ Deno.serve(async (req) => {
       const { data: perfiles, error: eR } = await sb.from("perfiles_empresas").select("ticker, proximos_reportes");
       if (!eR) {
         const conTicker = new Set((cats ?? []).filter((c: Json) => c.ticker).map((c: Json) => String(c.ticker).trim().toUpperCase()));
-        const masAdelante = new Date(Date.parse(`${hoyP}T12:00:00Z`) + 400 * 86_400_000).toISOString().slice(0, 10);
-        const tocaR = (perfiles ?? []).filter((x: Json) => {
-          const pr = x.proximos_reportes;
-          return conTicker.has(String(x.ticker).toUpperCase()) && (!pr?.revisado || dias(String(pr.revisado)) >= 7 || (pr.lista?.[0]?.fecha && pr.lista[0].fecha < hoyP));
-        }).slice(0, 25);
-        for (let k = 0; k < tocaR.length; k += 5) {
-          await Promise.all(tocaR.slice(k, k + 5).map(async (x: Json) => {
-            try {
-              const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${hoyP}&to=${masAdelante}&symbol=${encodeURIComponent(String(x.ticker).replace("-", "."))}&token=${TOKEN_FINNHUB}`, { signal: AbortSignal.timeout(8000) });
-              if (!r.ok) return;
-              const d = await r.json();
-              await sb.from("perfiles_empresas").update({ proximos_reportes: proximosReportes(d?.earningsCalendar, hoyP) }).eq("ticker", x.ticker);
-              reportes++;
-            } catch (_) { /* sin agenda hoy: se intenta mañana */ }
-          }));
-        }
+        const tocaR = (perfiles ?? []).filter((x: Json) => conTicker.has(String(x.ticker).toUpperCase()) && reportesViejos(x.proximos_reportes, hoyP))
+          .slice(0, 25).map((x: Json) => String(x.ticker));
+        reportes = Object.keys((await actualizarReportes(sb, tocaR, hoyP)).datos).length;
       }
       const toca = (cats ?? []).filter((c: Json) => {
         const ps = c.pesos_subsectores;

@@ -57,7 +57,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   Cuándo reporta cada empresa: el modo `pesos` (una vez al día; la app lo llama si hay empresas, con o sin receta) guarda en
   `perfiles_empresas.proximos_reportes` la agenda de Finnhub (trimestre y año fiscal; el anual es el T4, o aproximado si
   todavía no sale), cada semana o en cuanto pasa el que venía (`proximosReportes`/`textoReportes` en `pesos.ts`). Sale en
-  la ficha de la empresa, en el listado de sectores y en la columna `reportes` del chat. Una receta se revisa cada día
+  la ficha de la empresa, en el listado de sectores y en la columna `reportes` del chat; `agenda_reportes` da la lista ya
+  ordenada con los días contados (y pide sólo la agenda de lo que falte, no gasta el límite de Finnhub como `mercado_acciones`). Una receta se revisa cada día
   entre 20 días y 4 meses después de cerrar su siguiente año fiscal, para tomar el reporte anual en cuanto sale.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una

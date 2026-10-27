@@ -151,14 +151,14 @@ export function revisarListado(empresas: Json[]): string[] {
 // Cuándo reporta cada empresa, de la agenda de Finnhub (calendar/earnings, unos tres trimestres por delante). El anual
 // es el del 4º trimestre de su año fiscal (el que trae los segmentos nuevos); si todavía no sale en la agenda, se calcula
 // a 91 días por trimestre desde el último que sí sale (aproximado). Se guarda en perfiles_empresas.proximos_reportes.
-export type Reporte = { fecha: string; trimestre: number | null; anio: number | null };
+export type Reporte = { fecha: string; trimestre: number | null; anio: number | null; hora?: string | null };
 export type ProximosReportes = { revisado: string; lista: Reporte[]; anual: { fecha: string; estimado: boolean } | null };
 
 export function proximosReportes(agenda: Json, hoy: string): ProximosReportes {
   const vistas = new Set<string>();
   const lista: Reporte[] = (Array.isArray(agenda) ? agenda : [])
     .filter((x: Json) => /^\d{4}-\d{2}-\d{2}$/.test(String(x?.date ?? "")) && String(x.date) >= hoy)
-    .map((x: Json) => ({ fecha: String(x.date), trimestre: Number(x.quarter) || null, anio: Number(x.year) || null }))
+    .map((x: Json) => ({ fecha: String(x.date), trimestre: Number(x.quarter) || null, anio: Number(x.year) || null, hora: ["bmo", "amc", "dmh"].includes(x.hour) ? x.hour : null }))
     .sort((a: Reporte, b: Reporte) => a.fecha.localeCompare(b.fecha))
     .filter((r: Reporte) => !vistas.has(r.fecha) && !!vistas.add(r.fecha))
     .slice(0, 4);
@@ -188,4 +188,22 @@ export function textoReportes(pr: Json, hoy: string): string {
   const anual = pr.anual && pr.anual.fecha >= hoy && !esAnual
     ? `, anual ${pr.anual.estimado ? `~${fechaCorta(pr.anual.fecha, hoy, true)}` : fechaCorta(pr.anual.fecha, hoy)}` : "";
   return `próximo reporte ${fechaCorta(prox.fecha, hoy)} (${esAnual ? "anual" : prox.trimestre ? `T${prox.trimestre}` : "trimestral"})${anual}`;
+}
+
+// La agenda de sus empresas, de la más próxima a la más lejana, ya escrita (el modelo contaba mal los días: "pasado
+// mañana" por mañana): "1. Google (GOOGL): mañana, miércoles 28 oct, al cierre · T3"
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const HORAS_REPORTE: Record<string, string> = { bmo: "antes de abrir la bolsa", amc: "al cierre", dmh: "durante el día" };
+export function agendaReportes(empresas: { nombre: string; ticker: string; pr: Json }[], hoy: string, dias: number): string[] {
+  const t0 = Date.parse(`${hoy}T12:00:00Z`);
+  return empresas.map((e) => {
+    const r: Reporte | undefined = (Array.isArray(e.pr?.lista) ? e.pr.lista : []).find((x: Reporte) => x.fecha >= hoy);
+    return r ? { e, r, n: Math.round((Date.parse(`${r.fecha}T12:00:00Z`) - t0) / 86_400_000) } : null;
+  }).filter((x): x is { e: { nombre: string; ticker: string; pr: Json }; r: Reporte; n: number } => !!x && x.n <= dias)
+    .sort((a, b) => a.r.fecha.localeCompare(b.r.fecha) || a.e.nombre.localeCompare(b.e.nombre, "es"))
+    .map(({ e, r, n }, i) => {
+      const cuando = n === 0 ? "hoy" : n === 1 ? "mañana" : `en ${n} días`;
+      const dia = `${DIAS_SEMANA[new Date(`${r.fecha}T12:00:00Z`).getUTCDay()]} ${fechaCorta(r.fecha, hoy)}`;
+      return `${i + 1}. ${e.nombre} (${e.ticker}): ${cuando}, ${dia}${r.hora ? `, ${HORAS_REPORTE[r.hora]}` : ""} · ${r.trimestre === 4 ? "anual" : r.trimestre ? `T${r.trimestre}` : "trimestral"}`;
+    });
 }
