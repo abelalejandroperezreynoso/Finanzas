@@ -46,6 +46,10 @@ const MODELOS_CHAT = new Set(["claude-sonnet-5-5", "claude-opus-5-5", HAIKU]);
 const CON_FALLBACK = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"]);
 
 const MAX_VUELTAS = 10; // herramientas por mensaje, para que una pregunta no se alargue sin fin
+// Con tarjetas de porcentajes de muchas empresas (todas sus correcciones) se sigue por tandas, sin límite de empresas:
+// más vueltas y, antes de que la función llegue a su tiempo máximo, la app pide seguir en otro mensaje
+const MAX_VUELTAS_TANDAS = 30;
+const SEGUNDOS_TANDAS = 100;
 const MAX_FILAS = 300;
 const MAX_TEXTO_HERRAMIENTA = 40_000;
 
@@ -1133,7 +1137,7 @@ const textoVocabulario = (k: Catalogo, paraReceta = false) => {
 // los ajustes del teléfono) o no_disponible (en iPhone, la app no se abrió desde la pantalla de inicio)
 // telefonosConAvisos: cuántos teléfonos del usuario los tienen activados (éste incluido)
 // recurrentes: las recurrencias que la app ya detectó (pantalla Recurrentes), con sus próximas fechas
-type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conActivarPredicciones?: boolean; conBorrarTodo?: boolean; conClasificacion?: boolean; conPesos?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
+type Zona = { desfase: number; conHora?: boolean; conListas?: boolean; conInversion?: boolean; conAltas?: boolean; conPorNombre?: boolean; conMoverANueva?: boolean; conInversionNueva?: boolean; conMoverBloque?: boolean; conRecordatorios?: boolean; conBorrar?: boolean; conAvisos?: boolean; avisos?: string; conPrioridades?: boolean; conOmitir?: boolean; conNoRecurrente?: boolean; conActivarPredicciones?: boolean; conBorrarTodo?: boolean; conClasificacion?: boolean; conPesos?: boolean; conSeguir?: boolean; telefonosConAvisos?: number; recurrentes?: Json[]; plan?: Json };
 const ESTADOS_AVISOS = ["activos", "apagados", "negados", "no_disponible"];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 function limpiarRecurrentes(lista: unknown): Json[] | undefined {
@@ -4145,7 +4149,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
-- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); hasta 12 por mensaje (si son más, haz las primeras 12 y dile que escriba "sigue"). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
+- Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), primero pregunta con preguntar_al_usuario "¿Le agrego el prompt para revisarlo con otra IA?" con "Con prompt" y "Solo el listado" (si ya lo dijo, no preguntes); luego llama a listado_sectores con con_prompt y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Si pega las correcciones de otra IA a ese listado (empiezan con "${CORRECCIONES_SECTORES}") o su revisión completa, deja en ese mismo turno las tarjetas de cada empresa que cambia (de una revisión completa, las opcionales sólo si las pide), sin volver a preguntar, como con varias empresas: primero todas sin receta y luego con receta. Las que tienen segmentos van con receta, siguiendo lo que pide la revisión (un segmento a otro subsector o a uno nuevo, otro segmento que se separa); los porcentajes salen de los segmentos, no de las cifras de la revisión. Los nombres de sector y subsector van tal cual los trae la corrección: si cambió uno, es a propósito (no lo regreses al que tenía ni lo juntes con el de otra empresa). Una empresa con un solo subsector que sólo cambia de nombre va con proponer_cambio_categoria (sectores y subsectores), sin porcentajes. Si los segmentos no dan lo que pide, primero pide los de la otra fuente (fuente); si tampoco (le falta un segmento o una división), dilo en una línea y propónla con pesos a mano con las cifras de la revisión, sin subsectores que la corrección no traiga, igual que las que ya eran a mano o no tienen segmentos (si lleva un subsector nuevo, en el mismo turno primero proponer_cambio_categoria con sus subsectores). Los cambios de nombre que sugiera (Exxon Mobil), sólo si los pide, con proponer_cambio_categoria.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
@@ -4828,7 +4832,7 @@ Deno.serve(async (req) => {
     const historial: Json[] = Array.isArray(entrada.mensajes) ? entrada.mensajes : [];
     if (historial.length === 0) return responder({ error: "No hay mensaje." }, 400);
 
-    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conActivarPredicciones: entrada.con_activar_predicciones === true, conBorrarTodo: entrada.con_borrar_todo === true, conClasificacion: entrada.con_clasificacion === true, conPesos: entrada.con_pesos === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
+    const zona: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360, conHora: entrada.con_hora === true, conListas: entrada.con_listas === true, conInversion: entrada.con_inversion === true, conAltas: entrada.con_altas === true, conPorNombre: entrada.con_por_nombre === true, conMoverANueva: entrada.con_mover_a_nueva === true, conInversionNueva: entrada.con_inversion_nueva === true, conMoverBloque: entrada.con_mover_bloque === true, conRecordatorios: entrada.con_recordatorios === true, conBorrar: entrada.con_borrar === true, conAvisos: entrada.con_avisos === true, conPrioridades: entrada.con_prioridades === true, conOmitir: entrada.con_omitir === true, conNoRecurrente: entrada.con_no_recurrente === true, conActivarPredicciones: entrada.con_activar_predicciones === true, conBorrarTodo: entrada.con_borrar_todo === true, conClasificacion: entrada.con_clasificacion === true, conPesos: entrada.con_pesos === true, conSeguir: entrada.con_seguir === true, avisos: ESTADOS_AVISOS.includes(String(entrada.avisos)) ? String(entrada.avisos) : undefined, recurrentes: limpiarRecurrentes(entrada.recurrentes), plan: limpiarPlan(entrada.plan) };
     const hoy = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
     const nuevos: Json[] = [];
     const propuestas: Json[] = [];
@@ -4860,7 +4864,11 @@ Deno.serve(async (req) => {
     let sinControl = false, sinRazonamientoViejo = false;
     const sinRazonamiento = (m: Json) => m.role !== "assistant" || !Array.isArray(m.content) ? m
       : { ...m, content: m.content.filter((b: Json) => b.type !== "thinking" && b.type !== "redacted_thinking") };
-    for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
+    const inicioChat = Date.now();
+    let continuar = false;
+    for (let vuelta = 0; vuelta < (extras.tandas ? MAX_VUELTAS_TANDAS : MAX_VUELTAS); vuelta++) {
+      // Muchas tarjetas de porcentajes: antes del tiempo máximo de la función, la app pide seguir en otro mensaje
+      if (extras.tandas && zona.conSeguir && Date.now() - inicioChat > SEGUNDOS_TANDAS * 1000) { continuar = true; break; }
       // Haiku 5.5 con esfuerzo medio: con instrucciones largas y muchas herramientas, en bajo se salta
       // pasos, y aun así cuesta poco. Sonnet y Opus en bajo: su razonamiento se cobra caro.
       const p = parametrosBase(modeloChat === HAIKU ? "medium" : "low", modeloChat);
@@ -4913,7 +4921,7 @@ Deno.serve(async (req) => {
       // Pidió los segmentos de unas empresas y terminó sin dejar sus tarjetas (con muchas a la vez se
       // detenía con un "propongo cambios" y nada): se le pide terminarlas, hasta dos veces por mensaje
       const faltan = r.stop_reason === "end_turn" && extras.pesosPendientes?.size ? [...extras.pesosPendientes.values()] : [];
-      if (faltan.length && (extras.empujones ?? 0) < 2 && vuelta < MAX_VUELTAS - 1) {
+      if (faltan.length && (extras.empujones ?? 0) < 2 && vuelta < (extras.tandas ? MAX_VUELTAS_TANDAS : MAX_VUELTAS) - 1) {
         extras.empujones = (extras.empujones ?? 0) + 1;
         nuevos.push({ role: "user", content: [{ type: "text", text: `[Nota de la app: faltan las tarjetas de ${faltan.join(", ")}. Llama ahora proponer_pesos_subsectores con la receta de cada una, todas juntas; si alguna está bien como está, la herramienta te lo dirá. Después contesta.]` }] });
         continue;
@@ -4926,6 +4934,16 @@ Deno.serve(async (req) => {
       const usosPregunta = (r.content as Json[]).filter((b) => b.type === "tool_use" && b.name === "preguntar_al_usuario");
       const limpias = usosPregunta.length === 1 ? limpiarPreguntas(usosPregunta[0].input) : null;
 
+      // Los segmentos de varias empresas se piden a la vez (de 4 en 4): uno por uno, una tanda tardaba un minuto
+      const usosPesos = (r.content as Json[]).filter((b) => b.type === "tool_use" && b.name === "proponer_pesos_subsectores");
+      if (usosPesos.length) extras.tandas = true;
+      const porBajar = usosPesos.filter((b) => !b.input?.pesos).map((b) => {
+        const c = catalogo.categorias.find((k: Json) => String(k.id) === String(b.input?.categoria_id));
+        return c?.ticker ? [String(c.ticker), b.input?.fuente === "sec" || b.input?.fuente === "fmp" ? b.input.fuente : undefined] as [string, string | undefined] : null;
+      }).filter((x): x is [string, string | undefined] => !!x);
+      for (let i = 0; i < porBajar.length; i += 4) {
+        await Promise.all(porBajar.slice(i, i + 4).map(([t, f]) => segmentosEmpresa(sb, t, f).catch(() => null)));
+      }
       const resultados: Json[] = [];
       for (const b of r.content as Json[]) {
         if (b.type !== "tool_use") continue;
@@ -4946,7 +4964,8 @@ Deno.serve(async (req) => {
     // Si se acabaron las vueltas justo después de usar herramientas, el último mensaje es
     // de resultados: se cierra con un texto para que el historial quede completo
     if (nuevos.length && nuevos[nuevos.length - 1].role === "user") {
-      nuevos.push({ role: "assistant", content: [{ type: "text", text: "Me quedé sin pasos para terminar; pregúntame de nuevo para seguir." }] });
+      if (extras.tandas && zona.conSeguir) continuar = true;
+      nuevos.push({ role: "assistant", content: [{ type: "text", text: continuar ? "Sigo con las que faltan…" : "Me quedé sin pasos para terminar; pregúntame de nuevo para seguir." }] });
     }
 
     // La respuesta es el texto del último mensaje. Pero a veces el modelo contesta y, en el mismo
@@ -4959,7 +4978,7 @@ Deno.serve(async (req) => {
     }
     texto = sinVoseo(texto);
     await anotar("asistente", modeloUsado, usos);
-    return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria, listas, ...("plan" in extras ? { plan: extras.plan } : {}) });
+    return responder({ nuevos, texto, propuestas, preguntas, memoria: cambiosMemoria, listas, ...("plan" in extras ? { plan: extras.plan } : {}), ...(continuar ? { continuar: true } : {}) });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
       return responder({ error: "La clave de Anthropic no es válida. Revisa el secreto ANTHROPIC_API_KEY." }, 500);

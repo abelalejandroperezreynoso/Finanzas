@@ -18991,8 +18991,9 @@
 
                             // Manda un mensaje a la IA y agrega a la conversación lo que conteste: texto,
                             // propuestas de cambio y, si las hace, preguntas con opciones.
-                            async function conversarConAsistente(mensaje, alFallar) {
+                            async function conversarConAsistente(mensaje, alFallar, seguidas = 0) {
                                 chatApi.push(mensaje);
+                                let seguir = false;
                                 chatEnviando = true;
                                 controladorChat = new AbortController();
                                 // La burbuja de este mensaje, por si se detiene: se quita y el texto vuelve a la caja
@@ -19004,7 +19005,7 @@
                                     const estadoAvisos = await estadoAvisosTelefono();
                                     const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                         signal: controladorChat.signal,
-                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, con_clasificacion: true, con_pesos: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
+                                        body: { modo: 'chat', mensajes: chatApi, desfase: new Date().getTimezoneOffset(), modelo: modeloAsistente(), con_hora: true, con_listas: true, con_inversion: true, con_altas: true, con_por_nombre: true, con_mover_a_nueva: true, con_inversion_nueva: true, con_mover_bloque: true, con_recordatorios: true, con_borrar: true, con_avisos: true, avisos: estadoAvisos, con_prioridades: true, con_omitir: true, con_no_recurrente: true, con_activar_predicciones: true, con_borrar_todo: true, con_clasificacion: true, con_pesos: true, con_seguir: true, recurrentes: recurrentesParaAsistente(), plan: planIaVigente() }
                                     });
                                     if (error) {
                                         let cuerpo = {};
@@ -19012,6 +19013,7 @@
                                         throw new Error(cuerpo.codigo === 'sin_credito' ? 'sin_credito' : (cuerpo.error || ''));
                                     }
                                     chatApi.push(...(data.nuevos || []));
+                                    seguir = data.continuar === true;
                                     // El plan que armó o actualizó (o null si ya no hace falta)
                                     if ('plan' in data) guardarPlanIa(data.plan);
                                     if (data.texto) chatUi.push({ rol: 'asistente', texto: data.texto });
@@ -19052,6 +19054,11 @@
                                     actualizarBotonEnviarAsistente();
                                     pintarCreditoAsistente();
                                     pintarChatAsistente();
+                                }
+                                // Muchas empresas (todas las correcciones de sectores): la función se detuvo antes de su tiempo
+                                // máximo y pide seguir con las que faltan, sin que el usuario escriba "sigue"
+                                if (seguir && seguidas < 8) {
+                                    await conversarConAsistente({ role: 'user', content: [{ type: 'text', text: '[Nota de la app: sigue con las empresas que faltan, sin preguntar.]' }] }, null, seguidas + 1);
                                 }
                             }
 

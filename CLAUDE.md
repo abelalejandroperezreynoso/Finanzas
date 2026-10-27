@@ -52,6 +52,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   El prompt le pide a la otra IA un bloque que empieza con `CORRECCIONES_SECTORES` y trae sólo las empresas que cambian; el
   usuario lo pega en el chat y el asistente deja las tarjetas (con receta si hay segmentos; a mano lo que no sale de ellos).
   Si el usuario pega la revisión de la otra IA, el asistente deja las tarjetas (recetas con los segmentos; a mano sólo lo que no sale de ellos).
+  Sin límite de empresas: las hace por tandas (los segmentos se bajan de 4 en 4) y, si la función se acerca a su tiempo
+  máximo (`SEGUNDOS_TANDAS`), responde `continuar` y la app (`con_seguir`) le pide seguir sola en otro mensaje.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
