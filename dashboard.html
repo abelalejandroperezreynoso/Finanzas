@@ -280,6 +280,11 @@
         .chat-asistente table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0; }
         .chat-asistente th, .chat-asistente td { text-align: left; padding: 6px 6px; border-bottom: 0.5px solid #e3e1d8; vertical-align: top; }
         .chat-asistente th { font-weight: 600; color: #5e5d59; }
+        /* Bloque de código: texto para copiar tal cual (el listado de sectores) */
+        .chat-asistente .chat-bloque { background: #ffffff; border: 0.5px solid #e3e1d8; border-radius: 16px; margin: 8px 0; overflow: hidden; }
+        .chat-asistente .chat-bloque-copiar { display: block; width: 100%; text-align: right; background: #f4f3ee; border: none; border-bottom: 0.5px solid #e3e1d8;
+            padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 600; color: #2f7d4f; cursor: pointer; }
+        .chat-asistente pre { margin: 0; padding: 10px 14px; font: 13px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: #141413; }
         .chat-memoria { align-self: flex-start; color: #8a8880; font-size: 13px; line-height: 1.4; display: flex; gap: 6px; align-items: flex-start; }
         .chat-asistente { align-self: stretch; color: #141413; font-size: 16px; line-height: 1.65; word-wrap: break-word; }
         .chat-asistente ul { margin: 6px 0; padding-left: 22px; }
@@ -18550,9 +18555,15 @@
                             }
 
                             function textoChatHtml(texto) {
+                                // Bloques de código (```): tal cual, con botón Copiar. Mientras llega, el que no ha cerrado también
+                                const bloques = [];
+                                texto = String(texto || '').replace(/(^|\n)```[^\n]*\n?([\s\S]*?)(?:\n?```[ \t]*(?=\n|$)|$)/g, (todo, inicio, codigo) => {
+                                    bloques.push(`<div class="chat-bloque"><button type="button" class="chat-bloque-copiar" onclick="copiarBloqueChat(this)">Copiar</button><pre>${escaparHtml(codigo)}</pre></div>`);
+                                    return `${inicio}\u0000BLOQUE${bloques.length - 1}\u0000\n`;
+                                });
                                 // Tablas en markdown (| a | b |): se pintan como tabla y no como texto con rayas
                                 const tablas = [];
-                                texto = String(texto || '').replace(/(^|\n)((?:\|.*\|[ \t]*(?:\n|$)){2,})/g, (todo, inicio, bloque) => {
+                                texto = texto.replace(/(^|\n)((?:\|.*\|[ \t]*(?:\n|$)){2,})/g, (todo, inicio, bloque) => {
                                     const filas = bloque.trim().split('\n').map(f => f.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
                                     const separador = filas[1] && filas[1].every(c => /^:?-{2,}:?$/.test(c));
                                     const cuerpo = separador ? filas.slice(2) : filas.slice(1);
@@ -18563,14 +18574,14 @@
                                 const lineas = escaparHtml(texto).split('\n');
                                 let html = '', enLista = false;
                                 lineas.forEach(l => {
-                                    const marca = l.match(/^\u0000TABLA(\d+)\u0000$/);
+                                    const marca = l.match(/^\u0000(TABLA|BLOQUE)(\d+)\u0000$/);
                                     if (marca) {
                                         if (enLista) { html += '</ul>'; enLista = false; }
-                                        // La tabla ya deja su espacio: los renglones vacíos de alrededor sobran
-                                        html = html.replace(/(<br>)+$/, '') + tablas[Number(marca[1])];
+                                        // La tabla (o el bloque) ya deja su espacio: los renglones vacíos de alrededor sobran
+                                        html = html.replace(/(<br>)+$/, '') + (marca[1] === 'TABLA' ? tablas : bloques)[Number(marca[2])];
                                         return;
                                     }
-                                    if (l.trim() === '' && html.endsWith('</table>')) return;
+                                    if (l.trim() === '' && /(<\/table>|<\/div>)$/.test(html)) return;
                                     const conFormato = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^#{1,4}\s+(.*)$/, '<strong>$1</strong>');
                                     const item = conFormato.match(/^\s*[-*•]\s+(.*)$/);
                                     if (item) {
@@ -20375,6 +20386,13 @@
                                     }
                                 });
                                 return partes.join('\n\n');
+                            }
+
+                            async function copiarBloqueChat(boton) {
+                                const pre = boton.parentElement.querySelector('pre');
+                                const ok = pre && await copiarTextoAlPortapapeles(pre.textContent);
+                                boton.textContent = ok ? 'Copiado' : 'No se pudo copiar';
+                                setTimeout(() => { boton.textContent = 'Copiar'; }, 1600);
                             }
 
                             async function copiarConversacionAsistente() {

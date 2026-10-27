@@ -90,3 +90,26 @@ export function pesosVigentes(pesos: Json, divisiones: string[]): boolean {
   return llaves.length === divisiones.length && divisiones.every((d) => llaves.some((k) => igual(k, d)))
     && llaves.every((k) => Number(pesos[k]) >= 0) && llaves.some((k) => Number(pesos[k]) > 0);
 }
+
+// El listado para copiar y pasárselo a otra IA, que lo revisa empresa por empresa:
+//   Google (GOOGL) · ventas 2025
+//   Tecnología - Publicidad 73.4%
+// Los porcentajes son los que usa el mapa: sin porcentajes (o si ya no cuadran), partes iguales.
+export function listadoSectores(empresas: Json[]): string {
+  return empresas.map((c) => {
+    const divisiones = divisionesDe(c);
+    const ps = c?.pesos_subsectores && typeof c.pesos_subsectores === "object" ? c.pesos_subsectores : null;
+    const vigentes = !!ps && !ps.error && pesosVigentes(ps.pesos, divisiones);
+    const pesos: Pesos = vigentes
+      ? Object.fromEntries(divisiones.map((d) => [d, Number(ps.pesos[Object.keys(ps.pesos).find((k) => igual(k, d))!])]))
+      : aCien(Object.fromEntries(divisiones.map((d) => [d, 1])));
+    const fuente = !divisiones.length ? "sin sectores propios"
+      : vigentes ? (ps.origen === "segmentos" ? `ventas ${ps.anio ?? ""}`.trim() + (ps.cobertura ? `, los segmentos cubren ${ps.cobertura}%` : "") : "a mano")
+      : ps?.error ? "no se pudieron calcular, en partes iguales"
+      : ps ? "porcentajes viejos, en partes iguales"
+      : divisiones.length > 1 ? "sin porcentajes, en partes iguales" : "";
+    const titulo = `${limpio(c?.nombre)}${c?.ticker ? ` (${limpio(c.ticker).toUpperCase()})` : ""}${fuente ? ` · ${fuente}` : ""}`;
+    const lineas = Object.keys(pesos).sort((a, b) => pesos[b] - pesos[a]).map((d) => `${d.split(SEPARADOR).join(" - ")} ${pesos[d]}%`);
+    return [titulo, ...lineas].join("\n");
+  }).join("\n\n");
+}

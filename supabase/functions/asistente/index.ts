@@ -19,7 +19,7 @@ import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
 import { segmentosDeXbrl } from "./sec.ts";
-import { aCien, calcularPesos, divisionDe, divisionesDe, pesosVigentes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
+import { aCien, calcularPesos, divisionDe, divisionesDe, listadoSectores, pesosVigentes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
@@ -556,6 +556,13 @@ const HERRAMIENTAS: Json[] = [
       required: ["categoria_ids"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "listado_sectores",
+    description:
+      "El listado de todas sus empresas con sus sectores propios, subsectores y porcentajes, ya escrito para copiarlo y pasárselo a otra IA que lo revise " +
+      "(nombre, ticker, de qué año de ventas salen o si son a mano, y una línea \"Sector - Subsector 80%\" por división). Úsala siempre que pida esa lista o ese listado.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "proponer_pesos_subsectores",
@@ -2568,6 +2575,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         }),
       };
     }
+    case "listado_sectores": {
+      const empresas = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && (c.ticker || (Array.isArray(c.sectores) && c.sectores.length)))
+        .sort((a: Json, b: Json) => String(a.nombre).localeCompare(String(b.nombre), "es"));
+      if (!empresas.length) return { texto: "El usuario no tiene empresas en sus inversiones." };
+      // La misma empresa en dos categorías ("Coca-Cola" y "CocaCola"): la otra IA las revisaría dos veces
+      const porTicker: Record<string, string[]> = {};
+      empresas.filter((c: Json) => c.ticker).forEach((c: Json) => (porTicker[String(c.ticker).trim().toUpperCase()] ??= []).push(c.nombre));
+      const repetidas = Object.entries(porTicker).filter(([, n]) => n.length > 1).map(([t, n]) => `${n.join(" y ")} (${t})`);
+      return {
+        texto: "Contesta sólo con el listado, tal cual, dentro de un bloque de código (``` al principio y al final; la app le pone botón Copiar): sin negritas, viñetas ni cambios. " +
+          "Afuera del bloque, como mucho una línea con lo que haya que arreglar" +
+          (repetidas.length ? `: la misma empresa está en dos categorías: ${repetidas.join("; ")}` : "") + ".\n\n" + listadoSectores(empresas),
+      };
+    }
     case "resumen_inversiones": {
       const cats = catalogo.categorias.filter((c: Json) => c.tipo === "inversion");
       if (!cats.length) return { texto: "El usuario no tiene categorías de inversión." };
@@ -4094,6 +4115,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); hasta 12 por mensaje (si son más, haz las primeras 12 y dile que escriba "sigue"). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
+- Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), llama a listado_sectores y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
 - Metas de ahorro o inversión ("¿cuánto aporto al mes para…?"): parte de lo que ya tiene (para invertir, valor_total_pesos de resumen_inversiones) y divide sólo lo que falta. Después compara el monto mensual con promedio_queda_meses_completos de flujo_mensual (si meses_completos_promediados es 0, no hay ningún mes completo registrado: dilo así, sin inventar cuántos meses lleva; si es 1 o 2, di cuántos). Di si le alcanza; si no, cuánto le falta al mes y un plazo realista con lo que sí le queda.
