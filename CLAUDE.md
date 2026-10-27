@@ -46,6 +46,7 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   porcentajes ("Empresa (TICKER) · año fiscal 2025" y "Sector - Subsector 80%"), para que el usuario lo copie y se lo pase a
   otra IA; el modelo lo pega tal cual en un bloque ``` y el chat le pone botón Copiar. Lo que hay que revisar
   (sin porcentajes, no se pudieron calcular, repetidas) también va ya escrito: el modelo no agrega nada suyo.
+  Antes pregunta si lo quiere con prompt (`con_prompt`: arriba del listado va `PROMPT_REVISION`, qué revisar y cómo leer el formato).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).

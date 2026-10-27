@@ -111,11 +111,18 @@ function estadoPesos(c: Json): { pesos: Pesos; fuente: string; revisar: string |
   return divisiones.length > 1 ? { pesos, fuente: "sin porcentajes, en partes iguales", revisar: "sin porcentajes" } : { pesos, fuente: "", revisar: null };
 }
 
+// Lo que va arriba del listado si lo pide con prompt: qué revisar y cómo leer el formato
+export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una dime si los sectores, subsectores y porcentajes coinciden con sus " +
+  "ventas por segmento del último reporte anual. Si algo está mal o desactualizado, dame la versión corregida en el mismo formato.\n\n" +
+  "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal 2025\" = de sus ventas por segmento " +
+  "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector). Abajo va una línea por subsector: Sector - Subsector y su " +
+  "porcentaje de las ventas. Los sectores y subsectores son míos, no la clasificación GICS.";
+
 // El listado para copiar y pasárselo a otra IA, que lo revisa empresa por empresa:
 //   Google (GOOGL) · año fiscal 2025
 //   Tecnología - Publicidad 73.4%
-export function listadoSectores(empresas: Json[]): string {
-  return empresas.map((c) => {
+export function listadoSectores(empresas: Json[], conPrompt = false): string {
+  return (conPrompt ? PROMPT_REVISION + "\n\n" : "") + empresas.map((c) => {
     const { pesos, fuente } = estadoPesos(c);
     const titulo = `${limpio(c?.nombre)}${c?.ticker ? ` (${limpio(c.ticker).toUpperCase()})` : ""}${fuente ? ` · ${fuente}` : ""}`;
     const lineas = Object.keys(pesos).sort((a, b) => pesos[b] - pesos[a]).map((d) => `${d.split(SEPARADOR).join(" - ")} ${pesos[d]}%`);
