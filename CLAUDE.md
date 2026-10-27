@@ -39,7 +39,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   ventas → "Sector › Subsector"; cálculo puro en `pesos.ts`). Los segmentos salen de FMP y, si su plan no los trae, del
   reporte anual a la SEC en XBRL (`sec.ts`, cálculo puro; EDGAR pide un User-Agent con contacto); cada receta guarda su
   `fuente` y se recalcula con ésa. De la SEC se toman las ventas a clientes externos (sin lo que se venden entre segmentos);
-  si los segmentos de FMP suman más que las ventas, una receta nueva usa los de la SEC. Se avisa si los segmentos cubren menos de 90% de las ventas: los subsectores salen de los segmentos de la
+  si los segmentos de FMP suman más que las ventas, una receta nueva usa los de la SEC. El asistente puede pedir
+  una fuente (`fuente`: fmp o sec) cuando la otra no da lo que se pide (FMP parte UnitedHealth por tipo de ingreso). Se avisa si los segmentos cubren menos de 90% de las ventas: los subsectores salen de los segmentos de la
   empresa (los que falten se crean y los sin ventas se quitan, en la misma tarjeta), o a mano; con receta, el modo `pesos` de la función los
   recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
