@@ -18535,17 +18535,9 @@
                                 pintarCreditoAsistente();
                             }
 
-                            // sinPreguntar: al despedirse ("Es todo, gracias") ya no hay nada que perder
-                            async function nuevaConversacionAsistente(sinPreguntar = false) {
+                            // Sin preguntar: el usuario prefirió que el botón empiece de una vez
+                            function nuevaConversacionAsistente() {
                                 if (chatEnviando) return;
-                                if (chatUi.length && !sinPreguntar) {
-                                    const eleccion = await alertaIos({
-                                        titulo: '¿Empezar una conversación nueva?',
-                                        mensaje: 'La conversación actual se borra.',
-                                        botones: [{ texto: 'Cancelar', estilo: 'cancelar' }, { texto: 'Nueva', estilo: 'destructivo' }]
-                                    });
-                                    if (eleccion !== 1) return;
-                                }
                                 chatApi = [];
                                 chatUi = [];
                                 pendienteEnCurso = false;
@@ -19968,7 +19960,7 @@
                                 // La X sólo quita la tarjeta: la conversación sigue
                                 if (accion === 'cerrar') return pintarChatAsistente('quieto');
                                 // "Es todo, gracias": la próxima vez empieza de cero
-                                nuevaConversacionAsistente(true);
+                                nuevaConversacionAsistente();
                             }
                             function tarjetaContinuarHtml() {
                                 const n = avisosMostrados.length;
