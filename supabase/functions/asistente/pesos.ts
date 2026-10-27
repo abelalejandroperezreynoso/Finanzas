@@ -120,6 +120,9 @@ export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una
   "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal 2025\" = de sus ventas por segmento " +
   "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector). Abajo va una línea por subsector: Sector - Subsector y su " +
   "porcentaje de las ventas. Los sectores y subsectores son míos, no la clasificación GICS.\n\n" +
+  "Además de los porcentajes, revisa mis nombres de sectores y subsectores: si dos subsectores son lo mismo, únelos con un solo nombre; " +
+  "si uno agrupa negocios distintos, sepáralo; y si un nombre no describe bien lo que contiene, cámbialo. No cambies nombres sólo por " +
+  "estilo. Explica cada cambio de nombre en una línea, fuera del bloque, e incluye en el bloque todas las empresas afectadas.\n\n" +
   `Al final, en un solo bloque de código, dame las correcciones para pegarlas en mi app: la primera línea dice "${CORRECCIONES_SECTORES}" ` +
   "y luego sólo las empresas que cambian, completas y en el mismo formato (nombre y ticker, y una línea por subsector con su porcentaje), " +
   "con los nombres de sector y subsector que ya uso cuando sirvan. Sin explicaciones dentro del bloque.";
