@@ -48,6 +48,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   otra IA; el modelo lo pega tal cual en un bloque ``` y el chat le pone botón Copiar. Lo que hay que revisar
   (sin porcentajes, no se pudieron calcular, repetidas) también va ya escrito: el modelo no agrega nada suyo.
   Antes pregunta si lo quiere con prompt (`con_prompt`: arriba del listado va `PROMPT_REVISION`, qué revisar y cómo leer el formato).
+  El prompt le pide a la otra IA un bloque que empieza con `CORRECCIONES_SECTORES` y trae sólo las empresas que cambian; el
+  usuario lo pega en el chat y el asistente deja las tarjetas (con receta si hay segmentos; a mano lo que no sale de ellos).
   Si el usuario pega la revisión de la otra IA, el asistente deja las tarjetas (recetas con los segmentos; a mano sólo lo que no sale de ellos).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una

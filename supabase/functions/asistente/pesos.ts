@@ -112,11 +112,17 @@ function estadoPesos(c: Json): { pesos: Pesos; fuente: string; revisar: string |
 }
 
 // Lo que va arriba del listado si lo pide con prompt: qué revisar y cómo leer el formato
+// La respuesta de la otra IA trae un bloque con la primera línea de CORRECCIONES_SECTORES: el usuario lo pega en el chat
+// y el asistente deja las tarjetas
+export const CORRECCIONES_SECTORES = "Correcciones del listado de sectores";
 export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una dime si los sectores, subsectores y porcentajes coinciden con sus " +
-  "ventas por segmento del último reporte anual. Si algo está mal o desactualizado, dame la versión corregida en el mismo formato.\n\n" +
+  "ventas por segmento del último reporte anual. Si algo está mal o desactualizado, explícame por qué en una o dos líneas.\n\n" +
   "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal 2025\" = de sus ventas por segmento " +
   "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector). Abajo va una línea por subsector: Sector - Subsector y su " +
-  "porcentaje de las ventas. Los sectores y subsectores son míos, no la clasificación GICS.";
+  "porcentaje de las ventas. Los sectores y subsectores son míos, no la clasificación GICS.\n\n" +
+  `Al final, en un solo bloque de código, dame las correcciones para pegarlas en mi app: la primera línea dice "${CORRECCIONES_SECTORES}" ` +
+  "y luego sólo las empresas que cambian, completas y en el mismo formato (nombre y ticker, y una línea por subsector con su porcentaje), " +
+  "con los nombres de sector y subsector que ya uso cuando sirvan. Sin explicaciones dentro del bloque.";
 
 // El listado para copiar y pasárselo a otra IA, que lo revisa empresa por empresa:
 //   Google (GOOGL) · año fiscal 2025
