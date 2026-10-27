@@ -38,7 +38,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   `categorias.pesos_subsectores` usa los suyos. Los propone `proponer_pesos_subsectores` con una receta (segmento de
   ventas → "Sector › Subsector"; cálculo puro en `pesos.ts`). Los segmentos salen de FMP y, si su plan no los trae, del
   reporte anual a la SEC en XBRL (`sec.ts`, cálculo puro; EDGAR pide un User-Agent con contacto); cada receta guarda su
-  `fuente` y se recalcula con ésa. Se avisa si los segmentos cubren menos de 90% de las ventas: los subsectores salen de los segmentos de la
+  `fuente` y se recalcula con ésa. De la SEC se toman las ventas a clientes externos (sin lo que se venden entre segmentos);
+  si los segmentos de FMP suman más que las ventas, una receta nueva usa los de la SEC. Se avisa si los segmentos cubren menos de 90% de las ventas: los subsectores salen de los segmentos de la
   empresa (los que falten se crean y los sin ventas se quitan, en la misma tarjeta), o a mano; con receta, el modo `pesos` de la función los
   recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
@@ -47,6 +48,7 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   otra IA; el modelo lo pega tal cual en un bloque ``` y el chat le pone botón Copiar. Lo que hay que revisar
   (sin porcentajes, no se pudieron calcular, repetidas) también va ya escrito: el modelo no agrega nada suyo.
   Antes pregunta si lo quiere con prompt (`con_prompt`: arriba del listado va `PROMPT_REVISION`, qué revisar y cómo leer el formato).
+  Si el usuario pega la revisión de la otra IA, el asistente deja las tarjetas (recetas con los segmentos; a mano sólo lo que no sale de ellos).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).

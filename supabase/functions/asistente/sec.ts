@@ -22,6 +22,12 @@ const NEUTROS: Record<string, RegExp> = {
   "srt:ConsolidationItemsAxis": /OperatingSegmentsMember$/,
   "srt:ConsolidatedEntitiesAxis": /./,
 };
+// Ventas a clientes externos: la cifra buena del segmento, sin lo que le vende a otros segmentos (Caterpillar
+// reportaba Power & Energy con $5 mil millones de ventas a sus otras divisiones). Marcan la cifra, no un negocio
+const EXTERNAS: Record<string, RegExp> = {
+  "srt:ConsolidationItemsAxis": /OperatingSegmentsExcludingIntersegmentEliminationMember$/,
+  "srt:MajorCustomersAxis": /ExternalCustomersMember$/,
+};
 // Ejes por región o por clase de cliente: no son negocios
 const DESCARTADOS = /Geograph|CountryAxis|MajorCustomers|ConcentrationRisk|TimingOfTransfer|ContractWithCustomerSalesChannel|RangeAxis|LegalEntityAxis|ScenarioAxis|RestatementAxis|RetirementPlan|ProductInformationAxis/;
 // Miembros genéricos (bien o servicio) que no dicen qué vende
@@ -59,8 +65,8 @@ function sinSubtotales(partes: [string, number][], total: number): [string, numb
         if (Math.abs(s - v) <= Math.max(1, v * 0.0005)) { lista = lista.filter((_, j) => j !== i); quitado = true; }
       }
     }
-    // Sin más subtotales: los segmentos pueden sumar algo más que las ventas por las ventas entre ellos
-    // (Caterpillar: 110%); eso se acepta, porque los porcentajes se sacan sobre su propia suma
+    // Sin más subtotales: los segmentos pueden sumar algo más que las ventas por las ventas entre ellos (si la
+    // empresa no las separa); eso se acepta, porque los porcentajes se sacan sobre su propia suma
     if (!quitado) return suma() <= total * 1.2 ? lista : null;
   }
   return lista;
@@ -95,14 +101,18 @@ export function segmentosDeXbrl(xml: string): SegmentosSec | null {
   const total = Math.max(...anuales.filter((h) => contextos.get(h.ctx)!.e === cierre).map((h) => h.v));
   if (!(total > 0)) return null;
 
-  // Las ventas de ese año por cada combinación de ejes (sin los neutros); una cifra por miembro, del mejor concepto
-  const porCombinacion = new Map<string, Map<string, Map<string, number>>>();
+  // Las ventas de ese año por cada combinación de ejes (sin los neutros); una cifra por miembro, del mejor concepto.
+  // Si el mismo segmento trae varias cifras, manda la de clientes externos, luego la que no dice nada y al final la de
+  // "segmentos operativos", que puede traer las ventas entre segmentos
+  const porCombinacion = new Map<string, Map<string, Map<string, { v: number; r: number }>>>();
   // Las partes con un miembro genérico ("Service", "Product"): sirven, pero se prefiere otra forma
   const genericas = new Set<string>();
   for (const h of hechos) {
     const k = contextos.get(h.ctx)!;
     if (k.e !== cierre || k.s !== inicio || k.tipado || !k.dims.length) continue;
-    const dims = k.dims.filter(([eje, m]) => !(NEUTROS[eje] && NEUTROS[eje].test(m)));
+    const externa = k.dims.some(([eje, m]) => EXTERNAS[eje]?.test(m));
+    const rango = externa ? 2 : k.dims.some(([eje]) => eje === "srt:ConsolidationItemsAxis") ? 0 : 1;
+    const dims = k.dims.filter(([eje, m]) => !(NEUTROS[eje] && NEUTROS[eje].test(m)) && !EXTERNAS[eje]?.test(m));
     if (!dims.length || dims.some(([eje]) => DESCARTADOS.test(eje))) continue;
     const orden = (eje: string) => { const i = ORDEN_EJES.indexOf(eje); return i < 0 ? 99 : i; };
     dims.sort((a, b) => orden(a[0]) - orden(b[0]));
@@ -112,11 +122,11 @@ export function segmentosDeXbrl(xml: string): SegmentosSec | null {
     if (dims.some(([, m]) => GENERICOS.test(m))) genericas.add(nombre);
     const delCombo = porCombinacion.get(combinacion) ?? new Map();
     const porConcepto = delCombo.get(nombre) ?? new Map();
-    porConcepto.set(h.c, h.v);
+    if ((porConcepto.get(h.c)?.r ?? -1) <= rango) porConcepto.set(h.c, { v: h.v, r: rango });
     delCombo.set(nombre, porConcepto);
     porCombinacion.set(combinacion, delCombo);
   }
-  const elegir = (m: Map<string, number>) => { for (const c of CONCEPTOS) if (m.has(c)) return m.get(c)!; return 0; };
+  const elegir = (m: Map<string, { v: number }>) => { for (const c of CONCEPTOS) if (m.has(c)) return m.get(c)!.v; return 0; };
   const candidatas: [string, number][][] = [];
   for (const [combinacion, miembros] of porCombinacion) {
     let partes: [string, number][] = [...miembros].map(([n, m]) => [n, elegir(m)] as [string, number]).filter(([, v]) => v > 0);
