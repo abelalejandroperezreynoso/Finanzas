@@ -2603,11 +2603,12 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         ...Object.entries(porTicker).filter(([, n]) => n.length > 1).map(([t, n]) => `${n.join(" y ")}: repetida (${t})`),
         ...revisarListado(empresas),
       ];
-      // La línea de afuera va ya escrita: la IA inventaba pendientes (Apple "sin porcentajes" con los de sus ventas)
+      // La línea de afuera va ya escrita: la IA inventaba pendientes (Apple "sin porcentajes" con los de sus ventas).
+      // El bloque también: sin cercas, la IA metía esta instrucción dentro y la otra IA la leía como parte del prompt
       return {
-        texto: "Contesta sólo con el listado, tal cual, dentro de un bloque de código (``` al principio y al final; la app le pone botón Copiar): sin negritas, viñetas ni cambios. " +
-          (revisar.length ? `Afuera del bloque, después, sólo esta línea, tal cual: "Por revisar: ${revisar.join("; ")}."` : "Afuera del bloque no escribas nada: no hay nada que arreglar.") +
-          "\n\n" + listadoSectores(empresas, entrada.con_prompt === true),
+        texto: "Tu respuesta es exactamente el bloque de abajo, de ``` a ```, copiado tal cual (la app le pone botón Copiar)" +
+          (revisar.length ? `, y después del bloque esta línea, tal cual: "Por revisar: ${revisar.join("; ")}."` : "; nada antes ni después.") +
+          " Esta instrucción no va en tu respuesta.\n\n```\n" + listadoSectores(empresas, entrada.con_prompt === true) + "\n```",
       };
     }
     case "resumen_inversiones": {
