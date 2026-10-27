@@ -19,7 +19,7 @@ import { resumenOrden, revisarOrden } from "./orden.ts";
 import { COLUMNAS_ANUAL, loQueVa, resumenAnual, resumenSegmentos } from "./empresa.ts";
 import { respuestaRecuperarControl } from "./control.ts";
 import { segmentosDeXbrl } from "./sec.ts";
-import { aCien, calcularPesos, divisionDe, divisionesDe, listadoSectores, pesosVigentes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
+import { aCien, calcularPesos, divisionDe, divisionesDe, listadoSectores, pesosVigentes, revisarListado, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
@@ -2579,14 +2579,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const empresas = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && (c.ticker || (Array.isArray(c.sectores) && c.sectores.length)))
         .sort((a: Json, b: Json) => String(a.nombre).localeCompare(String(b.nombre), "es"));
       if (!empresas.length) return { texto: "El usuario no tiene empresas en sus inversiones." };
-      // La misma empresa en dos categorías ("Coca-Cola" y "CocaCola"): la otra IA las revisaría dos veces
+      // La misma empresa (mismo ticker) en dos categorías: la otra IA la revisaría dos veces
       const porTicker: Record<string, string[]> = {};
       empresas.filter((c: Json) => c.ticker).forEach((c: Json) => (porTicker[String(c.ticker).trim().toUpperCase()] ??= []).push(c.nombre));
-      const repetidas = Object.entries(porTicker).filter(([, n]) => n.length > 1).map(([t, n]) => `${n.join(" y ")} (${t})`);
+      const revisar = [
+        ...Object.entries(porTicker).filter(([, n]) => n.length > 1).map(([t, n]) => `${n.join(" y ")}: repetida (${t})`),
+        ...revisarListado(empresas),
+      ];
+      // La línea de afuera va ya escrita: la IA inventaba pendientes (Apple "sin porcentajes" con los de sus ventas)
       return {
         texto: "Contesta sólo con el listado, tal cual, dentro de un bloque de código (``` al principio y al final; la app le pone botón Copiar): sin negritas, viñetas ni cambios. " +
-          "Afuera del bloque, como mucho una línea con lo que haya que arreglar" +
-          (repetidas.length ? `: la misma empresa está en dos categorías: ${repetidas.join("; ")}` : "") + ".\n\n" + listadoSectores(empresas),
+          (revisar.length ? `Afuera del bloque, después, sólo esta línea, tal cual: "Por revisar: ${revisar.join("; ")}."` : "Afuera del bloque no escribas nada: no hay nada que arreglar.") +
+          "\n\n" + listadoSectores(empresas),
       };
     }
     case "resumen_inversiones": {

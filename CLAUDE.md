@@ -43,8 +43,9 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   recalcula con cada año fiscal (la app lo llama al abrir, una vez al día) y la app avisa lo que no se pudo calcular. La lista de `gics.ts` está copiada en
   `dashboard.html` (`GICS_SECTORES`): si cambia una, cambia la otra.
   `listado_sectores` (cálculo puro en `pesos.ts`) arma ya escrito el listado de empresas con sectores, subsectores y
-  porcentajes ("Empresa (TICKER) · ventas 2025" y "Sector - Subsector 80%"), para que el usuario lo copie y se lo pase a
-  otra IA; el modelo lo pega tal cual en un bloque ``` y el chat le pone botón Copiar.
+  porcentajes ("Empresa (TICKER) · año fiscal 2025" y "Sector - Subsector 80%"), para que el usuario lo copie y se lo pase a
+  otra IA; el modelo lo pega tal cual en un bloque ``` y el chat le pone botón Copiar. Lo que hay que revisar
+  (sin porcentajes, no se pudieron calcular, repetidas) también va ya escrito: el modelo no agrega nada suyo.
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
