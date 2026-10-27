@@ -10876,6 +10876,7 @@
                                     btnGuardar.disabled = true;
 
                                             const esEdicion = !!editIdCat;
+                                            const nombreAntes = esEdicion ? ((datosCategorias || []).find(c => String(c.id) === String(editIdCat)) || {}).nombre : null;
                                             const escribir = (cuerpo) => editIdCat
                                                 ? clienteSupabase.from('categorias').update(cuerpo).eq('id', editIdCat).select('*, cuentas(nombre)')
                                                 : clienteSupabase.from('categorias').insert([cuerpo]).select('*, cuentas(nombre)');
@@ -10951,6 +10952,7 @@
                                                 alert(explicarFalloAlGuardar(res.error, 'la categoría'));
                                             } else {
                                                                 const nuevaCat = (res.data && res.data[0]) ? res.data[0] : null;
+                                                                if (nombreAntes && nombreAntes !== nombre) renombrarEnMemoria(nombreAntes, nombre);
                                                                 const contextoRegistro = contextoCatDesdeRegistro;
                                                                 contextoCatDesdeRegistro = null;
 
@@ -21214,6 +21216,7 @@
                                     }
                                 } else if (p.tipo === 'cambio_categoria') {
                                     res = await clienteSupabase.from('categorias').update(p.cambios).eq('id', p.categoria_id);
+                                    if (!res.error && p.cambios.nombre && p.antes && p.antes.nombre) renombrarEnMemoria(p.antes.nombre, p.cambios.nombre);
                                     // Pasar a Salud: cada movimiento guarda su monto como cantidad y queda en 0 pesos.
                                     // Se agrupa por monto para hacerlo con pocas escrituras.
                                     if (!res.error && p.convertir_a_salud) {
@@ -21658,6 +21661,20 @@
                                     return e && e.message ? e.message : 'No se pudieron cambiar los avisos.';
                                 } finally {
                                     pintarAvisosPagos();
+                                }
+                            }
+
+                            // La memoria del asistente nombra las categorías ("Café de unos $12 va en Oxxo"): si una cambia de
+                            // nombre, sus notas cambian con ella, o la próxima vez buscaría una categoría que ya no existe
+                            async function renombrarEnMemoria(viejo, nuevo) {
+                                viejo = String(viejo || '').trim(); nuevo = String(nuevo || '').trim();
+                                if (!viejo || !nuevo || viejo === nuevo || !clienteSupabase || !currentUser) return;
+                                const palabra = new RegExp(`(^|[^\\p{L}\\p{N}])${viejo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}])`, 'giu');
+                                const { data, error } = await clienteSupabase.from('memoria_ia').select('id, nota').ilike('nota', `%${viejo.replace(/[%_\\]/g, '\\$&')}%`);
+                                if (error) return;
+                                for (const n of data || []) {
+                                    const nota = String(n.nota).replace(palabra, (todo, antes) => antes + nuevo);
+                                    if (nota !== n.nota) await clienteSupabase.from('memoria_ia').update({ nota }).eq('id', n.id);
                                 }
                             }
 

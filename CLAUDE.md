@@ -139,7 +139,8 @@ Reglas para el SQL:
 - Excepción: su memoria (`memoria_ia`, notas sobre el usuario) la guarda y corrige
   sola, sin confirmar; no puede borrarla. El usuario la ve y borra en Configuración. La app
   también anota ahí cuando el usuario cancela la propuesta de un hábito de Salud, para que no se
-  vuelva a proponer.
+  vuelva a proponer. Si una categoría cambia de nombre (a mano o con una tarjeta), la app cambia ese nombre en las notas
+  (`renombrarEnMemoria`), para que reglas como "Café de unos $12 va en Oxxo" sigan sirviendo.
 - La revisión diaria corre una vez por usuario y día (`revisiones_ia`); sus
   hallazgos quedan en `hallazgos_ia` con lo que hizo el usuario (atendido o
   descartado) para darles seguimiento.
