@@ -11444,11 +11444,18 @@
                                         return `${p.dia} de ${p.mes} ${p.anio}`;
                                     };
 
+                                    // Contando hacia atrás desde hoy, el "mes" empieza en el anterior (28 sep ➔ 28 oct): su
+                                    // nombre sería el del mes pasado. Hoy dice "Últimos 30 días"; con ◀ ▶, las fechas
+                                    const ULTIMOS = { semana: 'Últimos 7 días', mes: 'Últimos 30 días', trimestre: 'Últimos 3 meses', semestre: 'Últimos 6 meses', año: 'Últimos 12 meses' };
+                                    const desdeHoy = !!document.getElementById('checkDesdeHoy')?.checked && tipoFiltroActual in ULTIMOS;
+
                                     let textoFiltro = 'Todo el tiempo';
-                                    if (tipoFiltroActual === 'mes' && inicio) {
+                                    if (desdeHoy && offsetFiltroActual === 0 && inicio && fin) {
+                                        textoFiltro = ULTIMOS[tipoFiltroActual];
+                                    } else if (tipoFiltroActual === 'mes' && inicio && !desdeHoy) {
                                         const p = obtenerPartes(inicio);
                                         textoFiltro = `${p.mes} ${p.anio}`;
-                                    } else if (tipoFiltroActual === 'año' && inicio) {
+                                    } else if (tipoFiltroActual === 'año' && inicio && !desdeHoy) {
                                         const p = obtenerPartes(inicio);
                                         textoFiltro = p.anio.toString();
                                     } else if (inicio && fin && inicio === fin) {
