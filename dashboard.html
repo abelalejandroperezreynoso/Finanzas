@@ -1204,7 +1204,7 @@
                             display: flex;
                             flex-wrap: wrap;
                             gap: 6px 14px;
-                            padding: 10px 1rem 2px 1rem;
+                            padding: 10px 0 2px 0;
                             font-size: 0.78em;
                             color: #ffffff;
                         }
@@ -2242,16 +2242,16 @@
     <div id="caraTendencia">
     <!-- Las dos gráficas llevan touch-action: none: arrastrar uno o dos dedos encima recorre los días
          o marca un tramo, y no mueve la página -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0;">
     <h3 id="tituloTendencia" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left;">Tendencia de Balance</h3>
     <span id="balanceAlCierreDinamico" style="font-size: 0.9em; font-weight: bold; color: #4dd763; text-align: right; flex: 1;"></span>
     </div>
 
-    <div class="contenedor-grafico" style="position: relative; height: 140px !important; min-height: 140px !important; max-height: 140px !important; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
+    <div class="contenedor-grafico" style="position: relative; height: 140px !important; min-height: 140px !important; max-height: 140px !important; padding: 0; margin: 0; width: 100%; box-sizing: border-box;">
     <canvas id="graficoResumen" style="width: 100% !important; height: 100% !important; display: block; touch-action: none;"></canvas>
     </div>
 
-    <div id="detallesGrafico" style="padding: 12px 1rem 5px 1rem; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;">
+    <div id="detallesGrafico" style="padding: 12px 0 5px 0; font-size: 0.85em; color: #ccc; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;">
 
             </div>
             </div>
@@ -2265,12 +2265,12 @@
          que dentro de una cuenta, de un sector o de una empresa la curva es la de eso mismo. Por eso
          no lleva sus propios botones: los del mapa mandan sobre las dos. -->
     <div id="caraCurvaInversiones" style="display: none;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0 1rem; gap: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding: 0; gap: 10px;">
     <h3 id="tituloCurvaPrincipal" style="font-size: 0.9em; color: #ffffff; margin: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Lo que sale sin pérdida</h3>
     <span id="cifraCurvaPrincipal" style="font-size: 0.9em; font-weight: bold; color: #4dd763; text-align: right; white-space: nowrap;"></span>
     </div>
 
-    <div id="cajaCurvaPrincipal" style="position: relative; height: 140px; padding: 0 1rem; margin: 0; width: 100%; box-sizing: border-box;">
+    <div id="cajaCurvaPrincipal" style="position: relative; height: 140px; padding: 0; margin: 0; width: 100%; box-sizing: border-box;">
     <canvas id="graficoCurvaPrincipal" style="width: 100% !important; height: 100% !important; display: block; touch-action: none;"></canvas>
     </div>
 
@@ -2278,7 +2278,7 @@
          lleva en el momento que se lee. -->
     <div id="leyendaCurvaPrincipal" class="leyenda-comparacion" style="display: none;"></div>
 
-    <div id="pieCurvaPrincipal" style="padding: 12px 1rem 5px 1rem; font-size: 0.8em; color: #888; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;"></div>
+    <div id="pieCurvaPrincipal" style="padding: 12px 0 5px 0; font-size: 0.8em; color: #888; border-top: 1px solid #333; margin-top: 10px; line-height: 1.5;"></div>
     </div>
     </div>
 
