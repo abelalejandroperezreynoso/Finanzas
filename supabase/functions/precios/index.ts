@@ -14,6 +14,10 @@
 //   { dia: "2026-10-15", tickers: ["AAPL"], tipo_cambio: true }
 //   → { intradia: { AAPL: { t: [1792071000, …], c: [346.89, …], anterior: 342.96 } }, usdmxn: { t, c, anterior } }
 // (t en segundos). Yahoo guarda unos 60 días de datos cada 5 minutos.
+//
+// Con desde y hasta, lo mismo para varios días, cada 30 minutos o cada hora (las curvas de 7 y 30 días):
+//   { desde: "2026-10-23", hasta: "2026-10-29", intervalo: "30m", tickers: ["AAPL"], tipo_cambio: true }
+// Yahoo guarda unos 60 días cada 30 minutos y unos 2 años cada hora.
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -66,12 +70,13 @@ async function pedirYahoo(simbolo: string, consulta: string): Promise<Json | nul
   return null;
 }
 
-// Cómo se movió un símbolo un día, cada 5 minutos. Los huecos (minutos sin operaciones) se saltan.
-// "anterior" es su cierre del día hábil anterior, también de Yahoo: la vista Hoy mide contra él.
-async function intradiaYahoo(simbolo: string, dia: string): Promise<{ t: number[]; c: number[]; anterior?: number } | null> {
+// Cómo se movió un símbolo de un día a otro (o uno solo), cada 5 minutos o lo que diga el intervalo.
+// Los huecos (minutos sin operaciones) se saltan. "anterior" es su cierre del día hábil anterior al
+// primero, también de Yahoo: la vista Hoy mide contra él.
+async function intradiaYahoo(simbolo: string, dia: string, hastaDia = dia, intervalo = "5m"): Promise<{ t: number[]; c: number[]; anterior?: number } | null> {
   const desde = Math.floor(Date.parse(`${dia}T00:00:00Z`) / 1000);
-  const hasta = desde + 30 * 3600;
-  const r = await pedirYahoo(simbolo, `period1=${desde}&period2=${hasta}&interval=5m`);
+  const hasta = Math.floor(Date.parse(`${hastaDia}T00:00:00Z`) / 1000) + 30 * 3600;
+  const r = await pedirYahoo(simbolo, `period1=${desde}&period2=${hasta}&interval=${intervalo}`);
   const tiempos: number[] = r?.timestamp ?? [];
   const cierres: (number | null)[] = r?.indicators?.quote?.[0]?.close ?? [];
   const t: number[] = [], c: number[] = [];
@@ -82,6 +87,9 @@ async function intradiaYahoo(simbolo: string, dia: string): Promise<{ t: number[
   const anterior = Number(r?.meta?.chartPreviousClose);
   return t.length ? { t, c, ...(anterior > 0 && Number.isFinite(anterior) ? { anterior } : {}) } : null;
 }
+const INTERVALOS_RANGO = ["30m", "60m"];
+const MAXIMO_DIAS_RANGO = 45;
+
 // Los tickers como los escribe la app y como los entiende Yahoo: letras, números, punto y guion (BRK-B)
 const TICKER_VALIDO = /^[A-Z0-9][A-Z0-9.\-]{0,14}$/;
 
@@ -112,6 +120,21 @@ Deno.serve(async (req) => {
     const [series, tc] = await Promise.all([
       enTandas(tickers, async (t) => [t, await intradiaYahoo(t, dia)] as const),
       entrada?.tipo_cambio ? intradiaYahoo("MXN=X", dia) : Promise.resolve(null),
+    ]);
+    return responder({
+      intradia: Object.fromEntries(series.filter(([, x]) => x !== null)),
+      ...(tc ? { usdmxn: tc } : {}),
+    });
+  }
+
+  const desde = String(entrada?.desde ?? ""), hasta = String(entrada?.hasta ?? "");
+  const intervalo = String(entrada?.intervalo ?? "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(desde) && /^\d{4}-\d{2}-\d{2}$/.test(hasta) && INTERVALOS_RANGO.includes(intervalo)) {
+    const dias = (Date.parse(hasta) - Date.parse(desde)) / 86400000;
+    if (!(dias >= 0 && dias <= MAXIMO_DIAS_RANGO)) return responder({ error: "Rango inválido" }, 400);
+    const [series, tc] = await Promise.all([
+      enTandas(tickers, async (t) => [t, await intradiaYahoo(t, desde, hasta, intervalo)] as const),
+      entrada?.tipo_cambio ? intradiaYahoo("MXN=X", desde, hasta, intervalo) : Promise.resolve(null),
     ]);
     return responder({
       intradia: Object.fromEntries(series.filter(([, x]) => x !== null)),

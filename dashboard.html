@@ -5305,7 +5305,7 @@
                                     // función "precios") y, si es hoy, una muestra por minuto de los precios en vivo y el
                                     // punto de ahora. Lo que se dibuja es cuánto cambió contra el cierre del día anterior,
                                     // así el cero es esa raya punteada, como en la app Bolsa.
-                                    const intradia = { porDia: {}, pidiendo: {}, muestras: [], calculos: new Map(), refs: null };
+                                    const intradia = { porDia: {}, pidiendo: {}, muestras: [], calculos: new WeakMap(), refs: null };
                                     const MUESTRA_INTRADIA_MS = 60000;
 
                                     // Cada minuto con precios en vivo, una foto de los precios para la vista Hoy
@@ -5345,31 +5345,178 @@
                                     function serieIntradia(ambito, dia, ahora) {
                                         const datos = intradia.porDia[dia];
                                         if (!datos) { pedirIntradia(dia); return null; }
-                                        const esHoy = dia === diaISO(new Date());
+                                        return serieDeMomentos(ambito, datos, dia, dia, ahora);
+                                    }
+
+                                    // ---- 7 días o un mes: también momento a momento ----
+                                    // Con un cierre por día, 7 días eran 7 puntos y la línea no decía cómo se movió
+                                    // cada uno. Como en la app Bolsa: hasta 10 días, un punto cada 30 minutos; hasta 35,
+                                    // cada hora; más largo, por cierres. Sólo hay puntos con la bolsa abierta: las
+                                    // noches y los fines de semana se saltan. Lo de los días que ya pasaron no cambia,
+                                    // así que se guarda en el teléfono por empresa y día y sólo se vuelve a pedir hoy.
+                                    const CLAVE_RANGO_INTRADIA = 'intradiaRango';
+                                    const FRESCO_RANGO_MS = 10 * 60 * 1000;
+                                    const DIAS_GUARDADOS_RANGO = 120;
+                                    const SIMBOLO_TC_RANGO = 'MXN=X';
+                                    const rangoIntradia = {
+                                        // { intervalo: { símbolo: { día: { t, c, a (cierre anterior), en (cuándo se pidió), falla } } } }
+                                        porSimbolo: (() => { try { return JSON.parse(localStorage.getItem(CLAVE_RANGO_INTRADIA)) || {}; } catch (e) { return {}; } })(),
+                                        pidiendo: {}, fallas: {}, armado: null, version: 0
+                                    };
+
+                                    // Yahoo guarda unos 60 días cada 30 minutos y unos 2 años cada hora
+                                    function intervaloDelRango(desde, hasta) {
+                                        if (!desde || !hasta || desde >= hasta) return null;
+                                        const dias = Math.round((Date.parse(`${hasta}T12:00:00`) - Date.parse(`${desde}T12:00:00`)) / 86400000) + 1;
+                                        const atras = Math.round((Date.now() - Date.parse(`${desde}T12:00:00`)) / 86400000);
+                                        if (dias > 35 || atras > 700) return null;
+                                        return dias <= 10 && atras <= 55 ? '30m' : '60m';
+                                    }
+
+                                    function diasEntre(desde, hasta) {
+                                        const lista = [];
+                                        const d = new Date(`${desde}T12:00:00`);
+                                        while (diaISO(d) <= hasta) { lista.push(diaISO(d)); d.setDate(d.getDate() + 1); }
+                                        return lista;
+                                    }
+
+                                    // Un día ya pasado y pedido después de que terminó no cambia; lo demás sirve 10 minutos
+                                    function frescoRango(e, dia) {
+                                        return !!e && (Date.now() - e.en < FRESCO_RANGO_MS || (!e.falla && diaISO(new Date(e.en)) > dia));
+                                    }
+
+                                    // Pide lo que le falta a cada símbolo, desde su primer día sin datos frescos.
+                                    // Normalmente es sólo hoy, para todos en una sola llamada.
+                                    function pedirRango(intervalo, simbolos, dias) {
+                                        const deI = rangoIntradia.porSimbolo[intervalo] || {};
+                                        const grupos = {};
+                                        simbolos.forEach(s => {
+                                            const primero = dias.find(d => !frescoRango((deI[s] || {})[d], d));
+                                            if (primero) (grupos[primero] = grupos[primero] || []).push(s);
+                                        });
+                                        const hasta = dias[dias.length - 1];
+                                        Object.keys(grupos).forEach(desde => {
+                                            const sims = grupos[desde];
+                                            const llave = `${intervalo}|${desde}|${hasta}|${sims.join(',')}`;
+                                            if (rangoIntradia.pidiendo[llave] || Date.now() - (rangoIntradia.fallas[llave] || 0) < FRESCO_RANGO_MS) return;
+                                            const tickers = sims.filter(s => s !== SIMBOLO_TC_RANGO);
+                                            rangoIntradia.pidiendo[llave] = clienteSupabase.functions.invoke('precios', {
+                                                body: { desde, hasta, intervalo, tickers, tipo_cambio: sims.includes(SIMBOLO_TC_RANGO) }
+                                            })
+                                                .then(({ data, error }) => {
+                                                    if (error || !data || !data.intradia) { rangoIntradia.fallas[llave] = Date.now(); return; }
+                                                    guardarRango(intervalo, sims, diasEntre(desde, hasta), data);
+                                                })
+                                                .catch(() => { rangoIntradia.fallas[llave] = Date.now(); })
+                                                .finally(() => { delete rangoIntradia.pidiendo[llave]; refrescarCurvaInversiones(); });
+                                        });
+                                    }
+
+                                    // Lo que llegó, partido por día. Un símbolo que no vino queda como falla: se
+                                    // dibuja sin él (con sus cierres) y se vuelve a pedir en un rato.
+                                    function guardarRango(intervalo, sims, dias, data) {
+                                        const en = Date.now();
+                                        const deI = rangoIntradia.porSimbolo[intervalo] = rangoIntradia.porSimbolo[intervalo] || {};
+                                        sims.forEach(s => {
+                                            const x = s === SIMBOLO_TC_RANGO ? data.usdmxn : data.intradia[s];
+                                            const t = (x && x.t) || [], c = (x && x.c) || [];
+                                            const deS = deI[s] = deI[s] || {};
+                                            let previo = x && x.anterior > 0 ? x.anterior : null, k = 0;
+                                            dias.forEach(d => {
+                                                while (k < t.length && diaISO(new Date(t[k] * 1000)) < d) previo = c[k++];
+                                                const e = { t: [], c: [], en, ...(previo ? { a: previo } : {}), ...(x ? {} : { falla: true }) };
+                                                while (k < t.length && diaISO(new Date(t[k] * 1000)) === d) { e.t.push(t[k]); e.c.push(c[k]); previo = c[k++]; }
+                                                deS[d] = e;
+                                            });
+                                        });
+                                        rangoIntradia.version++;
+                                        try {
+                                            const corte = new Date(); corte.setDate(corte.getDate() - DIAS_GUARDADOS_RANGO);
+                                            const limite = diaISO(corte);
+                                            const guardar = {};
+                                            Object.keys(rangoIntradia.porSimbolo).forEach(iv => {
+                                                guardar[iv] = {};
+                                                Object.entries(rangoIntradia.porSimbolo[iv]).forEach(([s, porDia]) => {
+                                                    guardar[iv][s] = {};
+                                                    Object.entries(porDia).forEach(([d, e]) => { if (d >= limite && !e.falla) guardar[iv][s][d] = e; });
+                                                });
+                                            });
+                                            localStorage.setItem(CLAVE_RANGO_INTRADIA, JSON.stringify(guardar));
+                                        } catch (e) { /* sin memoria: se queda en esta visita */ }
+                                    }
+
+                                    // Los datos del periodo con la forma de los de un día. null mientras falta algún
+                                    // día de algún símbolo (se queda la curva por cierres); sinDatos si no aplica.
+                                    function datosDelRango(periodo) {
+                                        const intervalo = intervaloDelRango(periodo.desde, periodo.hasta);
+                                        if (!intervalo || !clienteSupabase) return { sinDatos: true };
+                                        const hoy = diaISO(new Date());
+                                        const hasta = periodo.hasta < hoy ? periodo.hasta : hoy;
+                                        if (hasta <= periodo.desde) return { sinDatos: true };
+                                        const dias = diasEntre(periodo.desde, hasta);
+                                        const tickers = [...new Set((datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker)
+                                            .map(c => String(c.ticker).trim().toUpperCase()))].sort();
+                                        if (!tickers.length) return { sinDatos: true };
+                                        const simbolos = [...tickers, SIMBOLO_TC_RANGO];
+                                        pedirRango(intervalo, simbolos, dias);
+
+                                        const llave = `${intervalo}|${periodo.desde}|${hasta}|${simbolos.join(',')}|${rangoIntradia.version}`;
+                                        if (rangoIntradia.armado && rangoIntradia.armado.llave === llave) return rangoIntradia.armado.datos;
+                                        const deI = rangoIntradia.porSimbolo[intervalo] || {};
+                                        if (!simbolos.every(s => deI[s] && dias.every(d => deI[s][d]))) return null;
+                                        const serieDe = s => {
+                                            const t = [], c = [];
+                                            dias.forEach(d => { t.push(...deI[s][d].t); c.push(...deI[s][d].c); });
+                                            const a = deI[s][dias[0]].a;
+                                            return t.length ? { t, c, ...(a > 0 ? { anterior: a } : {}) } : null;
+                                        };
+                                        const series = {};
+                                        tickers.forEach(tk => { const x = serieDe(tk); if (x) series[tk] = x; });
+                                        const usdmxn = serieDe(SIMBOLO_TC_RANGO);
+                                        const datos = Object.keys(series).length ? { intradia: series, ...(usdmxn ? { usdmxn } : {}) } : { sinDatos: true };
+                                        rangoIntradia.armado = { llave, datos };
+                                        return datos;
+                                    }
+
+                                    function serieRangoIntradia(ambito, periodo, ahora) {
+                                        const datos = datosDelRango(periodo);
+                                        if (!datos || datos.sinDatos) return datos;
+                                        const hoy = diaISO(new Date());
+                                        return serieDeMomentos(ambito, datos, periodo.desde, periodo.hasta < hoy ? periodo.hasta : hoy, ahora);
+                                    }
+
+                                    // La curva momento a momento de un día (vista Hoy) o de varios
+                                    function serieDeMomentos(ambito, datos, desde, hasta, ahora) {
+                                        const unDia = desde === hasta;
+                                        const hoy = diaISO(new Date());
+                                        const esHoy = hasta === hoy;
 
                                         // Los cálculos de cada momento se guardan, por ámbito: con los precios en vivo la
                                         // curva se rehace cada pocos segundos y sólo cambia el último punto, y al comparar
                                         // se piden varios ámbitos seguidos sin que uno borre lo del otro
-                                        const refs = [datosUsoCompleto, datosCategorias, cacheHistoricoPrecios, monedaTreemapInversiones, agrupacionTreemapInversiones, datos];
-                                        if (!intradia.refs || refs.some((r, k) => r !== intradia.refs[k])) { intradia.calculos = new Map(); intradia.refs = refs; }
+                                        const refs = [datosUsoCompleto, datosCategorias, cacheHistoricoPrecios, monedaTreemapInversiones, agrupacionTreemapInversiones];
+                                        if (!intradia.refs || refs.some((r, k) => r !== intradia.refs[k])) { intradia.calculos = new WeakMap(); intradia.refs = refs; }
+                                        if (!intradia.calculos.has(datos)) intradia.calculos.set(datos, new Map());
+                                        const calculos = intradia.calculos.get(datos);
                                         const deAmbito = JSON.stringify(ambito || {});
-                                        const calcular = (clave, precios, tc) => {
+                                        const calcular = (clave, dia, precios, tc) => {
                                             const llave = clave === null ? null : `${deAmbito}|${clave}`;
-                                            if (llave !== null && intradia.calculos.has(llave)) return intradia.calculos.get(llave);
+                                            if (llave !== null && calculos.has(llave)) return calculos.get(llave);
                                             const v = valorEnMomento(ambito, dia, precios, tc);
-                                            if (llave !== null) intradia.calculos.set(llave, v);
+                                            if (llave !== null) calculos.set(llave, v);
                                             return v;
                                         };
 
                                         // Los momentos de Yahoo: el precio de cada empresa es su último cierre de 5 min
-                                        // hasta ese momento (una que todavía no opera se queda con su precio de antes)
+                                        // (o de 30, o de una hora) hasta ese momento; una que todavía no opera se queda
+                                        // con su cierre anterior
                                         const series = datos.intradia || {};
                                         const tiempos = [...new Set(Object.values(series).flatMap(x => x.t || []))].sort((a, b) => a - b);
                                         const ultimoDe = (x, t) => {
                                             if (!x || !x.t) return null;
                                             let k = -1;
                                             for (let i = 0; i < x.t.length && x.t[i] <= t; i++) k = i;
-                                            return k >= 0 ? x.c[k] : null;
+                                            return k >= 0 ? x.c[k] : (x.anterior > 0 ? x.anterior : null);
                                         };
                                         // Todo el día con el tipo de cambio de Yahoo, el mismo para cada momento, para el
                                         // cierre de ayer y para lo que llega en vivo. El del arranque es de otra fuente
@@ -5378,23 +5525,25 @@
                                         const tcYahoo = datos.usdmxn && datos.usdmxn.c && datos.usdmxn.c.length ? datos.usdmxn : null;
                                         const tcUltimoYahoo = tcYahoo ? tcYahoo.c[tcYahoo.c.length - 1] : 0;
                                         const tcEn = t => (tcYahoo && ultimoDe(tcYahoo, t)) || (tcYahoo && tcYahoo.anterior) || tcUltimoYahoo || (esHoy ? globalUsdToMxn : 0);
+                                        // Cada momento se valora en su día; en la vista Hoy, todos en ese día
                                         const momentos = tiempos.map(t => {
                                             const precios = {};
                                             Object.keys(series).forEach(tk => { const p = ultimoDe(series[tk], t); if (p > 0) precios[tk] = p; });
-                                            return { t: t * 1000, precios, tc: tcEn(t), clave: `y${t}` };
+                                            return { t: t * 1000, dia: unDia ? desde : diaISO(new Date(t * 1000)), precios, tc: tcEn(t), clave: `y${t}` };
                                         });
-                                        // Hoy: lo que llegó en vivo después del último de Yahoo, y el de ahora
+                                        // Hoy: lo que llegó en vivo después del último de Yahoo (sólo en la vista Hoy:
+                                        // en varios días serían puntos de un minuto entre unos de media hora), y el de ahora
                                         if (esHoy) {
-                                            const desde = momentos.length ? momentos[momentos.length - 1].t : 0;
+                                            const ultimo = momentos.length ? momentos[momentos.length - 1].t : 0;
                                             const tcVivo = tcUltimoYahoo || globalUsdToMxn;
-                                            intradia.muestras.filter(m => m.dia === dia && m.t > desde)
-                                                .forEach(m => momentos.push({ t: m.t, precios: m.precios, tc: tcVivo, clave: `m${m.t}|${tcVivo}` }));
-                                            momentos.push({ t: ahora || Date.now(), precios: { ...cachePreciosMercado }, tc: tcVivo, clave: null });
+                                            if (unDia) intradia.muestras.filter(m => m.dia === hoy && m.t > ultimo)
+                                                .forEach(m => momentos.push({ t: m.t, dia: hoy, precios: m.precios, tc: tcVivo, clave: `m${m.t}|${tcVivo}` }));
+                                            momentos.push({ t: ahora || Date.now(), dia: hoy, precios: { ...cachePreciosMercado }, tc: tcVivo, clave: null });
                                         }
                                         if (!momentos.length) return { sinDatos: true };
 
                                         // El cierre del día anterior: la raya punteada y el cero de la curva
-                                        const anterior = new Date(`${dia}T12:00:00`); anterior.setDate(anterior.getDate() - 1);
+                                        const anterior = new Date(`${desde}T12:00:00`); anterior.setDate(anterior.getDate() - 1);
                                         // Con el cierre anterior del dólar según Yahoo; los precios, los cierres guardados
                                         const baseSerie = serieHistoricaAccesible(ambito, { desde: diaISO(anterior), hasta: diaISO(anterior) },
                                             tcYahoo && tcYahoo.anterior > 0 ? { dia: diaISO(anterior), precios: {}, tc: tcYahoo.anterior } : undefined);
@@ -5404,27 +5553,29 @@
                                         // Sin cierre anterior (la primera compra fue ese día) se mide desde el primer momento
                                         // Con el switch apagado se dibuja la plusvalía total de cada momento, sin cero movido
                                         const relativo = plusvaliaDelPeriodo;
-                                        const horas = [], instantes = [], cambios = [], valoresBase = [];
+                                        const horas = [], instantes = [], fechas = [], cambios = [], valoresBase = [];
                                         let primero = null;
                                         momentos.forEach(m => {
-                                            const v = calcular(m.clave, m.precios, m.tc);
+                                            const v = calcular(m.clave, m.dia, m.precios, m.tc);
                                             if (!v) return;
                                             if (!primero) primero = v;
                                             const b = base || primero;
-                                            horas.push(new Date(m.t).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }));
+                                            const hora = new Date(m.t).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
+                                            horas.push(unDia ? hora : `${cuandoDelDia(m.dia)} ${hora}`);
                                             instantes.push(m.t);
+                                            fechas.push(m.dia);
                                             cambios.push(relativo ? v.ganancia - b.ganancia : v.ganancia);
                                             valoresBase.push(relativo ? b.costo + b.ganancia : v.costo);
                                         });
                                         if (!horas.length) return { sinDatos: true };
 
-                                        // Las compras y ventas de ese día, en el primer momento a partir de su hora
+                                        // Las compras y ventas de esos días, en el primer momento a partir de su hora
                                         const ids = {};
                                         categoriasDelAmbito(ambito).forEach(c => { ids[String(c.id)] = true; });
                                         const marcas = [];
                                         (datosUsoCompleto || [])
                                             .filter(u => ids[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0
-                                                && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) === dia)
+                                                && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) >= desde && diaDeRegistro(u) <= hasta)
                                             .forEach(u => {
                                                 const t = Date.parse(u.fecha);
                                                 if (isNaN(t)) return;
@@ -5434,7 +5585,8 @@
                                                 if (!marcas.some(m => m.indice === i && m.tipo === tipo)) marcas.push({ indice: i, tipo });
                                             });
 
-                                        return { dias: horas, instantes, marcas, ganancias: cambios, costos: valoresBase, intradia: true, relativo, todo: true, dia, sinBase: !base,
+                                        return { dias: horas, instantes, fechas, marcas, ganancias: cambios, costos: valoresBase, intradia: true, rango: !unDia, relativo, todo: true,
+                                            dia: desde, sinBase: !base,
                                             enPesos: monedaTreemapInversiones === 'mxn' };
                                     }
 
@@ -5537,6 +5689,10 @@
                                             const delDia = serieIntradia(ambito, periodo.desde, ahora);
                                             if (!delDia) cargandoDia = true;
                                             else if (!delDia.sinDatos) serie = delDia;
+                                        } else if (!esDolar && historicoPreciosListo && periodo && serie && !serie.fueraDePeriodo) {
+                                            // 7 días o un mes, cada 30 minutos o cada hora. Mientras llega se queda la de cierres.
+                                            const delRango = serieRangoIntradia(ambito, periodo, ahora);
+                                            if (delRango && !delRango.sinDatos) serie = delRango;
                                         }
                                         // Plusvalía del periodo en cualquier rango de varios días: cada día menos lo que se
                                         // llevaba ganado al cierre del día anterior a que empezara. Antes de la primera
@@ -5820,7 +5976,7 @@
                                         const conSerie = lineas.filter(l => l.serie);
 
                                         const relativo = conSerie.some(l => l.serie.relativo);
-                                        const tituloVista = porMomentos ? `${cuandoDelDia(periodo.desde)} · Comparación`
+                                        const tituloVista = porMomentos && !conSerie[0].serie.rango ? `${cuandoDelDia(periodo.desde)} · Comparación`
                                             : relativo ? 'Periodo · Comparación' : 'Comparación';
                                         if (tituloEl) tituloEl.textContent = tituloVista;
                                         if (cifraEl) cifraEl.textContent = '';
@@ -5985,7 +6141,7 @@
                                         if (comparando) { pintarComparacion(destino, ambito, periodo); return; }
 
                                         let { serie, cargandoDia } = serieDeLaCurva(ambito, periodo);
-                                        if (serie && serie.intradia) {
+                                        if (serie && serie.intradia && !serie.rango) {
                                             const cuando = cuandoDelDia(periodo.desde);
                                             tituloVista = nombre ? `${cuando} · ${nombre}` : cuando;
                                             if (tituloEl) tituloEl.textContent = tituloVista;
@@ -6098,6 +6254,8 @@
                                                 cifraEl.style.color = cambio > 0.005 ? VERDE_CURVA : cambio < -0.005 ? '#ff5c5c' : '#777';
                                                 cifraEl.textContent = `${cambio < -0.005 ? '' : '+'}${fMoneda(cambio)}${pct !== null ? ` (${textoPct(pct)})` : ''}`;
                                             }
+                                            // En varios días, dos fechas (con la hora no cabía junto a la cifra)
+                                            if (tituloEl && serie.rango && serie.fechas[a] !== serie.fechas[b]) { tituloEl.textContent = `${cuandoDelDia(serie.fechas[a])} – ${cuandoDelDia(serie.fechas[b])}`; return; }
                                             if (tituloEl && serie.intradia) { tituloEl.textContent = `${serie.dias[a]} – ${serie.dias[b]}`; return; }
                                             if (tituloEl) {
                                                 const mismoAnio = serie.dias[a].slice(0, 4) === serie.dias[b].slice(0, 4);
