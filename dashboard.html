@@ -5252,15 +5252,28 @@
 
                                                 const lienzo = chart.ctx;
                                                 lienzo.save();
-                                                lienzo.beginPath();
-                                                lienzo.moveTo(posicionX, chart.scales.y.top);
-                                                lienzo.lineTo(posicionX, chart.scales.y.bottom);
                                                 lienzo.lineWidth = 0.75;
-                                                lienzo.strokeStyle = color;
-                                                lienzo.stroke();
+                                                trazarRayaDesvanecida(lienzo, posicionX, chart.scales.y.top, chart.scales.y.bottom, color);
                                                 lienzo.restore();
                                             }
                                         };
+                                    }
+
+                                    // La raya del punto que se lee, desvanecida hacia arriba y hacia abajo: entera
+                                    // en el centro y sin color en los extremos. El color puede venir en hex o rgba.
+                                    function trazarRayaDesvanecida(ctx, x, arriba, abajo, color) {
+                                        const sinColor = String(color).startsWith('#') ? colorTenue(color, 0)
+                                            : String(color).replace(/rgba?\(\s*([^,]+),\s*([^,]+),\s*([^,)]+)(,[^)]*)?\)/, 'rgba($1, $2, $3, 0)');
+                                        const grad = ctx.createLinearGradient(0, arriba, 0, abajo);
+                                        grad.addColorStop(0, sinColor);
+                                        grad.addColorStop(0.3, color);
+                                        grad.addColorStop(0.7, color);
+                                        grad.addColorStop(1, sinColor);
+                                        ctx.beginPath();
+                                        ctx.moveTo(x, arriba);
+                                        ctx.lineTo(x, abajo);
+                                        ctx.strokeStyle = grad;
+                                        ctx.stroke();
                                     }
 
                                     // El recorte de fechas que tiene puesto la pantalla, el mismo que decide qué
@@ -5867,13 +5880,7 @@
                                             }
 
                                             c.lineWidth = 0.75;
-                                            c.strokeStyle = color;
-                                            [pa, pb].forEach(p => {
-                                                c.beginPath();
-                                                c.moveTo(p.x, top);
-                                                c.lineTo(p.x, bottom);
-                                                c.stroke();
-                                            });
+                                            [pa, pb].forEach(p => trazarRayaDesvanecida(c, p.x, top, bottom, color));
                                             chart.data.datasets.forEach((ds, k) => {
                                                 const puntos = chart.getDatasetMeta(k).data;
                                                 c.fillStyle = varias ? (typeof ds.borderColor === 'string' ? ds.borderColor : '#ffffff') : color;
@@ -12837,12 +12844,8 @@
                                         if (posicionX !== null) {
                                             const chartCtx = chart.ctx;
                                             chartCtx.save();
-                                            chartCtx.beginPath();
-                                            chartCtx.moveTo(posicionX, chart.scales.y.top);
-                                            chartCtx.lineTo(posicionX, chart.scales.y.bottom);
                                             chartCtx.lineWidth = 1.5;
-                                            chartCtx.strokeStyle = 'rgba(77, 215, 99, 0.7)';
-                                            chartCtx.stroke();
+                                            trazarRayaDesvanecida(chartCtx, posicionX, chart.scales.y.top, chart.scales.y.bottom, 'rgba(77, 215, 99, 0.7)');
                                             chartCtx.restore();
                                         }
                                     }
