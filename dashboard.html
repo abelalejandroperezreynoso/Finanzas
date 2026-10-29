@@ -5373,7 +5373,7 @@
                                         return dias <= 10 && atras <= 55 ? '30m' : '60m';
                                     }
 
-                                    function diasEntre(desde, hasta) {
+                                    function diasDelRango(desde, hasta) {
                                         const lista = [];
                                         const d = new Date(`${desde}T12:00:00`);
                                         while (diaISO(d) <= hasta) { lista.push(diaISO(d)); d.setDate(d.getDate() + 1); }
@@ -5405,7 +5405,7 @@
                                             })
                                                 .then(({ data, error }) => {
                                                     if (error || !data || !data.intradia) { rangoIntradia.fallas[llave] = Date.now(); return; }
-                                                    guardarRango(intervalo, sims, diasEntre(desde, hasta), data);
+                                                    guardarRango(intervalo, sims, diasDelRango(desde, hasta), data);
                                                 })
                                                 .catch(() => { rangoIntradia.fallas[llave] = Date.now(); })
                                                 .finally(() => { delete rangoIntradia.pidiendo[llave]; refrescarCurvaInversiones(); });
@@ -5453,7 +5453,7 @@
                                         const hoy = diaISO(new Date());
                                         const hasta = periodo.hasta < hoy ? periodo.hasta : hoy;
                                         if (hasta <= periodo.desde) return { sinDatos: true };
-                                        const dias = diasEntre(periodo.desde, hasta);
+                                        const dias = diasDelRango(periodo.desde, hasta);
                                         const tickers = [...new Set((datosCategorias || []).filter(c => c.tipo === 'inversion' && c.ticker)
                                             .map(c => String(c.ticker).trim().toUpperCase()))].sort();
                                         if (!tickers.length) return { sinDatos: true };
