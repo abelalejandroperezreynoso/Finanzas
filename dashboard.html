@@ -5216,6 +5216,22 @@
                                         return reducida;
                                     }
 
+                                    // Con el dedo encima de una gráfica de línea o de barras, salirse del recuadro (por
+                                    // arriba, por abajo o por un lado) ya no suelta la raya: el dedo se cuenta en el borde
+                                    // más cercano, así que la raya sigue al dedo y se queda en el primer o el último punto.
+                                    // Chart.js por su cuenta dejaba de mover nada en cuanto el dedo salía.
+                                    Chart.register({
+                                        id: 'dedoFueraDelRecuadro',
+                                        beforeEvent(chart, args) {
+                                            const e = args.event, area = chart.chartArea;
+                                            if (!area || !e.native || !/^touch/.test(e.native.type) || e.x === null || e.y === null) return;
+                                            if (chart.config.type !== 'line' && chart.config.type !== 'bar') return;
+                                            e.x = Math.min(area.right, Math.max(area.left, e.x));
+                                            e.y = Math.min(area.bottom, Math.max(area.top, e.y));
+                                            args.inChartArea = true;
+                                        }
+                                    });
+
                                     function crearPluginLineaVertical(indicePorDefecto, color = 'rgba(77, 215, 99, 0.7)') {
                                         return {
                                             id: 'lineaVertical',
