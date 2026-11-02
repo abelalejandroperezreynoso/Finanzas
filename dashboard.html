@@ -5540,7 +5540,15 @@
                                         // (o de 30, o de una hora) hasta ese momento; una que todavía no opera se queda
                                         // con su cierre anterior
                                         const series = datos.intradia || {};
-                                        const tiempos = [...new Set(Object.values(series).flatMap(x => x.t || []))].sort((a, b) => a - b);
+                                        // Mientras su barra sigue abierta, el último dato de cada empresa trae la hora
+                                        // de su última operación, distinta en cada una: con decenas de empresas eran
+                                        // decenas de momentos seguidos con el mismo precio, un tramo plano al final.
+                                        // Cuentan las horas de la cuadrícula (cada 5 min) y, de las sueltas, sólo la
+                                        // última; hoy ni ésa, que para eso está el punto de ahora.
+                                        const todosLosTiempos = [...new Set(Object.values(series).flatMap(x => x.t || []))].sort((a, b) => a - b);
+                                        const tiempos = todosLosTiempos.filter(t => t % 300 === 0);
+                                        const sueltos = todosLosTiempos.filter(t => t % 300 !== 0);
+                                        if (sueltos.length && !esHoy) { tiempos.push(sueltos[sueltos.length - 1]); tiempos.sort((a, b) => a - b); }
                                         const ultimoDe = (x, t) => {
                                             if (!x || !x.t) return null;
                                             let k = -1;
