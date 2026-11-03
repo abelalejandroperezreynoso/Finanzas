@@ -4101,6 +4101,9 @@
                                             .filter(u => esCompraInversion(u) || esVentaInversion(u))
                                             .map(u => ({ dia: diaDeRegistro(u), u, cat: porId[String(u.categoria_id)] }))
                                             .filter(m => m.dia.length === 10)
+                                            // Momento a momento, una compra o venta cuenta desde su hora, no
+                                            // desde que abrió la bolsa
+                                            .filter(m => !(momento && momento.t && Date.parse(m.u.fecha) > momento.t))
                                             .sort((a, b) => a.dia.localeCompare(b.dia));
 
                                         if (movs.length === 0) return null;
@@ -5364,8 +5367,9 @@
 
                                     // El valor a seguir es el de serieHistoricaAccesible con los precios de ese momento: así
                                     // la vista Hoy cuenta exactamente lo mismo que la curva de días y que el mapa.
-                                    function valorEnMomento(ambito, dia, precios, tc) {
-                                        const s = serieHistoricaAccesible(ambito, { desde: dia, hasta: dia }, { dia, precios, tc });
+                                    // `t` (milisegundos) es el instante: las compras y ventas de después todavía no cuentan.
+                                    function valorEnMomento(ambito, dia, precios, tc, t) {
+                                        const s = serieHistoricaAccesible(ambito, { desde: dia, hasta: dia }, { dia, precios, tc, t });
                                         return (s && !s.fueraDePeriodo && s.ganancias.length) ? { ganancia: s.ganancias[0], costo: s.costos[0] } : null;
                                     }
 
@@ -5528,10 +5532,10 @@
                                         if (!intradia.calculos.has(datos)) intradia.calculos.set(datos, new Map());
                                         const calculos = intradia.calculos.get(datos);
                                         const deAmbito = JSON.stringify(ambito || {});
-                                        const calcular = (clave, dia, precios, tc) => {
+                                        const calcular = (clave, dia, precios, tc, t) => {
                                             const llave = clave === null ? null : `${deAmbito}|${clave}`;
                                             if (llave !== null && calculos.has(llave)) return calculos.get(llave);
-                                            const v = valorEnMomento(ambito, dia, precios, tc);
+                                            const v = valorEnMomento(ambito, dia, precios, tc, t);
                                             if (llave !== null) calculos.set(llave, v);
                                             return v;
                                         };
@@ -5577,6 +5581,38 @@
                                                 .forEach(m => momentos.push({ t: m.t, dia: hoy, precios: m.precios, tc: tcVivo, clave: `m${m.t}|${tcVivo}` }));
                                             momentos.push({ t: ahora || Date.now(), dia: hoy, precios: { ...cachePreciosMercado }, tc: tcVivo, clave: null });
                                         }
+
+                                        // Las compras y ventas de esos días, a su hora. Desde ese instante cuentan, y ahí
+                                        // va un punto con el precio al que se hicieron: la línea sale de lo que costó
+                                        // y desde ahí se le sigue. Una de antes de que abriera la bolsa (o sin hora)
+                                        // cuenta desde el primer momento, sin punto propio.
+                                        const ids = {};
+                                        categoriasDelAmbito(ambito).forEach(c => { ids[String(c.id)] = c; });
+                                        const movsDelTramo = (datosUsoCompleto || [])
+                                            .filter(u => ids[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0
+                                                && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) >= desde && diaDeRegistro(u) <= hasta)
+                                            .map(u => ({ u, t: Date.parse(u.fecha) }))
+                                            .filter(m => !isNaN(m.t));
+                                        if (momentos.length) {
+                                            const inicio = momentos[0].t, limite = ahora || Date.now();
+                                            const aSuHora = {};
+                                            movsDelTramo.forEach(({ u, t }) => {
+                                                const precio = parseFloat(u.costo_accion);
+                                                const tk = String(ids[String(u.categoria_id)].ticker || '').trim().toUpperCase();
+                                                const dia = unDia ? desde : diaISO(new Date(t));
+                                                if (!(precio > 0) || !tk || t <= inicio || t > limite || dia < desde || dia > hasta) return;
+                                                if (!aSuHora[t]) {
+                                                    const s = Math.floor(t / 1000);
+                                                    const precios = {};
+                                                    Object.keys(series).forEach(k => { const p = ultimoDe(series[k], s); if (p > 0) precios[k] = p; });
+                                                    aSuHora[t] = { t, dia, precios, tc: tcEn(s), clave: `c${t}` };
+                                                }
+                                                aSuHora[t].precios[tk] = precio;
+                                                aSuHora[t].clave += `|${tk}:${precio}`;
+                                            });
+                                            Object.values(aSuHora).forEach(m => momentos.push(m));
+                                            momentos.sort((a, b) => a.t - b.t);
+                                        }
                                         if (!momentos.length) return { sinDatos: true };
 
                                         // El cierre del día anterior: la raya punteada y el cero de la curva
@@ -5593,7 +5629,7 @@
                                         const horas = [], instantes = [], fechas = [], cambios = [], valoresBase = [];
                                         let primero = null;
                                         momentos.forEach(m => {
-                                            const v = calcular(m.clave, m.dia, m.precios, m.tc);
+                                            const v = calcular(m.clave, m.dia, m.precios, m.tc, m.t);
                                             if (!v) return;
                                             if (!primero) primero = v;
                                             const b = base || primero;
@@ -5606,16 +5642,9 @@
                                         });
                                         if (!horas.length) return { sinDatos: true };
 
-                                        // Las compras y ventas de esos días, en el primer momento a partir de su hora
-                                        const ids = {};
-                                        categoriasDelAmbito(ambito).forEach(c => { ids[String(c.id)] = true; });
+                                        // La marca de cada compra o venta, en su punto (o en el primer momento a partir de su hora)
                                         const marcas = [];
-                                        (datosUsoCompleto || [])
-                                            .filter(u => ids[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0
-                                                && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) >= desde && diaDeRegistro(u) <= hasta)
-                                            .forEach(u => {
-                                                const t = Date.parse(u.fecha);
-                                                if (isNaN(t)) return;
+                                        movsDelTramo.forEach(({ u, t }) => {
                                                 let i = instantes.findIndex(x => x >= t);
                                                 if (i < 0) i = instantes.length - 1;
                                                 const tipo = esCompraInversion(u) ? 'compra' : 'venta';
