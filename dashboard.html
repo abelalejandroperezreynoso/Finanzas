@@ -4103,7 +4103,7 @@
                                             .filter(m => m.dia.length === 10)
                                             // Momento a momento, una compra o venta cuenta desde su hora, no
                                             // desde que abrió la bolsa
-                                            .filter(m => !(momento && momento.t && Date.parse(m.u.fecha) > momento.t))
+                                            .filter(m => { const t = momento && momento.t ? instanteConHora(m.u) : null; return t === null || t <= momento.t; })
                                             .sort((a, b) => a.dia.localeCompare(b.dia));
 
                                         if (movs.length === 0) return null;
@@ -5367,6 +5367,17 @@
 
                                     // El valor a seguir es el de serieHistoricaAccesible con los precios de ese momento: así
                                     // la vista Hoy cuenta exactamente lo mismo que la curva de días y que el mapa.
+                                    // La hora de una compra o venta, si se sabe. Sin hora se guarda a mediodía en punto
+                                    // (fechaDeDiaLocal), y una hora que todavía no llega tampoco es de fiar: en los dos
+                                    // casos es null y cuenta el día entero, como en la curva de días.
+                                    function instanteConHora(u) {
+                                        const t = Date.parse(u && u.fecha);
+                                        if (isNaN(t) || t > Date.now()) return null;
+                                        const d = new Date(t);
+                                        if (d.getHours() === 12 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0) return null;
+                                        return t;
+                                    }
+
                                     // `t` (milisegundos) es el instante: las compras y ventas de después todavía no cuentan.
                                     function valorEnMomento(ambito, dia, precios, tc, t) {
                                         const s = serieHistoricaAccesible(ambito, { desde: dia, hasta: dia }, { dia, precios, tc, t });
@@ -5585,14 +5596,13 @@
                                         // Las compras y ventas de esos días, a su hora. Desde ese instante cuentan, y ahí
                                         // va un punto con el precio al que se hicieron: la línea sale de lo que costó
                                         // y desde ahí se le sigue. Una de antes de que abriera la bolsa (o sin hora)
-                                        // cuenta desde el primer momento, sin punto propio.
+                                        // cuenta desde el primer momento de su día, sin punto propio.
                                         const ids = {};
                                         categoriasDelAmbito(ambito).forEach(c => { ids[String(c.id)] = c; });
                                         const movsDelTramo = (datosUsoCompleto || [])
                                             .filter(u => ids[String(u.categoria_id)] && parseFloat(u.cantidad_acciones) > 0
                                                 && (esCompraInversion(u) || esVentaInversion(u)) && diaDeRegistro(u) >= desde && diaDeRegistro(u) <= hasta)
-                                            .map(u => ({ u, t: Date.parse(u.fecha) }))
-                                            .filter(m => !isNaN(m.t));
+                                            .map(u => ({ u, t: instanteConHora(u), dia: diaDeRegistro(u) }));
                                         if (momentos.length) {
                                             const inicio = momentos[0].t, limite = ahora || Date.now();
                                             const aSuHora = {};
@@ -5600,7 +5610,7 @@
                                                 const precio = parseFloat(u.costo_accion);
                                                 const tk = String(ids[String(u.categoria_id)].ticker || '').trim().toUpperCase();
                                                 const dia = unDia ? desde : diaISO(new Date(t));
-                                                if (!(precio > 0) || !tk || t <= inicio || t > limite || dia < desde || dia > hasta) return;
+                                                if (t === null || !(precio > 0) || !tk || t <= inicio || t > limite || dia < desde || dia > hasta) return;
                                                 if (!aSuHora[t]) {
                                                     const s = Math.floor(t / 1000);
                                                     const precios = {};
@@ -5644,8 +5654,10 @@
 
                                         // La marca de cada compra o venta, en su punto (o en el primer momento a partir de su hora)
                                         const marcas = [];
-                                        movsDelTramo.forEach(({ u, t }) => {
-                                                let i = instantes.findIndex(x => x >= t);
+                                        movsDelTramo.forEach(({ u, t, dia }) => {
+                                                // Sin hora, en el primer momento de su día
+                                                const desdeCuando = t !== null ? t : new Date(`${dia}T00:00:00`).getTime();
+                                                let i = instantes.findIndex(x => x >= desdeCuando);
                                                 if (i < 0) i = instantes.length - 1;
                                                 const tipo = esCompraInversion(u) ? 'compra' : 'venta';
                                                 if (!marcas.some(m => m.indice === i && m.tipo === tipo)) marcas.push({ indice: i, tipo });
