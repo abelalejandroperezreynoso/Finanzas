@@ -2951,6 +2951,20 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
         } else contraSp = { nota: "No se pudieron traer los precios del S&P 500: no se puede comparar ahora. Dilo así; no lo estimes." };
       }
 
+      // Plusvalía desde la última compra, ya ordenada y escrita: el modelo la reordenaba mal y no
+      // distinguía la misma empresa en dos cuentas.
+      const variasCuentas = new Set(filasEmpresas.map((f: Json[]) => f[0])).size > 1;
+      const desdeUltima = filasEmpresas.filter((f: Json[]) => f[16] && Number(f[6]) > 0)
+        .map((f: Json[]) => {
+          const p = r2((Number(f[6]) / f[16].precio - 1) * 100);
+          return {
+            p,
+            linea: `${f[1]}${f[2] ? ` (${f[2]})` : ""}${variasCuentas ? ` · ${f[0]}` : ""} · compra del ${f[16].dia} a ${dinero(f[16].precio, "USD")}, ` +
+              `${f[7] && f[7] !== hoyI ? `cierre del ${f[7]}` : "hoy"} ${dinero(f[6], "USD")}: ${pct(p)}`,
+          };
+        })
+        .sort((a, b) => b.p - a.p);
+
       return {
         texto: recortar({
           tipo_de_cambio_hoy: tc ? `1 USD = ${tc} MXN` : null,
@@ -2960,24 +2974,28 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
             "Lo que costó cada empresa en pesos viene en costo_pesos (al cambio de las aportaciones con que se pagó, no al de hoy) y plusvalia_pesos = valor_pesos_hoy menos costo_pesos, con el tipo de cambio incluido; cada porcentaje va con su moneda (plusvalia_pesos_pct, plusvalia_usd_pct): no los cruces. Nunca conviertas costo_usd a pesos tú. " +
             "precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
-            "ultima_compra = día y acciones de la compra más reciente de cada empresa que todavía tiene; ultima_compra_plusvalia_pct = cuánto ha subido o bajado el precio desde esa compra, en dólares. " +
-            "Si pregunta por la plusvalía de su última compra o movimiento, usa esas columnas: no busques los movimientos ni lo calcules tú. " +
+            "Si pregunta por la plusvalía de su última compra o movimiento, usa plusvalia_desde_ultima_compra: no busques los movimientos ni lo calcules tú. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
             "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú. " +
             "peso_pct = parte de todo lo invertido (caja incluida) que es esa empresa. acciones_que_alcanza_la_caja = acciones de esa empresa que se pueden comprar hoy con la Caja GBM de su cuenta; usd_que_faltan_para_una_accion = dólares que le faltan a esa caja para una acción entera. " +
             "Si viene aviso_concentracion, menciónalo cuando hable de comprar, vender o de cómo van.",
+          ...(desdeUltima.length ? {
+            plusvalia_desde_ultima_compra: {
+              nota: "Ya ordenada de la que más subió a la que más bajó: úsala tal cual y en este orden, sin reordenar ni recalcular. Es lo que cambió el precio desde la última compra, " +
+                "no la ganancia de toda la posición. Si una empresa aparece dos veces es porque está en dos cuentas o en dos categorías: dilo. El precio es el último cierre guardado; si dice de qué día, no digas que es de hoy.",
+              subieron: desdeUltima.filter((x) => x.p >= 0).map((x) => x.linea),
+              bajaron: desdeUltima.filter((x) => x.p < 0).map((x) => x.linea),
+            },
+          } : {}),
           cuentas: tabla(["cuenta", "en_pocas_palabras", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "caja_gbm_pesos", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio_usd", "invertido_usd", "precio_usd", "precio_del_dia", "valor_usd",
-            "valor_pesos_hoy", "costo_pesos", "plusvalia_pesos", "plusvalia_pesos_pct", "plusvalia_usd", "plusvalia_usd_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion",
-            "ultima_compra", "ultima_compra_precio_usd", "ultima_compra_plusvalia_pct"],
+            "valor_pesos_hoy", "costo_pesos", "plusvalia_pesos", "plusvalia_pesos_pct", "plusvalia_usd", "plusvalia_usd_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
             filasEmpresas.map((f: Json[]) => [f[0], f[1], f[2], f[3], dinero(f[4], "USD"), dinero(f[5], "USD"), dinero(f[6], "USD"), f[7], dinero(f[8], "USD"),
               tc && f[8] !== null ? dinero(Number(f[8]) * tc, "MXN") : null, Number(f[3]) > 0 ? dinero(f[15], "MXN") : null,
               tc && f[8] !== null && Number(f[3]) > 0 ? dinero(Number(f[8]) * tc - Number(f[15]), "MXN", true) : null,
-              tc && f[8] !== null && Number(f[15]) > 0 ? pct(r2((Number(f[8]) * tc / Number(f[15]) - 1) * 100)) : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD"),
-              f[16] ? `${f[16].dia} · ${Math.round(f[16].acciones * 100000000) / 100000000} acciones` : null, f[16] ? dinero(f[16].precio, "USD") : null,
-              f[16] && f[6] ? pct(r2((Number(f[6]) / f[16].precio - 1) * 100)) : null])),
+              tc && f[8] !== null && Number(f[15]) > 0 ? pct(r2((Number(f[8]) * tc / Number(f[15]) - 1) * 100)) : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
           ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({
