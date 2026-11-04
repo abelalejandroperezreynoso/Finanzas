@@ -411,7 +411,7 @@ const HERRAMIENTAS: Json[] = [
     description:
       "Cómo van las inversiones (GBM), calculado de todos sus movimientos: por cuenta, pesos y dólares aportados y retirados, saldo de la Caja GBM en dólares, " +
       "valor del portafolio y ganancia neta en pesos (incluye el tipo de cambio); por empresa, acciones, costo promedio, lo invertido, precio, valor, plusvalía " +
-      "y ganancia ya realizada por ventas, en dólares, y las comisiones pagadas a GBM; el rendimiento mensual (TIR, con y sin tipo de cambio) y cómo va contra el S&P 500 " +
+      "y ganancia ya realizada por ventas, en dólares, su última compra (día, acciones, precio) con cuánto ha subido o bajado desde entonces, y las comisiones pagadas a GBM; el rendimiento mensual (TIR, con y sin tipo de cambio) y cómo va contra el S&P 500 " +
       "si cada dólar se hubiera metido al SPY el mismo día. Con desde/hasta (AAAA-MM-DD) agrega la actividad de ese periodo: cuánto entró a la caja, en qué empresas se compró o vendió y cuánto se pagó de comisiones. " +
       "Úsala para cualquier pregunta de inversiones; las compras y ventas tienen monto 0 en pesos porque se pagan con la caja en dólares.",
     input_schema: {
@@ -1753,13 +1753,15 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
     case "mostrar_movimientos": {
       const ids = (Array.isArray(entrada.ids) ? entrada.ids : []).map(String).slice(0, 50);
       if (!ids.length) return { texto: "Faltan los ids de los movimientos.", error: true };
-      const { data, error } = await sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar").in("id", ids);
+      const { data, error } = await sb.from("registros").select("id, fecha, monto, descripcion, cantidad, categoria_id, lugar, tipo_movimiento, monto_usd, cantidad_acciones, costo_accion").in("id", ids);
       if (error) return { texto: `Error: ${error.message}`, error: true };
       const porId = new Map((data ?? []).map((r: Json) => [String(r.id), r]));
       const movimientos = ids.map((id: string) => porId.get(id)).filter(Boolean).map((r: Json) => ({
         id: r.id, fecha: fechaLocal(r.fecha, zona), monto: Number(r.monto) || 0, descripcion: r.descripcion || null,
         categoria: catalogo.etiqueta[String(r.categoria_id)] ?? null, tipo: catalogo.tipo[String(r.categoria_id)] ?? null,
         ...(catalogo.tipo[String(r.categoria_id)] === "salud" ? { cantidad: r.cantidad } : {}), ...(r.lugar ? { lugar: r.lugar } : {}),
+        // Compras y ventas de acciones tienen 0 pesos: la tarjeta enseña acciones y dólares
+        ...(r.tipo_movimiento ? { inversion: r.tipo_movimiento, usd: usdDe(r), acciones: Number(r.cantidad_acciones) || 0, precio_usd: Number(r.costo_accion) || 0 } : {}),
       }));
       if (!movimientos.length) return { texto: "No encontré esos movimientos.", error: true };
       if (!zona.conListas) return { texto: `Esta versión de la app no muestra tarjetas: escríbelos tú, en una lista corta.\n${recortar(movimientos)}` };
@@ -2797,6 +2799,9 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             }
             if (tipo === "compra_directa") flujos.push({ dia, mxn: pesos, usd });
             e.acciones += acciones; e.costo_usd += usd; e.costo_mxn += mxn;
+            // La última compra y su precio por acción: para "¿cuánto va la última que compré?"
+            const precioCompra = Number(r.costo_accion) > 0 ? Number(r.costo_accion) : usd / acciones;
+            if (precioCompra > 0) e.ultima = { dia, acciones, precio: precioCompra };
             if (tipo === "compra") cta.caja_usd = Math.max(0, cta.caja_usd - usd); else { cta.pesos_compras_directas += pesos; cta.dolares_compras_directas += usd; }
             if (act) act.compras[nombre] = (act.compras[nombre] ?? 0) + usd;
           } else if (tipo === "venta" || tipo === "venta_directa") {
@@ -2841,7 +2846,7 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             Math.round(e.acciones * 10000) / 10000, e.acciones > 0 ? r2(e.costo_usd / e.acciones) : null, r2(e.costo_usd),
             p ? p.cierre : null, p ? p.dia : null, valor !== null ? r2(valor) : null,
             valor !== null ? r2(valor - e.costo_usd) : null, valor !== null && e.costo_usd > 0 ? r2((valor / e.costo_usd - 1) * 100) : null,
-            r2(e.realizada_usd), r2(e.costo_mxn), String(e.cat.cuenta_id),
+            r2(e.realizada_usd), e.acciones > 0 ? e.ultima ?? null : null, r2(e.costo_mxn), String(e.cat.cuenta_id),
           ];
         })
         .sort((a: Json, b: Json) => (b[8] ?? b[5] ?? 0) - (a[8] ?? a[5] ?? 0));
@@ -2853,10 +2858,11 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       filasEmpresas.forEach((f: Json[]) => {
         const idCuenta = f.pop();
         const costoMxn = f.pop();
+        const ultima = f.pop();
         const valorFila = f[8] ?? (Number(f[3]) > 0 ? f[5] : 0);
         const caja = cuentas[idCuenta]?.caja_usd ?? 0;
         f.push(totalUsd > 0 ? r2((valorFila / totalUsd) * 100) : null, f[6] ? Math.floor((caja / f[6]) * 10000) / 10000 : null,
-          f[6] ? r2(Math.max(0, f[6] - caja)) : null, costoMxn);
+          f[6] ? r2(Math.max(0, f[6] - caja)) : null, costoMxn, ultima);
       });
       const concentrada = filasEmpresas.find((f: Json[]) => Number(f[12]) > 50);
 
@@ -2954,6 +2960,8 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
             "Para contestar cuánto tiene o cuánto ha ganado, parte de en_pocas_palabras de cada cuenta. " +
             "Lo que costó cada empresa en pesos viene en costo_pesos (al cambio de las aportaciones con que se pagó, no al de hoy) y plusvalia_pesos = valor_pesos_hoy menos costo_pesos, con el tipo de cambio incluido; cada porcentaje va con su moneda (plusvalia_pesos_pct, plusvalia_usd_pct): no los cruces. Nunca conviertas costo_usd a pesos tú. " +
             "precio = último cierre guardado por la app (precio_del_dia dice de cuándo); sin precio, la empresa se valúa a lo que costó. " +
+            "ultima_compra = día y acciones de la compra más reciente de cada empresa que todavía tiene; ultima_compra_plusvalia_pct = cuánto ha subido o bajado el precio desde esa compra, en dólares. " +
+            "Si pregunta por la plusvalía de su última compra o movimiento, usa esas columnas: no busques los movimientos ni lo calcules tú. " +
             "ganancia_neta_pesos = valor total en pesos hoy menos pesos puestos netos (aportado menos retirado): incluye acciones y tipo de cambio. " +
             "Se parte exacto en ganancia_por_acciones_pesos (lo que ganaron o perdieron las acciones, incluidas las ventas, al tipo de cambio de hoy) " +
             "y efecto_tipo_cambio_pesos (lo que el tipo de cambio le hizo a los dólares puestos: negativo si el dólar bajó desde que se compraron). Usa estas cifras; no lo calcules tú. " +
@@ -2962,11 +2970,14 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           cuentas: tabla(["cuenta", "en_pocas_palabras", "pesos_aportados", "dolares_aportados", "pesos_retirados", "dolares_retirados", "caja_gbm_usd", "caja_gbm_pesos", "valor_acciones_usd",
             "valor_total_usd", "valor_total_pesos", "pesos_puestos_netos", "ganancia_neta_pesos", "ganancia_neta_pct", "ganancia_por_acciones_pesos", "efecto_tipo_cambio_pesos", "ultima_aportacion"], filasCuentas),
           empresas: tabla(["cuenta", "empresa", "ticker", "acciones", "costo_promedio_usd", "invertido_usd", "precio_usd", "precio_del_dia", "valor_usd",
-            "valor_pesos_hoy", "costo_pesos", "plusvalia_pesos", "plusvalia_pesos_pct", "plusvalia_usd", "plusvalia_usd_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion"],
+            "valor_pesos_hoy", "costo_pesos", "plusvalia_pesos", "plusvalia_pesos_pct", "plusvalia_usd", "plusvalia_usd_pct", "ganancia_realizada_usd", "peso_pct", "acciones_que_alcanza_la_caja", "usd_que_faltan_para_una_accion",
+            "ultima_compra", "ultima_compra_precio_usd", "ultima_compra_plusvalia_pct"],
             filasEmpresas.map((f: Json[]) => [f[0], f[1], f[2], f[3], dinero(f[4], "USD"), dinero(f[5], "USD"), dinero(f[6], "USD"), f[7], dinero(f[8], "USD"),
               tc && f[8] !== null ? dinero(Number(f[8]) * tc, "MXN") : null, Number(f[3]) > 0 ? dinero(f[15], "MXN") : null,
               tc && f[8] !== null && Number(f[3]) > 0 ? dinero(Number(f[8]) * tc - Number(f[15]), "MXN", true) : null,
-              tc && f[8] !== null && Number(f[15]) > 0 ? pct(r2((Number(f[8]) * tc / Number(f[15]) - 1) * 100)) : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD")])),
+              tc && f[8] !== null && Number(f[15]) > 0 ? pct(r2((Number(f[8]) * tc / Number(f[15]) - 1) * 100)) : null, dinero(f[9], "USD", true), pct(f[10]), dinero(f[11], "USD", true), pct(f[12], false), f[13], dinero(f[14], "USD"),
+              f[16] ? `${f[16].dia} · ${Math.round(f[16].acciones * 100000000) / 100000000} acciones` : null, f[16] ? dinero(f[16].precio, "USD") : null,
+              f[16] && f[6] ? pct(r2((Number(f[6]) / f[16].precio - 1) * 100)) : null])),
           ...(concentrada ? { aviso_concentracion: `${concentrada[1]} es el ${concentrada[12]} % de todo lo invertido: casi todo depende de una sola empresa.` } : {}),
           ...(desdeA ? {
             actividad_del_periodo: Object.entries(actividad).map(([id, a]: [string, Json]) => ({

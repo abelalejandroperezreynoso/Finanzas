@@ -275,6 +275,7 @@
         .chat-movs .cm-monto { font-size: 15px; font-weight: 600; white-space: nowrap; color: #141413; }
         .chat-movs .cm-monto.entra { color: #2f7d4f; }
         .chat-movs .cm-monto.salud { color: #5e5d59; font-weight: 500; }
+        .chat-movs .cm-monto .cm-sub { text-align: right; font-weight: 400; }
         .chat-movs .cm-total { display: flex; justify-content: space-between; font-size: 13px; color: #5e5d59; padding: 10px 0 4px; border-top: 0.5px solid #e3e1d8; margin-top: 2px; }
         /* Una tabla que la IA escriba en markdown, por si acaso */
         .chat-asistente table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0; }
@@ -18807,9 +18808,13 @@
                                     if (!esSalud) { if (monto < 0) totalSale += -monto; else totalEntra += monto; }
                                     const horaReal = hora && hora !== '12:00' ? new Date(`${dia}T${hora}:00`).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' }) : '';
                                     const sub = [r.categoria, horaReal, r.lugar].filter(Boolean).map(escaparHtml).join(' · ');
-                                    const cifra = esSalud ? `${escaparHtml(String(r.cantidad ?? ''))}` : `${monto < 0 ? '−' : '+'}${escaparHtml(fMoneda(Math.abs(monto)))}`;
+                                    // Compras y ventas de acciones no mueven pesos: acciones y dólares en vez de +$0.00
+                                    const enDolares = !esSalud && !monto && r.inversion && Number(r.usd) > 0;
+                                    const cifra = esSalud ? `${escaparHtml(String(r.cantidad ?? ''))}`
+                                        : enDolares ? `${r.inversion === 'venta' ? '+' : '−'}$${Number(r.usd).toFixed(2)} USD${Number(r.acciones) > 0 ? `<div class="cm-sub">${escaparHtml(String(Math.round(Number(r.acciones) * 10000) / 10000))} acc.${Number(r.precio_usd) > 0 ? ` a $${Number(r.precio_usd).toFixed(2)}` : ''}</div>` : ''}`
+                                        : `${monto < 0 ? '−' : '+'}${escaparHtml(fMoneda(Math.abs(monto)))}`;
                                     html += `<div class="cm-fila"><div><div class="cm-desc">${escaparHtml(r.descripcion || r.categoria || 'Movimiento')}</div>${sub ? `<div class="cm-sub">${sub}</div>` : ''}</div>`
-                                        + `<div class="cm-monto${esSalud ? ' salud' : monto > 0 ? ' entra' : ''}">${cifra}</div></div>`;
+                                        + `<div class="cm-monto${esSalud ? ' salud' : (enDolares ? r.inversion === 'venta' : monto > 0) ? ' entra' : ''}">${cifra}</div></div>`;
                                 });
                                 if (movs.length > 1 && (totalSale || totalEntra)) {
                                     const partes = [totalSale ? `Salió ${fMoneda(totalSale)}` : '', totalEntra ? `Entró ${fMoneda(totalEntra)}` : ''].filter(Boolean);
