@@ -117,7 +117,9 @@ function estadoPesos(c: Json): { pesos: Pesos; fuente: string; revisar: string |
 export const CORRECCIONES_SECTORES = "Correcciones del listado de sectores";
 export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una dime si los sectores, subsectores y porcentajes coinciden con sus " +
   "ventas por segmento del último reporte anual. Si algo está mal o desactualizado, explícame por qué en una o dos líneas.\n\n" +
-  "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal 2025\" = de sus ventas por segmento " +
+  "Usa el reporte anual más reciente de cada empresa (10-K o su informe anual), búscalo en internet si puedes. Si no puedes consultarlo, o " +
+  "lo que sabes es de un año fiscal anterior al que tengo, no cambies esa empresa: dime que no pudiste revisarla.\n\n" +
+  "Formato: cada empresa empieza con su nombre, su ticker y de dónde salen los porcentajes (\"año fiscal\" y el año = de sus ventas por segmento " +
   "de ese año; \"a mano\" = los puse yo; sin nada = tiene un solo subsector) y, si la hay, la fecha de su próximo reporte (T1 a T4 = trimestre de " +
   "su año fiscal; \"anual\" = el que trae sus ventas por segmento del año; ~ = aproximada): si su reporte anual ya salió y es más nuevo que el año " +
   "fiscal que tengo, revisa con ése. Abajo va una línea por subsector: Sector - Subsector y su " +
@@ -126,7 +128,8 @@ export const PROMPT_REVISION = "Revisa una por una estas empresas. Para cada una
   "si uno agrupa negocios distintos, sepáralo; y si un nombre no describe bien lo que contiene, cámbialo. No cambies nombres sólo por " +
   "estilo. Explica cada cambio de nombre en una línea, fuera del bloque, e incluye en el bloque todas las empresas afectadas.\n\n" +
   `Al final, en un solo bloque de código, dame las correcciones para pegarlas en mi app: la primera línea dice "${CORRECCIONES_SECTORES}" ` +
-  "y luego sólo las empresas que cambian, completas y en el mismo formato (nombre y ticker, y una línea por subsector con su porcentaje), " +
+  "y luego sólo las empresas que cambian, completas y en el mismo formato (nombre, ticker y el año fiscal del reporte que usaste, " +
+  "como \"Empresa (TICKER) · año fiscal\" y el año; y una línea por subsector con su porcentaje), " +
   "con los nombres de sector y subsector que ya uso cuando sirvan. Sin explicaciones dentro del bloque.";
 
 // El listado para copiar y pasárselo a otra IA, que lo revisa empresa por empresa:
