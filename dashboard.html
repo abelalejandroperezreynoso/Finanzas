@@ -20649,7 +20649,11 @@
                                             const dia = String(r.fecha || '').split(' ')[0];
                                             if (dia !== diaPrevio) { lineas.push(fechaAmigable(dia) + ':'); diaPrevio = dia; }
                                             const monto = Number(r.monto) || 0;
-                                            const cifra = r.tipo === 'salud' ? String(r.cantidad ?? '') : `${monto < 0 ? '−' : '+'}${fMoneda(Math.abs(monto))}`;
+                                            // Compras y ventas de acciones: dólares y acciones, igual que en la tarjeta
+                                            const enDolares = r.tipo !== 'salud' && !monto && r.inversion && Number(r.usd) > 0;
+                                            const cifra = r.tipo === 'salud' ? String(r.cantidad ?? '')
+                                                : enDolares ? `${r.inversion === 'venta' ? '+' : '−'}$${Number(r.usd).toFixed(2)} USD${Number(r.acciones) > 0 ? ` (${Math.round(Number(r.acciones) * 10000) / 10000} acc.${Number(r.precio_usd) > 0 ? ` a $${Number(r.precio_usd).toFixed(2)}` : ''})` : ''}`
+                                                : `${monto < 0 ? '−' : '+'}${fMoneda(Math.abs(monto))}`;
                                             const extra = r.descripcion && r.categoria ? ` (${r.categoria})` : '';
                                             lineas.push(`• ${r.descripcion || r.categoria || 'Movimiento'}${extra}: ${cifra}`);
                                         });
