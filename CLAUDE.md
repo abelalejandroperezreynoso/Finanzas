@@ -26,6 +26,8 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   hábitos para registrar según la enfermedad y busca relaciones entre hábitos y enfermedades.
   Para inversiones, `mercado_acciones` trae datos del día de Finnhub (precio, rendimientos, P/E,
   analistas, titulares) y `programar_recordatorio` propone un aviso a una hora (`recordatorios_ia`).
+  `movimiento_hoy` (cálculo puro en `hoy.ts`) dice cuánto ganó o perdió hoy cada empresa en dólares, ya ordenado, con
+  precios de Yahoo como la vista Hoy (sin el límite de 60 por minuto de Finnhub, que con muchas empresas dejaba la mayoría sin datos).
   `finanzas_empresa` (cálculo puro en `empresa.ts`) trae los 10-K y 10-Q de la SEC desde Finnhub (ventas,
   utilidades, flujo, deuda, por año fiscal y lo que va del año) y, con FMP, las ventas por segmento y por región.
   Clasificación GICS de las empresas (sector y subindustria, la del mapa del S&P 500): sale de `gics_indices`

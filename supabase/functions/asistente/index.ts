@@ -21,6 +21,7 @@ import { respuestaRecuperarControl } from "./control.ts";
 import { segmentosDeXbrl } from "./sec.ts";
 import { aCien, agendaReportes, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, proximosReportes, revisarListado, textoReportes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
+import { type EmpresaDia, type Cotizacion, movimientoDelDia } from "./hoy.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
 const MODELO_SECRETO = Deno.env.get("MODELO_IA");
@@ -452,6 +453,14 @@ const HERRAMIENTAS: Json[] = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "movimiento_hoy",
+    description:
+      "Cuánto ganó o perdió hoy cada una de sus empresas en dólares (todas las que tiene, con precios de Yahoo como la vista Hoy de la app), ya ordenado de la que más se movió " +
+      "a la que menos, con el cambio del precio, el total de sus acciones en el día (también en pesos) y el S&P 500 y el Nasdaq 100 de referencia. " +
+      "Úsala para \"¿cómo me fue hoy?\", \"¿cuáles se movieron más hoy?\" o la plusvalía de hoy, en vez de mercado_acciones.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "finanzas_empresa",
@@ -1918,6 +1927,83 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           titulares_mercado: titulares,
           ...(Object.keys(deEmpresas).length ? { titulares_empresas: deEmpresas } : {}),
           ...(avisos.length ? { avisos } : {}),
+        }),
+      };
+    }
+    case "movimiento_hoy": {
+      // Precios de Yahoo, como la vista Hoy: no tiene el límite de 60 por minuto de Finnhub, que con muchas
+      // empresas dejaba la mayoría sin datos
+      const invCats = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && c.ticker);
+      if (!invCats.length) return { texto: "No tiene empresas con ticker." };
+      const tickerDe = (c: Json) => String(c.ticker).trim().toUpperCase().replace(/\./g, "-");
+      const porEmpresa: Record<string, EmpresaDia> = {};
+      invCats.forEach((c: Json) => {
+        const t = tickerDe(c);
+        porEmpresa[t] ??= { nombre: catalogo.etiqueta[String(c.id)] ?? c.nombre, ticker: t, movs: [] };
+      });
+      const catTicker: Record<string, string> = Object.fromEntries(invCats.map((c: Json) => [String(c.id), tickerDe(c)]));
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("registros").select("fecha, cantidad_acciones, costo_accion, monto, tipo_movimiento, categoria_id")
+          .in("categoria_id", invCats.map((c: Json) => c.id)).range(desde, desde + 999);
+        if (error) return { texto: `Error: ${error.message}`, error: true };
+        for (const r of data ?? []) {
+          const tipo = tipoDe(r), n = Number(r.cantidad_acciones) || 0;
+          if (!(n > 0) || !tipo || !["compra", "compra_directa", "venta", "venta_directa"].includes(tipo)) continue;
+          const [dia, hora] = fechaLocal(r.fecha, zona).split(" ");
+          porEmpresa[catTicker[String(r.categoria_id)]].movs.push({
+            tipo: tipo.startsWith("compra") ? "compra" : "venta", acciones: n, precio: Number(r.costo_accion) || 0, dia, conHora: !!hora && hora !== "12:00",
+          });
+        }
+        if (!data || data.length < 1000) break;
+      }
+      const empresas = Object.values(porEmpresa).filter((e) => e.movs.length);
+      const diaNY = (s: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(s * 1000));
+      const cotizar = async (t: string): Promise<Cotizacion | null> => {
+        for (const host of ["query1", "query2"]) {
+          try {
+            const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(t)}?interval=1d&range=1d`,
+              { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) });
+            if (!r.ok) continue;
+            const m = (await r.json())?.chart?.result?.[0]?.meta;
+            const precio = Number(m?.regularMarketPrice), anterior = Number(m?.chartPreviousClose ?? m?.previousClose), cuando = Number(m?.regularMarketTime);
+            if (precio > 0 && anterior > 0 && cuando > 0) return { precio, anterior, dia: diaNY(cuando) };
+          } catch { /* se prueba el otro servidor */ }
+        }
+        return null;
+      };
+      // De 8 en 8: todas juntas Yahoo a veces contesta 429
+      const lista = [...empresas.map((e) => e.ticker), "SPY", "QQQ"];
+      const cotizaciones: Record<string, Cotizacion> = {};
+      let i = 0;
+      await Promise.all(Array.from({ length: 8 }, async () => {
+        while (i < lista.length) {
+          const t = lista[i++];
+          const q = await cotizar(t);
+          if (q) cotizaciones[t] = q;
+        }
+      }));
+      const tc = await tipoDeCambio(fechaLocal(new Date().toISOString(), zona).slice(0, 10));
+      const res = movimientoDelDia(empresas, cotizaciones, tc);
+      if (!res.total) return { texto: "Yahoo no contestó con los precios de hoy: dile que lo intente en un momento. No uses otros datos ni los inventes.", error: true };
+      const ref = (t: string, nombre: string) => {
+        const q = cotizaciones[t];
+        if (!q) return null;
+        const v = Math.round((q.precio / q.anterior - 1) * 1000) / 10;
+        return `${nombre}: ${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)} %`;
+      };
+      const hoyL = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      return {
+        texto: recortar({
+          nota: "Ya calculado y ordenado de la que más se movió a la que menos, en dólares: úsalo tal cual y en este orden, sin recalcular ni ordenar de otra forma. " +
+            "Es lo que ganó o perdió cada posición en el día (lo que ya tenía, desde el cierre anterior; lo comprado ese día, desde su precio), no la plusvalía acumulada. " +
+            (res.dia && res.dia !== hoyL ? `Hoy no ha abierto la bolsa: son los movimientos del último día de bolsa, ${res.dia}; dilo así. ` : "") +
+            "Si la bolsa sigue abierta, el precio cambia durante el día. Si vienen sin_datos, dilo en una línea; no los rellenes.",
+          dia_de_bolsa: res.dia,
+          total_del_dia: res.total,
+          referencia: [ref("SPY", "S&P 500 (SPY)"), ref("QQQ", "Nasdaq 100 (QQQ)")].filter(Boolean),
+          subieron: res.subieron,
+          bajaron: res.bajaron,
+          ...(res.sin_datos.length ? { sin_datos: res.sin_datos } : {}),
         }),
       };
     }
@@ -4247,6 +4333,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Comprobante de una orden de GBM (compra o venta): Emisora = ticker, Títulos = acciones, Precio por título = precio_usd, y la fecha y hora de la orden. La comisión del comprobante va en comision_usd: se registra aparte, como movimiento propio que sale de la caja (el precio de las acciones queda puro). Pasa el ticker a proponer_movimiento_inversion: ella encuentra la categoría y, si no existe, propone también la categoría en la misma llamada. Una empresa nueva lleva sus sectores propios (los que ya usa en sus otras empresas, columna sectores); si una empresa que ya tiene no lleva ninguno, propónselos con proponer_cambio_categoria. No digas qué empresa es un ticker hasta que la herramienta te lo diga, y usa el nombre que te dé.
 - Comprobantes de GBM (Smart Cash → USA o al revés): pasa los dólares ("Monto utilizado") en usd, los pesos tal como salen en pesos_comprobante y pendiente: true si dice "pendiente". En pesos va sólo lo que de verdad salió de Smart Cash: lo que te diga el usuario o lo que sepas por tu memoria; si no lo sabes, omítelo y la herramienta te dirá qué preguntar. Lo que la herramienta te pida avisarle, díselo.
 - Si a una aportación o retiro le falta pesos o dólares, pregúntalo ofreciendo la estimación con el tipo de cambio de hoy y avisa que lo exacto viene en su comprobante. Para cualquier pregunta de inversiones usa resumen_inversiones (con desde/hasta si es de un periodo). Las compras y ventas tienen 0 pesos porque se pagan con dólares de la Caja GBM; nunca digas que "no tienen monto". Di de cuándo es el precio si no es de hoy.
+- "¿Cómo me fue hoy?", "¿cuáles se movieron más hoy?" o la plusvalía de hoy: usa movimiento_hoy (todas sus empresas, ya ordenado en dólares), no mercado_acciones. Empieza con total_del_dia y la referencia del S&P 500, luego las que más se movieron de subieron y bajaron, tal cual. Si además pregunta por qué, usa mercado_acciones sólo con esas empresas (tickers) para los titulares.
 - "¿En qué invierto?", "¿me conviene comprar o vender X?" o "¿cómo está el mercado?": antes de contestar llama a resumen_inversiones (su caja, peso_pct y lo que tiene) y a mercado_acciones (sus empresas; agrega las que mencione). Con esos datos sugiere en concreto una o dos opciones y di por qué en una línea cada una: que no suba una concentración (peso_pct), cómo viene frente al S&P 500 (vs_sp500_3m), cómo viene en 30 días y 3 meses (una caída sólo de hoy no es tendencia), si está cara (pe) frente a cuánto crece, qué dicen los analistas y alguna noticia que pese (titulares_empresas explican los movimientos grandes). Si una reporta resultados en los próximos días (proximo_reporte), dilo: alrededor de esa fecha el precio se mueve fuerte. Si vienen avisos (datos que faltaron o no cuadran), no uses esos datos ni los rellenes tú. Si una empresa pasa del 50 % de lo invertido, dilo como riesgo. Si la caja no alcanza para una acción entera, dilo con cuánto le falta (o cuántas fracciones alcanza). Lo que ya ganó una acción en su portafolio es pasado: nunca es razón para comprarla. Cierra con una línea: son datos de hoy, el mercado puede cambiar y la decisión es suya. Nunca digas que analizaste algo que no vino en las herramientas. Para saber si le alcanza el dinero, usa listar_cuentas y flujo_mensual (promedio_queda_meses_completos; el mes en curso está incompleto). Al explicar el tipo de cambio usa sólo efecto_tipo_cambio_pesos y su signo; no añadas hipótesis de qué habría pasado.
 - Sectores propios y subsectores (columna sectores; los subsectores van entre paréntesis): son su forma de agrupar el mapa (Agrupar → Sectores); dentro de un sector, el mapa agrupa por subsector. Si pide subsectores, o se los pide para varias empresas, propónlos con proponer_cambio_categoria (subsectores, una tarjeta por empresa), tomando primero los que ya usa en ese sector. Un subsector va siempre dentro de un sector que la empresa tenga.
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
