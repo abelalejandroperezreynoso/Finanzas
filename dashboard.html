@@ -16152,11 +16152,9 @@
                                     // gastar y va apenas insinuado, para no competir con lo ya cubierto. En el
                                     // portafolio es la diferencia contra lo que pusiste, y ahí sí tiene color
                                     // propio: verde si la posición subió, rojo si bajó.
-                                    // En el portafolio el tono fuerte va en la diferencia y el claro en lo invertido
                                     const arriba = esPortafolio
-                                        ? base
+                                        ? aclararColorInversion(base)
                                         : (f < 1 ? colorTenue(base, alphaPendienteTreemap(base)) : base);
-                                    const abajo = esPortafolio ? aclararColorInversion(base) : base;
 
                                     // Dónde está ese corte: si la posición subió —o el gasto se pasó—, el recuadro
                                     // creció con lo real y el corte queda en la marca de lo esperado; si se quedó
@@ -16168,8 +16166,8 @@
                                     // como trazo en un plugin, porque media raya de píxel dentro de un degradado
                                     // no sobrevive al rasterizado.
                                     const grad = context.chart.ctx.createLinearGradient(0, y + h, 0, y);
-                                    grad.addColorStop(0, abajo);
-                                    grad.addColorStop(corte, abajo);
+                                    grad.addColorStop(0, base);
+                                    grad.addColorStop(corte, base);
                                     grad.addColorStop(corte, arriba);
                                     grad.addColorStop(1, arriba);
 
