@@ -17130,6 +17130,10 @@
                                         if (d.esMovimientoFinanzas) return;
                                         if (comparandoFin) { if (marcable(d)) alternarSeleccionTreemap(d); return; }
                                         if (d.esCuentaFinanzas) abrirCuentaFinanzasTreemap(d.idCuenta);
+                                        // Con las categorías dentro de su cuenta, un toque abre primero la cuenta (con su curva),
+                                        // como un sector en inversiones; si la cuenta sólo tiene esa categoría, va directo a ella
+                                        else if (conCuentasFin && d.cat && d.cat.cuenta_id != null
+                                            && datos.filter(x => x.sectorMapa === d.sectorMapa).length > 1) abrirCuentaFinanzasTreemap(d.cat.cuenta_id);
                                         else if (capaFin) abrirCategoriaFinanzasTreemap(d.id);
                                         else verDetallesCategoria(d.id);
                                     }, (indice) => {
