@@ -13677,6 +13677,16 @@
                             const pluginZoomTreemap = {
                                 id: 'zoomTreemap',
                                 beforeDraw(chart) {
+                                    // Las esquinas redondeadas (mapa de finanzas) se quedan del mismo tamaño en pantalla
+                                    const radio = chart.$radioRecuadros || 0;
+                                    if (radio > 0) {
+                                        const meta = chart.getDatasetMeta(0);
+                                        (meta && meta.data || []).forEach(el => {
+                                            if (el.options && el.options.borderRadius !== undefined) {
+                                                try { el.options.borderRadius = radio / zoomTreemap; } catch (e) { /* opciones fijas */ }
+                                            }
+                                        });
+                                    }
                                     const c = chart.ctx;
                                     c.save();
                                     c.translate(desplazaXTreemap, desplazaYTreemap);
@@ -16196,13 +16206,15 @@
                                     };
                                 };
 
-                                // El zoom sólo en el portafolio, y se reinicia al cambiar de capa o de vista
+                                // Zoom con dos dedos en todos los mapas; se reinicia al cambiar de capa, de vista o de periodo
                                 conectarZoomTreemap(contenedor);
-                                zoomPermitidoTreemap = esPortafolio;
-                                const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
+                                zoomPermitidoTreemap = true;
+                                const llaveZoom = !esPortafolio
+                                    ? ['f', modoActivo ? modoActivo.tipo : '', entradas, indice, (meses || []).length, Array.from(tiposVisiblesGrafica).join(',')].join('|')
+                                    : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
                                     agrupacionTreemapInversiones, formaSectoresTreemap, vistaAccesible, rendimientoTreemapInversiones].join('|');
-                                if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
+                                if (llaveZoom !== llaveZoomTreemap) {
                                     llaveZoomTreemap = llaveZoom;
                                     reiniciarZoomTreemap();
                                 }
@@ -16437,6 +16449,62 @@
                                     }
                                 };
 
+                                // Fuera del portafolio los textos de cada recuadro, con el mismo estilo de siempre, pero
+                                // medidos para el tamaño que tiene en pantalla: al acercar, los recuadros chicos también
+                                // se leen. Sin zoom sale lo mismo que antes.
+                                const pluginTextosFinanzasTreemap = {
+                                    id: 'textosFinanzasTreemap',
+                                    afterDatasetsDraw(chart) {
+                                        const meta = chart.getDatasetMeta(0);
+                                        if (!meta || !meta.data) return;
+                                        const z = zoomTreemap;
+                                        const ini = puntoMapaTreemap(0, 0), fin = puntoMapaTreemap(chart.width, chart.height);
+                                        const familia = Chart.defaults.font.family;
+                                        const lienzo = chart.ctx;
+                                        lienzo.save();
+                                        lienzo.textAlign = 'center';
+                                        lienzo.textBaseline = 'middle';
+                                        meta.data.forEach((el, i) => {
+                                            const raw = chart.data.datasets[0].data[i];
+                                            if (!raw || !(el.width > 0 && el.height > 0)) return;
+                                            const x0 = Math.max(el.x, ini.x), y0 = Math.max(el.y, ini.y);
+                                            const x1 = Math.min(el.x + el.width, fin.x), y1 = Math.min(el.y + el.height, fin.y);
+                                            if (!(x1 > x0 && y1 > y0)) return;
+                                            // Como la librería: la celda con su hueco (raw.w/h); con zoom el hueco no crece
+                                            const w = el.width * z + Math.max(0, (raw.w || el.width) - el.width);
+                                            const h = el.height * z + Math.max(0, (raw.h || el.height) - el.height);
+                                            const e = medidasEtiqueta(Object.assign({}, raw, { w, h }));
+                                            if (!e || !e.lineas || !e.lineas.length) return;
+                                            const d = buscarDato(raw);
+                                            lienzo.fillStyle = (d && d.cat) ? colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas)) : '#ffffff';
+                                            const pad = paddingEtiquetaTreemap(raw);
+                                            const fuentes = e.lineas.map((_, n) => e.fuentes[Math.min(n, e.fuentes.length - 1)]);
+                                            // Si aun así no cabe en el recuadro dibujado, se encoge todo (como overflow 'fit')
+                                            let escala = 1;
+                                            e.lineas.forEach((t, n) => {
+                                                const ancho = anchoTextoMedidoTreemap(String(t), fuentes[n].weight || 'bold') * fuentes[n].size;
+                                                if (ancho > 0) escala = Math.min(escala, (el.width * z - 2 * pad) / ancho);
+                                            });
+                                            const altoTotal = fuentes.reduce((a, f) => a + 1.2 * f.size, 0);
+                                            if (altoTotal > 0) escala = Math.min(escala, (el.height * z - 2 * pad) / altoTotal);
+                                            if (!(escala > 0)) return;
+                                            lienzo.save();
+                                            lienzo.beginPath();
+                                            lienzo.rect(el.x, el.y, el.width, el.height);
+                                            lienzo.clip();
+                                            let y = el.y + el.height / 2 - altoTotal * escala / z / 2;
+                                            e.lineas.forEach((t, n) => {
+                                                const tam = fuentes[n].size * escala / z;
+                                                lienzo.font = `${fuentes[n].weight || 'bold'} ${tam}px ${familia}`;
+                                                lienzo.fillText(String(t), el.x + el.width / 2, y + 0.6 * tam);
+                                                y += 1.2 * tam;
+                                            });
+                                            lienzo.restore();
+                                        });
+                                        lienzo.restore();
+                                    }
+                                };
+
                                 const ANILLO_SELECCION_TREEMAP = 2.5;
                                 const HUECO_SELECCION_TREEMAP = 2.5;
                                 const pluginSeleccionTreemap = {
@@ -16555,7 +16623,8 @@
                                             hoverBackgroundColor: fondoRecuadro,
                                             hoverBorderWidth: 0,
                                             labels: {
-                                                display: !esPortafolio,
+                                                // Los escribe pluginTextosFinanzasTreemap, que los mide con el zoom
+                                                display: false,
                                                 align: 'center',
                                                 position: 'middle',
                                                 // Si aun recortado el texto no cabe, el propio treemap lo encoge
@@ -16612,16 +16681,21 @@
                                             // que distingue entre pulsar y sostener. Si este también actuara, un
                                             // toque haría las dos cosas a la vez.
                                             if (esPortafolio) return;
-                                            if (!elements || elements.length === 0) return;
-                                            const nodo = miTreemapCategorias.data.datasets[0].data[elements[0].index];
+                                            // Con zoom, el recuadro tocado se busca en el punto del mapa sin zoom
+                                            const pt = puntoMapaTreemap(event.x, event.y);
+                                            const meta = miTreemapCategorias.getDatasetMeta(0);
+                                            const i = meta.data.findIndex(el => pt.x >= el.x && pt.x <= el.x + el.width && pt.y >= el.y && pt.y <= el.y + el.height);
+                                            if (i < 0) return;
+                                            const nodo = miTreemapCategorias.data.datasets[0].data[i];
                                             const d = buscarDato(nodo);
                                             if (d && d.id) verDetallesCategoria(d.id);
                                         }
                                     },
-                                    plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap, pluginTextosTreemap] : []), pluginSeleccionTreemap, ...(esPortafolio ? [pluginZoomTreemap] : [])]
+                                    plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap, pluginTextosTreemap] : [pluginTextosFinanzasTreemap]), pluginSeleccionTreemap, pluginZoomTreemap]
                                 });
+                                miTreemapCategorias.$radioRecuadros = radioRecuadros;
                                 // Tras girar el teléfono, el desplazamiento se vuelve a acomodar al nuevo tamaño
-                                if (esPortafolio) limitarZoomTreemap(miTreemapCategorias);
+                                limitarZoomTreemap(miTreemapCategorias);
 
                                 // El portafolio es el único mapa con capas, y por eso el único que necesita separar
                                 // los dos gestos. Un toque baja una capa y, cuando ya no hay nada debajo, abre la
