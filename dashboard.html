@@ -6200,6 +6200,17 @@
 
                                         const salidas = ambito.lado !== 'entradas';
                                         const unica = !!ambito.unica;
+                                        // La curva sola va roja en Salidas y verde en Entradas, con su relleno apagándose hacia abajo
+                                        const colorUnica = salidas ? '#ff5c5c' : VERDE_CURVA;
+                                        const rgbUnica = salidas ? '255, 92, 92' : '77, 215, 99';
+                                        const rellenoUnica = (context) => {
+                                            const { ctx, chartArea } = context.chart;
+                                            if (!chartArea) return `rgba(${rgbUnica}, 0)`;
+                                            const grad = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                                            grad.addColorStop(0, `rgba(${rgbUnica}, 0.95)`);
+                                            grad.addColorStop(1, `rgba(${rgbUnica}, 0)`);
+                                            return grad;
+                                        };
                                         const tituloVista = unica ? ambito.comparar[0].nombre : salidas ? 'Salidas · Comparación' : 'Entradas · Comparación';
                                         if (tituloEl) tituloEl.textContent = tituloVista;
                                         const tipos = new Map((datosCategorias || []).map(c => [String(c.id), c.tipo]));
@@ -6269,7 +6280,7 @@
                                         // Con una sola curva no hay leyenda: la cifra va arriba, como en inversiones
                                         const ponerCifra = (v) => {
                                             if (!cifraEl) return;
-                                            cifraEl.style.color = VERDE_CURVA;
+                                            cifraEl.style.color = colorUnica;
                                             cifraEl.textContent = fMoneda(v);
                                         };
                                         if (unica && leyendaEl) { leyendaEl.style.display = 'none'; leyendaEl.innerHTML = ''; }
@@ -6292,18 +6303,18 @@
                                                 datasets: lineas.map(l => ({
                                                     label: l.sel.nombre,
                                                     data: l.valores,
-                                                    borderColor: l.sel.color,
+                                                    borderColor: unica ? colorUnica : l.sel.color,
                                                     borderWidth: 2,
                                                     pointRadius: 0,
                                                     pointHoverRadius: 3.5,
-                                                    pointBackgroundColor: l.sel.color,
-                                                    pointBorderColor: l.sel.color,
-                                                    pointHoverBackgroundColor: l.sel.color,
+                                                    pointBackgroundColor: unica ? colorUnica : l.sel.color,
+                                                    pointBorderColor: unica ? colorUnica : l.sel.color,
+                                                    pointHoverBackgroundColor: unica ? colorUnica : l.sel.color,
                                                     pointHoverBorderColor: '#000000',
                                                     pointHoverBorderWidth: 1.5,
-                                                    // La curva sola lleva el relleno verde de la tarjeta
+                                                    // La curva sola lleva el relleno de la tarjeta
                                                     fill: unica ? 'origin' : false,
-                                                    backgroundColor: unica ? rellenoCurvaDesdeCero : undefined,
+                                                    backgroundColor: unica ? rellenoUnica : undefined,
                                                     stepped: true
                                                 }))
                                             },
@@ -6319,7 +6330,7 @@
                                                 scales: { x: { display: false }, y: { display: false, suggestedMin: 0 } },
                                                 plugins: { legend: { display: false }, tooltip: { enabled: false } }
                                             },
-                                            plugins: [crearPluginLineaVertical(ultimo, 'rgba(255, 255, 255, 0.45)'), pluginTramoDosDedos]
+                                            plugins: [crearPluginLineaVertical(ultimo, unica ? `rgba(${rgbUnica}, 0.7)` : 'rgba(255, 255, 255, 0.45)'), pluginTramoDosDedos]
                                         });
 
                                         conectarGestosCurva(destino, lienzo, ultimo, escribirDia, escribirTramo);
