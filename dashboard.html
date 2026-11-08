@@ -16502,10 +16502,29 @@
                                             const d = buscarDato(raw);
                                             lienzo.fillStyle = (d && d.cat) ? colorEtiquetaTreemap(colorTreemapCategoria(d.cat, entradas)) : '#ffffff';
                                             const pad = paddingEtiquetaTreemap(raw);
-                                            const fuentes = e.lineas.map((_, n) => e.fuentes[Math.min(n, e.fuentes.length - 1)]);
+                                            let lineas = e.lineas.map(String);
+                                            let fuentes = lineas.map((_, n) => Object.assign({}, e.fuentes[Math.min(n, e.fuentes.length - 1)]));
+                                            // El nombre va completo: en vez de cortarlo con "…", se achica su letra o se parte
+                                            // en dos renglones (lo que deje la letra más grande y quepa a lo alto)
+                                            const nombre = d && d.nombre ? String(d.nombre) : '';
+                                            if (nombre && lineas[0] !== nombre && /…$|\.\.\.$/.test(lineas[0])) {
+                                                const f0 = fuentes[0];
+                                                const anchoDisp = el.width * k - 2 * pad, altoDisp = el.height * k - 2 * pad;
+                                                const mide = (t) => anchoTextoMedidoTreemap(t, f0.weight || 'bold') || 0.01;
+                                                const altoResto = fuentes.slice(1).reduce((t, f) => t + 1.2 * f.size, 0);
+                                                let mejor = { renglones: [nombre], size: Math.min(f0.size, anchoDisp / mide(nombre)) };
+                                                const palabras = nombre.split(' ');
+                                                for (let n = 1; n < palabras.length; n++) {
+                                                    const r = [palabras.slice(0, n).join(' '), palabras.slice(n).join(' ')];
+                                                    const size = Math.min(f0.size, anchoDisp / Math.max(mide(r[0]), mide(r[1])));
+                                                    if (size > mejor.size * 1.15 && altoResto + 2.4 * size <= altoDisp) mejor = { renglones: r, size };
+                                                }
+                                                lineas = mejor.renglones.concat(lineas.slice(1));
+                                                fuentes = mejor.renglones.map(() => Object.assign({}, f0, { size: mejor.size })).concat(fuentes.slice(1));
+                                            }
                                             // Si aun así no cabe en el recuadro dibujado, se encoge todo (como overflow 'fit')
                                             let escala = 1;
-                                            e.lineas.forEach((t, n) => {
+                                            lineas.forEach((t, n) => {
                                                 const ancho = anchoTextoMedidoTreemap(String(t), fuentes[n].weight || 'bold') * fuentes[n].size;
                                                 if (ancho > 0) escala = Math.min(escala, (el.width * k - 2 * pad) / ancho);
                                             });
@@ -16519,7 +16538,7 @@
                                             lienzo.rect(el.x, el.y, el.width, el.height);
                                             lienzo.clip();
                                             let y = el.y + el.height / 2 - altoTotal * escala / k / 2;
-                                            e.lineas.forEach((t, n) => {
+                                            lineas.forEach((t, n) => {
                                                 const tam = fuentes[n].size * escala / k;
                                                 lienzo.font = `${fuentes[n].weight || 'bold'} ${tam}px ${familia}`;
                                                 lienzo.fillText(String(t), el.x + el.width / 2, y + 0.6 * tam);
