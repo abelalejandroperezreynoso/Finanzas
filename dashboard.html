@@ -15634,13 +15634,13 @@
                                     } else if (sectorAbierto) {
                                         // Dentro de un sector con subsectores va el botón Cuadros ⇄ Empresas
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${subsectorAbierto || sectorAbierto}`, () => subirNivelTreemap(),
-                                            [piezasSubDelSector ? trozoForma : null, trozoVista].filter(Boolean));
+                                            [trozoVista, piezasSubDelSector ? trozoForma : null].filter(Boolean));
                                     } else if (cuentaAbierta) {
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaAbierta.nombre}`, () => subirNivelTreemap(),
-                                            [trozoAgrupacion, trozoForma, trozoVista].filter(Boolean));
+                                            [trozoAgrupacion, trozoVista, trozoForma].filter(Boolean));
                                     } else if (esPortafolio && !hayCapaCuentas) {
                                         // Sin capa de cuentas la agrupación se aplica aquí mismo
-                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoAgrupacion, trozoForma, trozoVista].filter(Boolean));
+                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoAgrupacion, trozoVista, trozoForma].filter(Boolean));
                                     } else if (esPortafolio) {
                                         pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoVista]);
                                     } else if (mesSeleccionado) {
