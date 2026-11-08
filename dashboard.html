@@ -16449,9 +16449,9 @@
                                     }
                                 };
 
-                                // Fuera del portafolio los textos de cada recuadro, con el mismo estilo de siempre, pero
-                                // medidos para el tamaño que tiene en pantalla: al acercar, los recuadros chicos también
-                                // se leen. Sin zoom sale lo mismo que antes.
+                                // Fuera del portafolio los textos de cada recuadro, con el mismo estilo de siempre. Como en
+                                // inversiones, el texto es fijo: se mide una vez para el recuadro y el zoom sólo lo agranda.
+                                // Un recuadro demasiado chico lleva su texto en miniatura, que se lee al acercar.
                                 const pluginTextosFinanzasTreemap = {
                                     id: 'textosFinanzasTreemap',
                                     afterDatasetsDraw(chart) {
@@ -16461,6 +16461,9 @@
                                         const ini = puntoMapaTreemap(0, 0), fin = puntoMapaTreemap(chart.width, chart.height);
                                         const familia = Chart.defaults.font.family;
                                         const lienzo = chart.ctx;
+                                        // Lado mínimo con el que se mide el texto: un recuadro más chico lleva el texto completo en
+                                        // miniatura en vez de cortado, y al acercar se lee entero
+                                        const LADO_MINIATURA = 60;
                                         lienzo.save();
                                         lienzo.textAlign = 'center';
                                         lienzo.textBaseline = 'middle';
@@ -16470,9 +16473,11 @@
                                             const x0 = Math.max(el.x, ini.x), y0 = Math.max(el.y, ini.y);
                                             const x1 = Math.min(el.x + el.width, fin.x), y1 = Math.min(el.y + el.height, fin.y);
                                             if (!(x1 > x0 && y1 > y0)) return;
-                                            // Como la librería: la celda con su hueco (raw.w/h); con zoom el hueco no crece
-                                            const w = el.width * z + Math.max(0, (raw.w || el.width) - el.width);
-                                            const h = el.height * z + Math.max(0, (raw.h || el.height) - el.height);
+                                            // Como la librería: la celda con su hueco (raw.w/h). k > 1 en un recuadro chico
+                                            const w0 = raw.w || el.width, h0 = raw.h || el.height;
+                                            const k = Math.max(1, LADO_MINIATURA / Math.max(0.01, Math.min(w0, h0)));
+                                            if (Math.min(el.width, el.height) * z < 4) return;
+                                            const w = w0 * k, h = h0 * k;
                                             const e = medidasEtiqueta(Object.assign({}, raw, { w, h }));
                                             if (!e || !e.lineas || !e.lineas.length) return;
                                             const d = buscarDato(raw);
@@ -16483,18 +16488,20 @@
                                             let escala = 1;
                                             e.lineas.forEach((t, n) => {
                                                 const ancho = anchoTextoMedidoTreemap(String(t), fuentes[n].weight || 'bold') * fuentes[n].size;
-                                                if (ancho > 0) escala = Math.min(escala, (el.width * z - 2 * pad) / ancho);
+                                                if (ancho > 0) escala = Math.min(escala, (el.width * k - 2 * pad) / ancho);
                                             });
                                             const altoTotal = fuentes.reduce((a, f) => a + 1.2 * f.size, 0);
-                                            if (altoTotal > 0) escala = Math.min(escala, (el.height * z - 2 * pad) / altoTotal);
+                                            if (altoTotal > 0) escala = Math.min(escala, (el.height * k - 2 * pad) / altoTotal);
                                             if (!(escala > 0)) return;
+                                            // Letra de menos de 3 px en pantalla no se lee: sin zoom, el recuadro va limpio como antes
+                                            if (fuentes[0].size * escala / k * z < 3) return;
                                             lienzo.save();
                                             lienzo.beginPath();
                                             lienzo.rect(el.x, el.y, el.width, el.height);
                                             lienzo.clip();
-                                            let y = el.y + el.height / 2 - altoTotal * escala / z / 2;
+                                            let y = el.y + el.height / 2 - altoTotal * escala / k / 2;
                                             e.lineas.forEach((t, n) => {
-                                                const tam = fuentes[n].size * escala / z;
+                                                const tam = fuentes[n].size * escala / k;
                                                 lienzo.font = `${fuentes[n].weight || 'bold'} ${tam}px ${familia}`;
                                                 lienzo.fillText(String(t), el.x + el.width / 2, y + 0.6 * tam);
                                                 y += 1.2 * tam;
