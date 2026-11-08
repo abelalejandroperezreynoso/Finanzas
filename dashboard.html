@@ -6199,7 +6199,8 @@
                                         if (cifraEl) cifraEl.textContent = '';
 
                                         const salidas = ambito.lado !== 'entradas';
-                                        const tituloVista = salidas ? 'Salidas · Comparación' : 'Entradas · Comparación';
+                                        const unica = !!ambito.unica;
+                                        const tituloVista = unica ? ambito.comparar[0].nombre : salidas ? 'Salidas · Comparación' : 'Entradas · Comparación';
                                         if (tituloEl) tituloEl.textContent = tituloVista;
                                         const tipos = new Map((datosCategorias || []).map(c => [String(c.id), c.tipo]));
                                         const hoy = diaISO(new Date());
@@ -6265,14 +6266,22 @@
                                             const [anio, mes, dia] = ejes[i].split('-');
                                             return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}`;
                                         };
+                                        // Con una sola curva no hay leyenda: la cifra va arriba, como en inversiones
+                                        const ponerCifra = (v) => {
+                                            if (!cifraEl) return;
+                                            cifraEl.style.color = VERDE_CURVA;
+                                            cifraEl.textContent = fMoneda(v);
+                                        };
+                                        if (unica && leyendaEl) { leyendaEl.style.display = 'none'; leyendaEl.innerHTML = ''; }
                                         const escribirDia = (i, conFecha) => {
                                             if (i < 0 || i > ultimo) return;
-                                            pintarLeyenda(l => l.valores[i]);
+                                            if (unica) ponerCifra(lineas[0].valores[i]); else pintarLeyenda(l => l.valores[i]);
                                             if (tituloEl) tituloEl.textContent = conFecha ? fechaDe(i) : tituloVista;
                                         };
                                         // Con dos dedos, cuánto llevó cada una entre los dos días
                                         const escribirTramo = (a, b) => {
-                                            pintarLeyenda(l => l.valores[b] - l.valores[a]);
+                                            if (unica) ponerCifra(lineas[0].valores[b] - lineas[0].valores[a]);
+                                            else pintarLeyenda(l => l.valores[b] - l.valores[a]);
                                             if (tituloEl) tituloEl.textContent = `${fechaDe(a)} – ${fechaDe(b)}`;
                                         };
 
@@ -6292,7 +6301,9 @@
                                                     pointHoverBackgroundColor: l.sel.color,
                                                     pointHoverBorderColor: '#000000',
                                                     pointHoverBorderWidth: 1.5,
-                                                    fill: false,
+                                                    // La curva sola lleva el relleno verde de la tarjeta
+                                                    fill: unica ? 'origin' : false,
+                                                    backgroundColor: unica ? rellenoCurvaDesdeCero : undefined,
                                                     stepped: true
                                                 }))
                                             },
@@ -13318,10 +13329,18 @@
                             })();
                             // La cuenta abierta en el mapa de finanzas (con "un cuadro por cuenta")
                             let cuentaFinanzasTreemap = null;
+                            // La categoría abierta: como una empresa en inversiones, el mapa enseña sus movimientos
+                            // y la tarjeta de arriba su curva
+                            let categoriaFinanzasTreemap = null;
+                            function abrirCategoriaFinanzasTreemap(id) {
+                                categoriaFinanzasTreemap = String(id);
+                                repintarTreemapCategorias();
+                            }
                             function alternarAgrupacionFinanzasTreemap() {
                                 agrupacionFinanzasTreemap = agrupacionFinanzasTreemap === 'cuentas' ? 'categorias' : 'cuentas';
                                 try { localStorage.setItem('agrupacionFinanzasTreemap', agrupacionFinanzasTreemap); } catch (e) { /* sin almacenamiento */ }
                                 cuentaFinanzasTreemap = null;
+                                categoriaFinanzasTreemap = null;
                                 repintarTreemapCategorias();
                             }
                             function abrirCuentaFinanzasTreemap(id) {
@@ -13680,6 +13699,7 @@
                             // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
                             // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
+                                if (categoriaFinanzasTreemap && tipoTreemapCategorias !== 'inversion') { categoriaFinanzasTreemap = null; repintarTreemapCategorias(); return; }
                                 if (cuentaFinanzasTreemap && tipoTreemapCategorias !== 'inversion') { cuentaFinanzasTreemap = null; repintarTreemapCategorias(); return; }
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
                                 else if (subsectorTreemapInversiones) subsectorTreemapInversiones = null;
@@ -15912,7 +15932,32 @@
 
                                 // Mapa de finanzas agrupado por cuenta: la cuenta es el sector y la categoría el subsector
                                 const esFinanzas = !esPortafolio;
-                                const porCuentaFin = esFinanzas && agrupacionFinanzasTreemap === 'cuentas';
+                                // Categoría abierta (sólo Salidas/Entradas): sus movimientos del periodo, uno por recuadro
+                                let catFinAbierta = null;
+                                if (esFinanzas && !modoActivo && categoriaFinanzasTreemap !== null) {
+                                    const cat = datos.find(d => String(d.id) === categoriaFinanzasTreemap);
+                                    if (cat) {
+                                        catFinAbierta = { id: categoriaFinanzasTreemap, nombre: cat.nombre, cat: cat.cat };
+                                        const delPeriodo = new Set(((indice === null || !meses || !meses[indice]) ? (meses || []) : [meses[indice]]).map(m => m.ym));
+                                        const movs = (datosUsoCompleto || []).filter(u => u.fecha && String(u.categoria_id) === categoriaFinanzasTreemap
+                                            && (delPeriodo.size === 0 || delPeriodo.has(obtenerFechaLocalCortada(u.fecha).slice(0, 7))));
+                                        datos = movs.map(u => {
+                                            const m = parseFloat(u.monto) || 0;
+                                            const v = entradas ? m : -m;
+                                            if (!(v > 0)) return null;
+                                            const [anio, mes, dia] = obtenerFechaLocalCortada(u.fecha).slice(0, 10).split('-');
+                                            return {
+                                                id: 'mov:' + u.id,
+                                                esMovimientoFinanzas: true,
+                                                cat: cat.cat,
+                                                nombre: `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3).toLowerCase()} ${anio}`,
+                                                monto: v, real: v, esperado: 0
+                                            };
+                                        }).filter(Boolean);
+                                    }
+                                }
+                                if (esFinanzas && !catFinAbierta) categoriaFinanzasTreemap = null;
+                                const porCuentaFin = esFinanzas && agrupacionFinanzasTreemap === 'cuentas' && !catFinAbierta;
                                 let cuentaFinAbierta = null;
                                 let conCuentasFin = false;
                                 let cuadrosCuentasFin = false;
@@ -15954,7 +15999,7 @@
                                 }
                                 // Selección para comparar en finanzas (sólo en Salidas/Entradas): sostener el dedo marca una
                                 // categoría o cuenta y la tarjeta de arriba dibuja cuánto lleva cada una en el periodo
-                                const capaFin = esFinanzas && !modoActivo;
+                                const capaFin = esFinanzas && !modoActivo && !catFinAbierta;
                                 const claveCapaFin = capaFin
                                     ? ['fin', entradas, agrupacionFinanzasTreemap, formaSectoresTreemap, cuentaFinanzasTreemap || '', indice === null ? '' : indice].join('|')
                                     : null;
@@ -15971,6 +16016,12 @@
                                         vista: 'finanzas',
                                         lado: entradas ? 'entradas' : 'salidas',
                                         comparar: seleccionTreemapInversiones.map(sel => ({ ...sel }))
+                                    } : catFinAbierta ? {
+                                        // Una sola curva, verde, como la de una empresa abierta en inversiones
+                                        vista: 'finanzas',
+                                        lado: entradas ? 'entradas' : 'salidas',
+                                        unica: true,
+                                        comparar: [{ id: catFinAbierta.id, nombre: catFinAbierta.nombre, color: '#4dd763', cats: [catFinAbierta.id] }]
                                     } : null);
                                 }
 
@@ -15986,7 +16037,8 @@
                                         etiqueta: formaSectoresTreemap === 'empresas' ? 'Categorías por cuenta' : 'Un cuadro por cuenta',
                                         alTocar: alternarFormaSectoresTreemap
                                     } : null;
-                                    if (cuentaFinAbierta) pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaFinAbierta.nombre}`, () => subirNivelTreemap(), []);
+                                    if (catFinAbierta) pintarTituloTreemapInversiones(tituloEl, `‹ ${catFinAbierta.nombre}`, () => subirNivelTreemap(), []);
+                                    else if (cuentaFinAbierta) pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaFinAbierta.nombre}`, () => subirNivelTreemap(), []);
                                     else pintarTituloTreemapInversiones(tituloEl, fecha, null, [trozoFin, trozoFormaFin].filter(Boolean));
                                 }
 
@@ -16492,7 +16544,7 @@
                                 conectarZoomTreemap(contenedor);
                                 zoomPermitidoTreemap = true;
                                 const llaveZoom = !esPortafolio
-                                    ? ['f', modoActivo ? modoActivo.tipo : '', entradas, indice, (meses || []).length, Array.from(tiposVisiblesGrafica).join(','), agrupacionFinanzasTreemap, formaSectoresTreemap, cuentaFinanzasTreemap || ''].join('|')
+                                    ? ['f', modoActivo ? modoActivo.tipo : '', entradas, indice, (meses || []).length, Array.from(tiposVisiblesGrafica).join(','), agrupacionFinanzasTreemap, formaSectoresTreemap, cuentaFinanzasTreemap || '', categoriaFinanzasTreemap || ''].join('|')
                                     : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
                                     agrupacionTreemapInversiones, formaSectoresTreemap, vistaAccesible, rendimientoTreemapInversiones].join('|');
@@ -17069,9 +17121,11 @@
                                     conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
+                                        if (d.esMovimientoFinanzas) return;
                                         if (comparandoFin) { if (marcable(d)) alternarSeleccionTreemap(d); return; }
                                         if (d.esCuentaFinanzas) abrirCuentaFinanzasTreemap(d.idCuenta);
-                                        else if (!capaFin) verDetallesCategoria(d.id);
+                                        else if (capaFin) abrirCategoriaFinanzasTreemap(d.id);
+                                        else verDetallesCategoria(d.id);
                                     }, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
@@ -17088,6 +17142,7 @@
                                         : (sectoresEnCajas && !sectorAbierto) ? ['sector', 'sectores']
                                         : (sectoresEnCajas && piezasSubDelSector) ? ['subsector', 'subsectores']
                                         : cuadrosCuentasFin ? ['cuenta', 'cuentas']
+                                        : catFinAbierta ? ['movimiento', 'movimientos']
                                         : (modoActivo ? modoActivo.unidad : null);
                                     // La caja no es una empresa: se nombra aparte, igual que en la plusvalía.
                                     const hayCajaPie = unidadNivel && unidadNivel[0] === 'empresa' && datos.some(d => d.esCaja);
