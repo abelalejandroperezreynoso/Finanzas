@@ -13177,6 +13177,25 @@
                             function agrupaPorSectorTreemap() {
                                 return agrupacionTreemapInversiones !== 'empresa';
                             }
+                            // Mapa de finanzas: 'categorias' (como siempre) o 'cuentas', que agrupa las categorías por
+                            // su cuenta como los sectores de inversiones: con el icono de forma, un cuadro por cuenta
+                            // (un toque abre sus categorías) o las categorías dentro de su cuenta con su barra.
+                            let agrupacionFinanzasTreemap = (function () {
+                                try { return localStorage.getItem('agrupacionFinanzasTreemap') === 'cuentas' ? 'cuentas' : 'categorias'; } catch (e) { return 'categorias'; }
+                            })();
+                            // La cuenta abierta en el mapa de finanzas (con "un cuadro por cuenta")
+                            let cuentaFinanzasTreemap = null;
+                            function alternarAgrupacionFinanzasTreemap() {
+                                agrupacionFinanzasTreemap = agrupacionFinanzasTreemap === 'cuentas' ? 'categorias' : 'cuentas';
+                                try { localStorage.setItem('agrupacionFinanzasTreemap', agrupacionFinanzasTreemap); } catch (e) { /* sin almacenamiento */ }
+                                cuentaFinanzasTreemap = null;
+                                repintarTreemapCategorias();
+                            }
+                            function abrirCuentaFinanzasTreemap(id) {
+                                cuentaFinanzasTreemap = String(id);
+                                repintarTreemapCategorias();
+                            }
+
                             // Las dos formas de ver los sectores usan los mismos sectores propios
                             const sectoresPropiosTreemap = () => agrupacionTreemapInversiones !== 'empresa';
 
@@ -13523,6 +13542,7 @@
                             // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
                             // donde cabe un "volver" sin quitarle espacio a los recuadros.
                             function subirNivelTreemap() {
+                                if (cuentaFinanzasTreemap && tipoTreemapCategorias !== 'inversion') { cuentaFinanzasTreemap = null; repintarTreemapCategorias(); return; }
                                 if (empresaTreemapInversiones) empresaTreemapInversiones = null;
                                 else if (subsectorTreemapInversiones) subsectorTreemapInversiones = null;
                                 else if (industriaGicsTreemap) {
@@ -15727,6 +15747,61 @@
                                     }).filter(d => d.cat && d.monto > 0 && tiposVisiblesGrafica.has(tipoGraficaDeCategoria(d.cat, entradas)));
                                 }
 
+                                // Mapa de finanzas agrupado por cuenta: la cuenta es el sector y la categoría el subsector
+                                const esFinanzas = !esPortafolio;
+                                const porCuentaFin = esFinanzas && agrupacionFinanzasTreemap === 'cuentas';
+                                let cuentaFinAbierta = null;
+                                let conCuentasFin = false;
+                                let cuadrosCuentasFin = false;
+                                if (porCuentaFin) {
+                                    const nombreCuenta = (id) => {
+                                        const c = (datosCuentas || []).find(x => String(x.id) === String(id));
+                                        return c ? c.nombre : 'Sin cuenta';
+                                    };
+                                    const deCuenta = (d) => String(d.cat && d.cat.cuenta_id != null ? d.cat.cuenta_id : '');
+                                    if (cuentaFinanzasTreemap !== null && datos.some(d => deCuenta(d) === cuentaFinanzasTreemap)) {
+                                        cuentaFinAbierta = { id: cuentaFinanzasTreemap, nombre: nombreCuenta(cuentaFinanzasTreemap) };
+                                        datos = datos.filter(d => deCuenta(d) === cuentaFinanzasTreemap);
+                                    } else {
+                                        cuentaFinanzasTreemap = null;
+                                        if (formaSectoresTreemap === 'empresas') {
+                                            datos = datos.map(d => Object.assign({}, d, { sectorMapa: nombreCuenta(deCuenta(d)) }));
+                                            conCuentasFin = datos.length > 0;
+                                        } else {
+                                            const grupos = {};
+                                            datos.forEach(d => { (grupos[deCuenta(d)] = grupos[deCuenta(d)] || []).push(d); });
+                                            datos = Object.keys(grupos).map(id => {
+                                                const lista = grupos[id];
+                                                const mayor = lista.reduce((a, b) => (b.monto > a.monto ? b : a), lista[0]);
+                                                return {
+                                                    id: 'cuenta:' + id,
+                                                    idCuenta: id,
+                                                    esCuentaFinanzas: true,
+                                                    // El color de la cuenta es el de lo que contiene (rojo, verde, el del modo)
+                                                    cat: { tipo: mayor.cat ? mayor.cat.tipo : 'gasto' },
+                                                    nombre: nombreCuenta(id),
+                                                    monto: lista.reduce((t, d) => t + d.monto, 0),
+                                                    real: lista.reduce((t, d) => t + (d.real || 0), 0),
+                                                    esperado: lista.reduce((t, d) => t + (d.esperado || 0), 0)
+                                                };
+                                            }).filter(d => d.monto > 0);
+                                            cuadrosCuentasFin = true;
+                                        }
+                                    }
+                                }
+                                // El título de finanzas: la fecha y, a la derecha, Categorías ⇄ Cuentas y el icono de forma
+                                if (esFinanzas && tituloEl) {
+                                    const fecha = tituloEl.textContent;
+                                    const trozoFin = { texto: porCuentaFin ? 'Cuentas' : 'Categorías', alTocar: alternarAgrupacionFinanzasTreemap };
+                                    const trozoFormaFin = porCuentaFin ? {
+                                        icono: formaSectoresTreemap === 'empresas' ? ICONO_EMPRESAS_EN_SECTORES_TREEMAP : ICONO_CUADROS_SECTORES_TREEMAP,
+                                        etiqueta: formaSectoresTreemap === 'empresas' ? 'Categorías por cuenta' : 'Un cuadro por cuenta',
+                                        alTocar: alternarFormaSectoresTreemap
+                                    } : null;
+                                    if (cuentaFinAbierta) pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaFinAbierta.nombre}`, () => subirNivelTreemap(), []);
+                                    else pintarTituloTreemapInversiones(tituloEl, fecha, null, [trozoFin, trozoFormaFin].filter(Boolean));
+                                }
+
                                 // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
                                 // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
                                 // (La misma empresa en dos subsectores no se repite: cada pieza va en su grupo.)
@@ -15754,7 +15829,7 @@
                                 const conSectoresPropios = empresasEnSectores && !empresaAbierta && !sectorAbierto
                                     && (!!cuentaAbierta || !hayCapaCuentas);
                                 const gruposMapa = conSubsectores ? ['subsectorMapa', 'nombre']
-                                    : conSectoresPropios ? ['sectorMapa', 'nombre']
+                                    : (conSectoresPropios || conCuentasFin) ? ['sectorMapa', 'nombre']
                                     : !conSectores ? ['nombre']
                                     : industriaGicsAbierta ? ['nombre']
                                     : sectorGicsAbierto ? ['industriaMapa', 'nombre']
@@ -15789,7 +15864,7 @@
                                 // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
                                 // el último nivel.
                                 const nivelHojaMapa = gruposMapa.length - 1;
-                                const esBarraSector = (raw) => (conSectores || conSubsectores || conSectoresPropios) && !!raw && raw.l < nivelHojaMapa;
+                                const esBarraSector = (raw) => (conSectores || conSubsectores || conSectoresPropios || conCuentasFin) && !!raw && raw.l < nivelHojaMapa;
 
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
@@ -16229,7 +16304,7 @@
                                 conectarZoomTreemap(contenedor);
                                 zoomPermitidoTreemap = true;
                                 const llaveZoom = !esPortafolio
-                                    ? ['f', modoActivo ? modoActivo.tipo : '', entradas, indice, (meses || []).length, Array.from(tiposVisiblesGrafica).join(',')].join('|')
+                                    ? ['f', modoActivo ? modoActivo.tipo : '', entradas, indice, (meses || []).length, Array.from(tiposVisiblesGrafica).join(','), agrupacionFinanzasTreemap, formaSectoresTreemap, cuentaFinanzasTreemap || ''].join('|')
                                     : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
                                     agrupacionTreemapInversiones, formaSectoresTreemap, vistaAccesible, rendimientoTreemapInversiones].join('|');
@@ -16736,7 +16811,8 @@
                                             if (i < 0) return;
                                             const nodo = miTreemapCategorias.data.datasets[0].data[i];
                                             const d = buscarDato(nodo);
-                                            if (d && d.id) verDetallesCategoria(d.id);
+                                            if (d && d.esCuentaFinanzas) abrirCuentaFinanzasTreemap(d.idCuenta);
+                                            else if (d && d.id) verDetallesCategoria(d.id);
                                         }
                                     },
                                     plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap, pluginTextosTreemap] : [pluginTextosFinanzasTreemap]), pluginSeleccionTreemap, pluginZoomTreemap]
@@ -16807,6 +16883,7 @@
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
                                         : (sectoresEnCajas && !sectorAbierto) ? ['sector', 'sectores']
                                         : (sectoresEnCajas && piezasSubDelSector) ? ['subsector', 'subsectores']
+                                        : cuadrosCuentasFin ? ['cuenta', 'cuentas']
                                         : (modoActivo ? modoActivo.unidad : null);
                                     // La caja no es una empresa: se nombra aparte, igual que en la plusvalía.
                                     const hayCajaPie = unidadNivel && unidadNivel[0] === 'empresa' && datos.some(d => d.esCaja);
