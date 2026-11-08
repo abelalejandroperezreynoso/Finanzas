@@ -13505,6 +13505,13 @@
                                 repintarTreemapCategorias();
                             }
 
+                            // Un toque en un recuadro de subsector (Cuadros, dentro de un sector) abre sus empresas
+                            function abrirSubsectorCuadroTreemap(sub) {
+                                subsectorTreemapInversiones = String(sub);
+                                empresaTreemapInversiones = null;
+                                repintarTreemapCategorias();
+                            }
+
                             // Un toque en una empresa de la vista "Por sector": abre su sector (con sus subsectores) y
                             // luego sus compras. Si es la única del sector, va directo a sus compras.
                             function abrirSectorPropioTreemap(d, datosCapa) {
@@ -14477,6 +14484,24 @@
                                 }).filter(d => d.monto > 0);
                             }
 
+                            // "Cuadros" dentro de un sector: un recuadro por subsector con las piezas que le tocan
+                            function agruparPorSubsectorTreemap(piezas) {
+                                const porSub = {};
+                                piezas.forEach(p => { (porSub[p.subsectorMapa] = porSub[p.subsectorMapa] || []).push(p); });
+                                return Object.keys(porSub).map(sub => {
+                                    const resumen = resumirGrupoTreemap(porSub[sub]);
+                                    return ponerRitmoGrupoTreemap({
+                                        id: sub,
+                                        esSubsector: true,
+                                        cat: { tipo: 'inversion' },
+                                        nombre: sub,
+                                        monto: Math.max(resumen.costo, resumen.valor),
+                                        real: resumen.valor,
+                                        esperado: resumen.costo
+                                    }, resumen);
+                                }).filter(d => d.monto > 0);
+                            }
+
                             // Lo que costó un lote en dólares. Normalmente lo tiene memorizado el recorrido del
                             // historial, que es donde se resuelve el tipo de cambio real de cada compra; el
                             // respaldo reconstruye lo que se pueda de un registro que no pasó por ahí, y si no
@@ -14621,7 +14646,7 @@
                             function alternarFormaSectoresTreemap() {
                                 formaSectoresTreemap = formaSectoresTreemap === 'empresas' ? 'cuadros' : 'empresas';
                                 try { localStorage.setItem('formaSectoresTreemap', formaSectoresTreemap); } catch (e) { /* sin almacenamiento */ }
-                                sectorTreemapInversiones = null;
+                                // Dentro de un sector se queda en él: sólo cambia cómo se ven sus subsectores
                                 subsectorTreemapInversiones = null;
                                 empresaTreemapInversiones = null;
                                 repintarTreemapCategorias();
@@ -15399,6 +15424,10 @@
                                 const subsectorAbierto = piezasSubsectores && piezasSubsectores.some(d => d.subsectorMapa === subsectorTreemapInversiones)
                                     ? subsectorTreemapInversiones : null;
                                 if (!subsectorAbierto) subsectorTreemapInversiones = null;
+                                // Dentro de un sector con subsectores, "Cuadros" enseña un recuadro por subsector y
+                                // "Empresas" las empresas dentro de su subsector
+                                const piezasSubDelSector = sectorAbierto && !subsectorAbierto
+                                    ? piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) : null;
 
                                 // Se puede estar dentro de una empresa sin sector abierto aunque los sectores
                                 // estén puestos: es lo que pasa al entrar en una empresa repartida, que suelta el
@@ -15585,9 +15614,9 @@
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${industriaGicsAbierta || sectorGicsAbierto}`, () => subirNivelTreemap(),
                                             [trozoVista]);
                                     } else if (sectorAbierto) {
-                                        // Dentro de un sector lo que se ve son sus empresas, sin más: no hace falta decirlo
+                                        // Dentro de un sector con subsectores va el botón Cuadros ⇄ Empresas
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${subsectorAbierto || sectorAbierto}`, () => subirNivelTreemap(),
-                                            [trozoVista]);
+                                            [piezasSubDelSector ? trozoForma : null, trozoVista].filter(Boolean));
                                     } else if (cuentaAbierta) {
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaAbierta.nombre}`, () => subirNivelTreemap(),
                                             [trozoAgrupacion, trozoForma, trozoVista].filter(Boolean));
@@ -15619,7 +15648,8 @@
                                 } else if (subsectorAbierto) {
                                     datos = piezasSubsectores.filter(d => d.subsectorMapa === subsectorAbierto);
                                 } else if (sectorAbierto) {
-                                    datos = piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) || piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
+                                    datos = (piezasSubDelSector && sectoresEnCajas) ? agruparPorSubsectorTreemap(piezasSubDelSector)
+                                        : piezasSubDelSector || piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
                                 } else if (cuentaAbierta) {
                                     datos = empresasEnSectores ? piezasPorSectorPropioTreemap(empresasDelNivel, sectoresPortafolio)
                                         : porSector ? sectoresPortafolio : empresasDelNivel;
@@ -16605,6 +16635,7 @@
                                         // La caja no tiene compras dentro: bajar a su capa dejaría el mapa vacío,
                                         // así que un toque abre su ficha, que es lo único que hay que ver de ella.
                                         else if (d.esCaja) verDetallesCategoria(d.id);
+                                        else if (d.esSubsector) abrirSubsectorCuadroTreemap(d.id);
                                         else if (d.esSector) abrirSectorTreemap(d.id);
                                         else if (conSectores) abrirCapaGicsTreemap(d, datos);
                                         else if (conSubsectores) abrirSubsectorTreemap(d, datos);
@@ -16621,7 +16652,7 @@
                                         // Un sector no es nada que la app tenga guardado —es lo que comparten
                                         // unas empresas—, así que no hay ficha suya que abrir. Sostener el dedo
                                         // sobre uno no hace nada; para ver qué lo forma se entra con un toque.
-                                        else if (d.esSector) return;
+                                        else if (d.esSector || d.esSubsector) return;
                                         else if (cuentaAbierta || !hayCapaCuentas) verDetallesCategoria(d.id);
                                         else verDetallesCuenta(d.id);
                                     });
@@ -16636,6 +16667,7 @@
                                     const unidadNivel = empresaAbierta ? ['compra', 'compras']
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
                                         : (sectoresEnCajas && !sectorAbierto) ? ['sector', 'sectores']
+                                        : (sectoresEnCajas && piezasSubDelSector) ? ['subsector', 'subsectores']
                                         : (modoActivo ? modoActivo.unidad : null);
                                     // La caja no es una empresa: se nombra aparte, igual que en la plusvalía.
                                     const hayCajaPie = unidadNivel && unidadNivel[0] === 'empresa' && datos.some(d => d.esCaja);
