@@ -15312,13 +15312,14 @@
                                     });
                                 });
 
-                                // (Sólo en el mapa de Salidas/Entradas: el de Préstamos necesita las dos caras enteras.)
+                                // (Sólo en el mapa de Salidas/Entradas: los de Préstamos y Deudas necesitan las dos caras enteras.)
                                 // Un préstamo que hiciste no es un gasto mientras te lo devuelven: lo que te abonaron en el
                                 // periodo se le resta, y uno ya pagado desaparece. Del otro lado igual: los abonos sólo
-                                // cuentan como entrada en lo que pasen de lo prestado.
+                                // cuentan como entrada en lo que pasen de lo prestado. Una deuda igual, al revés: lo que te
+                                // prestaron no es entrada y lo que pagas no es gasto hasta cubrir lo que recibiste.
                                 const esPrestamo = (clave) => {
                                     const cat = (datosCategorias || []).find(c => String(c.id) === String(clave));
-                                    return !!cat && cat.tipo === 'prestamo';
+                                    return !!cat && (cat.tipo === 'prestamo' || cat.tipo === 'deuda');
                                 };
                                 const contrario = {};
                                 fuente.forEach(m => {
