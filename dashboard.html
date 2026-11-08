@@ -13156,14 +13156,19 @@
                             // dejaría de haber forma de ver las dos cosas.
                             // Los sectores de la industria ya no se ofrecen: sólo empresas o los sectores propios.
                             // Quien los tenía guardados pasa a los suyos, que es la otra forma de verlos por sector.
-                            // 'agrupado' usa los mismos sectores propios, pero en vez de un recuadro por sector enseña
-                            // las empresas dentro de su sector, cada sector con su barra (como los subsectores).
-                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'personalizado', 'agrupado'];
-                            const ETIQUETAS_AGRUPACION_TREEMAP = { empresa: 'Empresas', personalizado: 'Sectores', agrupado: 'Por sector' };
-                            const OPCIONES_AGRUPACION_TREEMAP = [['empresa', 'Empresas'], ['personalizado', 'Sectores'], ['agrupado', 'Empresas por sector']];
+                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'personalizado'];
+                            // Con sectores puestos, otro botón del título dice cómo se ven: 'cuadros' (un recuadro por
+                            // sector) o 'empresas' (las empresas dentro de su sector, cada sector con su barra, como
+                            // los subsectores). Se recuerda entre sesiones.
+                            let formaSectoresTreemap = (function () {
+                                try {
+                                    if (localStorage.getItem('agrupacionTreemapInversiones') === 'agrupado') return 'empresas';
+                                    return localStorage.getItem('formaSectoresTreemap') === 'empresas' ? 'empresas' : 'cuadros';
+                                } catch (e) { return 'cuadros'; }
+                            })();
                             let agrupacionTreemapInversiones = (function () {
                                 const guardada = localStorage.getItem('agrupacionTreemapInversiones');
-                                if (guardada === 'sector') return 'personalizado';
+                                if (guardada === 'sector' || guardada === 'agrupado') return 'personalizado';
                                 return AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(guardada) >= 0 ? guardada : 'empresa';
                             })();
 
@@ -13172,7 +13177,7 @@
                             function agrupaPorSectorTreemap() {
                                 return agrupacionTreemapInversiones !== 'empresa';
                             }
-                            // Las dos vistas con sectores propios ('personalizado' y 'agrupado') usan los mismos sectores
+                            // Las dos formas de ver los sectores usan los mismos sectores propios
                             const sectoresPropiosTreemap = () => agrupacionTreemapInversiones !== 'empresa';
 
                             // Dónde está parado el portafolio: cuentas arriba, empresas de una cuenta en medio y
@@ -14613,6 +14618,15 @@
 
                             // La agrupación y el "Mostrar" ya no tienen pastilla: cada uno se alterna por su
                             // lado tocándolo en el título del mapa (Empresas ↔ Sectores, Todo ↔ Accesible).
+                            function alternarFormaSectoresTreemap() {
+                                formaSectoresTreemap = formaSectoresTreemap === 'empresas' ? 'cuadros' : 'empresas';
+                                try { localStorage.setItem('formaSectoresTreemap', formaSectoresTreemap); } catch (e) { /* sin almacenamiento */ }
+                                sectorTreemapInversiones = null;
+                                subsectorTreemapInversiones = null;
+                                empresaTreemapInversiones = null;
+                                repintarTreemapCategorias();
+                            }
+
                             function alternarAgrupacionTreemapInversiones() {
                                 const i = AGRUPACIONES_TREEMAP_INVERSIONES.indexOf(agrupacionTreemapInversiones);
                                 cambiarAgrupacionTreemapInversiones(AGRUPACIONES_TREEMAP_INVERSIONES[(i + 1) % AGRUPACIONES_TREEMAP_INVERSIONES.length]);
@@ -15336,8 +15350,8 @@
                                 const tamanoNoEsValor = vistaSostenida || vistaPlusvalia;
                                 const porSector = esPortafolio && agrupaPorSectorTreemap();
                                 // Con sectores propios: un recuadro por sector, o las empresas agrupadas en su sector
-                                const sectoresEnCajas = porSector && agrupacionTreemapInversiones === 'personalizado';
-                                const empresasEnSectores = porSector && agrupacionTreemapInversiones === 'agrupado';
+                                const empresasEnSectores = porSector && formaSectoresTreemap === 'empresas';
+                                const sectoresEnCajas = porSector && !empresasEnSectores;
 
                                 // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de sectores las agrupa de otra manera, la de empresas
@@ -15412,7 +15426,7 @@
                                 // dejó fuera) se quita.
                                 const capaConSeleccion = esPortafolio && !empresaAbierta && (!!cuentaAbierta || !hayCapaCuentas);
                                 const claveCapa = capaConSeleccion
-                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', agrupacionTreemapInversiones].join('|')
+                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', agrupacionTreemapInversiones, formaSectoresTreemap].join('|')
                                     : null;
                                 if (claveCapa !== capaSeleccionTreemap) {
                                     seleccionTreemapInversiones = [];
@@ -15551,12 +15565,11 @@
                                         valor: String(toleranciaTreemapInversiones),
                                         alElegir: cambiarToleranciaTreemapInversiones
                                     };
-                                    const trozoAgrupacion = {
-                                        texto: ETIQUETAS_AGRUPACION_TREEMAP[agrupacionTreemapInversiones] || 'Empresas',
-                                        opciones: OPCIONES_AGRUPACION_TREEMAP,
-                                        valor: agrupacionTreemapInversiones,
-                                        alElegir: cambiarAgrupacionTreemapInversiones
-                                    };
+                                    const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
+                                    // Con sectores, el botón de al lado: cuadros ⇄ empresas dentro de su sector
+                                    const trozoForma = porSector
+                                        ? { texto: empresasEnSectores ? 'Empresas' : 'Cuadros', alTocar: alternarFormaSectoresTreemap }
+                                        : null;
                                     if (comparando) {
                                         // Comparando, el título dice cuántos van y es la salida de la selección
                                         const n = seleccionTreemapInversiones.length;
@@ -15577,10 +15590,10 @@
                                             [trozoVista]);
                                     } else if (cuentaAbierta) {
                                         pintarTituloTreemapInversiones(tituloEl, `‹ ${cuentaAbierta.nombre}`, () => subirNivelTreemap(),
-                                            [trozoAgrupacion, trozoVista]);
+                                            [trozoAgrupacion, trozoForma, trozoVista].filter(Boolean));
                                     } else if (esPortafolio && !hayCapaCuentas) {
                                         // Sin capa de cuentas la agrupación se aplica aquí mismo
-                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoAgrupacion, trozoVista]);
+                                        pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoAgrupacion, trozoForma, trozoVista].filter(Boolean));
                                     } else if (esPortafolio) {
                                         pintarTituloTreemapInversiones(tituloEl, 'Portafolio', null, [trozoVista]);
                                     } else if (mesSeleccionado) {
@@ -16140,7 +16153,7 @@
                                 zoomPermitidoTreemap = esPortafolio;
                                 const llaveZoom = !esPortafolio ? '' : [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '',
                                     empresaAbierta ? empresaAbierta.id : '', sectorGicsAbierto || '', industriaGicsAbierta || '',
-                                    agrupacionTreemapInversiones, vistaAccesible, rendimientoTreemapInversiones].join('|');
+                                    agrupacionTreemapInversiones, formaSectoresTreemap, vistaAccesible, rendimientoTreemapInversiones].join('|');
                                 if (llaveZoom !== llaveZoomTreemap || !esPortafolio) {
                                     llaveZoomTreemap = llaveZoom;
                                     reiniciarZoomTreemap();
