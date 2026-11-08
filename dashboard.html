@@ -17061,20 +17061,21 @@
                                         else verDetallesCuenta(d.id);
                                     });
                                 } else {
-                                    // Finanzas: un toque abre la categoría (o la cuenta); sostener el dedo la marca para
-                                    // verla en la tarjeta de arriba. Marcando, un toque marca o desmarca.
+                                    // Finanzas: un toque marca o desmarca la categoría para verla en la tarjeta de arriba (en
+                                    // Préstamos y Deudas, donde no se marca, abre su ficha). Un cuadro de cuenta se abre con
+                                    // un toque y se marca sosteniendo el dedo. Sostener el dedo en una categoría abre su ficha.
                                     const marcable = (d) => capaFin && !!d && !!d.id;
                                     conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
-                                        if (comparandoFin) { if (marcable(d)) alternarSeleccionTreemap(d); return; }
-                                        if (d.esCuentaFinanzas) abrirCuentaFinanzasTreemap(d.idCuenta);
-                                        else verDetallesCategoria(d.id);
+                                        if (d.esCuentaFinanzas && !comparandoFin) abrirCuentaFinanzasTreemap(d.idCuenta);
+                                        else if (marcable(d)) alternarSeleccionTreemap(d);
+                                        else if (!d.esCuentaFinanzas) verDetallesCategoria(d.id);
                                     }, (indice) => {
                                         const d = datoDelRecuadro(indice);
                                         if (!d || !d.id) return;
-                                        if (marcable(d)) alternarSeleccionTreemap(d);
-                                        else if (!d.esCuentaFinanzas) verDetallesCategoria(d.id);
+                                        if (d.esCuentaFinanzas) { if (marcable(d)) alternarSeleccionTreemap(d); }
+                                        else verDetallesCategoria(d.id);
                                     });
                                 }
 
