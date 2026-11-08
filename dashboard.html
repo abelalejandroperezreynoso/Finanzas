@@ -13649,7 +13649,7 @@
                             // nítido y no hay tope práctico. Dos dedos acercan, uno recorre (con inercia). Se queda al
                             // refrescar precios y vuelve al mapa entero al cambiar de capa o de vista.
                             // Pantalla = mapa × zoomTreemap + desplazamiento.
-                            const ZOOM_MAX_TREEMAP = 80;
+                            const ZOOM_MAX_TREEMAP = 300;
                             let zoomTreemap = 1;
                             let desplazaXTreemap = 0;
                             let desplazaYTreemap = 0;
@@ -13676,14 +13676,33 @@
 
                             const pluginZoomTreemap = {
                                 id: 'zoomTreemap',
-                                beforeDraw(chart) {
-                                    // Las esquinas redondeadas (mapa de finanzas) se quedan del mismo tamaño en pantalla
-                                    const radio = chart.$radioRecuadros || 0;
-                                    if (radio > 0) {
+                                beforeDraw(chart, args, opciones) {
+                                    // Mapa de finanzas: el hueco entre recuadros y las esquinas redondeadas se quedan del
+                                    // mismo tamaño en pantalla, como las líneas de inversiones. El mapa se calcula sin hueco
+                                    // y aquí se encoge cada recuadro; uno más chico que el hueco se queda a la mitad, así
+                                    // ningún recuadro desaparece.
+                                    const radio = (opciones && opciones.radio) || 0;
+                                    const hueco = (opciones && opciones.hueco) || 0;
+                                    if (radio > 0 || hueco > 0) {
+                                        const g = hueco / zoomTreemap / 2;
                                         const meta = chart.getDatasetMeta(0);
                                         (meta && meta.data || []).forEach(el => {
-                                            if (el.options && el.options.borderRadius !== undefined) {
-                                                try { el.options.borderRadius = radio / zoomTreemap; } catch (e) { /* opciones fijas */ }
+                                            if (hueco > 0) {
+                                                // La medida original; si el mapa se recalculó o se anima, se toma la nueva
+                                                const m = el.$medidaZoom;
+                                                if (!m || el.x !== m.x || el.y !== m.y || el.width !== m.w || el.height !== m.h) {
+                                                    el.$baseZoom = { x: el.x, y: el.y, w: el.width, h: el.height };
+                                                }
+                                                const b = el.$baseZoom;
+                                                const w = Math.max(b.w / 2, b.w - 2 * g), h = Math.max(b.h / 2, b.h - 2 * g);
+                                                el.x = b.x + (b.w - w) / 2;
+                                                el.y = b.y + (b.h - h) / 2;
+                                                el.width = w;
+                                                el.height = h;
+                                                el.$medidaZoom = { x: el.x, y: el.y, w, h };
+                                            }
+                                            if (radio > 0 && el.options && el.options.borderRadius !== undefined) {
+                                                try { el.options.borderRadius = Math.min(radio / zoomTreemap, el.width / 2, el.height / 2); } catch (e) { /* opciones fijas */ }
                                             }
                                         });
                                     }
@@ -16623,7 +16642,8 @@
                                             // como las tarjetas de iOS
                                             // En el portafolio los recuadros van pegados y los separa una línea negra
                                             // (pluginLineasTreemap)
-                                            spacing: esPortafolio ? 0 : HUECO_RECUADROS_TREEMAP,
+                                            // Fuera del portafolio el hueco lo pone pluginZoomTreemap, fijo en pantalla
+                                            spacing: 0,
                                             borderRadius: radioRecuadros,
                                             borderWidth: 0,
                                             backgroundColor: fondoRecuadro,
@@ -16674,6 +16694,8 @@
                                         onResize: (chart) => chart.update(),
                                         plugins: {
                                             legend: { display: false },
+                                            // Esquinas y hueco fijos en pantalla con el zoom (pluginZoomTreemap)
+                                            zoomTreemap: { radio: radioRecuadros, hueco: esPortafolio ? 0 : HUECO_RECUADROS_TREEMAP },
                                             // Sin globo de información: tocar un recuadro abre la ficha de la
                                             // categoría, que trae el mismo desglose y más. La etiqueta sólo tapaba
                                             // el mapa justo donde estaba el dedo.
@@ -16700,7 +16722,6 @@
                                     },
                                     plugins: [pluginJuntaTreemap, ...(esPortafolio ? [pluginLineasTreemap, pluginTextosTreemap] : [pluginTextosFinanzasTreemap]), pluginSeleccionTreemap, pluginZoomTreemap]
                                 });
-                                miTreemapCategorias.$radioRecuadros = radioRecuadros;
                                 // Tras girar el teléfono, el desplazamiento se vuelve a acomodar al nuevo tamaño
                                 limitarZoomTreemap(miTreemapCategorias);
 
