@@ -16022,6 +16022,12 @@
                                         lado: entradas ? 'entradas' : 'salidas',
                                         unica: true,
                                         comparar: [{ id: catFinAbierta.id, nombre: catFinAbierta.nombre, color: '#4dd763', cats: [catFinAbierta.id] }]
+                                    } : cuentaFinAbierta ? {
+                                        // Dentro de una cuenta, la curva de la cuenta: todas sus categorías del mapa
+                                        vista: 'finanzas',
+                                        lado: entradas ? 'entradas' : 'salidas',
+                                        unica: true,
+                                        comparar: [{ id: 'cuenta:' + cuentaFinAbierta.id, nombre: cuentaFinAbierta.nombre, color: '#4dd763', cats: datos.map(d => String(d.id)) }]
                                     } : null);
                                 }
 
