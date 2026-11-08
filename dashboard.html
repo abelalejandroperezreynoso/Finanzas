@@ -5012,6 +5012,7 @@
                                             comparar: donde.comparar ? JSON.stringify(donde.comparar) : null,
                                             // Todo o Accesible: son dos curvas distintas.
                                             vista: donde.vista || 'accesible',
+                                            lado: donde.lado || null,
                                             tolerancia: donde.tolerancia || 0,
                                             // El día de hoy se dibuja con los precios en vivo: si cambian, la
                                             // curva se rehace para seguir cuadrando con el mapa.
@@ -6183,7 +6184,139 @@
                                         escribirDia(ultimo);
                                     }
 
+                                    // La tarjeta de arriba con categorías o cuentas marcadas en el mapa de finanzas: una línea
+                                    // por cada una con lo que lleva acumulado en el periodo (salidas o entradas, según el mapa).
+                                    // Préstamos y deudas van netos, como en el mapa: lo que regresa se resta.
+                                    function pintarCurvaFinanzas(destino, ambito, periodo) {
+                                        const lienzo = document.getElementById(destino.lienzo);
+                                        const caja = document.getElementById(destino.caja);
+                                        const pie = document.getElementById(destino.pie);
+                                        const cifraEl = document.getElementById(destino.cifra);
+                                        const tituloEl = document.getElementById(destino.titulo);
+                                        const leyendaEl = destino.leyenda ? document.getElementById(destino.leyenda) : null;
+                                        if (!lienzo || !pie) return;
+                                        soltarCurva(destino, lienzo);
+                                        if (cifraEl) cifraEl.textContent = '';
+
+                                        const salidas = ambito.lado !== 'entradas';
+                                        const tituloVista = salidas ? 'Salidas · Comparación' : 'Entradas · Comparación';
+                                        if (tituloEl) tituloEl.textContent = tituloVista;
+                                        const tipos = new Map((datosCategorias || []).map(c => [String(c.id), c.tipo]));
+                                        const hoy = diaISO(new Date());
+                                        const lineas = ambito.comparar.map(sel => {
+                                            const ids = new Set((sel.cats || [sel.id]).map(String));
+                                            const movs = [];
+                                            (datosUsoCompleto || []).forEach(u => {
+                                                const k = String(u.categoria_id);
+                                                if (!u.fecha || !ids.has(k)) return;
+                                                const m = parseFloat(u.monto) || 0;
+                                                if (!m) return;
+                                                const v = salidas ? -m : m;
+                                                const neto = tipos.get(k) === 'prestamo' || tipos.get(k) === 'deuda';
+                                                if (!neto && !(v > 0)) return;
+                                                movs.push({ dia: obtenerFechaLocalCortada(u.fecha).slice(0, 10), v });
+                                            });
+                                            return { sel, movs };
+                                        });
+
+                                        let desde = periodo.desde;
+                                        const hasta = periodo.hasta && periodo.hasta < hoy ? periodo.hasta : hoy;
+                                        if (!desde) {
+                                            lineas.forEach(l => l.movs.forEach(m => { if (!desde || m.dia < desde) desde = m.dia; }));
+                                        }
+                                        const hayAlgo = !!desde && desde <= hasta && lineas.some(l => l.movs.some(m => m.dia >= desde && m.dia <= hasta));
+                                        if (!hayAlgo) {
+                                            if (caja) caja.style.display = 'none';
+                                            if (leyendaEl) { leyendaEl.style.display = 'none'; leyendaEl.innerHTML = ''; }
+                                            pie.style.display = 'block';
+                                            pie.innerHTML = 'Lo marcado no tuvo movimientos en este periodo.';
+                                            return;
+                                        }
+                                        if (caja) caja.style.display = 'block';
+                                        pie.style.display = 'none';
+                                        pie.innerHTML = '';
+
+                                        // Un punto por día (o cada pocos días en rangos largos, siempre con el último)
+                                        const dias = [];
+                                        for (let t = Date.parse(desde + 'T00:00:00Z'), fin = Date.parse(hasta + 'T00:00:00Z'); t <= fin; t += 86400000) {
+                                            dias.push(new Date(t).toISOString().slice(0, 10));
+                                        }
+                                        const paso = Math.max(1, Math.ceil(dias.length / 400));
+                                        const ejes = dias.filter((d, i) => i % paso === 0 || i === dias.length - 1);
+                                        lineas.forEach(l => {
+                                            const porDia = {};
+                                            l.movs.forEach(m => { if (m.dia >= desde && m.dia <= hasta) porDia[m.dia] = (porDia[m.dia] || 0) + m.v; });
+                                            let acumulado = 0;
+                                            const valores = {};
+                                            dias.forEach(d => { acumulado += porDia[d] || 0; valores[d] = acumulado; });
+                                            l.valores = ejes.map(d => valores[d]);
+                                        });
+                                        const ultimo = ejes.length - 1;
+
+                                        const fila = (sel, monto) => `<span class="item"><span class="punto" style="background:${sel.color};"></span>`
+                                            + `<span class="nombre">${escaparHtml(sel.nombre)}</span>`
+                                            + `<span class="monto">${fMoneda(monto)}</span></span>`;
+                                        const pintarLeyenda = (valorDe) => {
+                                            if (!leyendaEl) return;
+                                            leyendaEl.style.display = '';
+                                            leyendaEl.innerHTML = lineas.map(l => fila(l.sel, valorDe(l))).join('');
+                                        };
+                                        const fechaDe = (i) => {
+                                            const [anio, mes, dia] = ejes[i].split('-');
+                                            return `${parseInt(dia, 10)} ${(NOMBRES_MESES[parseInt(mes, 10) - 1] || '').slice(0, 3)} ${anio}`;
+                                        };
+                                        const escribirDia = (i, conFecha) => {
+                                            if (i < 0 || i > ultimo) return;
+                                            pintarLeyenda(l => l.valores[i]);
+                                            if (tituloEl) tituloEl.textContent = conFecha ? fechaDe(i) : tituloVista;
+                                        };
+                                        // Con dos dedos, cuánto llevó cada una entre los dos días
+                                        const escribirTramo = (a, b) => {
+                                            pintarLeyenda(l => l.valores[b] - l.valores[a]);
+                                            if (tituloEl) tituloEl.textContent = `${fechaDe(a)} – ${fechaDe(b)}`;
+                                        };
+
+                                        destino.chart = new Chart(lienzo.getContext('2d'), {
+                                            type: 'line',
+                                            data: {
+                                                labels: ejes,
+                                                datasets: lineas.map(l => ({
+                                                    label: l.sel.nombre,
+                                                    data: l.valores,
+                                                    borderColor: l.sel.color,
+                                                    borderWidth: 2,
+                                                    pointRadius: 0,
+                                                    pointHoverRadius: 3.5,
+                                                    pointBackgroundColor: l.sel.color,
+                                                    pointBorderColor: l.sel.color,
+                                                    pointHoverBackgroundColor: l.sel.color,
+                                                    pointHoverBorderColor: '#000000',
+                                                    pointHoverBorderWidth: 1.5,
+                                                    fill: false,
+                                                    stepped: true
+                                                }))
+                                            },
+                                            options: {
+                                                animation: ANIMACION_GRAFICAS,
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                onHover: (evento, activos) => {
+                                                    if (destino.chart && destino.chart.$tramoDosDedos) return;
+                                                    if (activos && activos.length > 0) escribirDia(activos[0].index, true);
+                                                },
+                                                interaction: { mode: 'index', intersect: false },
+                                                scales: { x: { display: false }, y: { display: false, suggestedMin: 0 } },
+                                                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                                            },
+                                            plugins: [crearPluginLineaVertical(ultimo, 'rgba(255, 255, 255, 0.45)'), pluginTramoDosDedos]
+                                        });
+
+                                        conectarGestosCurva(destino, lienzo, ultimo, escribirDia, escribirTramo);
+                                        escribirDia(ultimo);
+                                    }
+
                                     function pintarCurva(destino, ambito, periodo) {
+                                        if (ambito && ambito.vista === 'finanzas') { pintarCurvaFinanzas(destino, ambito, periodo); return; }
                                         const lienzo = document.getElementById(destino.lienzo);
                                         const caja = document.getElementById(destino.caja);
                                         const pie = document.getElementById(destino.pie);
@@ -13445,10 +13578,15 @@
                                         }
                                         return;
                                     }
+                                    const enFinanzas = tipoTreemapCategorias !== 'inversion';
                                     seleccionTreemapInversiones.push({
                                         id,
                                         esSector: !!d.esSector,
-                                        nombre: d.esSector ? id : ((d.cat && (d.cat.ticker || d.cat.nombre)) || d.nombre),
+                                        nombre: enFinanzas ? d.nombre : d.esSector ? id : ((d.cat && (d.cat.ticker || d.cat.nombre)) || d.nombre),
+                                        // En finanzas: las categorías que suma la línea (una cuenta lleva todas las suyas)
+                                        cats: !enFinanzas ? null : d.esCuentaFinanzas
+                                            ? (datosCategorias || []).filter(c => String(c.cuenta_id) === String(d.idCuenta)).map(c => String(c.id))
+                                            : [id],
                                         color
                                     });
                                 }
@@ -15543,16 +15681,17 @@
                                 const claveCapa = capaConSeleccion
                                     ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', agrupacionTreemapInversiones, formaSectoresTreemap].join('|')
                                     : null;
-                                if (claveCapa !== capaSeleccionTreemap) {
+                                // (El mapa de finanzas lleva su propia selección más abajo, con sus recuadros)
+                                if (esPortafolio && claveCapa !== capaSeleccionTreemap) {
                                     seleccionTreemapInversiones = [];
                                     capaSeleccionTreemap = claveCapa;
                                 }
-                                if (seleccionTreemapInversiones.length) {
+                                if (esPortafolio && seleccionTreemapInversiones.length) {
                                     const recuadrosCapa = sectorAbierto ? piezasDeSectorTreemap(empresasDelNivel, sectorAbierto)
                                         : sectoresEnCajas ? sectoresPortafolio : empresasDelNivel;
                                     seleccionTreemapInversiones = seleccionTreemapInversiones.filter(s => recuadrosCapa.some(d => String(d.id) === s.id));
                                 }
-                                const comparando = seleccionTreemapInversiones.length > 0;
+                                const comparando = esPortafolio && seleccionTreemapInversiones.length > 0;
 
                                 // La tarjeta de arriba sigue al mapa: con Inversiones puesto cambia la línea del
                                 // balance por una curva —la de lo que sale sin pérdida con "Accesible", la del
@@ -15562,7 +15701,8 @@
                                 // La curva del dólar sólo sabe de cuentas: el cambio de moneda se hace al
                                 // aportar a la cuenta, no por empresa ni por sector.
                                 const curvaDolar = curvaInversiones === 'dolar';
-                                sincronizarCaraInversiones(!esPortafolio ? null : curvaDolar ? {
+                                // En finanzas la tarjeta se decide más abajo, con lo marcado en el mapa
+                                if (esPortafolio) sincronizarCaraInversiones(curvaDolar ? {
                                     vista: 'dolar',
                                     cuenta: cuentaAbierta ? String(cuentaAbierta.id) : null,
                                     nombre: cuentaAbierta ? cuentaAbierta.nombre : ''
@@ -15812,8 +15952,33 @@
                                         }
                                     }
                                 }
+                                // Selección para comparar en finanzas (sólo en Salidas/Entradas): sostener el dedo marca una
+                                // categoría o cuenta y la tarjeta de arriba dibuja cuánto lleva cada una en el periodo
+                                const capaFin = esFinanzas && !modoActivo;
+                                const claveCapaFin = capaFin
+                                    ? ['fin', entradas, agrupacionFinanzasTreemap, formaSectoresTreemap, cuentaFinanzasTreemap || '', indice === null ? '' : indice].join('|')
+                                    : null;
+                                if (esFinanzas && claveCapaFin !== capaSeleccionTreemap) {
+                                    seleccionTreemapInversiones = [];
+                                    capaSeleccionTreemap = claveCapaFin;
+                                }
+                                if (esFinanzas && seleccionTreemapInversiones.length) {
+                                    seleccionTreemapInversiones = seleccionTreemapInversiones.filter(sel => datos.some(d => String(d.id) === sel.id));
+                                }
+                                const comparandoFin = capaFin && seleccionTreemapInversiones.length > 0;
+                                if (esFinanzas) {
+                                    sincronizarCaraInversiones(comparandoFin ? {
+                                        vista: 'finanzas',
+                                        lado: entradas ? 'entradas' : 'salidas',
+                                        comparar: seleccionTreemapInversiones.map(sel => ({ ...sel }))
+                                    } : null);
+                                }
+
                                 // El título de finanzas: la fecha y, a la derecha, Categorías ⇄ Cuentas y el icono de forma
-                                if (esFinanzas && tituloEl) {
+                                if (esFinanzas && tituloEl && comparandoFin) {
+                                    const n = seleccionTreemapInversiones.length;
+                                    pintarTituloTreemapInversiones(tituloEl, `✕ ${n} ${n === 1 ? 'seleccionada' : 'seleccionadas'}`, () => limpiarSeleccionTreemap(), []);
+                                } else if (esFinanzas && tituloEl) {
                                     const fecha = tituloEl.textContent;
                                     const trozoFin = { texto: porCuentaFin ? 'Cuentas' : 'Categorías', alTocar: alternarAgrupacionFinanzasTreemap };
                                     const trozoFormaFin = porCuentaFin ? {
@@ -16826,7 +16991,8 @@
                                             // En el portafolio el toque no es un clic: ahí manda el gesto de abajo,
                                             // que distingue entre pulsar y sostener. Si este también actuara, un
                                             // toque haría las dos cosas a la vez.
-                                            if (esPortafolio) return;
+                                            // El toque lo atiende conectarGestosTreemap (toque y dedo sostenido) en todos los mapas
+                                            if (esPortafolio || miTreemapCategorias) return;
                                             // Con zoom, el recuadro tocado se busca en el punto del mapa sin zoom
                                             const pt = puntoMapaTreemap(event.x, event.y);
                                             const meta = miTreemapCategorias.getDatasetMeta(0);
@@ -16895,7 +17061,21 @@
                                         else verDetallesCuenta(d.id);
                                     });
                                 } else {
-                                    desconectarGestosTreemap(ctx.canvas);
+                                    // Finanzas: un toque abre la categoría (o la cuenta); sostener el dedo la marca para
+                                    // verla en la tarjeta de arriba. Marcando, un toque marca o desmarca.
+                                    const marcable = (d) => capaFin && !!d && !!d.id;
+                                    conectarGestosTreemap(ctx.canvas, miTreemapCategorias, (indice) => {
+                                        const d = datoDelRecuadro(indice);
+                                        if (!d || !d.id) return;
+                                        if (comparandoFin) { if (marcable(d)) alternarSeleccionTreemap(d); return; }
+                                        if (d.esCuentaFinanzas) abrirCuentaFinanzasTreemap(d.idCuenta);
+                                        else verDetallesCategoria(d.id);
+                                    }, (indice) => {
+                                        const d = datoDelRecuadro(indice);
+                                        if (!d || !d.id) return;
+                                        if (marcable(d)) alternarSeleccionTreemap(d);
+                                        else if (!d.esCuentaFinanzas) verDetallesCategoria(d.id);
+                                    });
                                 }
 
                                 if (totalEl) {
