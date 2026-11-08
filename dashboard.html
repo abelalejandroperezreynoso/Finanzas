@@ -13156,7 +13156,11 @@
                             // dejaría de haber forma de ver las dos cosas.
                             // Los sectores de la industria ya no se ofrecen: sólo empresas o los sectores propios.
                             // Quien los tenía guardados pasa a los suyos, que es la otra forma de verlos por sector.
-                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'personalizado'];
+                            // 'agrupado' usa los mismos sectores propios, pero en vez de un recuadro por sector enseña
+                            // las empresas dentro de su sector, cada sector con su barra (como los subsectores).
+                            const AGRUPACIONES_TREEMAP_INVERSIONES = ['empresa', 'personalizado', 'agrupado'];
+                            const ETIQUETAS_AGRUPACION_TREEMAP = { empresa: 'Empresas', personalizado: 'Sectores', agrupado: 'Por sector' };
+                            const OPCIONES_AGRUPACION_TREEMAP = [['empresa', 'Empresas'], ['personalizado', 'Sectores'], ['agrupado', 'Empresas por sector']];
                             let agrupacionTreemapInversiones = (function () {
                                 const guardada = localStorage.getItem('agrupacionTreemapInversiones');
                                 if (guardada === 'sector') return 'personalizado';
@@ -13168,6 +13172,8 @@
                             function agrupaPorSectorTreemap() {
                                 return agrupacionTreemapInversiones !== 'empresa';
                             }
+                            // Las dos vistas con sectores propios ('personalizado' y 'agrupado') usan los mismos sectores
+                            const sectoresPropiosTreemap = () => agrupacionTreemapInversiones !== 'empresa';
 
                             // Dónde está parado el portafolio: cuentas arriba, empresas de una cuenta en medio y
                             // compras de una empresa abajo; con la agrupación por sector puesta, los sectores se
@@ -13206,7 +13212,7 @@
                             // vacía: todo lo que el mapa pinta tiene que caer en algún recuadro, o dejaría de
                             // salir dinero que es tuyo.
                             function sectoresDeCategoriaTreemap(cat) {
-                                const mios = agrupacionTreemapInversiones === 'personalizado';
+                                const mios = sectoresPropiosTreemap();
                                 const sinClasificar = mios ? SECTOR_SIN_PROPIO_TREEMAP : SECTOR_SIN_PERFIL_TREEMAP;
 
                                 if (!cat) return [sinClasificar];
@@ -13263,7 +13269,7 @@
                             // null = el sector sin subsectores.
                             function divisionesDeCategoriaTreemap(cat) {
                                 const suyos = sectoresDeCategoriaTreemap(cat);
-                                const conSubs = agrupacionTreemapInversiones === 'personalizado';
+                                const conSubs = sectoresPropiosTreemap();
                                 const divs = [];
                                 suyos.forEach(sec => {
                                     const subs = conSubs ? subsectoresPropiosDeCategoria(cat, sec) : [];
@@ -13349,7 +13355,7 @@
                                 empresas.forEach(d => {
                                     const suyos = sectoresDeCategoriaTreemap(d.cat);
                                     if (suyos.indexOf(sector) < 0) return;
-                                    const subs = agrupacionTreemapInversiones === 'personalizado' ? subsectoresPropiosDeCategoria(d.cat, sector) : [];
+                                    const subs = sectoresPropiosTreemap() ? subsectoresPropiosDeCategoria(d.cat, sector) : [];
                                     if (subs.length) alguno = true;
                                     const div = divisionesDeCategoriaTreemap(d.cat);
                                     (subs.length ? subs : [null]).forEach(sub => {
@@ -13359,6 +13365,15 @@
                                 });
 
                                 return alguno ? piezas : null;
+                            }
+
+                            // Vista "Por sector": las empresas de cada sector propio, ya repartidas, con su sector en
+                            // sectorMapa para que el mapa les ponga la barra. Los sectores van en el orden de su recuadro.
+                            function piezasPorSectorPropioTreemap(empresas, sectores) {
+                                const piezas = [];
+                                sectores.forEach(s => piezasDeSectorTreemap(empresas, s.id)
+                                    .forEach(p => piezas.push(Object.assign({}, p, { sectorMapa: s.id }))));
+                                return piezas;
                             }
 
                             // Si una empresa cae en ese subsector propio del sector ("Sin subsector": no tiene ninguno ahí)
@@ -13483,6 +13498,14 @@
                                 if (subsectorTreemapInversiones || grupos.size === 1 || delGrupo.length === 1) { abrirEmpresaTreemap(d.id); return; }
                                 subsectorTreemapInversiones = d.subsectorMapa;
                                 repintarTreemapCategorias();
+                            }
+
+                            // Un toque en una empresa de la vista "Por sector": abre su sector (con sus subsectores) y
+                            // luego sus compras. Si es la única del sector, va directo a sus compras.
+                            function abrirSectorPropioTreemap(d, datosCapa) {
+                                const delSector = datosCapa.filter(x => x.sectorMapa === d.sectorMapa);
+                                if (delSector.length === 1 || d.sectorMapa === SECTOR_CAJA_TREEMAP) { abrirEmpresaTreemap(d.id); return; }
+                                abrirSectorTreemap(d.sectorMapa);
                             }
 
                             // Sube una capa, la que toque. Es la salida del título, el único sitio del mapa
@@ -15312,6 +15335,9 @@
                                 // En estas dos vistas el tamaño no es lo que vale: los recuadros van de un solo color
                                 const tamanoNoEsValor = vistaSostenida || vistaPlusvalia;
                                 const porSector = esPortafolio && agrupaPorSectorTreemap();
+                                // Con sectores propios: un recuadro por sector, o las empresas agrupadas en su sector
+                                const sectoresEnCajas = porSector && agrupacionTreemapInversiones === 'personalizado';
+                                const empresasEnSectores = porSector && agrupacionTreemapInversiones === 'agrupado';
 
                                 // Todas las capas del portafolio salen de las mismas cifras por empresa: la de
                                 // cuentas las agrupa, la de sectores las agrupa de otra manera, la de empresas
@@ -15386,7 +15412,7 @@
                                 // dejó fuera) se quita.
                                 const capaConSeleccion = esPortafolio && !empresaAbierta && (!!cuentaAbierta || !hayCapaCuentas);
                                 const claveCapa = capaConSeleccion
-                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', porSector ? 'sectores' : 'empresas'].join('|')
+                                    ? [cuentaAbierta ? cuentaAbierta.id : '', sectorAbierto || '', subsectorAbierto || '', agrupacionTreemapInversiones].join('|')
                                     : null;
                                 if (claveCapa !== capaSeleccionTreemap) {
                                     seleccionTreemapInversiones = [];
@@ -15394,7 +15420,7 @@
                                 }
                                 if (seleccionTreemapInversiones.length) {
                                     const recuadrosCapa = sectorAbierto ? piezasDeSectorTreemap(empresasDelNivel, sectorAbierto)
-                                        : porSector ? sectoresPortafolio : empresasDelNivel;
+                                        : sectoresEnCajas ? sectoresPortafolio : empresasDelNivel;
                                     seleccionTreemapInversiones = seleccionTreemapInversiones.filter(s => recuadrosCapa.some(d => String(d.id) === s.id));
                                 }
                                 const comparando = seleccionTreemapInversiones.length > 0;
@@ -15525,11 +15551,16 @@
                                         valor: String(toleranciaTreemapInversiones),
                                         alElegir: cambiarToleranciaTreemapInversiones
                                     };
-                                    const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
+                                    const trozoAgrupacion = {
+                                        texto: ETIQUETAS_AGRUPACION_TREEMAP[agrupacionTreemapInversiones] || 'Empresas',
+                                        opciones: OPCIONES_AGRUPACION_TREEMAP,
+                                        valor: agrupacionTreemapInversiones,
+                                        alElegir: cambiarAgrupacionTreemapInversiones
+                                    };
                                     if (comparando) {
                                         // Comparando, el título dice cuántos van y es la salida de la selección
                                         const n = seleccionTreemapInversiones.length;
-                                        const marcados = (porSector && !sectorAbierto)
+                                        const marcados = (sectoresEnCajas && !sectorAbierto)
                                             ? (n === 1 ? 'seleccionado' : 'seleccionados')
                                             : (n === 1 ? 'seleccionada' : 'seleccionadas');
                                         pintarTituloTreemapInversiones(tituloEl, `✕ ${n} ${marcados}`, () => limpiarSeleccionTreemap(), [trozoVista]);
@@ -15577,9 +15608,12 @@
                                 } else if (sectorAbierto) {
                                     datos = piezasDeSubsectorTreemap(empresasDelNivel, sectorAbierto) || piezasDeSectorTreemap(empresasDelNivel, sectorAbierto);
                                 } else if (cuentaAbierta) {
-                                    datos = porSector ? sectoresPortafolio : empresasDelNivel;
+                                    datos = empresasEnSectores ? piezasPorSectorPropioTreemap(empresasDelNivel, sectoresPortafolio)
+                                        : porSector ? sectoresPortafolio : empresasDelNivel;
                                 } else if (esPortafolio) {
-                                    datos = hayCapaCuentas ? cuentasPortafolio : (porSector ? sectoresPortafolio : empresasPortafolio);
+                                    datos = hayCapaCuentas ? cuentasPortafolio
+                                        : empresasEnSectores ? piezasPorSectorPropioTreemap(empresasDelNivel, sectoresPortafolio)
+                                        : (porSector ? sectoresPortafolio : empresasPortafolio);
                                 } else if (modoActivo) {
                                     datos = datosDosCarasTreemap(meses, indice, modoActivo);
                                 } else {
@@ -15606,7 +15640,7 @@
                                 // Dos cuentas pueden tener una categoría con el mismo nombre y el treemap agrupa por
                                 // etiqueta: sin desambiguar, las fundiría en un tile que no es de nadie.
                                 // (La misma empresa en dos subsectores no se repite: cada pieza va en su grupo.)
-                                const claveRepeticion = (d) => `${d.subsectorMapa || ''}|${d.nombre}`;
+                                const claveRepeticion = (d) => `${d.sectorMapa || ''}|${d.subsectorMapa || ''}|${d.nombre}`;
                                 const repeticiones = {};
                                 datos.forEach(d => { repeticiones[claveRepeticion(d)] = (repeticiones[claveRepeticion(d)] || 0) + 1; });
                                 datos.forEach(d => {
@@ -15626,7 +15660,11 @@
                                 // Dentro de un sector sólo van sus industrias y dentro de una industria sólo sus empresas.
                                 // Dentro de un sector propio con subsectores, cada subsector lleva su barra
                                 const conSubsectores = esPortafolio && !empresaAbierta && !!sectorAbierto && !subsectorAbierto && datos.some(d => d.subsectorMapa);
+                                // Vista "Por sector": cada sector propio con su barra y sus empresas dentro
+                                const conSectoresPropios = empresasEnSectores && !empresaAbierta && !sectorAbierto
+                                    && (!!cuentaAbierta || !hayCapaCuentas);
                                 const gruposMapa = conSubsectores ? ['subsectorMapa', 'nombre']
+                                    : conSectoresPropios ? ['sectorMapa', 'nombre']
                                     : !conSectores ? ['nombre']
                                     : industriaGicsAbierta ? ['nombre']
                                     : sectorGicsAbierto ? ['industriaMapa', 'nombre']
@@ -15651,7 +15689,7 @@
                                     });
                                 }
                                 // La misma empresa en dos subsectores es una sola
-                                const totalCategorias = conSubsectores ? new Set(datos.map(d => String(d.id))).size : datos.length;
+                                const totalCategorias = (conSubsectores || conSectoresPropios) ? new Set(datos.map(d => String(d.id))).size : datos.length;
                                 // El tamaño de cada recuadro: lo que vale, o en "Sostenido" el ritmo por los meses. Lo
                                 // que no tiene ritmo, o va plano, queda diminuto en vez de desaparecer (se ve con zoom).
                                 const medidaTamano = vistaSostenida ? sostenidoDe : vistaPlusvalia ? plusvaliaDe : null;
@@ -15661,7 +15699,7 @@
                                 // Las barras son recuadros más del mapa (sector, industria); las empresas van dentro, en
                                 // el último nivel.
                                 const nivelHojaMapa = gruposMapa.length - 1;
-                                const esBarraSector = (raw) => (conSectores || conSubsectores) && !!raw && raw.l < nivelHojaMapa;
+                                const esBarraSector = (raw) => (conSectores || conSubsectores || conSectoresPropios) && !!raw && raw.l < nivelHojaMapa;
 
                                 if (miTreemapCategorias) {
                                     miTreemapCategorias.destroy();
@@ -16557,6 +16595,7 @@
                                         else if (d.esSector) abrirSectorTreemap(d.id);
                                         else if (conSectores) abrirCapaGicsTreemap(d, datos);
                                         else if (conSubsectores) abrirSubsectorTreemap(d, datos);
+                                        else if (conSectoresPropios) abrirSectorPropioTreemap(d, datos);
                                         else if (cuentaAbierta || !hayCapaCuentas) abrirEmpresaTreemap(d.id);
                                         else abrirCuentaTreemap(d.id);
                                     }, (indice) => {
@@ -16583,7 +16622,7 @@
                                     // dentro de una empresa.
                                     const unidadNivel = empresaAbierta ? ['compra', 'compras']
                                         : (esPortafolio && !cuentaAbierta && hayCapaCuentas) ? ['cuenta', 'cuentas']
-                                        : (porSector && !sectorAbierto) ? ['sector', 'sectores']
+                                        : (sectoresEnCajas && !sectorAbierto) ? ['sector', 'sectores']
                                         : (modoActivo ? modoActivo.unidad : null);
                                     // La caja no es una empresa: se nombra aparte, igual que en la plusvalía.
                                     const hayCajaPie = unidadNivel && unidadNivel[0] === 'empresa' && datos.some(d => d.esCaja);
