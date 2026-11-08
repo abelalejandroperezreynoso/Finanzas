@@ -15299,7 +15299,7 @@
                             // Aquí sólo entra lo que de verdad ocurrió. Las barras sí dibujan la proyección, porque
                             // su asunto es cómo va el mes; el mapa responde a en qué se fue el dinero, y una compra
                             // que la app supone no es dinero que se haya ido.
-                            function acumularCategoriasDelPeriodo(meses, indice, entradas) {
+                            function acumularCategoriasDelPeriodo(meses, indice, entradas, netoPrestamos = false) {
                                 const fuente = (indice === null || !meses || !meses[indice]) ? (meses || []) : [meses[indice]];
                                 const acumulado = {};
 
@@ -15310,6 +15310,28 @@
                                         if (!(monto > 0)) return;
                                         acumulado[clave] = (acumulado[clave] || 0) + monto;
                                     });
+                                });
+
+                                // (Sólo en el mapa de Salidas/Entradas: el de Préstamos necesita las dos caras enteras.)
+                                // Un préstamo que hiciste no es un gasto mientras te lo devuelven: lo que te abonaron en el
+                                // periodo se le resta, y uno ya pagado desaparece. Del otro lado igual: los abonos sólo
+                                // cuentan como entrada en lo que pasen de lo prestado.
+                                const esPrestamo = (clave) => {
+                                    const cat = (datosCategorias || []).find(c => String(c.id) === String(clave));
+                                    return !!cat && cat.tipo === 'prestamo';
+                                };
+                                const contrario = {};
+                                fuente.forEach(m => {
+                                    const otro = (entradas ? m.gastosPorCategoria : m.ingresosPorCategoria) || {};
+                                    Object.keys(otro).forEach(clave => {
+                                        if (otro[clave] > 0) contrario[clave] = (contrario[clave] || 0) + otro[clave];
+                                    });
+                                });
+                                Object.keys(acumulado).forEach(clave => {
+                                    if (!netoPrestamos || !contrario[clave] || !esPrestamo(clave)) return;
+                                    const neto = acumulado[clave] - contrario[clave];
+                                    if (neto > 0.005) acumulado[clave] = neto;
+                                    else delete acumulado[clave];
                                 });
 
                                 return acumulado;
@@ -15727,7 +15749,7 @@
                                 } else if (modoActivo) {
                                     datos = datosDosCarasTreemap(meses, indice, modoActivo);
                                 } else {
-                                    const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas);
+                                    const acumulado = acumularCategoriasDelPeriodo(meses, indice, entradas, true);
                                     datos = Object.keys(acumulado).map(id => {
                                         const cat = datosCategorias.find(c => String(c.id) === String(id));
                                         const real = acumulado[id];
