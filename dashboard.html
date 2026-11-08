@@ -14658,6 +14658,10 @@
                             }
 
 
+                            // Los dos iconos del botón de forma de los sectores. Cuadros: un mapa de recuadros lisos.
+                            // Empresas: dos grupos, cada uno con su barra arriba y sus recuadros dentro.
+                            const ICONO_CUADROS_SECTORES_TREEMAP = '<svg viewBox="0 0 18 16" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="16" height="14" rx="2.5"/><path d="M10 1v14M10 8h7"/></svg>';
+                            const ICONO_EMPRESAS_EN_SECTORES_TREEMAP = '<svg viewBox="0 0 18 16" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="16" height="14" rx="2.5"/><path d="M1 5.5h16M10 1v14M5.5 5.5v9.5M10 10.5h7"/><path d="M2 2h7.2v2.7H2zM10.8 2H16v2.7h-5.2z" fill="currentColor" stroke="none"/></svg>';
                             const ICONO_ALTERNAR_TREEMAP = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
 
                             // Pinta el título del portafolio: a la izquierda el "volver" (o sólo el nombre) y
@@ -14679,8 +14683,18 @@
                                 trozos.forEach(trozo => {
                                     tituloEl.appendChild(document.createTextNode(' · '));
                                     const el = document.createElement('span');
-                                    el.textContent = trozo.texto;
-                                    if (trozo.alTocar || trozo.opciones) {
+                                    el.textContent = trozo.texto || '';
+                                    // Un trozo con icono es sólo el icono, que ya dice qué se ve y se alterna al tocarlo
+                                    if (trozo.icono) {
+                                        el.innerHTML = trozo.icono;
+                                        el.setAttribute('role', 'button');
+                                        el.setAttribute('aria-label', trozo.etiqueta || '');
+                                        el.style.cursor = 'pointer';
+                                        el.style.color = '#4dd763';
+                                        el.style.display = 'inline-block';
+                                        el.style.padding = '0 2px';
+                                        el.style.verticalAlign = '-2px';
+                                    } else if (trozo.alTocar || trozo.opciones) {
                                         el.style.cursor = 'pointer';
                                         el.style.color = '#4dd763';
                                         el.insertAdjacentHTML('beforeend', ICONO_ALTERNAR_TREEMAP);
@@ -15597,7 +15611,11 @@
                                     const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
                                     // Con sectores, el botón de al lado: cuadros ⇄ empresas dentro de su sector
                                     const trozoForma = porSector
-                                        ? { texto: empresasEnSectores ? 'Empresas' : 'Cuadros', alTocar: alternarFormaSectoresTreemap }
+                                        ? {
+                                            icono: empresasEnSectores ? ICONO_EMPRESAS_EN_SECTORES_TREEMAP : ICONO_CUADROS_SECTORES_TREEMAP,
+                                            etiqueta: empresasEnSectores ? 'Empresas por sector' : 'Un cuadro por sector',
+                                            alTocar: alternarFormaSectoresTreemap
+                                        }
                                         : null;
                                     if (comparando) {
                                         // Comparando, el título dice cuántos van y es la salida de la selección
