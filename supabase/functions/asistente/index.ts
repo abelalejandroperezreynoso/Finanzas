@@ -345,7 +345,8 @@ const HERRAMIENTAS: Json[] = [
           type: "string", enum: ["presto", "me_pagan", "me_prestan", "pago"],
           description: "Sólo en préstamos y deudas. Préstamo: presto (le presta dinero, sale) o me_pagan (le devuelven, entra). Deuda: me_prestan (recibe el préstamo o la compra a crédito, entra) o pago (abona, sale)",
         },
-        fecha: { type: "string", description: "AAAA-MM-DD" },
+        fecha: { type: "string", description: "AAAA-MM-DD: el día en que pasó, no hoy si fue otro día. Un pago recurrente ya vencido (o que se cobra solo, con domiciliación o tarjeta) va en el día en que tocaba (siguiente en recurrentes), salvo que el usuario diga otro" },
+        fecha_confirmada: { type: "boolean", description: "true sólo si el usuario dijo que ese pago recurrente vencido fue en la fecha que pones y no en la que tocaba" },
         hora: { type: "string", description: "Hora local HH:MM (24 h) si la dijo, o \"ahora\" si acaba de pasar (\"acabo de\", \"ahorita\"). Omítela si no se sabe." },
         descripcion: { type: "string", description: "Qué fue y de qué o de quién, con el detalle que dio el usuario y las mismas palabras de sus registros anteriores de lo mismo (por ejemplo \"Sushi\", \"Autolavado Hyundai\"); nunca vacía" },
         corrige_anterior: { type: "boolean", description: "true si es la versión corregida de una propuesta anterior que el usuario aún no confirmó; la tarjeta nueva la sustituye" },
@@ -4187,6 +4188,18 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
       const aceptaCero = tipo === "salud" && ["veces", "horas"].includes((c as Json).medida_salud);
       if (!(Number(entrada.importe) > 0) && !(aceptaCero && Number(entrada.importe) === 0)) return { texto: aceptaCero ? "La cantidad no puede ser negativa." : "El importe debe ser mayor que cero.", error: true };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada.fecha))) return { texto: "La fecha debe ser AAAA-MM-DD.", error: true };
+      // Un pago recurrente vencido se registra en el día en que tocaba: la mensualidad de la bici (día 3) salía con la
+      // fecha de hoy y el usuario tenía que pedir que la corrigieran
+      const recVencido = (c as Json).id && entrada.fecha_confirmada !== true
+        ? (zona.recurrentes ?? []).find((r: Json) => r.categoria_id === String((c as Json).id) && r.vencido && r.siguiente && r.siguiente !== entrada.fecha)
+        : null;
+      if (recVencido) {
+        return {
+          texto: `${(c as Json).nombre} es un pago recurrente que se esperaba el ${recVencido.siguiente} y no está registrado. Propónlo con esa fecha ` +
+            `(si se cobra solo, ése es el día). Sólo si el usuario dijo que fue el ${entrada.fecha}, vuelve a llamar con fecha_confirmada: true.`,
+          error: true,
+        };
+      }
       const importe = Math.abs(Number(entrada.importe));
       if (tipo === "salud") {
         const mal = cantidadSaludInvalida(c, importe);
