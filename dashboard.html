@@ -262,6 +262,10 @@
         .chat-mensajes > * { flex-shrink: 0; }
         .chat-usuario { align-self: flex-end; max-width: 85%; background: #f0eee6; color: #141413; padding: 10px 16px; border-radius: 22px;
             font-size: 16px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+        /* La tarjeta de pendientes de la que salió el mensaje: arriba de la burbuja, discreta */
+        .chat-origen { align-self: flex-end; max-width: 85%; margin-bottom: -6px; padding: 0 6px; font-size: 13px; line-height: 1.35;
+            color: #8a8880; text-align: right; }
+        .chat-origen b { font-weight: 600; }
         /* Lo que la IA guardó en su memoria: una línea discreta bajo su respuesta */
         /* Movimientos que enseña el asistente: tarjeta agrupada por día */
         .chat-movs { align-self: stretch; background: #ffffff; border: 0.5px solid #e3e1d8; border-radius: 20px; padding: 6px 16px 8px;
@@ -19725,7 +19729,8 @@
                                 caja.innerHTML = chatUi.map((m, i) => {
                                     if (m.rol === 'usuario') {
                                         const adj = (m.adjuntos || []).length ? `<div class="chat-usuario-adjuntos">${m.adjuntos.map(a => miniaturaAdjuntoHtml(a)).join('')}</div>` : '';
-                                        return adj + (m.texto ? `<div class="chat-usuario">${escaparHtml(m.texto)}</div>` : '');
+                                        const origen = m.origen ? `<div class="chat-origen"><b>${escaparHtml(m.origen.etiqueta)}</b> · ${escaparHtml(m.origen.texto)}</div>` : '';
+                                        return origen + adj + (m.texto ? `<div class="chat-usuario">${escaparHtml(m.texto)}</div>` : '');
                                     }
                                     if (m.rol === 'asistente') return `<div class="chat-asistente">${textoChatHtml(m.texto)}</div>`;
                                     if (m.rol === 'memoria') return `<div class="chat-memoria"><span>🧠</span><span>${escaparHtml(m.texto)}</span></div>`;
@@ -19779,7 +19784,9 @@
 
                             // contextoApi: una nota que viaja a la IA pero no se pinta en tu burbuja
                             var saludoInicio = null;   // lo que preguntó o avisó el saludo de la pantalla de inicio
-                            async function enviarMensajeAsistente(textoFijo, contextoApi) {
+                            // origen: la tarjeta de pendientes de la que sale el mensaje ({ etiqueta, texto, detalle, boton }),
+                            // para que se vea arriba del mensaje y salga al copiar la conversación
+                            async function enviarMensajeAsistente(textoFijo, contextoApi, origen) {
                                 const campo = document.getElementById('chatTexto');
                                 const texto = (typeof textoFijo === 'string' ? textoFijo : (campo ? campo.value : '')).trim();
                                 const adjuntos = chatAdjuntos.slice();
@@ -19812,7 +19819,7 @@
                                     const ref = a.tipo === 'imagen' && a.data ? 'img' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) : undefined;
                                     if (ref) imagenesChatEnMemoria.set(ref, a.data);
                                     return { tipo: a.tipo, nombre: a.nombre, miniatura: a.miniatura, ...(ref ? { ref } : {}) };
-                                }) };
+                                }), ...(origen ? { origen } : {}) };
                                 // El saludo queda en la conversación, arriba de su respuesta
                                 const burbujaSaludo = saludo ? { rol: 'asistente', texto: saludo.texto } : null;
                                 if (burbujaSaludo) chatUi.push(burbujaSaludo);
@@ -21025,7 +21032,9 @@
                                 descartados[a.clave] = a.primario.vuelve ? Date.now() + a.primario.vuelve * 86400000 : 0;
                                 try { localStorage.setItem(claveAvisos(), JSON.stringify(descartados)); } catch (e) { /* sin almacenamiento */ }
                                 marcarHallazgoIa(a, 'atendido');
-                                enviarMensajeAsistente(mensajePropio || a.primario.mensaje);
+                                const boton = mensajePropio ? (a.secundario && a.secundario.texto) : a.primario.texto;
+                                enviarMensajeAsistente(mensajePropio || a.primario.mensaje, undefined,
+                                    { etiqueta: a.etiqueta || 'Pendiente', texto: a.texto || '', detalle: a.detalle || '', boton: boton || '' });
                             }
 
                             // Lo que el usuario hizo con cada hallazgo de la revisión queda en la base: la
@@ -21215,6 +21224,11 @@
                                 chatUi.forEach(m => {
                                     if (m.registro && m.estado === 'pendiente') return;
                                     if (m.rol === 'usuario') {
+                                        // La tarjeta de pendientes de la que salió, con el botón que se tocó
+                                        if (m.origen) {
+                                            const o = m.origen;
+                                            partes.push(['Pendiente (' + o.etiqueta + '):', [o.texto, o.detalle].filter(Boolean).join(' '), o.boton ? `Tocaste: ${o.boton}` : ''].filter(Boolean).join('\n'));
+                                        }
                                         const n = (m.adjuntos || []).length;
                                         const texto = [m.texto, n ? `[${n} ${n === 1 ? 'adjunto' : 'adjuntos'}]` : ''].filter(Boolean).join('\n');
                                         if (texto) partes.push('Tú:\n' + texto);
