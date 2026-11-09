@@ -20402,8 +20402,13 @@
                                         // Cómo sigues va antes que los hábitos
                                         if (seguimiento) pendSalud.unshift(aviso); else pendSalud.push(aviso);
                                     };
-                                    const deCostumbre = enDosSemanas >= 10;
-                                    if (deCostumbre || diarioPorNombre) {
+                                    // Una enfermedad no se agenda: no "toca" cada tantos días ni a diario (la diarrea salía
+                                    // como "tocaba el 7 nov." por ir cada 2 días). Sólo se le pregunta cómo sigues, abajo,
+                                    // salvo que el usuario le haya puesto el aviso diario.
+                                    const enfermedad = esEnfermedadSalud(c);
+                                    const agendable = !enfermedad || c.recordar_diario === true;
+                                    const deCostumbre = agendable && enDosSemanas >= 10;
+                                    if (deCostumbre || (agendable && diarioPorNombre)) {
                                         // Se revisa hasta antier: hoy (ya pasada la hora de costumbre), ayer y antier. Lo de antes
                                         // se queda como olvidado. Ayer y antier sólo si ya lo registraba antes de ese día
                                         const horas = suyos.slice(0, 30).map(r => new Date(r.fecha).getHours()).sort((a, b) => a - b);
@@ -20433,7 +20438,7 @@
                                             agregar();
                                         });
                                         return;
-                                    } else if (conCalendario) {
+                                    } else if (conCalendario && !enfermedad) {
                                         const toca = diaLocal(new Date(deDia(ultimo) + cada * diaMs));
                                         if (toca > hoy) return;
                                         // Muy pasado: quizá ya lo dejó; no se insiste
