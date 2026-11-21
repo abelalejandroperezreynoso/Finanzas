@@ -13290,8 +13290,10 @@
                             // No pesa cuánto dinero hay en cada una: mide cómo le ha ido en el tiempo.
                             // "Plusvalía" sí lo pesa: el tamaño son los dólares ganados o perdidos (lo de menos de un mes,
                             // por la fracción de mes que lleva). Una pérdida larga en una posición grande es lo más grande.
-                            const RENDIMIENTOS_TREEMAP_INVERSIONES = ['total', 'mensual', 'sostenido', 'plusvalia'];
-                            const NOMBRES_RENDIMIENTO_TREEMAP = { total: '$ Total', mensual: '% Mensual', sostenido: '% Sostenido', plusvalia: '$ Plusvalía' };
+                            // "% Portafolio" y "% Ganancia" son el mismo mapa que "Total" (tamaño por lo que vale, color por lo ganado);
+                            // sólo cambia la cifra: lo que pesa en la capa que se ve, o lo ganado sobre lo que costó.
+                            const RENDIMIENTOS_TREEMAP_INVERSIONES = ['total', 'peso', 'ganancia', 'mensual', 'sostenido', 'plusvalia'];
+                            const NOMBRES_RENDIMIENTO_TREEMAP = { total: '$ Total', peso: '% Portafolio', ganancia: '% Ganancia', mensual: '% Mensual', sostenido: '% Sostenido', plusvalia: '$ Plusvalía' };
                             let rendimientoTreemapInversiones = (function () {
                                 const guardado = localStorage.getItem('rendimientoTreemapInversiones');
                                 return RENDIMIENTOS_TREEMAP_INVERSIONES.indexOf(guardado) >= 0 ? guardado : 'total';
@@ -15628,6 +15630,8 @@
                                 // (la app cuenta mínimo un mes) y se multiplica por la fracción de mes que lleva.
                                 const sostenidoDe = (d) => d.mensual !== undefined && d.meses !== undefined ? d.mensual * d.meses : 0;
                                 const vistaPlusvalia = esPortafolio && rendimientoTreemapInversiones === 'plusvalia';
+                                const vistaPeso = esPortafolio && rendimientoTreemapInversiones === 'peso';
+                                const vistaGananciaPct = esPortafolio && rendimientoTreemapInversiones === 'ganancia';
                                 const plusvaliaDe = (d) => d.esperado > 0 && d.real !== undefined
                                     ? (d.real - d.esperado) * (d.meses !== undefined ? Math.min(1, d.meses) : 1) : 0;
                                 // En estas dos vistas el tamaño no es lo que vale: los recuadros van de un solo color
@@ -16245,7 +16249,14 @@
                                     const dinero = d.esperado > 0 && abs >= 0.005
                                         ? [`${signo}${fMoneda(abs)}`, `${signo}${redondo(abs)}`, `${signo}${montoCompactoTreemap(abs)}`]
                                         : [fMoneda(d.real !== undefined ? d.real : d.monto), montoCompactoTreemap(d.real !== undefined ? d.real : d.monto)];
-                                    const formas = (vistaMensual || vistaSostenida) && hayRitmo ? ritmo : dinero;
+                                    const valorD = d.real !== undefined ? d.real : d.monto;
+                                    const pesoD = totalValor > 0 ? (valorD / totalValor) * 100 : 0;
+                                    const peso = [`${pesoD.toFixed(1)}%`, `${pesoD >= 9.95 ? Math.round(pesoD) : pesoD.toFixed(1)}%`];
+                                    const pctG = d.esperado > 0 ? (ganancia / d.esperado) * 100 : null;
+                                    const pctGanancia = pctG === null ? dinero
+                                        : [`${pctG >= 0 ? '+' : ''}${pctG.toFixed(1)}%`, `${pctG >= 0 ? '+' : ''}${Math.abs(pctG) >= 9.95 ? Math.round(pctG) : pctG.toFixed(1)}%`];
+                                    const formas = vistaPeso ? peso : vistaGananciaPct ? pctGanancia
+                                        : (vistaMensual || vistaSostenida) && hayRitmo ? ritmo : dinero;
 
                                     // Dos renglones: nombre y cifra
                                     let tamNombre = Math.min(Math.min(w, h) * 0.25, ancho / ancho1(nombre, 'bold'));
@@ -17218,8 +17229,9 @@
                                         // color —verde o rojo— porque aquí sí hay sitio para uno propio, al
                                         // contrario que dentro de un recuadro, donde el texto es de una pieza.
                                         const gananciaPie = llevaObjetivo - metaObjetivo;
+                                        const pctPie = vistaGananciaPct && metaObjetivo > 0 ? (gananciaPie / metaObjetivo) * 100 : null;
                                         const gananciaPieHtml = (esPortafolio && Math.abs(gananciaPie) >= 0.005)
-                                            ? ` <span style="color: ${gananciaPie >= 0 ? '#4dd763' : '#ff5c5c'}; font-weight: bold;">${gananciaPie >= 0 ? '+' : '-'}${fMoneda(Math.abs(gananciaPie))}</span>`
+                                            ? ` <span style="color: ${gananciaPie >= 0 ? '#4dd763' : '#ff5c5c'}; font-weight: bold;">${pctPie !== null ? `${pctPie >= 0 ? '+' : ''}${pctPie.toFixed(1)}%` : `${gananciaPie >= 0 ? '+' : '-'}${fMoneda(Math.abs(gananciaPie))}`}</span>`
                                             : '';
 
                                         totalEl.innerHTML = `
