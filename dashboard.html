@@ -14886,6 +14886,9 @@
                             // Empresas: dos grupos, cada uno con su barra arriba y sus recuadros dentro.
                             const ICONO_CUADROS_SECTORES_TREEMAP = '<svg viewBox="0 0 18 16" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="16" height="14" rx="2.5"/><path d="M10 1v14M10 8h7"/></svg>';
                             const ICONO_EMPRESAS_EN_SECTORES_TREEMAP = '<svg viewBox="0 0 18 16" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="16" height="14" rx="2.5"/><path d="M1 5.5h16M10 1v14M5.5 5.5v9.5M10 10.5h7"/><path d="M2 2h7.2v2.7H2zM10.8 2H16v2.7h-5.2z" fill="currentColor" stroke="none"/></svg>';
+                            // Los de la agrupación: un edificio para empresas y una gráfica de pastel para sectores
+                            const ICONO_EMPRESAS_TREEMAP = '<svg viewBox="0 0 18 16" width="21" height="19" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M3 15V2.5A1.5 1.5 0 0 1 4.5 1h6A1.5 1.5 0 0 1 12 2.5V15M12 6.5h2.5A1.5 1.5 0 0 1 16 8v7M1.5 15h15"/><path d="M6 4.5h3M6 7.5h3M6 10.5h3"/></svg>';
+                            const ICONO_SECTORES_TREEMAP = '<svg viewBox="0 0 18 16" width="21" height="19" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.2a6.3 6.3 0 1 0 6.3 6.3H8z"/><path d="M10.2 0.8a6 6 0 0 1 6 6h-6z" fill="currentColor"/></svg>';
                             const ICONO_ALTERNAR_TREEMAP = '<svg viewBox="0 0 12 16" width="9" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: -1px;"><path d="M3 6l3-3 3 3M3 10l3 3 3-3"/></svg>';
 
                             // Pinta el título del portafolio: a la izquierda el "volver" (o sólo el nombre) y
@@ -15859,7 +15862,11 @@
                                         valor: String(toleranciaTreemapInversiones),
                                         alElegir: cambiarToleranciaTreemapInversiones
                                     };
-                                    const trozoAgrupacion = { texto: porSector ? 'Sectores' : 'Empresas', alTocar: alternarAgrupacionTreemapInversiones };
+                                    const trozoAgrupacion = {
+                                        icono: porSector ? ICONO_SECTORES_TREEMAP : ICONO_EMPRESAS_TREEMAP,
+                                        etiqueta: porSector ? 'Sectores' : 'Empresas',
+                                        alTocar: alternarAgrupacionTreemapInversiones
+                                    };
                                     // Con sectores, el botón de al lado: cuadros ⇄ empresas dentro de su sector
                                     const trozoForma = porSector
                                         ? {
