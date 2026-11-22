@@ -16610,8 +16610,8 @@
                                     const base = esPortafolio
                                         ? colorRendimientoInversion(pctInversion, (vistaMensual && d.mensual !== undefined) ? TOPE_RENDIMIENTO_MENSUAL : TOPE_RENDIMIENTO_TOTAL)
                                         : colorTreemapCategoria(d.cat, entradas);
-                                    // En "Sostenido" y "Plusvalía" el tamaño no es lo que vale: un solo color, sin franja
-                                    if (tamanoNoEsValor) return base;
+                                    // En "Sostenido" y "Plusvalía" el tamaño no es lo que vale, y en "% Portafolio" sólo cuenta lo que vale: un solo color, sin franja
+                                    if (tamanoNoEsValor || vistaPeso) return base;
                                     const f = fraccionLlenado(d);
                                     const marca = fraccionObjetivo(d);
                                     const { y, h } = context.raw;
