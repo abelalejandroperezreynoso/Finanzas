@@ -15842,7 +15842,8 @@
                                     // que reparte la capa —la agrupación se toca para cambiarla donde aplica— y,
                                     // aparte, Todo ↔ Accesible, que se toca en cualquier capa.
                                     const trozoVista = {
-                                        texto: etiquetaToleranciaTreemap(toleranciaTreemapInversiones),
+                                        // En el título va sólo el porcentaje (Accesible es 0% y Todo 100%); la rueda conserva los nombres
+                                        texto: `${toleranciaTreemapInversiones}%`,
                                         // La estrella (★ como texto, con el selector que evita que iOS la pinte como
                                         // emoji) marca el nivel que más ganancia deja en lo que se está mirando.
                                         opciones: (() => {
