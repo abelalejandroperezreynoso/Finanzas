@@ -1552,22 +1552,31 @@ const usdDe = (r: Json) => {
   return tc > 1 ? Math.abs(Number(r.monto) || 0) / tc : 0;
 };
 
+// Con la misma fecha y hora, primero lo que mete dólares a la caja y después lo que los gasta,
+// igual que la app: aportar y comprar en el mismo minuto es lo normal.
+const ordenMismoInstante = (r: Json) => ({ aportacion: 0, venta: 1 } as Record<string, number>)[tipoDe(r) ?? ""] ?? 2;
+
 // Dólares en la Caja GBM de una cuenta, con las reglas de resumen_inversiones (null si no se pudo leer)
 async function cajaUsdDeCuenta(sb: SupabaseClient, catalogo: Catalogo, cuentaId: string): Promise<number | null> {
   const ids = catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && String(c.cuenta_id) === cuentaId).map((c: Json) => c.id);
   if (!ids.length) return 0;
-  let caja = 0;
+  const movs: Json[] = [];
   for (let desde = 0; ; desde += 1000) {
     const { data, error } = await sb.from("registros")
-      .select("monto, monto_usd, tipo_cambio, cantidad_acciones, costo_accion, tipo_movimiento")
+      .select("fecha, monto, monto_usd, tipo_cambio, cantidad_acciones, costo_accion, tipo_movimiento")
       .in("categoria_id", ids).order("fecha").range(desde, desde + 999);
     if (error) return null;
-    for (const r of data ?? []) {
-      const tipo = tipoDe(r), usd = usdDe(r);
-      if (tipo === "aportacion" || tipo === "venta") caja += usd;
-      else if (tipo === "retiro" || tipo === "compra" || tipo === "comision") caja = Math.max(0, caja - usd);
-    }
+    movs.push(...(data ?? []));
     if (!data || data.length < 1000) break;
+  }
+  // En el orden de la app: con la misma hora, la aportación antes que la compra. Sin esto la compra
+  // vaciaba una caja todavía en cero y la aportación quedaba completa: daba 55 USD de más
+  movs.sort((a, b) => (new Date(a.fecha).getTime() - new Date(b.fecha).getTime()) || (ordenMismoInstante(a) - ordenMismoInstante(b)));
+  let caja = 0;
+  for (const r of movs) {
+    const tipo = tipoDe(r), usd = usdDe(r), acciones = Number(r.cantidad_acciones) || 0;
+    if (tipo === "aportacion" || (tipo === "venta" && acciones > 0)) caja += usd;
+    else if (tipo === "retiro" || tipo === "comision" || (tipo === "compra" && acciones > 0)) caja = Math.max(0, caja - usd);
   }
   return Math.round(caja * 100) / 100;
 }
@@ -2799,7 +2808,6 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
 
       // Con la misma fecha y hora, primero lo que mete dólares a la caja y después lo que los gasta,
       // igual que la app: aportar y comprar en el mismo minuto es lo normal.
-      const ordenMismoInstante = (r: Json) => ({ aportacion: 0, venta: 1 } as Record<string, number>)[tipoDe(r) ?? ""] ?? 2;
       movs.sort((a, b) => (new Date(a.fecha).getTime() - new Date(b.fecha).getTime()) || (ordenMismoInstante(a) - ordenMismoInstante(b)));
 
       // Lo que costó cada empresa en pesos, con las reglas de la app (calcularBalances): los dólares
@@ -4436,16 +4444,24 @@ Está al final de estas instrucciones y la mantienes tú, sin pedir permiso (la 
 // Tipo de cambio USD→MXN del día, para que la IA convierta lo que el usuario cuenta en dólares.
 // Uno por día (así las instrucciones no cambian a media conversación y la caché se aprovecha);
 // si el servicio no responde, la IA trabaja sin él.
-let cambioDelDia: { dia: string; valor: number | null } | null = null;
+let cambioDelDia: { dia: string; valor: number | null; en: number } | null = null;
 async function tipoDeCambio(hoy: string): Promise<number | null> {
-  if (cambioDelDia?.dia === hoy) return cambioDelDia.valor;
+  // Se vuelve a pedir cada 10 minutos: el de Yahoo se mueve en el día
+  if (cambioDelDia?.dia === hoy && Date.now() - cambioDelDia.en < 600_000) return cambioDelDia.valor;
   let valor: number | null = null;
+  // Primero Yahoo, el mismo que usa la app: con otra fuente la caja en pesos no cuadraba con la pantalla
   try {
+    const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/MXN=X?interval=1d&range=1d",
+      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3000) });
+    const mxn = Number((await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice);
+    if (mxn > 5 && mxn < 100) valor = Math.round(mxn * 10000) / 10000;
+  } catch { /* la siguiente fuente */ }
+  if (valor === null) try {
     const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(3000) });
     const mxn = Number((await r.json())?.rates?.MXN);
     if (mxn > 0) valor = Math.round(mxn * 100) / 100;
   } catch { /* sin tipo de cambio */ }
-  if (valor !== null) cambioDelDia = { dia: hoy, valor };
+  if (valor !== null) cambioDelDia = { dia: hoy, valor, en: Date.now() };
   return valor;
 }
 
