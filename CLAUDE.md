@@ -70,8 +70,10 @@ y súbelos ahí; la rama puede quedar igual que `main`.
   del día, fuente `precio`): al abrir la ficha de la empresa si hoy no hay dato, y una vez al día (modo `valor_justo` sin
   ticker) las que tiene y llevan una semana sin revisar. Lo que falló por algo pasajero (límite, no contestó) queda
   marcado en la fila `precio` y se vuelve a pedir, sólo esa fuente, al abrir la ficha (a lo más cada 30 min). La ficha
-  enseña el promedio, el de los analistas y el de los modelos (DCF y Graham), cada fuente (tocarla la saca del promedio,
-  en ese teléfono) y la gráfica de los tres promedios contra el precio. La lista de fuentes está copiada en
+  enseña el promedio, el de los analistas y el de los modelos (DCF y Graham), cada fuente y la gráfica de los tres
+  promedios contra el precio. Todo se toca para explicarlo (`explicacionValorJusto`): la regla (lo más cercano al dedo),
+  cada renglón (una fuente trae el botón para no contarla en el promedio, en ese teléfono), un día de la gráfica (qué
+  tan arriba o abajo del promedio estaba el precio) y cada línea de la leyenda. La lista de fuentes está copiada en
   `dashboard.html` (`NOMBRES_VALOR_JUSTO`).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
