@@ -4854,6 +4854,10 @@
                                         graham: 'Graham'
                                     };
                                     const cacheValorJusto = {};
+                                    // Dos familias que suelen discrepar: los analistas (a dónde creen que llegará en ~12 meses)
+                                    // y los modelos (DCF y Graham, con los números de hoy)
+                                    const esAnalistasValorJusto = f => String(f).startsWith('analistas_');
+                                    const COLOR_ANALISTAS_VJ = '#bf5af2', COLOR_MODELOS_VJ = '#ff9f0a';
                                     function fuentesFueraValorJusto() {
                                         try { return new Set(JSON.parse(localStorage.getItem('valorJustoFuera') || '[]')); } catch (e) { return new Set(); }
                                     }
@@ -4871,13 +4875,14 @@
                                         const t = String(ticker).trim().toUpperCase();
                                         const hoy = diaLocal(new Date());
                                         const guardado = cacheValorJusto[t];
-                                        if (guardado && guardado.dia === hoy && !forzar) { pintarValorJusto(t); return; }
+                                        const reintentar = guardado && guardado.datos && guardado.datos.pendiente && Date.now() - (guardado.t || 0) >= 30 * 60000;
+                                        if (guardado && guardado.dia === hoy && !forzar && !reintentar) { pintarValorJusto(t); return; }
                                         try {
                                             const { data, error } = await clienteSupabase.functions.invoke('asistente', {
                                                 body: { modo: 'valor_justo', ticker: t, desfase: new Date().getTimezoneOffset() }
                                             });
                                             if (error || !data) throw error || new Error('Sin respuesta');
-                                            cacheValorJusto[t] = { dia: hoy, datos: data };
+                                            cacheValorJusto[t] = { dia: hoy, t: Date.now(), datos: data };
                                         } catch (e) {
                                             console.warn('Valor justo', e);
                                             cacheValorJusto[t] = { dia: null, datos: { error: 'No se pudo consultar.' } };
@@ -4902,6 +4907,8 @@
                                         const precio = Number(d.precio) || 0;
                                         const fuera = fuentesFueraValorJusto();
                                         const res = promedioValorJusto(valores, fuera);
+                                        const resAnalistas = promedioValorJusto(valores.filter(v => esAnalistasValorJusto(v.fuente)), fuera);
+                                        const resModelos = promedioValorJusto(valores.filter(v => !esAnalistasValorJusto(v.fuente)), fuera);
                                         const pctDe = v => precio > 0 ? (v - precio) / precio * 100 : null;
                                         const textoPct = p => p === null ? '' : `${p >= 0 ? '+' : ''}${p.toFixed(1)}%`;
                                         const colorPct = p => p === null ? '#98989d' : p >= 0 ? '#4dd763' : '#ff5c5c';
@@ -4922,29 +4929,38 @@
                                                 </div>` : ''}
                                                 ${reglaValorJustoHtml(valores, fuera, precio, res)}
                                             </div>`;
+                                            // Con las dos familias, el promedio de cada una: así se ve de dónde sale la diferencia
+                                            if (resAnalistas && resModelos) {
+                                                html += [['Analistas', resAnalistas, COLOR_ANALISTAS_VJ], ['Modelos', resModelos, COLOR_MODELOS_VJ]].map(([nombre, r, color]) => {
+                                                    const pr = pctDe(r.promedio);
+                                                    return `<div class="rango-ios-fila" style="cursor: default;">
+                                                        <span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${color}; margin-right:8px;"></span>${nombre}</span>
+                                                        <span class="valor-fila-ios" style="white-space: nowrap; color: #ffffff;">${fMoneda(r.promedio)}${pr === null ? '' : ` <span style="color: ${colorPct(pr)}; font-size: 0.82em;">${textoPct(pr)}</span>`}</span>
+                                                    </div>`;
+                                                }).join('');
+                                            }
                                             // Una fila por fuente; tocarla la saca del promedio
                                             html += valores.map(v => {
                                                 const fueraV = fuera.has(v.fuente);
                                                 const pv = pctDe(v.valor);
                                                 return `<div class="rango-ios-fila" onclick="alternarFuenteValorJusto('${v.fuente}', '${escaparHtml(ticker)}')" style="${fueraV ? 'opacity: 0.45;' : ''}">
-                                                    <span style="font-size: 0.92em;">${escaparHtml(NOMBRES_VALOR_JUSTO[v.fuente])}</span>
+                                                    <span style="font-size: 0.92em;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${esAnalistasValorJusto(v.fuente) ? COLOR_ANALISTAS_VJ : COLOR_MODELOS_VJ}; margin-right:9px; vertical-align: 2px;"></span>${escaparHtml(NOMBRES_VALOR_JUSTO[v.fuente])}</span>
                                                     <span class="valor-fila-ios" style="white-space: nowrap;">${fueraV ? '<span style="color:#98989d; font-size: 0.8em; margin-right: 6px;">No cuenta</span>' : ''}${fMoneda(v.valor)}${pv === null ? '' : ` <span style="color: ${colorPct(pv)}; font-size: 0.82em;">${textoPct(pv)}</span>`}</span>
                                                 </div>`;
                                             }).join('');
                                         }
                                         // La gráfica: promedio (con su rango) contra el precio, un punto por día revisado
                                         const hist = (d.historial || []).map(h => {
-                                            const r = promedioValorJusto(Object.entries(h.valores || {}).map(([fuente, valor]) => ({ fuente, valor: Number(valor) })), fuera);
-                                            return { dia: h.dia, precio: Number(h.precio) || null, ...(r || {}) };
+                                            const vs = Object.entries(h.valores || {}).map(([fuente, valor]) => ({ fuente, valor: Number(valor) }));
+                                            const r = promedioValorJusto(vs, fuera);
+                                            const ra = promedioValorJusto(vs.filter(v => esAnalistasValorJusto(v.fuente)), fuera);
+                                            const rm = promedioValorJusto(vs.filter(v => !esAnalistasValorJusto(v.fuente)), fuera);
+                                            return { dia: h.dia, precio: Number(h.precio) || null, promedio: r ? r.promedio : null, analistas: ra ? ra.promedio : null, modelos: rm ? rm.promedio : null };
                                         }).filter(h => h.promedio || h.precio);
                                         if (hist.filter(h => h.promedio).length >= 2) {
                                             html += `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: stretch; gap: 8px; padding-top: 14px; padding-bottom: 12px;">
-                                                <div id="valorJustoDia" style="font-size: 0.82em; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
-                                                <div style="display: flex; gap: 14px; font-size: 0.75em; color: #98989d; white-space: nowrap;">
-                                                    <span><span style="display:inline-block; width:10px; height:3px; border-radius:2px; background:#0a84ff; vertical-align:middle; margin-right:5px;"></span>Promedio</span>
-                                                    <span><span style="display:inline-block; width:10px; height:3px; border-radius:2px; background:#ffffff; vertical-align:middle; margin-right:5px;"></span>Precio</span>
-                                                    <span><span style="display:inline-block; width:10px; height:8px; border-radius:2px; background:rgba(10,132,255,0.3); vertical-align:middle; margin-right:5px;"></span>Rango</span>
-                                                </div>
+                                                <div id="valorJustoDia" style="font-size: 0.82em; color: #ffffff;"></div>
+                                                <div id="valorJustoLeyenda" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 0.75em; color: #98989d;"></div>
                                                 <div style="position: relative; height: 150px;"><canvas id="lienzoValorJusto"></canvas></div>
                                             </div>`;
                                         }
@@ -4955,13 +4971,13 @@
                                         const lienzo = document.getElementById('lienzoValorJusto');
                                         if (lienzo && typeof Chart !== 'undefined') graficaValorJusto(lienzo, hist);
                                     }
-                                    // Una regla con cada fuente (punto gris), el promedio (azul) y el precio (raya blanca)
+                                    // Una regla con cada fuente (punto del color de su familia), el promedio (azul) y el precio (raya blanca)
                                     function reglaValorJustoHtml(valores, fuera, precio, res) {
                                         const cifras = valores.map(v => v.valor).concat(precio > 0 ? [precio] : []);
                                         const min = Math.min(...cifras), max = Math.max(...cifras);
                                         if (!(max > min)) return '';
                                         const pos = v => `${((v - min) / (max - min) * 100).toFixed(2)}%`;
-                                        const puntos = valores.map(v => `<span style="position:absolute; left:${pos(v.valor)}; top:50%; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:${fuera.has(v.fuente) ? '#48484a' : '#8e8e93'};"></span>`).join('');
+                                        const puntos = valores.map(v => `<span style="position:absolute; left:${pos(v.valor)}; top:50%; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:${fuera.has(v.fuente) ? '#48484a' : esAnalistasValorJusto(v.fuente) ? COLOR_ANALISTAS_VJ : COLOR_MODELOS_VJ};"></span>`).join('');
                                         const prom = res ? `<span style="position:absolute; left:${pos(res.promedio)}; top:50%; width:13px; height:13px; margin:-6.5px 0 0 -6.5px; border-radius:50%; background:#0a84ff; border:2px solid #2c2c2e;"></span>` : '';
                                         const raya = precio > 0 ? `<span style="position:absolute; left:${pos(precio)}; top:-3px; bottom:-3px; width:2px; margin-left:-1px; background:#ffffff; border-radius:1px;"></span>` : '';
                                         return `<div style="padding: 6px 7px 0;">
@@ -4975,27 +4991,39 @@
                                         </div>`;
                                     }
                                     function graficaValorJusto(lienzo, hist) {
-                                        const etiquetas = hist.map(h => h.dia);
                                         const fecha = dia => {
                                             const [a, m, d] = dia.split('-');
                                             return `${parseInt(d, 10)} ${(NOMBRES_MESES[parseInt(m, 10) - 1] || '').slice(0, 3)} ${a}`;
                                         };
+                                        const lineas = [
+                                            { nombre: 'Promedio', clave: 'promedio', color: '#0a84ff', ancho: 2.5 },
+                                            { nombre: 'Precio', clave: 'precio', color: '#ffffff', ancho: 1.5 },
+                                            { nombre: 'Analistas', clave: 'analistas', color: COLOR_ANALISTAS_VJ, ancho: 1.5, raya: [4, 3] },
+                                            { nombre: 'Modelos', clave: 'modelos', color: COLOR_MODELOS_VJ, ancho: 1.5, raya: [4, 3] }
+                                        ].filter(l => hist.some(h => h[l.clave]));
                                         const diaEl = document.getElementById('valorJustoDia');
+                                        const leyendaEl = document.getElementById('valorJustoLeyenda');
+                                        // Al tocar, la fecha y lo de cada línea ese día
                                         const escribir = i => {
                                             const h = hist[i];
-                                            if (!diaEl || !h) return;
-                                            diaEl.textContent = `${fecha(h.dia)}${h.promedio ? ` · Promedio ${fMoneda(h.promedio)}` : ''}${h.precio ? ` · Precio ${fMoneda(h.precio)}` : ''}`;
+                                            if (!h) return;
+                                            if (diaEl) diaEl.textContent = fecha(h.dia);
+                                            if (leyendaEl) leyendaEl.innerHTML = lineas.map(l => `<span style="white-space: nowrap;"><span style="display:inline-block; width:10px; height:3px; border-radius:2px; background:${l.color}; vertical-align:middle; margin-right:5px;"></span>${l.nombre} <span style="color:#fff;">${h[l.clave] ? fMoneda(h[l.clave]) : '—'}</span></span>`).join('');
                                         };
                                         const grafica = new Chart(lienzo.getContext('2d'), {
                                             type: 'line',
                                             data: {
-                                                labels: etiquetas,
-                                                datasets: [
-                                                    { data: hist.map(h => h.maximo ?? null), borderWidth: 0, pointRadius: 0, fill: false, spanGaps: true },
-                                                    { data: hist.map(h => h.minimo ?? null), borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(10, 132, 255, 0.16)', spanGaps: true },
-                                                    { data: hist.map(h => h.promedio ?? null), borderColor: '#0a84ff', borderWidth: 2, pointRadius: 0, pointHoverRadius: 3.5, pointBackgroundColor: '#0a84ff', spanGaps: true },
-                                                    { data: hist.map(h => h.precio), borderColor: '#ffffff', borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3, pointBackgroundColor: '#ffffff', spanGaps: true }
-                                                ]
+                                                labels: hist.map(h => h.dia),
+                                                datasets: lineas.map(l => ({
+                                                    data: hist.map(h => h[l.clave] ?? null),
+                                                    borderColor: l.color,
+                                                    borderWidth: l.ancho,
+                                                    borderDash: l.raya || [],
+                                                    pointRadius: 0,
+                                                    pointHoverRadius: 3,
+                                                    pointBackgroundColor: l.color,
+                                                    spanGaps: true
+                                                }))
                                             },
                                             options: {
                                                 animation: ANIMACION_GRAFICAS,

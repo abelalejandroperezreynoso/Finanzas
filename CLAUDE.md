@@ -68,8 +68,10 @@ y súbelos ahí; la rama puede quedar igual que `main`.
   (Yahoo, Alpha Vantage y FMP, con las claves de Ajustes → Proveedores), el DCF de FMP, un DCF propio (flujo libre de
   Finnhub, `SUPUESTOS_DCF`; no a financieras) y el número de Graham. Se guarda por día en `valores_justos` (con el precio
   del día, fuente `precio`): al abrir la ficha de la empresa si hoy no hay dato, y una vez al día (modo `valor_justo` sin
-  ticker) las que tiene y llevan una semana sin revisar. La ficha enseña el promedio, cada fuente (tocarla la saca del
-  promedio, en ese teléfono) y la gráfica del promedio y su rango contra el precio. La lista de fuentes está copiada en
+  ticker) las que tiene y llevan una semana sin revisar. Lo que falló por algo pasajero (límite, no contestó) queda
+  marcado en la fila `precio` y se vuelve a pedir, sólo esa fuente, al abrir la ficha (a lo más cada 30 min). La ficha
+  enseña el promedio, el de los analistas y el de los modelos (DCF y Graham), cada fuente (tocarla la saca del promedio,
+  en ese teléfono) y la gráfica de los tres promedios contra el precio. La lista de fuentes está copiada en
   `dashboard.html` (`NOMBRES_VALOR_JUSTO`).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una

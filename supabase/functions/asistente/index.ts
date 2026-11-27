@@ -1391,12 +1391,19 @@ async function sesionYahoo(): Promise<{ cookie: string; crumb: string } | null> 
 // Las industrias de Finnhub donde el flujo libre no dice cuánto vale la empresa (bancos, aseguradoras...)
 const SIN_DCF = /bank|insurance|financial|reit|real estate/i;
 
-// Consulta todas las fuentes de una empresa. faltan: qué fuente no dio dato y por qué (corto)
-async function consultarValoresJustos(sb: SupabaseClient, ticker: string, industria: string): Promise<{ precio: number | null; valores: Valor[]; faltan: string[] }> {
+// Las fuentes se piden por grupos (una consulta cada uno); un grupo que falló por algo pasajero se vuelve a pedir
+export type GrupoValor = "finnhub" | "yahoo" | "av" | "fmp_dcf" | "fmp_analistas";
+type Falta = { grupo: GrupoValor; texto: string; reintentar: boolean };
+
+// Consulta las fuentes de una empresa (todas, o sólo los grupos de solo). faltan: qué no dio dato, por qué y si vale
+// la pena volver a pedirlo (límite, no contestó) o no (no hay dato, el plan no lo incluye, falta la clave)
+async function consultarValoresJustos(sb: SupabaseClient, ticker: string, industria: string, solo?: Set<GrupoValor>): Promise<{ precio: number | null; valores: Valor[]; faltan: Falta[] }> {
   const t = String(ticker).trim().toUpperCase();
   const conGuion = t.replace(".", "-"), conPunto = t.replace("-", ".");
   const valores: Valor[] = [];
-  const faltan: string[] = [];
+  const faltan: Falta[] = [];
+  const falta = (grupo: GrupoValor, texto: string, reintentar = false) => faltan.push({ grupo, texto, reintentar });
+  const toca = (g: GrupoValor) => !solo || solo.has(g);
   const json = async (url: string, init: RequestInit = {}) => {
     const r = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
     const texto = await r.text();
@@ -1404,35 +1411,40 @@ async function consultarValoresJustos(sb: SupabaseClient, ticker: string, indust
     try { d = JSON.parse(texto); } catch (_) { /* no es JSON */ }
     return { ok: r.ok, status: r.status, d };
   };
-  const [claveAv, claveF] = await Promise.all([claveProveedor(sb, "alphavantage"), claveFmp(sb)]);
+  const [claveAv, claveF] = await Promise.all([
+    toca("av") ? claveProveedor(sb, "alphavantage") : "",
+    toca("fmp_dcf") || toca("fmp_analistas") ? claveFmp(sb) : "",
+  ]);
   let precio: number | null = null;
 
   await Promise.all([
-    // Finnhub (gratis): precio, número de Graham y DCF propio
+    // Finnhub (gratis): precio, número de Graham y DCF propio. El precio se pide siempre
     (async () => {
       try {
         const [q, m] = await Promise.all([
           json(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(conPunto)}&token=${TOKEN_FINNHUB}`),
-          json(`https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(conPunto)}&metric=all&token=${TOKEN_FINNHUB}`),
+          toca("finnhub") ? json(`https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(conPunto)}&metric=all&token=${TOKEN_FINNHUB}`) : Promise.resolve(null),
         ]);
         precio = positivo(q.d?.c) ?? precio;
-        if (m.status === 429) { faltan.push("Graham y DCF propio: Finnhub llegó a su límite por minuto"); return; }
+        if (!m) return;
+        if (m.status === 429) { falta("finnhub", "Graham y DCF propio: Finnhub llegó a su límite por minuto", true); return; }
         const mt = m.d?.metric ?? {};
         const g = graham(mt.epsTTM ?? mt.epsAnnual, mt.bookValuePerShareQuarterly ?? mt.bookValuePerShareAnnual);
         if (g) valores.push({ fuente: "graham", valor: g, detalle: { eps: mt.epsTTM ?? mt.epsAnnual, libros: mt.bookValuePerShareQuarterly ?? mt.bookValuePerShareAnnual } });
-        else faltan.push("Graham: sin utilidades o sin capital positivo");
-        if (SIN_DCF.test(industria)) { faltan.push("DCF propio: no aplica a financieras"); return; }
+        else falta("finnhub", "Graham: sin utilidades o sin capital positivo");
+        if (SIN_DCF.test(industria)) { falta("finnhub", "DCF propio: no aplica a financieras"); return; }
         const pfcf = Number(mt.pfcfShareTTM);
         const p = precio ?? positivo(q.d?.pc);
         const d = p && pfcf > 0 ? dcfPropio(p / pfcf, [mt.revenueGrowth5Y, mt.epsGrowth5Y]) : null;
         if (d) valores.push({ fuente: "dcf_propio", valor: d.valor, detalle: { fcf_accion: d.fcf, crecimiento: d.crecimiento, ...SUPUESTOS_DCF } });
-        else faltan.push("DCF propio: sin flujo libre positivo");
-      } catch (_) { faltan.push("Graham y DCF propio: Finnhub no contestó"); }
+        else falta("finnhub", "DCF propio: sin flujo libre positivo");
+      } catch (_) { if (toca("finnhub")) falta("finnhub", "Graham y DCF propio: Finnhub no contestó", true); }
     })(),
     // Yahoo: precio objetivo promedio de los analistas
     (async () => {
+      if (!toca("yahoo")) return;
       const s = await sesionYahoo();
-      if (!s) { faltan.push("Yahoo: no dio acceso"); return; }
+      if (!s) { falta("yahoo", "Yahoo: no dio acceso", true); return; }
       try {
         const r = await json(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(conGuion)}?modules=financialData&crumb=${encodeURIComponent(s.crumb)}`,
           { headers: { "User-Agent": "Mozilla/5.0", cookie: s.cookie } });
@@ -1440,42 +1452,46 @@ async function consultarValoresJustos(sb: SupabaseClient, ticker: string, indust
         const f = r.d?.quoteSummary?.result?.[0]?.financialData;
         const v = positivo(f?.targetMeanPrice?.raw);
         if (v) valores.push({ fuente: "analistas_yahoo", valor: v, detalle: { alto: f?.targetHighPrice?.raw, bajo: f?.targetLowPrice?.raw, analistas: f?.numberOfAnalystOpinions?.raw } });
-        else faltan.push(r.ok ? "Yahoo: sin analistas" : `Yahoo: no contestó (${r.status})`);
-      } catch (_) { faltan.push("Yahoo: no contestó"); }
+        else if (r.ok || r.status === 404) falta("yahoo", "Yahoo: sin analistas");
+        else falta("yahoo", `Yahoo: no contestó (${r.status})`, true);
+      } catch (_) { falta("yahoo", "Yahoo: no contestó", true); }
     })(),
     // Alpha Vantage (clave del usuario): precio objetivo de los analistas
     (async () => {
-      if (!claveAv) { faltan.push("Alpha Vantage: falta la clave en Ajustes → Proveedores"); return; }
+      if (!toca("av")) return;
+      if (!claveAv) { falta("av", "Alpha Vantage: falta la clave en Ajustes → Proveedores"); return; }
       try {
         const r = await json(`https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(conGuion)}&apikey=${encodeURIComponent(claveAv)}`);
         const v = positivo(r.d?.AnalystTargetPrice);
         if (v) valores.push({ fuente: "analistas_av", valor: v });
-        else if (r.d?.Information || r.d?.Note) faltan.push("Alpha Vantage: llegó a su límite del día");
-        else faltan.push("Alpha Vantage: sin analistas");
-      } catch (_) { faltan.push("Alpha Vantage: no contestó"); }
+        else if (r.d?.Information || r.d?.Note) falta("av", "Alpha Vantage: llegó a su límite del día", true);
+        else falta("av", "Alpha Vantage: sin analistas");
+      } catch (_) { falta("av", "Alpha Vantage: no contestó", true); }
     })(),
     // FMP (clave del usuario): su DCF y el consenso de analistas
     (async () => {
-      if (!claveF) { faltan.push("FMP: falta la clave en Ajustes → Proveedores"); return; }
-      const pedir = async (ruta: string, nombre: string, leer: (fila: Json) => Valor | null) => {
+      const pedir = async (grupo: GrupoValor, ruta: string, nombre: string, leer: (fila: Json) => Valor | null) => {
+        if (!toca(grupo)) return;
+        if (!claveF) { falta(grupo, `${nombre}: falta la clave en Ajustes → Proveedores`); return; }
         try {
           const r = await json(`https://financialmodelingprep.com/stable/${ruta}?symbol=${encodeURIComponent(conGuion)}&apikey=${encodeURIComponent(claveF)}`);
           const fila = Array.isArray(r.d) ? r.d[0] : null;
           const v = fila ? leer(fila) : null;
           if (v) { valores.push(v); return; }
           const msj = String((r.d && !Array.isArray(r.d) ? r.d["Error Message"] ?? r.d.message ?? r.d.error : "") ?? "");
-          if (r.status === 429) faltan.push(`${nombre}: llegó a su límite`);
-          else if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|restricted|not available/i.test(msj)) faltan.push(`${nombre}: su plan no lo incluye`);
-          else if (r.status === 401) faltan.push(`${nombre}: la clave no es válida`);
-          else faltan.push(`${nombre}: sin dato`);
-        } catch (_) { faltan.push(`${nombre}: no contestó`); }
+          if (r.status === 429 || /limit/i.test(msj)) falta(grupo, `${nombre}: llegó a su límite`, true);
+          else if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|restricted|not available/i.test(msj)) falta(grupo, `${nombre}: su plan no lo incluye`);
+          else if (r.status === 401) falta(grupo, `${nombre}: la clave no es válida`);
+          else if (r.status >= 500) falta(grupo, `${nombre}: no contestó`, true);
+          else falta(grupo, `${nombre}: sin dato`);
+        } catch (_) { falta(grupo, `${nombre}: no contestó`, true); }
       };
       await Promise.all([
-        pedir("discounted-cash-flow", "DCF · FMP", (f) => {
+        pedir("fmp_dcf", "discounted-cash-flow", "DCF · FMP", (f) => {
           const v = positivo(f.dcf);
           return v ? { fuente: "dcf_fmp", valor: v } : null;
         }),
-        pedir("price-target-consensus", "Analistas · FMP", (f) => {
+        pedir("fmp_analistas", "price-target-consensus", "Analistas · FMP", (f) => {
           const v = positivo(f.targetConsensus);
           return v ? { fuente: "analistas_fmp", valor: v, detalle: { alto: f.targetHigh, bajo: f.targetLow, mediana: f.targetMedian } } : null;
         }),
@@ -1504,8 +1520,16 @@ async function empresasTenidas(sb: SupabaseClient, invCats: Json[]): Promise<str
   return Object.keys(acciones).filter((t) => acciones[t] > 0.0001).sort((a, b) => (invertido[b] ?? 0) - (invertido[a] ?? 0));
 }
 
-// El valor justo de unas empresas: lo de hoy si ya está guardado; si no (o con forzar), se consulta y se guarda.
-// historial: lo de los últimos dos años, día por día
+function faltaDeTexto(texto: string): Falta | null {
+  const grupo: GrupoValor | null = /^Alpha Vantage/.test(texto) ? "av" : /^Yahoo/.test(texto) ? "yahoo" : /^DCF · FMP/.test(texto) ? "fmp_dcf"
+    : /^Analistas · FMP/.test(texto) ? "fmp_analistas" : /^(Graham|DCF propio)/.test(texto) ? "finnhub" : null;
+  return grupo ? { grupo, texto, reintentar: /límite|no contestó|no dio acceso/.test(texto) } : null;
+}
+// Cada cuánto, como mínimo, se vuelve a pedir lo que falló por algo pasajero (límite, no contestó)
+const REINTENTO_VALOR_MIN = 30;
+
+// El valor justo de unas empresas: lo de hoy si ya está guardado (y lo que falló por algo pasajero se vuelve a pedir,
+// a lo más cada media hora); si no hay nada de hoy, se consulta todo y se guarda. historial: los últimos dos años
 async function valoresJustos(sb: SupabaseClient, userId: string, tickers: string[], hoy: string, conHistorial = false): Promise<Record<string, Json>> {
   const salida: Record<string, Json> = {};
   const lista = [...new Set(tickers.map((t) => String(t).trim().toUpperCase()).filter(Boolean))];
@@ -1521,23 +1545,31 @@ async function valoresJustos(sb: SupabaseClient, userId: string, tickers: string
   for (let k = 0; k < lista.length; k += 4) {
     await Promise.all(lista.slice(k, k + 4).map(async (t) => {
       let todas = porTicker[t] ?? [];
-      let deHoy = todas.filter((f) => f.dia === hoy);
-      let faltan: string[] = deHoy.find((f) => f.fuente === "precio")?.detalle?.faltan ?? [];
-      if (!deHoy.length) {
-        const c = await consultarValoresJustos(sb, t, industria(t));
-        faltan = c.faltan;
+      const deHoy = todas.filter((f) => f.dia === hoy);
+      const filaPrecio = deHoy.find((f) => f.fuente === "precio");
+      // Lo que faltó la vez pasada (las primeras filas guardaron sólo el texto: el grupo se saca de él)
+      let faltan: Falta[] = (filaPrecio?.detalle?.faltan ?? []).map((f: Json) => typeof f === "string" ? faltaDeTexto(f) : f).filter(Boolean);
+      const pendientes = new Set(faltan.filter((f) => f.reintentar).map((f) => f.grupo));
+      const intento = Date.parse(String(filaPrecio?.detalle?.intento ?? "")) || 0;
+      const reintentar = !!filaPrecio && pendientes.size > 0 && Date.now() - intento >= REINTENTO_VALOR_MIN * 60_000;
+      if (!filaPrecio || reintentar) {
+        const c = await consultarValoresJustos(sb, t, industria(t), reintentar ? pendientes : undefined);
+        // Al reintentar, lo que ya había de los otros grupos se queda
+        faltan = reintentar ? [...faltan.filter((f) => !pendientes.has(f.grupo)), ...c.faltan] : c.faltan;
+        const precio = c.precio ?? (Number(filaPrecio?.valor) || 0);
         const nuevas = [
           ...c.valores.map((v) => ({ user_id: userId, ticker: t, dia: hoy, fuente: v.fuente, valor: v.valor, detalle: v.detalle ?? null })),
           // El precio del día va también: con él se dibuja la línea de precio y se sabe que hoy ya se revisó
-          { user_id: userId, ticker: t, dia: hoy, fuente: "precio", valor: c.precio ?? 0, detalle: { faltan } },
+          { user_id: userId, ticker: t, dia: hoy, fuente: "precio", valor: precio, detalle: { faltan, intento: new Date().toISOString() } },
         ];
         await sb.from("valores_justos").upsert(nuevas, { onConflict: "user_id,ticker,dia,fuente" });
-        deHoy = nuevas;
-        todas = [...todas, ...nuevas];
+        const cambian = new Set(nuevas.map((f) => f.fuente));
+        todas = [...todas.filter((f) => f.dia !== hoy || !cambian.has(f.fuente)), ...nuevas];
       }
-      const precio = Number(deHoy.find((f) => f.fuente === "precio")?.valor) || null;
-      const valores = deHoy.filter((f) => f.fuente !== "precio").map((f) => ({ fuente: f.fuente, valor: Number(f.valor), detalle: f.detalle }));
-      salida[t] = { dia: hoy, precio, valores, faltan, resumen: resumenValores(valores, precio) };
+      const hoyFilas = todas.filter((f) => f.dia === hoy);
+      const precio = Number(hoyFilas.find((f) => f.fuente === "precio")?.valor) || null;
+      const valores = hoyFilas.filter((f) => f.fuente !== "precio").map((f) => ({ fuente: f.fuente, valor: Number(f.valor), detalle: f.detalle }));
+      salida[t] = { dia: hoy, precio, valores, faltan: faltan.map((f) => f.texto), pendiente: faltan.some((f) => f.reintentar), resumen: resumenValores(valores, precio) };
       if (conHistorial) {
         const dias: Record<string, Json[]> = {};
         todas.forEach((f) => (dias[f.dia] ??= []).push(f));
@@ -4581,7 +4613,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), primero pregunta con preguntar_al_usuario "¿Le agrego el prompt para revisarlo con otra IA?" con "Con prompt" y "Solo el listado" (si ya lo dijo, no preguntes); luego llama a listado_sectores con con_prompt y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Si pega las correcciones de otra IA a ese listado (empiezan con "${CORRECCIONES_SECTORES}") o su revisión completa, deja en ese mismo turno las tarjetas de cada empresa que cambia (de una revisión completa, las opcionales sólo si las pide), sin volver a preguntar, como con varias empresas: primero todas sin receta y luego con receta. Las que tienen segmentos van con receta, siguiendo lo que pide la revisión (un segmento a otro subsector o a uno nuevo, otro segmento que se separa); los porcentajes salen de los segmentos, no de las cifras de la revisión. Los nombres de sector y subsector van tal cual los trae la corrección: si cambió uno, es a propósito (no lo regreses al que tenía ni lo juntes con el de otra empresa). Una empresa con un solo subsector que sólo cambia de nombre va con proponer_cambio_categoria (sectores y subsectores), sin porcentajes. Si los segmentos no dan lo que pide, primero pide los de la otra fuente (fuente); si tampoco (le falta un segmento o una división), dilo en una línea y propónla con pesos a mano con las cifras de la revisión, sin subsectores que la corrección no traiga, igual que las que ya eran a mano o no tienen segmentos (si lleva un subsector nuevo, en el mismo turno primero proponer_cambio_categoria con sus subsectores). Los cambios de nombre que sugiera (Exxon Mobil), sólo si los pide, con proponer_cambio_categoria. Si una empresa de la corrección dice un año fiscal más viejo que el que ya tiene (lo dice listado_sectores), no la cambies: dilo en una línea.
-- Si pregunta qué tan cara o barata está una empresa, o su valor justo, usa valor_justo (varias fuentes y su promedio ya calculado). Son estimaciones: si las fuentes están muy separadas, dilo, y el número de Graham suele salir muy bajo en empresas con pocos activos.
+- Si pregunta qué tan cara o barata está una empresa, o su valor justo, usa valor_justo (varias fuentes y su promedio ya calculado). Son estimaciones: si las fuentes están muy separadas, dilo. Trae aparte el promedio de los analistas (a dónde creen que llegará en ~12 meses) y el de los modelos (DCF y Graham, con los números de hoy): si discrepan, explícalo con esa diferencia. Graham suele salir muy bajo en empresas con pocos activos.
 - Columna reportes de sus empresas: su próximo reporte (T1 a T4 = trimestre de su año fiscal) y el anual, el que trae sus ventas por segmento (~ = fecha aproximada). Si pregunta cuándo reporta una o cuáles reportan pronto, usa agenda_reportes (ya trae el orden y los días contados).
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).

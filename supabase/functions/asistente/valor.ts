@@ -70,6 +70,10 @@ export function resumenValores(valores: { valor: number }[], precio: number | nu
   };
 }
 
+// Dos familias que suelen discrepar: lo que esperan los analistas (precio objetivo a ~12 meses) y lo que dicen los
+// modelos con los números de hoy (DCF y Graham)
+export const esAnalistas = (f: string) => f.startsWith("analistas_");
+
 // El texto para el asistente: ya escrito, para que el modelo no sume ni promedie
 export function textoValorJusto(ticker: string, precio: number | null, valores: Valor[], faltan: string[]): string {
   const orden = Object.keys(NOMBRES_FUENTE) as Fuente[];
@@ -80,6 +84,14 @@ export function textoValorJusto(ticker: string, precio: number | null, valores: 
   if (res) {
     lineas.push(`Promedio de ${res.fuentes}: $${res.promedio.toFixed(2)} (de $${res.minimo.toFixed(2)} a $${res.maximo.toFixed(2)})` +
       (res.diferencia === null ? "" : ` · ${Math.abs(res.diferencia)} % ${res.diferencia >= 0 ? "arriba" : "abajo"} del precio`));
+    const tipos: [string, Valor[]][] = [["Analistas", lista.filter((v) => esAnalistas(v.fuente))], ["Modelos (DCF y Graham)", lista.filter((v) => !esAnalistas(v.fuente))]];
+    for (const [nombre, deTipo] of tipos) {
+      const r = resumenValores(deTipo, precio);
+      if (r && r.fuentes < res.fuentes) {
+        lineas.push(`${nombre}: $${r.promedio.toFixed(2)} (${r.fuentes})` +
+          (r.diferencia === null ? "" : ` · ${Math.abs(r.diferencia)} % ${r.diferencia >= 0 ? "arriba" : "abajo"} del precio`));
+      }
+    }
   } else lineas.push("Sin valor justo de ninguna fuente.");
   if (faltan.length) lineas.push(`Sin dato: ${faltan.join("; ")}`);
   return lineas.join("\n");
