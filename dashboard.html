@@ -4841,6 +4841,193 @@
                                         debouncedRefreshUI();
                                     }
 
+                                    // ---- Valor justo de la ficha de la empresa ----
+                                    // Varias fuentes (las trae la función asistente, modo valor_justo, y las guarda por día en
+                                    // valores_justos) y su promedio. Tocar una fuente la saca del promedio o la vuelve a meter
+                                    // (en este teléfono). La lista está copiada de valor.ts (NOMBRES_FUENTE)
+                                    const NOMBRES_VALOR_JUSTO = {
+                                        analistas_yahoo: 'Analistas · Yahoo',
+                                        analistas_av: 'Analistas · Alpha Vantage',
+                                        analistas_fmp: 'Analistas · FMP',
+                                        dcf_fmp: 'DCF · FMP',
+                                        dcf_propio: 'DCF propio',
+                                        graham: 'Graham'
+                                    };
+                                    const cacheValorJusto = {};
+                                    function fuentesFueraValorJusto() {
+                                        try { return new Set(JSON.parse(localStorage.getItem('valorJustoFuera') || '[]')); } catch (e) { return new Set(); }
+                                    }
+                                    function promedioValorJusto(valores, fuera) {
+                                        const vs = valores.filter(v => !fuera.has(v.fuente) && v.valor > 0).map(v => v.valor);
+                                        if (!vs.length) return null;
+                                        return { promedio: vs.reduce((t, v) => t + v, 0) / vs.length, minimo: Math.min(...vs), maximo: Math.max(...vs), fuentes: vs.length };
+                                    }
+                                    function seccionValorJustoHtml(ticker) {
+                                        const t = String(ticker).trim().toUpperCase();
+                                        return `<div class="rango-ios-encabezado">Valor justo</div>
+                                            <div class="rango-ios-grupo" id="valorJustoFicha" data-ticker="${escaparHtml(t)}">${filaDetalleIos('Valor justo', '<span style="color:#98989d">Cargando...</span>')}</div>`;
+                                    }
+                                    async function cargarValorJusto(ticker, forzar = false) {
+                                        const t = String(ticker).trim().toUpperCase();
+                                        const hoy = diaLocal(new Date());
+                                        const guardado = cacheValorJusto[t];
+                                        if (guardado && guardado.dia === hoy && !forzar) { pintarValorJusto(t); return; }
+                                        try {
+                                            const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                                body: { modo: 'valor_justo', ticker: t, desfase: new Date().getTimezoneOffset() }
+                                            });
+                                            if (error || !data) throw error || new Error('Sin respuesta');
+                                            cacheValorJusto[t] = { dia: hoy, datos: data };
+                                        } catch (e) {
+                                            console.warn('Valor justo', e);
+                                            cacheValorJusto[t] = { dia: null, datos: { error: 'No se pudo consultar.' } };
+                                        }
+                                        pintarValorJusto(t);
+                                    }
+                                    function alternarFuenteValorJusto(fuente, ticker) {
+                                        const fuera = fuentesFueraValorJusto();
+                                        if (fuera.has(fuente)) fuera.delete(fuente); else fuera.add(fuente);
+                                        try { localStorage.setItem('valorJustoFuera', JSON.stringify([...fuera])); } catch (e) { /* sin almacenamiento */ }
+                                        pintarValorJusto(ticker);
+                                    }
+                                    function pintarValorJusto(ticker) {
+                                        const caja = document.getElementById('valorJustoFicha');
+                                        const g = cacheValorJusto[ticker];
+                                        if (!caja || caja.dataset.ticker !== ticker || !g) return;
+                                        const d = g.datos || {};
+                                        if (d.error) { caja.innerHTML = filaDetalleIos('Valor justo', `<span style="color:#f39c12">${escaparHtml(d.error)}</span>`); return; }
+                                        const orden = Object.keys(NOMBRES_VALOR_JUSTO);
+                                        const valores = (d.valores || []).filter(v => NOMBRES_VALOR_JUSTO[v.fuente])
+                                            .sort((a, b) => orden.indexOf(a.fuente) - orden.indexOf(b.fuente));
+                                        const precio = Number(d.precio) || 0;
+                                        const fuera = fuentesFueraValorJusto();
+                                        const res = promedioValorJusto(valores, fuera);
+                                        const pctDe = v => precio > 0 ? (v - precio) / precio * 100 : null;
+                                        const textoPct = p => p === null ? '' : `${p >= 0 ? '+' : ''}${p.toFixed(1)}%`;
+                                        const colorPct = p => p === null ? '#98989d' : p >= 0 ? '#4dd763' : '#ff5c5c';
+                                        let html = '';
+                                        if (!valores.length) {
+                                            html = filaDetalleIos('Valor justo', '<span style="color:#98989d">Sin datos</span>');
+                                        } else {
+                                            // Arriba el promedio y cuánto está arriba o abajo del precio
+                                            const p = res ? pctDe(res.promedio) : null;
+                                            html += `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: stretch; gap: 10px; padding-top: 14px; padding-bottom: 14px;">
+                                                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px;">
+                                                    <span>Promedio</span>
+                                                    <span style="font-weight: 600;">${res ? `${fMoneda(res.promedio)} USD` : '—'}</span>
+                                                </div>
+                                                ${res ? `<div style="display: flex; justify-content: space-between; font-size: 0.82em; color: #98989d; gap: 12px;">
+                                                    <span>${res.fuentes} ${res.fuentes === 1 ? 'fuente' : 'fuentes'} · ${fMoneda(res.minimo)} a ${fMoneda(res.maximo)}</span>
+                                                    ${p === null ? '' : `<span style="color: ${colorPct(p)}; white-space: nowrap;">${textoPct(p)} vs precio</span>`}
+                                                </div>` : ''}
+                                                ${reglaValorJustoHtml(valores, fuera, precio, res)}
+                                            </div>`;
+                                            // Una fila por fuente; tocarla la saca del promedio
+                                            html += valores.map(v => {
+                                                const fueraV = fuera.has(v.fuente);
+                                                const pv = pctDe(v.valor);
+                                                return `<div class="rango-ios-fila" onclick="alternarFuenteValorJusto('${v.fuente}', '${escaparHtml(ticker)}')" style="${fueraV ? 'opacity: 0.45;' : ''}">
+                                                    <span style="font-size: 0.92em;">${escaparHtml(NOMBRES_VALOR_JUSTO[v.fuente])}</span>
+                                                    <span class="valor-fila-ios" style="white-space: nowrap;">${fueraV ? '<span style="color:#98989d; font-size: 0.8em; margin-right: 6px;">No cuenta</span>' : ''}${fMoneda(v.valor)}${pv === null ? '' : ` <span style="color: ${colorPct(pv)}; font-size: 0.82em;">${textoPct(pv)}</span>`}</span>
+                                                </div>`;
+                                            }).join('');
+                                        }
+                                        // La gráfica: promedio (con su rango) contra el precio, un punto por día revisado
+                                        const hist = (d.historial || []).map(h => {
+                                            const r = promedioValorJusto(Object.entries(h.valores || {}).map(([fuente, valor]) => ({ fuente, valor: Number(valor) })), fuera);
+                                            return { dia: h.dia, precio: Number(h.precio) || null, ...(r || {}) };
+                                        }).filter(h => h.promedio || h.precio);
+                                        if (hist.filter(h => h.promedio).length >= 2) {
+                                            html += `<div class="rango-ios-fila" style="cursor: default; flex-direction: column; align-items: stretch; gap: 8px; padding-top: 14px; padding-bottom: 12px;">
+                                                <div id="valorJustoDia" style="font-size: 0.82em; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                                                <div style="display: flex; gap: 14px; font-size: 0.75em; color: #98989d; white-space: nowrap;">
+                                                    <span><span style="display:inline-block; width:10px; height:3px; border-radius:2px; background:#0a84ff; vertical-align:middle; margin-right:5px;"></span>Promedio</span>
+                                                    <span><span style="display:inline-block; width:10px; height:3px; border-radius:2px; background:#ffffff; vertical-align:middle; margin-right:5px;"></span>Precio</span>
+                                                    <span><span style="display:inline-block; width:10px; height:8px; border-radius:2px; background:rgba(10,132,255,0.3); vertical-align:middle; margin-right:5px;"></span>Rango</span>
+                                                </div>
+                                                <div style="position: relative; height: 150px;"><canvas id="lienzoValorJusto"></canvas></div>
+                                            </div>`;
+                                        }
+                                        if ((d.faltan || []).length) {
+                                            html += `<div class="rango-ios-fila" style="cursor: default; font-size: 0.78em; color: #98989d; line-height: 1.4; padding-top: 10px; padding-bottom: 10px;">Sin dato: ${escaparHtml(d.faltan.join(' · '))}</div>`;
+                                        }
+                                        caja.innerHTML = html;
+                                        const lienzo = document.getElementById('lienzoValorJusto');
+                                        if (lienzo && typeof Chart !== 'undefined') graficaValorJusto(lienzo, hist);
+                                    }
+                                    // Una regla con cada fuente (punto gris), el promedio (azul) y el precio (raya blanca)
+                                    function reglaValorJustoHtml(valores, fuera, precio, res) {
+                                        const cifras = valores.map(v => v.valor).concat(precio > 0 ? [precio] : []);
+                                        const min = Math.min(...cifras), max = Math.max(...cifras);
+                                        if (!(max > min)) return '';
+                                        const pos = v => `${((v - min) / (max - min) * 100).toFixed(2)}%`;
+                                        const puntos = valores.map(v => `<span style="position:absolute; left:${pos(v.valor)}; top:50%; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:${fuera.has(v.fuente) ? '#48484a' : '#8e8e93'};"></span>`).join('');
+                                        const prom = res ? `<span style="position:absolute; left:${pos(res.promedio)}; top:50%; width:13px; height:13px; margin:-6.5px 0 0 -6.5px; border-radius:50%; background:#0a84ff; border:2px solid #2c2c2e;"></span>` : '';
+                                        const raya = precio > 0 ? `<span style="position:absolute; left:${pos(precio)}; top:-3px; bottom:-3px; width:2px; margin-left:-1px; background:#ffffff; border-radius:1px;"></span>` : '';
+                                        return `<div style="padding: 6px 7px 0;">
+                                            <div style="position: relative; height: 14px;">
+                                                <div style="position:absolute; left:0; right:0; top:50%; height:4px; margin-top:-2px; background:#3a3a3c; border-radius:2px;"></div>
+                                                ${puntos}${prom}${raya}
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; font-size: 0.72em; color: #636366; margin: 6px -7px 0;">
+                                                <span>${fMoneda(min)}</span>${precio > 0 ? `<span style="color:#98989d;">Precio ${fMoneda(precio)}</span>` : ''}<span>${fMoneda(max)}</span>
+                                            </div>
+                                        </div>`;
+                                    }
+                                    function graficaValorJusto(lienzo, hist) {
+                                        const etiquetas = hist.map(h => h.dia);
+                                        const fecha = dia => {
+                                            const [a, m, d] = dia.split('-');
+                                            return `${parseInt(d, 10)} ${(NOMBRES_MESES[parseInt(m, 10) - 1] || '').slice(0, 3)} ${a}`;
+                                        };
+                                        const diaEl = document.getElementById('valorJustoDia');
+                                        const escribir = i => {
+                                            const h = hist[i];
+                                            if (!diaEl || !h) return;
+                                            diaEl.textContent = `${fecha(h.dia)}${h.promedio ? ` · Promedio ${fMoneda(h.promedio)}` : ''}${h.precio ? ` · Precio ${fMoneda(h.precio)}` : ''}`;
+                                        };
+                                        const grafica = new Chart(lienzo.getContext('2d'), {
+                                            type: 'line',
+                                            data: {
+                                                labels: etiquetas,
+                                                datasets: [
+                                                    { data: hist.map(h => h.maximo ?? null), borderWidth: 0, pointRadius: 0, fill: false, spanGaps: true },
+                                                    { data: hist.map(h => h.minimo ?? null), borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(10, 132, 255, 0.16)', spanGaps: true },
+                                                    { data: hist.map(h => h.promedio ?? null), borderColor: '#0a84ff', borderWidth: 2, pointRadius: 0, pointHoverRadius: 3.5, pointBackgroundColor: '#0a84ff', spanGaps: true },
+                                                    { data: hist.map(h => h.precio), borderColor: '#ffffff', borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3, pointBackgroundColor: '#ffffff', spanGaps: true }
+                                                ]
+                                            },
+                                            options: {
+                                                animation: ANIMACION_GRAFICAS,
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                interaction: { mode: 'index', intersect: false },
+                                                onHover: (ev, activos) => { if (activos && activos.length) escribir(activos[0].index); },
+                                                scales: { x: { display: false }, y: { display: true, position: 'right', grid: { color: 'rgba(255,255,255,0.06)' }, border: { display: false }, ticks: { color: '#636366', font: { size: 10 }, maxTicksLimit: 4, callback: v => fMoneda(v) } } },
+                                                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                                            }
+                                        });
+                                        lienzo.addEventListener('touchend', () => escribir(hist.length - 1));
+                                        escribir(hist.length - 1);
+                                        return grafica;
+                                    }
+                                    // Una vez al día: la función revisa las empresas que llevan una semana sin valor justo,
+                                    // para que la gráfica tenga puntos aunque no se abra la ficha
+                                    async function revisarValoresJustosDelDia() {
+                                        if (!currentUser) return;
+                                        if (!(datosCategorias || []).some(c => c.tipo === 'inversion' && c.ticker)) return;
+                                        const clave = `valoresJustos:${currentUser.id}`;
+                                        const hoy = diaLocal(new Date());
+                                        try { if (localStorage.getItem(clave) === hoy) return; } catch (e) { /* sin almacenamiento */ }
+                                        try {
+                                            const { data, error } = await clienteSupabase.functions.invoke('asistente', {
+                                                body: { modo: 'valor_justo', desfase: new Date().getTimezoneOffset() }
+                                            });
+                                            if (error || !data) return;
+                                            try { localStorage.setItem(clave, hoy); } catch (e) { /* sin almacenamiento */ }
+                                        } catch (e) { console.warn('Valor justo del día', e); }
+                                    }
+
                                     // El selector de la ficha de la empresa
                                     function selectorClasificacionHtml(ticker) {
                                         const actual = clasificacionDeTicker(ticker);
@@ -8637,7 +8824,8 @@
                                                                 datosArranqueListos = true;
                                                                 if (typeof atenderDestinoAviso === 'function') atenderDestinoAviso();
                                                                 // Los porcentajes de subsectores con receta se recalculan con cada reporte nuevo
-                                                                recalcularPesosSubsectores();
+                                                                // Después (no a la vez, por el límite por minuto de Finnhub), el valor justo de la semana
+                                                                recalcularPesosSubsectores().finally(() => revisarValoresJustosDelDia());
 
                                                                 // El histórico de precios va detrás del arranque y sin retenerlo: son dos
                                                                 // viajes más a la base y nada de la primera pantalla depende de ellos. Deja
@@ -18589,6 +18777,7 @@
                             const reportesCat = cat.tipo === 'inversion' && cat.ticker && !esCategoriaCajaGbm(cat) ? reportesDeTicker(cat.ticker) : null;
                             const htmlReportes = reportesCat ? filaDetalleIos('Próximo reporte', escaparHtml(reportesCat.proximo))
                                 + (reportesCat.anual ? filaDetalleIos('Reporte anual', escaparHtml(reportesCat.anual)) : '') : '';
+                            const conValorJusto = cat.tipo === 'inversion' && !!cat.ticker && !esCategoriaCajaGbm(cat);
                             const nombresTipo = { gasto: 'Gasto', ingreso: 'Ingreso', prestamo: 'Préstamo emitido', deuda: 'Deuda adquirida', inversion: 'Inversión', salud: 'Salud' };
                             const cuentaCat = (datosCuentas || []).find(c => String(c.id) === String(cat.cuenta_id));
                             const htmlContenido = `
@@ -18609,10 +18798,12 @@
                                     : filaDetalleIos('Total histórico', fMoneda(Math.abs(cat.balanceReal)), true)}
                             </div>
                             ${detallesInversion}
+                            ${conValorJusto ? seccionValorJustoHtml(cat.ticker) : ''}
                             `;
                             document.getElementById('tituloDetallesCategoria').textContent = cat.nombre;
 
                             document.getElementById('contenidoDetallesCategoria').innerHTML = htmlContenido;
+                            if (conValorJusto) cargarValorJusto(cat.ticker);
 
                             const btnEditar = document.getElementById('btnEditarCategoria');
                             btnEditar.onclick = () => {

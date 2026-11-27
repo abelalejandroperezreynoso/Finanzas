@@ -22,6 +22,7 @@ import { segmentosDeXbrl } from "./sec.ts";
 import { aCien, agendaReportes, calcularPesos, CORRECCIONES_SECTORES, divisionDe, divisionesDe, listadoSectores, pesosVigentes, proximosReportes, revisarListado, textoReportes, type Receta, type Segmentos, ultimosSegmentos } from "./pesos.ts";
 import { GICS, SUBINDUSTRIAS_GICS, sectorDeSubindustria } from "./gics.ts";
 import { type EmpresaDia, type Cotizacion, movimientoDelDia } from "./hoy.ts";
+import { dcfPropio, graham, positivo, resumenValores, SUPUESTOS_DCF, textoValorJusto, type Valor } from "./valor.ts";
 
 // Haiku 4.5 ya no se usa: si el secreto todavía lo nombra, se toma Haiku 5.5
 const MODELO_SECRETO = Deno.env.get("MODELO_IA");
@@ -421,6 +422,20 @@ const HERRAMIENTAS: Json[] = [
       properties: {
         desde: { type: "string", description: "Inicio del periodo de actividad, AAAA-MM-DD (opcional)" },
         hasta: { type: "string", description: "Fin del periodo de actividad, AAAA-MM-DD (opcional; hoy si se omite)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "valor_justo",
+    description:
+      "Valor justo de sus empresas según varias fuentes (analistas de Yahoo, Alpha Vantage y FMP, el DCF de FMP, un DCF propio y el número de Graham), " +
+      "con el promedio, el rango y cuánto está arriba o abajo del precio, ya escrito. Úsala para \"¿qué tan cara está X?\" o \"¿cuál está barata?\". " +
+      "Son estimaciones: dilo si las fuentes están muy separadas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tickers: { type: "array", items: { type: "string" }, description: "Las empresas (hasta 8); si se omite, las 8 en que tiene más" },
       },
       additionalProperties: false,
     },
@@ -1346,6 +1361,197 @@ async function actualizarReportes(sb: SupabaseClient, tickers: string[], hoy: st
 // Si toca volver a pedir su agenda: nunca pedida, de hace una semana o más, o ya pasó el reporte que venía
 const reportesViejos = (pr: Json, hoy: string) => !pr?.revisado || (Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${pr.revisado}T12:00:00Z`)) >= 7 * 86_400_000
   || (!!pr.lista?.[0]?.fecha && pr.lista[0].fecha < hoy);
+
+// --- Valor justo: varias fuentes por empresa, guardadas por día en valores_justos ---------------------------------
+// La clave de un proveedor que el usuario puso en Ajustes → Proveedores (sólo la suya por RLS)
+async function claveProveedor(sb: SupabaseClient, proveedor: string): Promise<string> {
+  if (proveedor === "fmp") return claveFmp(sb);
+  try {
+    const { data } = await sb.from("claves_proveedores").select("clave").eq("proveedor", proveedor).maybeSingle();
+    return String(data?.clave ?? "").trim();
+  } catch (_) { return ""; }
+}
+// Yahoo pide una cookie y un "crumb" para los datos de analistas; se piden una vez mientras la función siga despierta
+let crumbYahoo: { cookie: string; crumb: string; t: number } | null = null;
+async function sesionYahoo(): Promise<{ cookie: string; crumb: string } | null> {
+  if (crumbYahoo && Date.now() - crumbYahoo.t < 6 * 3_600_000) return crumbYahoo;
+  try {
+    const agente = { "User-Agent": "Mozilla/5.0" };
+    const r = await fetch("https://fc.yahoo.com", { headers: agente, redirect: "manual", signal: AbortSignal.timeout(6000) });
+    const cookie = (r.headers.get("set-cookie") ?? "").split(";")[0];
+    await r.body?.cancel();
+    if (!cookie) return null;
+    const c = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", { headers: { ...agente, cookie }, signal: AbortSignal.timeout(6000) });
+    const crumb = (await c.text()).trim();
+    if (!c.ok || !crumb || crumb.length > 40 || /\s/.test(crumb)) return null;
+    crumbYahoo = { cookie, crumb, t: Date.now() };
+    return crumbYahoo;
+  } catch (_) { return null; }
+}
+// Las industrias de Finnhub donde el flujo libre no dice cuánto vale la empresa (bancos, aseguradoras...)
+const SIN_DCF = /bank|insurance|financial|reit|real estate/i;
+
+// Consulta todas las fuentes de una empresa. faltan: qué fuente no dio dato y por qué (corto)
+async function consultarValoresJustos(sb: SupabaseClient, ticker: string, industria: string): Promise<{ precio: number | null; valores: Valor[]; faltan: string[] }> {
+  const t = String(ticker).trim().toUpperCase();
+  const conGuion = t.replace(".", "-"), conPunto = t.replace("-", ".");
+  const valores: Valor[] = [];
+  const faltan: string[] = [];
+  const json = async (url: string, init: RequestInit = {}) => {
+    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+    const texto = await r.text();
+    let d: Json = null;
+    try { d = JSON.parse(texto); } catch (_) { /* no es JSON */ }
+    return { ok: r.ok, status: r.status, d };
+  };
+  const [claveAv, claveF] = await Promise.all([claveProveedor(sb, "alphavantage"), claveFmp(sb)]);
+  let precio: number | null = null;
+
+  await Promise.all([
+    // Finnhub (gratis): precio, número de Graham y DCF propio
+    (async () => {
+      try {
+        const [q, m] = await Promise.all([
+          json(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(conPunto)}&token=${TOKEN_FINNHUB}`),
+          json(`https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(conPunto)}&metric=all&token=${TOKEN_FINNHUB}`),
+        ]);
+        precio = positivo(q.d?.c) ?? precio;
+        if (m.status === 429) { faltan.push("Graham y DCF propio: Finnhub llegó a su límite por minuto"); return; }
+        const mt = m.d?.metric ?? {};
+        const g = graham(mt.epsTTM ?? mt.epsAnnual, mt.bookValuePerShareQuarterly ?? mt.bookValuePerShareAnnual);
+        if (g) valores.push({ fuente: "graham", valor: g, detalle: { eps: mt.epsTTM ?? mt.epsAnnual, libros: mt.bookValuePerShareQuarterly ?? mt.bookValuePerShareAnnual } });
+        else faltan.push("Graham: sin utilidades o sin capital positivo");
+        if (SIN_DCF.test(industria)) { faltan.push("DCF propio: no aplica a financieras"); return; }
+        const pfcf = Number(mt.pfcfShareTTM);
+        const p = precio ?? positivo(q.d?.pc);
+        const d = p && pfcf > 0 ? dcfPropio(p / pfcf, [mt.revenueGrowth5Y, mt.epsGrowth5Y]) : null;
+        if (d) valores.push({ fuente: "dcf_propio", valor: d.valor, detalle: { fcf_accion: d.fcf, crecimiento: d.crecimiento, ...SUPUESTOS_DCF } });
+        else faltan.push("DCF propio: sin flujo libre positivo");
+      } catch (_) { faltan.push("Graham y DCF propio: Finnhub no contestó"); }
+    })(),
+    // Yahoo: precio objetivo promedio de los analistas
+    (async () => {
+      const s = await sesionYahoo();
+      if (!s) { faltan.push("Yahoo: no dio acceso"); return; }
+      try {
+        const r = await json(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(conGuion)}?modules=financialData&crumb=${encodeURIComponent(s.crumb)}`,
+          { headers: { "User-Agent": "Mozilla/5.0", cookie: s.cookie } });
+        if (r.status === 401) crumbYahoo = null;
+        const f = r.d?.quoteSummary?.result?.[0]?.financialData;
+        const v = positivo(f?.targetMeanPrice?.raw);
+        if (v) valores.push({ fuente: "analistas_yahoo", valor: v, detalle: { alto: f?.targetHighPrice?.raw, bajo: f?.targetLowPrice?.raw, analistas: f?.numberOfAnalystOpinions?.raw } });
+        else faltan.push(r.ok ? "Yahoo: sin analistas" : `Yahoo: no contestó (${r.status})`);
+      } catch (_) { faltan.push("Yahoo: no contestó"); }
+    })(),
+    // Alpha Vantage (clave del usuario): precio objetivo de los analistas
+    (async () => {
+      if (!claveAv) { faltan.push("Alpha Vantage: falta la clave en Ajustes → Proveedores"); return; }
+      try {
+        const r = await json(`https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(conGuion)}&apikey=${encodeURIComponent(claveAv)}`);
+        const v = positivo(r.d?.AnalystTargetPrice);
+        if (v) valores.push({ fuente: "analistas_av", valor: v });
+        else if (r.d?.Information || r.d?.Note) faltan.push("Alpha Vantage: llegó a su límite del día");
+        else faltan.push("Alpha Vantage: sin analistas");
+      } catch (_) { faltan.push("Alpha Vantage: no contestó"); }
+    })(),
+    // FMP (clave del usuario): su DCF y el consenso de analistas
+    (async () => {
+      if (!claveF) { faltan.push("FMP: falta la clave en Ajustes → Proveedores"); return; }
+      const pedir = async (ruta: string, nombre: string, leer: (fila: Json) => Valor | null) => {
+        try {
+          const r = await json(`https://financialmodelingprep.com/stable/${ruta}?symbol=${encodeURIComponent(conGuion)}&apikey=${encodeURIComponent(claveF)}`);
+          const fila = Array.isArray(r.d) ? r.d[0] : null;
+          const v = fila ? leer(fila) : null;
+          if (v) { valores.push(v); return; }
+          const msj = String((r.d && !Array.isArray(r.d) ? r.d["Error Message"] ?? r.d.message ?? r.d.error : "") ?? "");
+          if (r.status === 429) faltan.push(`${nombre}: llegó a su límite`);
+          else if (r.status === 402 || r.status === 403 || /premium|subscription|plan|upgrade|restricted|not available/i.test(msj)) faltan.push(`${nombre}: su plan no lo incluye`);
+          else if (r.status === 401) faltan.push(`${nombre}: la clave no es válida`);
+          else faltan.push(`${nombre}: sin dato`);
+        } catch (_) { faltan.push(`${nombre}: no contestó`); }
+      };
+      await Promise.all([
+        pedir("discounted-cash-flow", "DCF · FMP", (f) => {
+          const v = positivo(f.dcf);
+          return v ? { fuente: "dcf_fmp", valor: v } : null;
+        }),
+        pedir("price-target-consensus", "Analistas · FMP", (f) => {
+          const v = positivo(f.targetConsensus);
+          return v ? { fuente: "analistas_fmp", valor: v, detalle: { alto: f.targetHigh, bajo: f.targetLow, mediana: f.targetMedian } } : null;
+        }),
+      ]);
+    })(),
+  ]);
+  return { precio, valores, faltan };
+}
+
+// Las empresas que tiene hoy (sin las ya vendidas), con lo que lleva invertido en ellas, de la más grande a la más chica
+async function empresasTenidas(sb: SupabaseClient, invCats: Json[]): Promise<string[]> {
+  const catTicker: Record<string, string> = {};
+  invCats.filter((c) => c.ticker).forEach((c) => { catTicker[String(c.id)] = String(c.ticker).trim().toUpperCase(); });
+  const ids = Object.keys(catTicker);
+  const acciones: Record<string, number> = {}, invertido: Record<string, number> = {};
+  for (let desde = 0; ids.length; desde += 1000) {
+    const { data, error } = await sb.from("registros").select("cantidad_acciones, monto, tipo_movimiento, categoria_id").in("categoria_id", ids).range(desde, desde + 999);
+    if (error) break;
+    for (const r of data ?? []) {
+      const t = catTicker[String(r.categoria_id)], tipo = tipoDe(r), n = Number(r.cantidad_acciones) || 0, m = Math.abs(Number(r.monto) || 0);
+      if (tipo === "compra" || tipo === "compra_directa") { acciones[t] = (acciones[t] ?? 0) + n; invertido[t] = (invertido[t] ?? 0) + m; }
+      else if (tipo === "venta" || tipo === "venta_directa") { acciones[t] = (acciones[t] ?? 0) - n; invertido[t] = (invertido[t] ?? 0) - m; }
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return Object.keys(acciones).filter((t) => acciones[t] > 0.0001).sort((a, b) => (invertido[b] ?? 0) - (invertido[a] ?? 0));
+}
+
+// El valor justo de unas empresas: lo de hoy si ya está guardado; si no (o con forzar), se consulta y se guarda.
+// historial: lo de los últimos dos años, día por día
+async function valoresJustos(sb: SupabaseClient, userId: string, tickers: string[], hoy: string, conHistorial = false): Promise<Record<string, Json>> {
+  const salida: Record<string, Json> = {};
+  const lista = [...new Set(tickers.map((t) => String(t).trim().toUpperCase()).filter(Boolean))];
+  if (!lista.length) return salida;
+  const desde = new Date(Date.parse(`${hoy}T12:00:00Z`) - 730 * 86_400_000).toISOString().slice(0, 10);
+  const { data: filas, error } = await sb.from("valores_justos").select("ticker, dia, fuente, valor, detalle")
+    .in("ticker", lista).gte("dia", conHistorial ? desde : hoy).order("dia").limit(20000);
+  if (error) return Object.fromEntries(lista.map((t) => [t, { error: "Falta la tabla valores_justos." }]));
+  const { data: perfiles } = await sb.from("perfiles_empresas").select("ticker, sector").in("ticker", lista);
+  const industria = (t: string) => String((perfiles ?? []).find((p: Json) => String(p.ticker).toUpperCase() === t)?.sector ?? "");
+  const porTicker: Record<string, Json[]> = {};
+  (filas ?? []).forEach((f: Json) => (porTicker[String(f.ticker).toUpperCase()] ??= []).push({ ...f, valor: Number(f.valor) }));
+  for (let k = 0; k < lista.length; k += 4) {
+    await Promise.all(lista.slice(k, k + 4).map(async (t) => {
+      let todas = porTicker[t] ?? [];
+      let deHoy = todas.filter((f) => f.dia === hoy);
+      let faltan: string[] = deHoy.find((f) => f.fuente === "precio")?.detalle?.faltan ?? [];
+      if (!deHoy.length) {
+        const c = await consultarValoresJustos(sb, t, industria(t));
+        faltan = c.faltan;
+        const nuevas = [
+          ...c.valores.map((v) => ({ user_id: userId, ticker: t, dia: hoy, fuente: v.fuente, valor: v.valor, detalle: v.detalle ?? null })),
+          // El precio del día va también: con él se dibuja la línea de precio y se sabe que hoy ya se revisó
+          { user_id: userId, ticker: t, dia: hoy, fuente: "precio", valor: c.precio ?? 0, detalle: { faltan } },
+        ];
+        await sb.from("valores_justos").upsert(nuevas, { onConflict: "user_id,ticker,dia,fuente" });
+        deHoy = nuevas;
+        todas = [...todas, ...nuevas];
+      }
+      const precio = Number(deHoy.find((f) => f.fuente === "precio")?.valor) || null;
+      const valores = deHoy.filter((f) => f.fuente !== "precio").map((f) => ({ fuente: f.fuente, valor: Number(f.valor), detalle: f.detalle }));
+      salida[t] = { dia: hoy, precio, valores, faltan, resumen: resumenValores(valores, precio) };
+      if (conHistorial) {
+        const dias: Record<string, Json[]> = {};
+        todas.forEach((f) => (dias[f.dia] ??= []).push(f));
+        // Cada fuente por separado: la app saca el promedio con las que el usuario deja contar
+        salida[t].historial = Object.keys(dias).sort().map((dia) => ({
+          dia,
+          precio: Number(dias[dia].find((f) => f.fuente === "precio")?.valor) || null,
+          valores: Object.fromEntries(dias[dia].filter((f) => f.fuente !== "precio").map((f) => [f.fuente, Number(f.valor)])),
+        }));
+      }
+    }));
+  }
+  return salida;
+}
 
 // Respaldo gratis de FMP: el reporte anual (10-K o 20-F) que la empresa entrega a la SEC, en XBRL. La SEC pide
 // identificarse con un contacto en el User-Agent.
@@ -2741,6 +2947,21 @@ async function ejecutarHerramienta(sb: SupabaseClient, userId: string, zona: Zon
           nota: "pendiente = prestado menos cobrado (préstamo) o recibido menos abonado (deuda). Negativo: se cobró o abonó de más, o falta registrar el monto original.",
           tabla: tabla(["categoria", "tipo", "cuenta", "prestado_o_recibido", "cobrado_o_abonado", "pendiente", "avance_pct", "movimientos", "primero", "ultimo"], filas),
         }),
+      };
+    }
+    case "valor_justo": {
+      const hoyV = fechaLocal(new Date().toISOString(), zona).slice(0, 10);
+      let pedidos: string[] = Array.isArray(entrada.tickers) ? entrada.tickers.map((t: unknown) => String(t).trim().toUpperCase()).filter(Boolean) : [];
+      // Sin lista: las que tiene, de la de más dinero invertido a la de menos
+      if (!pedidos.length) pedidos = await empresasTenidas(sb, catalogo.categorias.filter((c: Json) => c.tipo === "inversion" && c.ticker));
+      const resto = pedidos.slice(8);
+      pedidos = pedidos.slice(0, 8);
+      if (!pedidos.length) return { texto: "No tiene empresas con ticker en sus inversiones: pásale los tickers que quiera revisar." };
+      const datos = await valoresJustos(sb, userId, pedidos, hoyV);
+      const bloques = pedidos.map((t: string) => datos[t]?.error ? `${t}: ${datos[t].error}` : textoValorJusto(t, datos[t]?.precio ?? null, datos[t]?.valores ?? [], datos[t]?.faltan ?? []));
+      return {
+        texto: "Valor justo en dólares por acción; promedio y diferencia ya calculados, no los recalcules:\n\n" + bloques.join("\n\n") +
+          (resto.length ? `\n\nNo se revisaron (máximo 8 por vez): ${resto.join(", ")}.` : ""),
       };
     }
     case "agenda_reportes": {
@@ -4360,6 +4581,7 @@ Si no tiene cuentas, dale la bienvenida en una frase y guíalo con tarjetas, emp
 - Porcentajes de sus subsectores (entre paréntesis en la columna sectores): sin ellos el mapa reparte cada empresa en partes iguales. Si los pide, o pide revisar los de una empresa, usa proponer_pesos_subsectores, una empresa por llamada: llámala sin receta y arma la receta con sus segmentos. "Todas" son todas sus empresas con ticker (menos ETFs), también las que no tienen porcentajes: ésas son las que más lo necesitan, porque el mapa las reparte en partes iguales; empieza por ellas. Con varias empresas, primero todas sin receta en una sola respuesta y luego todas con receta en la siguiente; al armar las recetas de una tanda, si a una empresa le cambias un subsector, usa ese mismo nombre nuevo en las demás de la tanda que vendan lo mismo (la lista que te da la herramienta es de antes de la tanda); sin límite de empresas: si son muchas, hazlas en tandas de unas 12 seguidas, sin parar a preguntarle ni pedirle que escriba "sigue", hasta terminar todas (si la app te dice que sigas, continúa con las que faltan). Nunca digas que propones algo sin haber dejado sus tarjetas. Los subsectores salen de los segmentos de la empresa, no de los que tiene hoy (los suyos pueden estar mal): la misma tarjeta crea los que falten y quita los que no tengan ventas, así que no uses proponer_cambio_categoria para eso. Reusa sus nombres cuando describan lo mismo, para que se junten en el mapa, salvo los muy generales. En cualquier subsector que propongas (también con proponer_cambio_categoria o proponer_nueva_categoria): ${REGLA_SUBSECTOR} Con receta se actualizan solos con cada reporte anual. Sin segmentos (ETFs, algunas extranjeras) propón pesos a mano sólo si son obvios o él los da. Si dice NO SE PUDIERON CALCULAR, explícale por qué en una línea y arréglalo rehaciendo la receta.
 - Si pide la lista o el listado de sus empresas con sectores, subsectores o porcentajes (suele ser para pasárselo a otra IA que lo revise), primero pregunta con preguntar_al_usuario "¿Le agrego el prompt para revisarlo con otra IA?" con "Con prompt" y "Solo el listado" (si ya lo dijo, no preguntes); luego llama a listado_sectores con con_prompt y pégalo tal cual en un bloque de código; nunca lo armes tú desde la columna sectores.
 - Si pega las correcciones de otra IA a ese listado (empiezan con "${CORRECCIONES_SECTORES}") o su revisión completa, deja en ese mismo turno las tarjetas de cada empresa que cambia (de una revisión completa, las opcionales sólo si las pide), sin volver a preguntar, como con varias empresas: primero todas sin receta y luego con receta. Las que tienen segmentos van con receta, siguiendo lo que pide la revisión (un segmento a otro subsector o a uno nuevo, otro segmento que se separa); los porcentajes salen de los segmentos, no de las cifras de la revisión. Los nombres de sector y subsector van tal cual los trae la corrección: si cambió uno, es a propósito (no lo regreses al que tenía ni lo juntes con el de otra empresa). Una empresa con un solo subsector que sólo cambia de nombre va con proponer_cambio_categoria (sectores y subsectores), sin porcentajes. Si los segmentos no dan lo que pide, primero pide los de la otra fuente (fuente); si tampoco (le falta un segmento o una división), dilo en una línea y propónla con pesos a mano con las cifras de la revisión, sin subsectores que la corrección no traiga, igual que las que ya eran a mano o no tienen segmentos (si lleva un subsector nuevo, en el mismo turno primero proponer_cambio_categoria con sus subsectores). Los cambios de nombre que sugiera (Exxon Mobil), sólo si los pide, con proponer_cambio_categoria. Si una empresa de la corrección dice un año fiscal más viejo que el que ya tiene (lo dice listado_sectores), no la cambies: dilo en una línea.
+- Si pregunta qué tan cara o barata está una empresa, o su valor justo, usa valor_justo (varias fuentes y su promedio ya calculado). Son estimaciones: si las fuentes están muy separadas, dilo, y el número de Graham suele salir muy bajo en empresas con pocos activos.
 - Columna reportes de sus empresas: su próximo reporte (T1 a T4 = trimestre de su año fiscal) y el anual, el que trae sus ventas por segmento (~ = fecha aproximada). Si pregunta cuándo reporta una o cuáles reportan pronto, usa agenda_reportes (ya trae el orden y los días contados).
 - Clasificación de sus empresas (columna clasificacion): es la GICS oficial (sector / subindustria) con la que el mapa de Inversiones las agrupa; viene del índice S&P, de la IA o de un cambio a mano. Si pide cambiarla o ves una claramente mal puesta (sobre todo de origen IA), propónla con proponer_clasificacion_empresa. No es lo mismo que sus sectores propios (columna sectores).
 - Si pregunta por los números de una empresa (ventas, utilidades, deuda, de qué vende o dónde, si es sana por dentro), llama a finanzas_empresa y contesta con sus cifras tal cual, diciendo de qué año fiscal son; nunca las des de memoria. Para ver si conviene comprarla, junta esto con mercado_acciones (precio y P/E).
@@ -4997,6 +5219,27 @@ Deno.serve(async (req) => {
         }));
       }
       return responder({ revisadas: toca.length, actualizadas, errores, reportes });
+    }
+
+    if (entrada.modo === "valor_justo") {
+      const zonaV: Zona = { desfase: Number.isFinite(Number(entrada.desfase)) ? Number(entrada.desfase) : 360 };
+      const hoyV = fechaLocal(new Date().toISOString(), zonaV).slice(0, 10);
+      // Una empresa (la ficha): lo de hoy, con su historial
+      if (entrada.ticker) {
+        const t = String(entrada.ticker).trim().toUpperCase();
+        return responder((await valoresJustos(sb, userId, [t], hoyV, true))[t] ?? {});
+      }
+      // Una vez al día: las empresas que llevan una semana sin revisar (6 por vez, por los límites de las claves gratis)
+      const { data: cats } = await sb.from("categorias").select("id, ticker").eq("tipo", "inversion").not("ticker", "is", null);
+      const tickers = await empresasTenidas(sb, cats ?? []);
+      if (!tickers.length) return responder({ revisadas: 0 });
+      const hace = new Date(Date.parse(`${hoyV}T12:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
+      const { data: recientes } = await sb.from("valores_justos").select("ticker, dia").eq("fuente", "precio").in("ticker", tickers).gte("dia", hace);
+      const ultimo: Record<string, string> = {};
+      (recientes ?? []).forEach((f: Json) => { const t = String(f.ticker).toUpperCase(); if (!ultimo[t] || f.dia > ultimo[t]) ultimo[t] = f.dia; });
+      const toca = tickers.filter((t) => !ultimo[t]).slice(0, 6);
+      await valoresJustos(sb, userId, toca, hoyV);
+      return responder({ revisadas: toca.length });
     }
 
     if (entrada.modo === "clasificar") {

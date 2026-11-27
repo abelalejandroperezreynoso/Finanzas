@@ -62,6 +62,13 @@ directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
   la ficha de la empresa, en el listado de sectores y en la columna `reportes` del chat; `agenda_reportes` da la lista ya
   ordenada con los días contados (y pide sólo la agenda de lo que falte, no gasta el límite de Finnhub como `mercado_acciones`). Una receta se revisa cada día
   entre 20 días y 4 meses después de cerrar su siguiente año fiscal, para tomar el reporte anual en cuanto sale.
+  `valor_justo` (cálculo puro en `valor.ts`) junta el valor justo de varias fuentes: precio objetivo de analistas
+  (Yahoo, Alpha Vantage y FMP, con las claves de Ajustes → Proveedores), el DCF de FMP, un DCF propio (flujo libre de
+  Finnhub, `SUPUESTOS_DCF`; no a financieras) y el número de Graham. Se guarda por día en `valores_justos` (con el precio
+  del día, fuente `precio`): al abrir la ficha de la empresa si hoy no hay dato, y una vez al día (modo `valor_justo` sin
+  ticker) las que tiene y llevan una semana sin revisar. La ficha enseña el promedio, cada fuente (tocarla la saca del
+  promedio, en ese teléfono) y la gráfica del promedio y su rango contra el precio. La lista de fuentes está copiada en
+  `dashboard.html` (`NOMBRES_VALOR_JUSTO`).
   La app le dice cómo están los avisos del teléfono (`avisos`: activos, apagados, negados o
   no_disponible): si están apagados y algo va por aviso, lo dice, y `proponer_avisos` deja una
   tarjeta para activarlos o apagarlos (el permiso del iPhone se pide al tocar Confirmar).
