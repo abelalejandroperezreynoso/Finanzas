@@ -3,6 +3,8 @@
 App personal de finanzas (PWA para iPhone, estilo iOS, en español) sobre Supabase.
 La usan dos personas. El dueño trabaja desde el celular: los cambios se suben
 directo a `main`, sin ramas ni pull requests, salvo que pida otra cosa.
+Si la sesión arranca en una rama (`claude/...`), al terminar fusiona siempre los cambios a `main`
+y súbelos ahí; la rama puede quedar igual que `main`.
 
 ## Estructura
 
